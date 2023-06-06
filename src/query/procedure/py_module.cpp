@@ -12,6 +12,7 @@
 #include "query/procedure/py_module.hpp"
 
 #include <datetime.h>
+#include <methodobject.h>
 #include <pyerrors.h>
 #include <array>
 #include <optional>
@@ -1078,7 +1079,6 @@ void CallPythonBatchProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
       maybe_msg = error_to_msg(call(py_graph));
     } else {
@@ -1091,10 +1091,26 @@ void CallPythonBatchProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph
   }
 }
 
-void CallPythonDtor(const py::Object &py_dtor) {
+void CallPythonCleanup(const py::Object &py_cleanup) {
   auto gil = py::EnsureGIL();
 
-  py_dtor.Call();
+  py_cleanup.Call();
+}
+
+void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+  auto gil = py::EnsureGIL();
+
+  auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
+    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    if (!py_args) return py::FetchError();
+    auto py_res = py_initializer.Call(py_args);
+    return {};
+  };
+
+  {
+    py::Object py_graph(MakePyGraph(graph, memory));
+    call(py_graph);
+  }
 }
 
 void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_graph *graph, mgp_result *result,
@@ -1235,14 +1251,23 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
   return reinterpret_cast<PyObject *>(py_proc);
 }
 
-PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *cb, PyObject *dtor, bool is_write_procedure) {
+PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bool is_write_procedure) {
   MG_ASSERT(self->module);
+  PyObject *cb{nullptr};
+  PyObject *initializer{nullptr};
+  PyObject *cleanup{nullptr};
+
+  if (!PyArg_ParseTuple(args, "OO", &cb, &initializer, &cleanup)) {
+    return nullptr;
+  }
+
   if (!PyCallable_Check(cb)) {
     PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
     return nullptr;
   }
   auto py_cb = py::Object::FromBorrow(cb);
-  auto py_dtor = py::Object::FromBorrow(dtor);
+  auto py_initializer = py::Object::FromBorrow(initializer);
+  auto py_cleanup = py::Object::FromBorrow(cleanup);
   py::Object py_name(py_cb.GetAttr("__name__"));
   const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
   if (!name) return nullptr;
@@ -1256,7 +1281,10 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *cb, PyOb
       [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
         CallPythonBatchProcedure(py_cb, args, graph, result, memory);
       },
-      [py_dtor]() { CallPythonDtor(py_dtor); }, memory,
+      [py_initializer](mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+        CallPythonInitializer(py_initializer, args, graph, memory);
+      },
+      [py_cleanup] { CallPythonCleanup(py_cleanup); }, memory,
       {.is_write = is_write_procedure, .batch_info = BatchInfo{.batch_size = 1000}});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
@@ -1279,12 +1307,12 @@ PyObject *PyQueryModuleAddWriteProcedure(PyQueryModule *self, PyObject *cb) {
   return PyQueryModuleAddProcedure(self, cb, true);
 }
 
-PyObject *PyQueryModuleAddBatchReadProcedure(PyQueryModule *self, PyObject *cb, PyObject *dtor) {
-  return PyQueryModuleAddBatchProcedure(self, cb, dtor, false);
+PyObject *PyQueryModuleAddBatchReadProcedure(PyQueryModule *self, PyObject *args) {
+  return PyQueryModuleAddBatchProcedure(self, args, false);
 }
 
-PyObject *PyQueryModuleAddBatchWriteProcedure(PyQueryModule *self, PyObject *cb, PyObject *dtor) {
-  return PyQueryModuleAddBatchProcedure(self, cb, dtor, true);
+PyObject *PyQueryModuleAddBatchWriteProcedure(PyQueryModule *self, PyObject *args) {
+  return PyQueryModuleAddBatchProcedure(self, args, true);
 }
 
 PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
@@ -1355,9 +1383,9 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a read-only procedure with this module."},
     {"add_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure), METH_O,
      "Register a writeable procedure with this module."},
-    {"add_batch_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure), METH_O,
+    {"add_batch_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure), METH_VARARGS,
      "Register a read-only batch procedure with this module."},
-    {"add_batch_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure), METH_O,
+    {"add_batch_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure), METH_VARARGS,
      "Register a writeable batched procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
      "Register a transformation with this module."},

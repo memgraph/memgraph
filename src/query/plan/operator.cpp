@@ -4465,7 +4465,8 @@ namespace {
 
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
-                         utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
+                         utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
+                         const bool call_initializer) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4489,6 +4490,11 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   }
 
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
+  if (call_initializer) {
+    MG_ASSERT(proc.initializer);
+    mgp_memory initializer_memory{memory};
+    proc.initializer.value()(&proc_args, &graph, &initializer_memory);
+  }
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
@@ -4519,6 +4525,8 @@ class CallProcedureCursor : public Cursor {
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
   size_t result_signature_size_{0};
+  bool stream_exhausted{true};
+  bool call_initializer{false};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
@@ -4542,13 +4550,6 @@ class CallProcedureCursor : public Cursor {
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
     while (result_row_it_ == result_.rows.end()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
-
-      // cleaning of old resources
-      result_.~mgp_result();
-      self_->monotonic_memory.Release();
-      result_ = std::move(mgp_result(nullptr, self_->memory_resource));
-
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -4568,20 +4569,42 @@ class CallProcedureCursor : public Cursor {
                                     self_->procedure_name_, get_proc_type_str(self_->is_write_),
                                     get_proc_type_str(proc->info.is_write));
       }
+
+      if (stream_exhausted) {
+        if (!input_cursor_->Pull(frame, context)) {
+          if (proc->cleanup) {
+            proc->cleanup.value();
+          }
+          return false;
+        } else {
+          stream_exhausted = false;
+          if (proc->initializer) {
+            call_initializer = true;
+          }
+        }
+      }
+
+      // In case of batching, we can reuse memory
+      result_.~mgp_result();
+      self_->monotonic_memory.Release();
+      result_ = std::move(mgp_result(nullptr, self_->memory_resource));
+
+      if (proc->info.batch_info) {
+      }
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
       result_.signature = &proc->results;
-      // Use evaluation memory, as invoking a procedure is akin to a simple
-      // evaluation of an expression.
+
+      // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
       auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          &result_);
+                          &result_, call_initializer);
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
@@ -4592,6 +4615,10 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
       result_row_it_ = result_.rows.begin();
+
+      if (result_row_it_ == result_.rows.end()) {
+        stream_exhausted = true;
+      }
     }
 
     auto &values = result_row_it_->values;
@@ -4629,7 +4656,11 @@ class CallProcedureCursor : public Cursor {
     input_cursor_->Reset();
   }
 
-  void Shutdown() override {}
+  void Shutdown() override {
+    // cleaning of old resources
+    result_.~mgp_result();
+    self_->monotonic_memory.Release();
+  }
 };
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {

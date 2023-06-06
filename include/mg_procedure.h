@@ -1318,7 +1318,12 @@ MGP_ENUM_CLASS mgp_log_level{
 /// to allocate global resources.
 typedef void (*mgp_proc_cb)(struct mgp_list *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
 
-typedef void (*mgp_proc_dtor)();
+/// Cleanup for a query module read procedure. Can't be invoked through OpenCypher. Cleans batched stream.
+typedef void (*mgp_proc_cleanup)();
+
+/// Initializer for a query module batched read procedure. Can't be invoked through OpenCypher. Initializes batched
+/// stream.
+typedef void (*mgp_proc_initializer)(struct mgp_list *, struct mgp_graph *, struct mgp_memory *);
 
 /// Register a read-only procedure to a module.
 ///
@@ -1344,10 +1349,19 @@ enum mgp_error mgp_module_add_read_procedure(struct mgp_module *module, const ch
 enum mgp_error mgp_module_add_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
                                               struct mgp_proc **result);
 
+/// Register a readable batched procedure to a module.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_proc.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
+/// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
 enum mgp_error mgp_module_add_batch_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
-                                                   mgp_proc_dtor dtor, struct mgp_proc **result);
+                                                   mgp_proc_cleanup initializer, mgp_proc_cleanup cleanup,
+                                                   struct mgp_proc **result);
 
-/// Register a writeable procedure to a module.
+/// Register a writeable batched procedure to a module.
 ///
 /// The `name` must be a valid identifier, following the same rules as the
 /// procedure`name` in mgp_module_add_read_procedure.
@@ -1356,7 +1370,8 @@ enum mgp_error mgp_module_add_batch_read_procedure(struct mgp_module *module, co
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
 enum mgp_error mgp_module_add_batch_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
-                                                    mgp_proc_dtor dtor, struct mgp_proc **result);
+                                                    mgp_proc_cleanup initializer, mgp_proc_cleanup cleanup,
+                                                    struct mgp_proc **result);
 
 /// Add a required argument to a procedure.
 ///
