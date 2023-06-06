@@ -435,6 +435,24 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 //   EXPECT_EQ(acc->ApproximateVertexCount(this->label2), 7);
 // }
 
+TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
+  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+  auto acc1 = this->storage->Access();
+  auto vertex1 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  auto vertex2 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+  EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+  ASSERT_NO_ERROR(acc1->Commit());
+  auto acc2 = this->storage->Access();
+  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+  auto res = acc2->DeleteVertex(&*vertex_to_delete);
+  ASSERT_FALSE(res.HasError());
+  ASSERT_NO_ERROR(acc2->Commit());
+  auto acc3 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_EQ(this->storage->ListAllIndices().label_property.size(), 0);

@@ -135,6 +135,7 @@ bool DiskUniqueConstraints::DifferentVertexExistsWithSameLabelAndPropertyValues(
   return false;
 }
 
+/// TODO: andi This can be made faster by not iterating over all entries
 bool DiskUniqueConstraints::ClearDeletedVertex(const std::string_view gid,
                                                uint64_t transaction_commit_timestamp) const {
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(

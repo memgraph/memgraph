@@ -1156,7 +1156,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
   for (const auto &[vertex_gid, serialized_vertex_to_delete] : vertices_to_delete_) {
     if (!DeleteVertexFromDisk(serialized_vertex_to_delete) ||
-        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
+        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
+        !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }

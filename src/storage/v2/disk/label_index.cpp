@@ -86,6 +86,32 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   return status.ok();
 }
 
+[[nodiscard]] bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid,
+                                                      uint64_t transaction_commit_timestamp) const {
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    if (std::string key = it->key().ToString(); gid == utils::ExtractGidFromLabelIndexStorage(key)) {
+      if (!disk_transaction->Delete(key).ok()) {
+        return false;
+      }
+    }
+  }
+  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
+}
+
 /// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.
 void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   if (!IndexExists(label)) {
