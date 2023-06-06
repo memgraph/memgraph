@@ -1358,7 +1358,7 @@ enum mgp_error mgp_module_add_write_procedure(struct mgp_module *module, const c
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
 enum mgp_error mgp_module_add_batch_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
-                                                   mgp_proc_cleanup initializer, mgp_proc_cleanup cleanup,
+                                                   mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                                                    struct mgp_proc **result);
 
 /// Register a writeable batched procedure to a module.
@@ -1370,7 +1370,7 @@ enum mgp_error mgp_module_add_batch_read_procedure(struct mgp_module *module, co
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
 enum mgp_error mgp_module_add_batch_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
-                                                    mgp_proc_cleanup initializer, mgp_proc_cleanup cleanup,
+                                                    mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                                                     struct mgp_proc **result);
 
 /// Add a required argument to a procedure.
