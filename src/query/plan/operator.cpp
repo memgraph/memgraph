@@ -4522,8 +4522,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
   UniqueCursorPtr input_cursor_;
-  mgp_result result_;
-  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
+  mgp_result *result_;
+  decltype(result_->rows.end()) result_row_it_{result_->rows.end()};
   size_t result_signature_size_{0};
   bool stream_exhausted{true};
   bool call_initializer{false};
@@ -4535,7 +4535,8 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. Therefore, we use the memory dedicated for the
         // whole execution.
-        result_(nullptr, self->memory_resource) {
+        result_(utils::Allocator<mgp_result>(self_->memory_resource)
+                    .new_object<mgp_result>(nullptr, self_->memory_resource)) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -4549,7 +4550,7 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    while (result_row_it_ == result_.rows.end()) {
+    while (result_row_it_ == result_->rows.end()) {
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -4583,11 +4584,14 @@ class CallProcedureCursor : public Cursor {
           }
         }
       }
+      self_->monotonic_memory.Release();
+      result_ =
+          utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
 
       // In case of batching, we can reuse memory
-      result_.~mgp_result();
-      self_->monotonic_memory.Release();
-      result_ = std::move(mgp_result(nullptr, self_->memory_resource));
+      // result_.~mgp_result();
+
+      // result_ = mgp_result(nullptr, self_->memory_resource);
 
       if (proc->info.batch_info) {
       }
@@ -4595,7 +4599,7 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_.signature = &proc->results;
+      result_->signature = &proc->results;
 
       // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
@@ -4604,19 +4608,21 @@ class CallProcedureCursor : public Cursor {
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          &result_, call_initializer);
+                          result_, call_initializer);
+
+      if (call_initializer) call_initializer = !call_initializer;
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
-      result_signature_size_ = result_.signature->size();
-      result_.signature = nullptr;
-      if (result_.error_msg) {
-        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
+      result_signature_size_ = result_->signature->size();
+      result_->signature = nullptr;
+      if (result_->error_msg) {
+        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
-      result_row_it_ = result_.rows.begin();
+      result_row_it_ = result_->rows.begin();
 
-      if (result_row_it_ == result_.rows.end()) {
+      if (result_row_it_ == result_->rows.end()) {
         stream_exhausted = true;
       }
     }
@@ -4651,15 +4657,15 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    result_.rows.clear();
-    result_.error_msg.reset();
-    input_cursor_->Reset();
+    // result_.rows.clear();
+    // result_.error_msg.reset();
+    // input_cursor_->Reset();
   }
 
   void Shutdown() override {
     // cleaning of old resources
-    result_.~mgp_result();
-    self_->monotonic_memory.Release();
+    // result_.~mgp_result();
+    // self_->monotonic_memory.Release();
   }
 };
 

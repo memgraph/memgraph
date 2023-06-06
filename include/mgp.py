@@ -1687,8 +1687,8 @@ def _register_batch_proc(
             return func(ProcCtx(graph), *args)
 
         @wraps(initializer)
-        def wrapper_initializer(graph, args):
-            return initializer(ProcCtx(graph), *args)
+        def wrapper_initializer(args):
+            return initializer(*args)
 
         params = params[1:]
         mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
@@ -1699,7 +1699,7 @@ def _register_batch_proc(
             return func(*args)
 
         @wraps(initializer)
-        def wrapper_initializer(graph, args):
+        def wrapper_initializer(args):
             return initializer(*args)
 
         mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
