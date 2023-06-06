@@ -28,18 +28,14 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label) {
   return std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
 }
 
-/// TODO: error handling
 [[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
     rocksdb::Transaction &disk_transaction, const std::map<Gid, std::vector<LabelId>> &transaction_entries) {
   for (const auto &[vertex_gid, labels] : transaction_entries) {
     for (const auto &indexing_label : labels) {
-      auto key_to_delete = utils::SerializeVertexAsKeyForLabelIndex(indexing_label, vertex_gid);
-      if (auto status = disk_transaction.Delete(key_to_delete); !status.ok()) {
-        spdlog::debug("Failed to delete vertex with key {} from label index storage: {}", key_to_delete,
-                      status.getState());
+      if (auto status = disk_transaction.Delete(utils::SerializeVertexAsKeyForLabelIndex(indexing_label, vertex_gid));
+          !status.ok()) {
         return false;
       }
-      spdlog::debug("Deleted vertex with key {} from label index storage", key_to_delete);
     }
   }
   return true;
@@ -71,18 +67,11 @@ bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std:
   auto status = disk_transaction->Commit();
   if (!status.ok()) {
     spdlog::error("rocksdb: {}", status.getState());
-  } else {
-    uint64_t estimate_num_keys = 0;
-    kvstore_->db_->GetIntProperty("rocksdb.estimate-num-keys", &estimate_num_keys);
-    spdlog::debug("Creating index committed, approx size: {}", estimate_num_keys);
   }
   return status.ok();
 }
 
 std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateRocksDBTransaction() {
-  uint64_t estimate_num_keys = 0;
-  kvstore_->db_->GetIntProperty("rocksdb.estimate-num-keys", &estimate_num_keys);
-  spdlog::debug("Approx size before reading indexed vertices: {}", estimate_num_keys);
   return std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 }
@@ -91,7 +80,6 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   for (const LabelId index_label : index_) {
-    /// TODO: maybe need to incorporate view
     if (VertexHasLabel(vertex, index_label)) {
       /// TODO: andi, probably no need to transfer separately labels and gid
       if (!disk_transaction

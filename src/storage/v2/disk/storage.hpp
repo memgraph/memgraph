@@ -181,7 +181,7 @@ class DiskStorage final : public Storage {
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                 uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
-                                std::string_view properties);
+                                PropertyStore &&properties);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 

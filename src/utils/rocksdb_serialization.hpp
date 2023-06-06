@@ -34,28 +34,7 @@ constexpr const char *inEdgeDirection = "1";
 
 /// TODO: try to move this to hpp files so that we can follow jump on readings
 
-inline std::string PutIndexingLabelFirst(const std::string &indexing_label, const std::vector<std::string> &labels);
-
-inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_label,
-                                                    const std::string &indexing_property,
-                                                    const std::vector<std::string> &labels);
-
 inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
-
-inline auto DeserializeIdType(const std::string &str) { return storage::Gid::FromUint(std::stoull(str)); }
-
-inline std::string SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
-
-inline std::string SerializeLabels(const std::vector<std::string> &labels) {
-  if (labels.empty()) {
-    return "";
-  }
-  std::string result = labels[0];
-  std::string ser_labels =
-      std::accumulate(std::next(labels.begin()), labels.end(), result,
-                      [](const std::string &join, const auto &label_id) { return join + "," + label_id; });
-  return ser_labels;
-}
 
 inline bool SerializedVertexHasLabels(const std::string &labels) { return !labels.empty(); }
 
@@ -74,134 +53,18 @@ inline std::vector<storage::LabelId> TransformFromStringLabels(const std::vector
   return transformed_labels;
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &labels_str) {
-  if (SerializedVertexHasLabels(labels_str)) {
-    return TransformFromStringLabels(utils::Split(labels_str, ","));
+inline std::string SerializeLabels(const std::vector<std::string> &labels) {
+  if (labels.empty()) {
+    return "";
   }
-  return {};
-}
-
-inline std::string ExtractGidFromMainDiskStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  return key_vector[1];
-}
-
-inline std::string ExtractGidFromLabelIndexStorage(const std::string &key) {
-  return ExtractGidFromMainDiskStorage(key);
-}
-
-inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &value) {
-  const auto value_splitted = utils::Split(value, "|");
-  return TransformFromStringLabels(utils::Split(value_splitted[0], ","));
-}
-
-inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &key) {
-  std::vector<std::string> index_key = utils::Split(key, ",");
-  auto property_it = index_key.begin() + 1;
-  index_key.erase(property_it);
-  return TransformFromStringLabels(index_key);
-}
-
-/// TODO: maybe it can be deleted
-inline std::vector<storage::LabelId> DeserializeLabelsFromUniqueConstraintStorage(const std::string &key,
-                                                                                  const std::string &value) {
-  /// TODO: extract this to private method to get all labels except the constraint label from the value
-  std::vector<std::string> value_vector = utils::Split(value, "|");
-  std::vector<std::string> labels_str = utils::Split(value_vector[0], ",");
-  auto labels = TransformFromStringLabels(labels_str);
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
-  labels.emplace_back(storage::LabelId::FromUint(std::stoull(constraint_key[0])));
-  return labels;
-}
-
-/// TODO: change to call ExtractGidFromMainDiskStorage
-inline std::string ExtractGidFromUniqueConstraintStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  return key_vector[1];
-}
-
-/// TODO: andi Change that all method accept key-value named parameters to indicate that they are called from RocksDB
-inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
-  /// TODO: andi Change this to deserialization method directly into the LabelId class
-  return storage::LabelId::FromUint(std::stoull(constraint_key[0]));
-}
-
-inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(const std::string &value) {
-  std::vector<std::string> value_vector = utils::Split(value, "|");
-  std::string properties_str = value_vector[1];
-  return storage::PropertyStore::CreateFromBuffer(properties_str);
+  std::string result = labels[0];
+  std::string ser_labels =
+      std::accumulate(std::next(labels.begin()), labels.end(), result,
+                      [](const std::string &join, const auto &label_id) { return join + "," + label_id; });
+  return ser_labels;
 }
 
 inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
-
-/// Serialize vertex to string as a key in KV store
-/// label1, label2 | GID | commit_timestamp
-inline std::string SerializeVertex(const storage::Result<std::vector<storage::LabelId>> &labels, storage::Gid gid) {
-  std::string result = labels.HasError() ? "" : utils::SerializeLabels(TransformIDsToString(*labels)) + "|";
-  result += utils::SerializeIdType(gid);
-  return result;
-}
-
-/// Serialize vertex to string as a key in KV store.
-/// label1, label2 | GID | commit_timestamp
-/// TODO: is it now commit timestamp
-inline std::string SerializeVertex(const storage::Vertex &vertex) {
-  std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
-  result += utils::SerializeIdType(vertex.gid);
-  return result;
-}
-
-/// Serialize vertex to string as a key in label index KV store.
-/// target_label | label_1 | label_2 | ... | GID | commit_timestamp
-/// TODO: is it now commit timestamp
-inline std::string SerializeVertexAsKeyForLabelIndex(const std::string &indexing_label, const std::string &gid) {
-  return indexing_label + "|" + gid;
-}
-
-inline std::string SerializeVertexAsKeyForLabelIndex(storage::LabelId label, storage::Gid gid) {
-  return SerializeVertexAsKeyForLabelIndex(SerializeIdType(label), utils::SerializeIdType(gid));
-}
-
-/// TODO: this is same code as in SerializeVertexAsValueForUniqueConstraint
-inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing_label,
-                                                       const std::vector<storage::LabelId> &vertex_labels,
-                                                       const storage::PropertyStore &property_store) {
-  std::vector<storage::LabelId> labels_without_target;
-  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
-               [&indexing_label](const auto &label) { return label != indexing_label; });
-  std::string result = SerializeLabels(TransformIDsToString(vertex_labels)) + "|";
-  return result + SerializeProperties(property_store);
-}
-
-inline std::string ExtractPropertiesFromLabelIndex(const std::string &value) {
-  std::vector<std::string> value_vector = utils::Split(value, "|");
-  return value_vector[1];
-}
-
-/// TODO: is this even used
-inline std::string PutIndexingLabelFirst(const std::string &indexing_label, const std::vector<std::string> &labels) {
-  std::string result = indexing_label;
-  for (const auto &label : labels) {
-    if (label != indexing_label) {
-      result += "," + label;
-    }
-  }
-  return result;
-}
-
-/// Serialize vertex to string as a key in label property index KV store.
-/// target_label,target_property,label_1,label_2,... | GID | commit_timestamp
-/// TODO: is it now commit timestamp
-inline std::string SerializeVertexForLabelPropertyIndex(const std::string &indexing_label,
-                                                        const std::string &indexing_property,
-                                                        const std::vector<std::string> &vertex_labels,
-                                                        const std::string &gid) {
-  auto key_for_indexing = PutIndexingLabelAndPropertyFirst(indexing_label, indexing_property, vertex_labels);
-  return key_for_indexing + "|" + gid;
-}
 
 /// TODO: andi Probably it is better to add delimiter between label,property and the rest of labels
 /// TODO: reuse PutIndexingLabelAndPropertiesFirst
@@ -226,6 +89,50 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
   return result;
 }
 
+inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,
+                                                              const std::vector<storage::LabelId> &vertex_labels,
+                                                              const storage::PropertyStore &property_store) {
+  std::vector<storage::LabelId> labels_without_target;
+  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
+               [&label_to_remove](const auto &label) { return label_to_remove != label; });
+  std::string result = SerializeLabels(TransformIDsToString(vertex_labels)) + "|";
+  return result + SerializeProperties(property_store);
+}
+
+inline std::string ExtractGidFromKey(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  return key_vector[1];
+}
+
+inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const std::string &value) {
+  std::vector<std::string> value_vector = utils::Split(value, "|");
+  std::string properties_str = value_vector[1];
+  return storage::PropertyStore::CreateFromBuffer(properties_str);
+}
+
+inline std::string SerializeVertex(const storage::Vertex &vertex) {
+  std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
+  result += utils::SerializeIdType(vertex.gid);
+  return result;
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  std::string labels_str = key_vector[0];
+  if (SerializedVertexHasLabels(labels_str)) {
+    return TransformFromStringLabels(utils::Split(labels_str, ","));
+  }
+  return {};
+}
+
+inline storage::PropertyStore DeserializePropertiesFromMainDiskStorage(const std::string_view value) {
+  return storage::PropertyStore::CreateFromBuffer(value);
+}
+
+inline std::string ExtractGidFromMainDiskStorage(const std::string &key) { return ExtractGidFromKey(key); }
+
+inline std::string ExtractGidFromUniqueConstraintStorage(const std::string &key) { return ExtractGidFromKey(key); }
+
 /// Serialize vertex to string as a key in unique constraint index KV store.
 /// target_label, target_property_1, target_property_2, ... GID |
 /// commit_timestamp
@@ -240,11 +147,65 @@ inline std::string SerializeVertexAsKeyForUniqueConstraint(const storage::LabelI
 inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::LabelId &constraint_label,
                                                              const std::vector<storage::LabelId> &vertex_labels,
                                                              const storage::PropertyStore &property_store) {
-  std::vector<storage::LabelId> labels_without_target;
-  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
-               [&constraint_label](const auto &label) { return label != constraint_label; });
-  std::string result = SerializeLabels(TransformIDsToString(vertex_labels)) + "|";
-  return result + SerializeProperties(property_store);
+  return SerializeVertexAsValueForAuxiliaryStorages(constraint_label, vertex_labels, property_store);
+}
+
+inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
+  /// TODO: andi Change this to deserialization method directly into the LabelId class
+  return storage::LabelId::FromUint(std::stoull(constraint_key[0]));
+}
+
+inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(const std::string &value) {
+  return DeserializePropertiesFromAuxiliaryStorages(value);
+}
+
+inline std::string SerializeVertexAsKeyForLabelIndex(const std::string &indexing_label, const std::string &gid) {
+  return indexing_label + "|" + gid;
+}
+
+inline std::string ExtractGidFromLabelIndexStorage(const std::string &key) { return ExtractGidFromKey(key); }
+
+inline std::string SerializeVertexAsKeyForLabelIndex(storage::LabelId label, storage::Gid gid) {
+  return SerializeVertexAsKeyForLabelIndex(SerializeIdType(label), utils::SerializeIdType(gid));
+}
+
+inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing_label,
+                                                       const std::vector<storage::LabelId> &vertex_labels,
+                                                       const storage::PropertyStore &property_store) {
+  return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &value) {
+  const auto value_splitted = utils::Split(value, "|");
+  return TransformFromStringLabels(utils::Split(value_splitted[0], ","));
+}
+
+inline storage::PropertyStore DeserializePropertiesFromLabelIndexStorage(const std::string &value) {
+  return DeserializePropertiesFromAuxiliaryStorages(value);
+}
+
+/// Serialize vertex to string as a key in label property index KV store.
+/// target_label,target_property,label_1,label_2,... | GID | commit_timestamp
+/// TODO: is it now commit timestamp
+inline std::string SerializeVertexForLabelPropertyIndex(const std::string &indexing_label,
+                                                        const std::string &indexing_property,
+                                                        const std::vector<std::string> &vertex_labels,
+                                                        const std::string &gid) {
+  auto key_for_indexing = PutIndexingLabelAndPropertyFirst(indexing_label, indexing_property, vertex_labels);
+  return key_for_indexing + "|" + gid;
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &key) {
+  std::vector<std::string> index_key = utils::Split(key, ",");
+  auto property_it = index_key.begin() + 1;
+  index_key.erase(property_it);
+  return TransformFromStringLabels(index_key);
+}
+
+inline storage::PropertyStore DeserializePropertiesFromLabelPropertyIndexStorage(const std::string &value) {
+  return DeserializePropertiesFromAuxiliaryStorages(value);
 }
 
 /// Serialize edge as two KV entries

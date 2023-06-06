@@ -23,11 +23,7 @@ class DiskLabelIndex : public storage::LabelIndex {
  public:
   DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config);
 
-  /// Key: INDEX_LABEL,OTHER_LABEL_1,OTHER_LABEL_2, ..|GID
-  /// Value: VERTEX.PROPERTIES
-  /// TODO: andi Whenever vertex is updated you should go to the disk if it is indexed.
-  /// Optimize by using prefixed Bloom filters
-  bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
+  [[nodiscard]] bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
   std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction();
 
