@@ -1677,7 +1677,7 @@ def _register_batch_proc(
     func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable, is_write: bool
 ):
     raise_if_does_not_meet_requirements(func)
-    register_func = _mgp.Module.add_batch_read_procedure if is_write else _mgp.Module.add_batch_write_procedure
+    register_func = _mgp.Module.add_batch_write_procedure if is_write else _mgp.Module.add_batch_read_procedure
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if params and params[0].annotation is ProcCtx:
