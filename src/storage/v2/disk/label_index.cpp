@@ -135,21 +135,28 @@ bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
-  entries_for_deletion.WithLock(
-      [transaction_start_timestamp, disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
-        if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
-            tx_it != tx_to_entries_for_deletion.end()) {
-          spdlog::debug("Found tx with removed indexing label, deleting entries");
-          ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
-          tx_to_entries_for_deletion.erase(tx_it);
-        }
-      });
-  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
+  bool deletion_success = true;
+  entries_for_deletion.WithLock([&deletion_success, transaction_start_timestamp,
+                                 disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
+    if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
+        tx_it != tx_to_entries_for_deletion.end()) {
+      spdlog::debug("Found tx with removed indexing label, deleting entries");
+      deletion_success = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
+      tx_to_entries_for_deletion.erase(tx_it);
+    }
+  });
+  if (deletion_success) {
+    /// TODO: Extract to some useful method
+    disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
+    auto status = disk_transaction->Commit();
+    if (!status.ok()) {
+      /// TODO: better naming
+      spdlog::error("rocksdb: {}", status.getState());
+    }
+    return status.ok();
   }
-  return status.ok();
+  spdlog::error("Deletetion of vertices with removed indexing label failed.");
+  return false;
 }
 
 void DiskLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) {

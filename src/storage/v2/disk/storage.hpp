@@ -335,6 +335,8 @@ class DiskStorage final : public Storage {
   [[nodiscard]] utils::BasicResult<ConstraintViolation, std::vector<std::pair<std::string, std::string>>>
   CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) const;
 
+  std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelIndex(LabelId label);
+
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
   /// be part of a transaction, and no other transaction can be active at the same time.

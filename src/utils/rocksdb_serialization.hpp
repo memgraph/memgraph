@@ -125,6 +125,12 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const 
   return {};
 }
 
+inline std::vector<std::string> ExtractLabelsFromMainDiskStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  std::string labels_str = key_vector[0];
+  return utils::Split(labels_str, ",");
+}
+
 inline storage::PropertyStore DeserializePropertiesFromMainDiskStorage(const std::string_view value) {
   return storage::PropertyStore::CreateFromBuffer(value);
 }

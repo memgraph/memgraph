@@ -581,12 +581,9 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto acc = vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
-    // spdlog::debug("Vertex with gid {} found in the cache!", gid.AsUint());
     return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                   view);
   }
-  // spdlog::debug("Vertex with gid {} not found in the cache!", gid.AsUint());
-  /// If not in the memory, check whether it exists in RocksDB.
   rocksdb::ReadOptions read_opts;
   auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
@@ -1312,6 +1309,31 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   return {};
 }
 
+std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
+  std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
+
+  rocksdb::ReadOptions ro;
+  auto strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
+
+  const std::string serialized_label = utils::SerializeIdType(label);
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    const auto &key_str = it->key().ToString();
+    if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
+        utils::Contains(labels_str, serialized_label)) {
+      std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
+      PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
+      vertices_to_be_indexed.emplace_back(
+          utils::SerializeVertexAsKeyForLabelIndex(utils::SerializeIdType(label),
+                                                   utils::ExtractGidFromMainDiskStorage(key_str)),
+          utils::SerializeVertexAsValueForLabelIndex(label, labels, property_store));
+    }
+  }
+  return vertices_to_be_indexed;
+}
+
 void DiskStorage::DiskAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
@@ -1502,32 +1524,9 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  /// TODO: refactor this thing in a same way as you did with unique constraints
-  rocksdb::ReadOptions ro;
-  auto strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
-  rocksdb::Slice ts(strTs);
-  ro.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
-  std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
 
-  /// TODO: extract this reading to some method, it is used in a same way in unique constraints
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const auto &key = it->key();
-    const auto vertex_parts = utils::Split(key.ToStringView(), "|");
-    if (const std::vector<std::string> labels = utils::Split(vertex_parts[0], ",");
-        std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end()) {
-      std::string gid = vertex_parts[1];
-      std::string labels_str = vertex_parts[0];
-      std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(labels_str);
-      PropertyStore property_store;
-      property_store.SetBuffer(it->value().ToStringView());
-      vertices_to_be_indexed.emplace_back(utils::SerializeVertexAsKeyForLabelIndex(utils::SerializeIdType(label), gid),
-                                          utils::SerializeVertexAsValueForLabelIndex(label, labels_id, property_store));
-    }
-  }
-
-  if (auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
-      !disk_label_index->CreateIndex(label, vertices_to_be_indexed)) {
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+  if (!disk_label_index->CreateIndex(label, SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
