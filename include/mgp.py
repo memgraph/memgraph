@@ -1686,9 +1686,9 @@ def _register_batch_proc(
         def wrapper_func(graph, args):
             return func(ProcCtx(graph), *args)
 
-        @wraps(func)
+        @wraps(initializer)
         def wrapper_initializer(graph, args):
-            return func(ProcCtx(graph), *args)
+            return initializer(ProcCtx(graph), *args)
 
         params = params[1:]
         mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
@@ -1698,9 +1698,9 @@ def _register_batch_proc(
         def wrapper_func(graph, args):
             return func(*args)
 
-        @wraps(func)
+        @wraps(initializer)
         def wrapper_initializer(graph, args):
-            return func(*args)
+            return initializer(*args)
 
         mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
     for param in params:
@@ -1727,11 +1727,11 @@ def _register_batch_proc(
 
 
 def batch_write_proc(func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable):
-    return _register_batch_proc(func, initializer, cleanup, False)
+    return _register_batch_proc(func, initializer, cleanup, True)
 
 
 def batch_read_proc(func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable):
-    return _register_batch_proc(func, initializer, cleanup, True)
+    return _register_batch_proc(func, initializer, cleanup, False)
 
 
 class InvalidMessageError(Exception):

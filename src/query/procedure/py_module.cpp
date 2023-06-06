@@ -1257,7 +1257,7 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
   PyObject *initializer{nullptr};
   PyObject *cleanup{nullptr};
 
-  if (!PyArg_ParseTuple(args, "OO", &cb, &initializer, &cleanup)) {
+  if (!PyArg_ParseTuple(args, "OOO", &cb, &initializer, &cleanup)) {
     return nullptr;
   }
 
