@@ -1673,7 +1673,9 @@ def write_proc(func: typing.Callable[..., Record]):
     return _register_proc(func, True)
 
 
-def _register_batch_proc(func: typing.Callable[..., Record], dtor: typing.Callable, is_write: bool):
+def _register_batch_proc(
+    func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable, is_write: bool
+):
     raise_if_does_not_meet_requirements(func)
     register_func = _mgp.Module.add_batch_read_procedure if is_write else _mgp.Module.add_batch_write_procedure
     sig = inspect.signature(func)
@@ -1681,18 +1683,26 @@ def _register_batch_proc(func: typing.Callable[..., Record], dtor: typing.Callab
     if params and params[0].annotation is ProcCtx:
 
         @wraps(func)
-        def wrapper(graph, args):
+        def wrapper_func(graph, args):
+            return func(ProcCtx(graph), *args)
+
+        @wraps(func)
+        def wrapper_initializer(graph, args):
             return func(ProcCtx(graph), *args)
 
         params = params[1:]
-        mgp_proc = register_func(_mgp._MODULE, wrapper, dtor)
+        mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
     else:
 
         @wraps(func)
-        def wrapper(graph, args):
+        def wrapper_func(graph, args):
             return func(*args)
 
-        mgp_proc = register_func(_mgp._MODULE, wrapper, dtor)
+        @wraps(func)
+        def wrapper_initializer(graph, args):
+            return func(*args)
+
+        mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
     for param in params:
         name = param.name
         type_ = param.annotation
@@ -1716,12 +1726,12 @@ def _register_batch_proc(func: typing.Callable[..., Record], dtor: typing.Callab
     return func
 
 
-def batch_write_proc(func: typing.Callable[..., Record], dtor: typing.Callable):
-    return _register_batch_proc(func, dtor, False)
+def batch_write_proc(func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable):
+    return _register_batch_proc(func, initializer, cleanup, False)
 
 
-def batch_read_proc(func: typing.Callable[..., Record], dtor: typing.Callable):
-    return _register_batch_proc(func, dtor, True)
+def batch_read_proc(func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable):
+    return _register_batch_proc(func, initializer, cleanup, True)
 
 
 class InvalidMessageError(Exception):
