@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <random>
 #include <string>
@@ -4527,6 +4528,7 @@ class CallProcedureCursor : public Cursor {
   size_t result_signature_size_{0};
   bool stream_exhausted{true};
   bool call_initializer{false};
+  std::optional<std::function<void()>> cleanup_{std::nullopt};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
@@ -4574,7 +4576,7 @@ class CallProcedureCursor : public Cursor {
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
           if (proc->cleanup) {
-            proc->cleanup.value();
+            proc->cleanup.value()();
           }
           return false;
         } else {
@@ -4583,6 +4585,9 @@ class CallProcedureCursor : public Cursor {
             call_initializer = true;
           }
         }
+      }
+      if (!cleanup_ && proc->cleanup) [[unlikely]] {
+        cleanup_.emplace(*proc->cleanup);
       }
       self_->monotonic_memory.Release();
       result_ =
@@ -4660,12 +4665,21 @@ class CallProcedureCursor : public Cursor {
     // result_.rows.clear();
     // result_.error_msg.reset();
     // input_cursor_->Reset();
+    self_->monotonic_memory.Release();
+    result_ =
+        utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+    if (cleanup_) {
+      cleanup_.value()();
+    }
   }
 
   void Shutdown() override {
     // cleaning of old resources
     // result_.~mgp_result();
-    // self_->monotonic_memory.Release();
+    self_->monotonic_memory.Release();
+    if (cleanup_) {
+      cleanup_.value()();
+    }
   }
 };
 
