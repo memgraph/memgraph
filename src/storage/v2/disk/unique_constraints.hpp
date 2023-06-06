@@ -66,9 +66,9 @@ class DiskUniqueConstraints : public UniqueConstraints {
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
       const std::set<PropertyId> &constraint_properties) const;
 
-  bool DifferentVertexExistsWithSameLabelAndPropertyValues(
-      const std::vector<PropertyValue> &property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
-      const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties, Gid gid) const;
+  bool VertexIsUnique(const std::vector<PropertyValue> &property_values,
+                      const std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
+                      const std::set<PropertyId> &constraint_properties, Gid gid) const;
 };
 
 }  // namespace memgraph::storage
