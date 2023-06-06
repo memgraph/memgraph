@@ -78,7 +78,7 @@ TYPED_TEST(PrintToJsonTest, ScanAll) {
 
 TYPED_TEST(PrintToJsonTest, ScanAllByLabel) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabel>(nullptr, this->GetSymbol("node"), dba.NameToLabel("Label"));
+  last_op = std::make_shared<ScanAllByLabel>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"));
 
   this->Check(last_op.get(), R"(
         {
@@ -93,7 +93,7 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-        nullptr, this->GetSymbol("node"), dba.NameToLabel("Label"), dba.NameToProperty("prop"), "prop",
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
         memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
         memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
@@ -117,8 +117,8 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-        nullptr, this->GetSymbol("node"), dba.NameToLabel("Label"), dba.NameToProperty("prop"), "prop", std::nullopt,
-        memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
+        std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
     this->Check(last_op.get(), R"(
         {
@@ -137,7 +137,7 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-        nullptr, this->GetSymbol("node"), dba.NameToLabel("Label"), dba.NameToProperty("prop"), "prop",
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
         memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt);
 
     this->Check(last_op.get(), R"(
@@ -158,9 +158,9 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyRange) {
 
 TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyValue) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op =
-      std::make_shared<ScanAllByLabelPropertyValue>(nullptr, this->GetSymbol("node"), dba.NameToLabel("Label"),
-                                                    dba.NameToProperty("prop"), "prop", ADD(LITERAL(21), LITERAL(21)));
+  last_op = std::make_shared<ScanAllByLabelPropertyValue>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
+      ADD(LITERAL(21), LITERAL(21)));
 
   this->Check(last_op.get(), R"sep(
         {
@@ -175,11 +175,11 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyValue) {
 
 TYPED_TEST(PrintToJsonTest, CreateNode) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<CreateNode>(nullptr,
-                                         NodeCreationInfo{this->GetSymbol("node"),
-                                                          {dba.NameToLabel("Label1"), dba.NameToLabel("Label2")},
-                                                          {{dba.NameToProperty("prop1"), LITERAL(5)},
-                                                           {dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}});
+  last_op = std::make_shared<CreateNode>(
+      nullptr, NodeCreationInfo{this->GetSymbol("node"),
+                                {this->dba.NameToLabel("Label1"), this->dba.NameToLabel("Label2")},
+                                {{this->dba.NameToProperty("prop1"), LITERAL(5)},
+                                 {this->dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}});
 
   this->Check(last_op.get(), R"(
           {
@@ -200,13 +200,13 @@ TYPED_TEST(PrintToJsonTest, CreateExpand) {
   Symbol node1_sym = this->GetSymbol("node1");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node1"));
   last_op = std::make_shared<CreateExpand>(
-      NodeCreationInfo{
-          this->GetSymbol("node2"),
-          {dba.NameToLabel("Label1"), dba.NameToLabel("Label2")},
-          {{dba.NameToProperty("prop1"), LITERAL(5)}, {dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}},
+      NodeCreationInfo{this->GetSymbol("node2"),
+                       {this->dba.NameToLabel("Label1"), this->dba.NameToLabel("Label2")},
+                       {{this->dba.NameToProperty("prop1"), LITERAL(5)},
+                        {this->dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}},
       EdgeCreationInfo{this->GetSymbol("edge"),
-                       {{dba.NameToProperty("weight"), LITERAL(5.32)}},
-                       dba.NameToEdgeType("edge_type"),
+                       {{this->dba.NameToProperty("weight"), LITERAL(5.32)}},
+                       this->dba.NameToEdgeType("edge_type"),
                        EdgeAtom::Direction::OUT},
       last_op, node1_sym, false);
 
@@ -242,10 +242,11 @@ TYPED_TEST(PrintToJsonTest, CreateExpand) {
 TYPED_TEST(PrintToJsonTest, Expand) {
   auto node1_sym = this->GetSymbol("node1");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
-  last_op = std::make_shared<Expand>(
-      last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"), EdgeAtom::Direction::BOTH,
-      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")},
-      false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"),
+                                     EdgeAtom::Direction::BOTH,
+                                     std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
+                                                                                this->dba.NameToEdgeType("EdgeType2")},
+                                     false, memgraph::storage::View::OLD);
 
   this->Check(last_op.get(), R"(
           {
@@ -270,10 +271,11 @@ TYPED_TEST(PrintToJsonTest, ExpandVariable) {
   last_op = std::make_shared<ExpandVariable>(
       last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"), EdgeAtom::Type::BREADTH_FIRST,
       EdgeAtom::Direction::OUT,
-      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")},
+      std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
+                                                 this->dba.NameToEdgeType("EdgeType2")},
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
-                      PROPERTY_LOOKUP("inner_node", dba.NameToProperty("unblocked"))},
+                      PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
       std::nullopt, std::nullopt);
 
   this->Check(last_op.get(), R"sep(
@@ -304,11 +306,12 @@ TYPED_TEST(PrintToJsonTest, ExpandVariableWsp) {
   last_op = std::make_shared<ExpandVariable>(
       last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
       EdgeAtom::Direction::OUT,
-      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")},
+      std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
+                                                 this->dba.NameToEdgeType("EdgeType2")},
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"), nullptr},
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
-                      PROPERTY_LOOKUP("inner_edge", dba.NameToProperty("weight"))},
+                      PROPERTY_LOOKUP(this->dba, "inner_edge", this->dba.NameToProperty("weight"))},
       this->GetSymbol("total"));
 
   this->Check(last_op.get(), R"sep(
@@ -383,8 +386,9 @@ TYPED_TEST(PrintToJsonTest, ConstructNamedPath) {
 
 TYPED_TEST(PrintToJsonTest, Filter) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node1"));
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                     EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(5)));
+  last_op =
+      std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                               EQ(PROPERTY_LOOKUP(this->dba, "node1", this->dba.NameToProperty("prop")), LITERAL(5)));
 
   this->Check(last_op.get(), R"sep(
           {
@@ -450,11 +454,11 @@ TYPED_TEST(PrintToJsonTest, Delete) {
 }
 
 TYPED_TEST(PrintToJsonTest, SetProperty) {
-  memgraph::storage::PropertyId prop = dba.NameToProperty("prop");
+  memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP("node", prop),
-                                                ADD(PROPERTY_LOOKUP("node", prop), LITERAL(1)));
+  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+                                                ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
 
   this->Check(last_op.get(), R"sep(
           {
@@ -473,10 +477,10 @@ TYPED_TEST(PrintToJsonTest, SetProperty) {
 TYPED_TEST(PrintToJsonTest, SetProperties) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::SetProperties>(
-      last_op, node_sym,
-      MAP({{storage.GetPropertyIx("prop1"), LITERAL(1)}, {storage.GetPropertyIx("prop2"), LITERAL("propko")}}),
-      plan::SetProperties::Op::REPLACE);
+  last_op = std::make_shared<plan::SetProperties>(last_op, node_sym,
+                                                  MAP({{this->storage.GetPropertyIx("prop1"), LITERAL(1)},
+                                                       {this->storage.GetPropertyIx("prop2"), LITERAL("propko")}}),
+                                                  plan::SetProperties::Op::REPLACE);
 
   this->Check(last_op.get(), R"sep(
           {
@@ -496,7 +500,8 @@ TYPED_TEST(PrintToJsonTest, SetLabels) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::SetLabels>(
-      last_op, node_sym, std::vector<memgraph::storage::LabelId>{dba.NameToLabel("label1"), dba.NameToLabel("label2")});
+      last_op, node_sym,
+      std::vector<memgraph::storage::LabelId>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
 
   this->Check(last_op.get(), R"(
           {
@@ -514,8 +519,8 @@ TYPED_TEST(PrintToJsonTest, SetLabels) {
 TYPED_TEST(PrintToJsonTest, RemoveProperty) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::RemoveProperty>(last_op, dba.NameToProperty("prop"),
-                                                   PROPERTY_LOOKUP("node", dba.NameToProperty("prop")));
+  last_op = std::make_shared<plan::RemoveProperty>(
+      last_op, this->dba.NameToProperty("prop"), PROPERTY_LOOKUP(this->dba, "node", this->dba.NameToProperty("prop")));
 
   this->Check(last_op.get(), R"sep(
           {
@@ -534,7 +539,8 @@ TYPED_TEST(PrintToJsonTest, RemoveLabels) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::RemoveLabels>(
-      last_op, node_sym, std::vector<memgraph::storage::LabelId>{dba.NameToLabel("label1"), dba.NameToLabel("label2")});
+      last_op, node_sym,
+      std::vector<memgraph::storage::LabelId>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
 
   this->Check(last_op.get(), R"(
           {
@@ -602,11 +608,11 @@ TYPED_TEST(PrintToJsonTest, EdgeUniquenessFilter) {
 }
 
 TYPED_TEST(PrintToJsonTest, Accumulate) {
-  memgraph::storage::PropertyId prop = dba.NameToProperty("prop");
+  memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP("node", prop),
-                                                ADD(PROPERTY_LOOKUP("node", prop), LITERAL(1)));
+  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+                                                ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
   last_op = std::make_shared<plan::Accumulate>(last_op, std::vector<Symbol>{node_sym}, true);
 
   this->Check(last_op.get(), R"sep(
@@ -629,19 +635,19 @@ TYPED_TEST(PrintToJsonTest, Accumulate) {
 }
 
 TYPED_TEST(PrintToJsonTest, Aggregate) {
-  memgraph::storage::PropertyId value = dba.NameToProperty("value");
-  memgraph::storage::PropertyId color = dba.NameToProperty("color");
-  memgraph::storage::PropertyId type = dba.NameToProperty("type");
+  memgraph::storage::PropertyId value = this->dba.NameToProperty("value");
+  memgraph::storage::PropertyId color = this->dba.NameToProperty("color");
+  memgraph::storage::PropertyId type = this->dba.NameToProperty("type");
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::Aggregate>(
       last_op,
       std::vector<Aggregate::Element>{
-          {PROPERTY_LOOKUP("node", value), nullptr, Aggregation::Op::SUM, this->GetSymbol("sum")},
-          {PROPERTY_LOOKUP("node", value), PROPERTY_LOOKUP("node", color), Aggregation::Op::COLLECT_MAP,
-           this->GetSymbol("map")},
+          {PROPERTY_LOOKUP(this->dba, "node", value), nullptr, Aggregation::Op::SUM, this->GetSymbol("sum")},
+          {PROPERTY_LOOKUP(this->dba, "node", value), PROPERTY_LOOKUP(this->dba, "node", color),
+           Aggregation::Op::COLLECT_MAP, this->GetSymbol("map")},
           {nullptr, nullptr, Aggregation::Op::COUNT, this->GetSymbol("count")}},
-      std::vector<Expression *>{PROPERTY_LOOKUP("node", type)}, std::vector<Symbol>{node_sym});
+      std::vector<Expression *>{PROPERTY_LOOKUP(this->dba, "node", type)}, std::vector<Symbol>{node_sym});
 
   this->Check(last_op.get(), R"sep(
           {
@@ -679,19 +685,19 @@ TYPED_TEST(PrintToJsonTest, Aggregate) {
 }
 
 TYPED_TEST(PrintToJsonTest, AggregateWithDistinct) {
-  memgraph::storage::PropertyId value = dba.NameToProperty("value");
-  memgraph::storage::PropertyId color = dba.NameToProperty("color");
-  memgraph::storage::PropertyId type = dba.NameToProperty("type");
+  memgraph::storage::PropertyId value = this->dba.NameToProperty("value");
+  memgraph::storage::PropertyId color = this->dba.NameToProperty("color");
+  memgraph::storage::PropertyId type = this->dba.NameToProperty("type");
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::Aggregate>(
       last_op,
       std::vector<Aggregate::Element>{
-          {PROPERTY_LOOKUP("node", value), nullptr, Aggregation::Op::SUM, this->GetSymbol("sum"), true},
-          {PROPERTY_LOOKUP("node", value), PROPERTY_LOOKUP("node", color), Aggregation::Op::COLLECT_MAP,
-           this->GetSymbol("map"), true},
+          {PROPERTY_LOOKUP(this->dba, "node", value), nullptr, Aggregation::Op::SUM, this->GetSymbol("sum"), true},
+          {PROPERTY_LOOKUP(this->dba, "node", value), PROPERTY_LOOKUP(this->dba, "node", color),
+           Aggregation::Op::COLLECT_MAP, this->GetSymbol("map"), true},
           {nullptr, nullptr, Aggregation::Op::COUNT, this->GetSymbol("count"), true}},
-      std::vector<Expression *>{PROPERTY_LOOKUP("node", type)}, std::vector<Symbol>{node_sym});
+      std::vector<Expression *>{PROPERTY_LOOKUP(this->dba, "node", type)}, std::vector<Symbol>{node_sym});
 
   this->Check(last_op.get(), R"sep(
           {
@@ -762,13 +768,14 @@ TYPED_TEST(PrintToJsonTest, Limit) {
 
 TYPED_TEST(PrintToJsonTest, OrderBy) {
   Symbol node_sym = this->GetSymbol("node");
-  memgraph::storage::PropertyId value = dba.NameToProperty("value");
-  memgraph::storage::PropertyId color = dba.NameToProperty("color");
+  memgraph::storage::PropertyId value = this->dba.NameToProperty("value");
+  memgraph::storage::PropertyId color = this->dba.NameToProperty("color");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<OrderBy>(last_op,
-                                      std::vector<SortItem>{{Ordering::ASC, PROPERTY_LOOKUP("node", value)},
-                                                            {Ordering::DESC, PROPERTY_LOOKUP("node", color)}},
-                                      std::vector<Symbol>{node_sym});
+  last_op =
+      std::make_shared<OrderBy>(last_op,
+                                std::vector<SortItem>{{Ordering::ASC, PROPERTY_LOOKUP(this->dba, "node", value)},
+                                                      {Ordering::DESC, PROPERTY_LOOKUP(this->dba, "node", color)}},
+                                std::vector<Symbol>{node_sym});
 
   this->Check(last_op.get(), R"sep(
           {
@@ -794,7 +801,7 @@ TYPED_TEST(PrintToJsonTest, OrderBy) {
 
 TYPED_TEST(PrintToJsonTest, Merge) {
   Symbol node_sym = this->GetSymbol("node");
-  memgraph::storage::LabelId label = dba.NameToLabel("label");
+  memgraph::storage::LabelId label = this->dba.NameToLabel("label");
 
   std::shared_ptr<LogicalOperator> match = std::make_shared<ScanAllByLabel>(nullptr, node_sym, label);
 
@@ -974,8 +981,8 @@ TYPED_TEST(PrintToJsonTest, CallProcedure) {
 
 TYPED_TEST(PrintToJsonTest, Foreach) {
   Symbol x = this->GetSymbol("x");
-  std::shared_ptr<LogicalOperator> create =
-      std::make_shared<CreateNode>(nullptr, NodeCreationInfo{this->GetSymbol("node"), {dba.NameToLabel("Label1")}, {}});
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(
+      nullptr, NodeCreationInfo{this->GetSymbol("node"), {this->dba.NameToLabel("Label1")}, {}});
   std::shared_ptr<LogicalOperator> foreach =
       std::make_shared<plan::Foreach>(nullptr, std::move(create), LIST(LITERAL(1)), x);
 
@@ -1009,9 +1016,10 @@ TYPED_TEST(PrintToJsonTest, Exists) {
   Symbol n = this->GetSymbol("node");
   Symbol output = this->GetSymbol("output_symbol");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, x);
-  std::shared_ptr<LogicalOperator> expand = std::make_shared<Expand>(
-      nullptr, x, n, e, memgraph::query::EdgeAtom::Direction::BOTH,
-      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1")}, false, memgraph::storage::View::OLD);
+  std::shared_ptr<LogicalOperator> expand =
+      std::make_shared<Expand>(nullptr, x, n, e, memgraph::query::EdgeAtom::Direction::BOTH,
+                               std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1")}, false,
+                               memgraph::storage::View::OLD);
   std::shared_ptr<LogicalOperator> limit = std::make_shared<Limit>(expand, LITERAL(1));
   std::shared_ptr<LogicalOperator> evaluate_pattern_filter = std::make_shared<EvaluatePatternFilter>(limit, output);
   last_op = std::make_shared<Filter>(
