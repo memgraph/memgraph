@@ -24,19 +24,23 @@
 Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
 corresponding interpreter/.
 */
+template <typename StorageType>
 class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db_{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType()};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
   memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 
-TEST_F(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(TransactionQueueSimpleTest, StorageTypes);
+
+TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
   bool started = false;
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
-        running_interpreter.Interpret("BEGIN");
+        this->running_interpreter.Interpret("BEGIN");
         started = true;
       },
       0);
@@ -45,8 +49,8 @@ TEST_F(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
     while (!started) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    main_interpreter.Interpret("CREATE (:Person {prop: 1})");
-    auto show_stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
+    this->main_interpreter.Interpret("CREATE (:Person {prop: 1})");
+    auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream.GetResults().size(), 2U);
     // superadmin executing the transaction
     EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
@@ -58,18 +62,18 @@ TEST_F(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
     // Kill the other transaction
     std::string run_trans_id = show_stream.GetResults()[1][1].ValueString();
     std::string esc_run_trans_id = "'" + run_trans_id + "'";
-    auto terminate_stream = main_interpreter.Interpret("TERMINATE TRANSACTIONS " + esc_run_trans_id);
+    auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS " + esc_run_trans_id);
     // check result of killing
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
     // check the number of transactions now
-    auto show_stream_after_killing = main_interpreter.Interpret("SHOW TRANSACTIONS");
+    auto show_stream_after_killing = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream_after_killing.GetResults().size(), 1U);
     // test the state of the database
-    auto results_stream = main_interpreter.Interpret("MATCH (n) RETURN n");
+    auto results_stream = this->main_interpreter.Interpret("MATCH (n) RETURN n");
     ASSERT_EQ(results_stream.GetResults().size(), 1U);  // from the main interpreter
-    main_interpreter.Interpret("MATCH (n) DETACH DELETE n");
+    this->main_interpreter.Interpret("MATCH (n) DETACH DELETE n");
     // finish thread
     running_thread.request_stop();
   }
