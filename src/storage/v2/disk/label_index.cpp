@@ -11,6 +11,8 @@
 
 #include <rocksdb/options.h>
 #include <rocksdb/utilities/transaction.h>
+#include <tuple>
+#include <utility>
 
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/id_types.hpp"
@@ -24,6 +26,23 @@ namespace {
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label) {
   return std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
+}
+
+/// TODO: error handling
+[[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
+    rocksdb::Transaction &disk_transaction, const std::map<Gid, std::vector<LabelId>> &transaction_entries) {
+  for (const auto &[vertex_gid, labels] : transaction_entries) {
+    for (const auto &indexing_label : labels) {
+      auto key_to_delete = utils::SerializeVertexAsKeyForLabelIndex(indexing_label, vertex_gid);
+      if (auto status = disk_transaction.Delete(key_to_delete); !status.ok()) {
+        spdlog::debug("Failed to delete vertex with key {} from label index storage: {}", key_to_delete,
+                      status.getState());
+        return false;
+      }
+      spdlog::debug("Deleted vertex with key {} from label index storage", key_to_delete);
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -41,6 +60,7 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
   index_.emplace(label);
   /// How to remove duplication
+  /// TODO: how to deal with commit timestamp in a better way
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   for (const auto &[key, value] : vertices) {
@@ -65,17 +85,21 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateRocksDBTransaction()
   spdlog::debug("Approx size before reading indexed vertices: {}", estimate_num_keys);
   return std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  // return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
 }
 
 bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   for (const LabelId index_label : index_) {
+    /// TODO: maybe need to incorporate view
     if (VertexHasLabel(vertex, index_label)) {
       /// TODO: andi, probably no need to transfer separately labels and gid
-      disk_transaction->Put(utils::SerializeVertexForLabelIndex(index_label, vertex.labels, vertex.gid),
-                            utils::SerializeProperties(vertex.properties));
+      if (!disk_transaction
+               ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
+                     utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))
+               .ok()) {
+        return false;
+      }
     }
   }
   disk_transaction->SetCommitTimestamp(commit_timestamp);
@@ -86,8 +110,8 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   return status.ok();
 }
 
-[[nodiscard]] bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid,
-                                                      uint64_t transaction_commit_timestamp) const {
+/// TODO: this can probably be optimized
+bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const {
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
@@ -112,15 +136,59 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   return status.ok();
 }
 
-/// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.
-void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  if (!IndexExists(label)) {
-    return;
+bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
+                                                            uint64_t transaction_commit_timestamp) {
+  spdlog::debug("Called delete vertices with removed indexing label");
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  entries_for_deletion.WithLock(
+      [transaction_start_timestamp, disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
+        if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
+            tx_it != tx_to_entries_for_deletion.end()) {
+          spdlog::debug("Found tx with removed indexing label, deleting entries");
+          ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
+          tx_to_entries_for_deletion.erase(tx_it);
+        }
+      });
+  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
   }
-  /// TODO: andi This change should be done at the commit time not before and under some lock, probably RocksDB lock.
-  std::string key = utils::SerializeVertexForLabelIndex(label, vertex->labels, vertex->gid);
-  std::string value = utils::SerializeProperties(vertex->properties);
-  kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
+  return status.ok();
+}
+
+void DiskLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) {
+  entries_for_deletion.WithLock([added_label, vertex_before_update, &tx](auto &tx_to_entries_for_deletion) {
+    if (auto tx_it = tx_to_entries_for_deletion.find(tx.start_timestamp); tx_it != tx_to_entries_for_deletion.end()) {
+      if (auto vertex_label_index_it = tx_it->second.find(vertex_before_update->gid);
+          vertex_label_index_it != tx_it->second.end()) {
+        std::erase_if(vertex_label_index_it->second,
+                      [added_label](const LabelId &indexed_label) { return indexed_label == added_label; });
+      }
+    }
+  });
+}
+
+void DiskLabelIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) {
+  if (IndexExists(removed_label)) {
+    entries_for_deletion.WithLock([&removed_label, &tx, vertex_before_update](auto &tx_to_entries_for_deletion) {
+      auto [it, _] = tx_to_entries_for_deletion.emplace(
+          std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp), std::forward_as_tuple());
+      auto &vertex_map_store = it->second;
+      auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
+          std::piecewise_construct, std::forward_as_tuple(vertex_before_update->gid), std::forward_as_tuple());
+      it_vertex_map_store->second.emplace_back(removed_label);
+      spdlog::debug("Added to the map label index storage for vertex {} with label {}",
+                    utils::SerializeIdType(vertex_before_update->gid), utils::SerializeIdType(removed_label));
+    });
+  }
 }
 
 /// TODO: andi Here will come Bloom filter deletion

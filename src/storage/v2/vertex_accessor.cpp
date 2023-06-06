@@ -86,6 +86,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
+  /// TODO: add label call and unit test. Hopefully no need to add it on the end
+  // indices_->
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
@@ -106,7 +108,9 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
 
+  /// TODO: some by pointers, some by reference => not good, make it better
   constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
+  indices_->label_index_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 

@@ -13,6 +13,7 @@
 #include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rocksdb_serialization.hpp"
@@ -34,8 +35,12 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
+  [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
+                                                            uint64_t transaction_commit_timestamp);
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) override;
+
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override;
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;
@@ -53,6 +58,7 @@ class DiskLabelIndex : public storage::LabelIndex {
   void RunGC() override;
 
  private:
+  utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<LabelId>>>> entries_for_deletion;
   std::unordered_set<LabelId> index_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };

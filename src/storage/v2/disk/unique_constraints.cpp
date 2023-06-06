@@ -36,6 +36,7 @@ bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid 
   return utils::DeserializeConstraintLabelFromUniqueConstraintStorage(key) == constraint_label;
 }
 
+/// TODO: error handling
 void ClearTransactionEntriesWithRemovedConstraintLabel(
     rocksdb::Transaction &disk_transaction,
     const std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>> &transaction_entries) {
@@ -247,6 +248,7 @@ void DiskUniqueConstraints::UpdateOnRemoveLabel(LabelId removed_label, const Ver
       entries_for_deletion.WithLock(
           [&constraint, transaction_start_timestamp, &vertex_before_update](auto &tx_to_entries_for_deletion) {
             const auto &[constraint_label, constraint_properties] = constraint;
+            /// TODO: why forward as tuple start ts
             auto [it, _] = tx_to_entries_for_deletion.emplace(
                 std::piecewise_construct, std::forward_as_tuple(transaction_start_timestamp), std::forward_as_tuple());
             auto &vertex_map_store = it->second;
@@ -262,6 +264,7 @@ void DiskUniqueConstraints::UpdateOnAddLabel(LabelId added_label, const Vertex &
                                              uint64_t transaction_start_timestamp) {
   entries_for_deletion.WithLock(
       [transaction_start_timestamp, &vertex_before_update, added_label](auto &tx_to_entries_for_deletion) {
+        /// TODO: change to only one if condition and maybe optimize erase if
         if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
             tx_it != tx_to_entries_for_deletion.end()) {
           if (auto vertex_constraints_it = tx_it->second.find(vertex_before_update.gid);

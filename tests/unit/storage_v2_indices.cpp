@@ -379,7 +379,6 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     acc->PrepareForNextIndexQuery();
-    /// Again the same issue with OLD and NEW views
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
 
     for (auto vertex : acc->Vertices(View::OLD)) {
@@ -451,6 +450,48 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
   ASSERT_NO_ERROR(acc2->Commit());
   auto acc3 = this->storage->Access();
   EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
+}
+
+TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
+  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+  auto acc1 = this->storage->Access();
+  auto vertex1 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  auto vertex2 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+  ASSERT_NO_ERROR(acc1->Commit());
+  auto acc2 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+  acc2->PrepareForNextIndexQuery();
+  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+  auto res = vertex_to_delete->RemoveLabel(this->label1);
+  ASSERT_FALSE(res.HasError());
+  ASSERT_NO_ERROR(acc2->Commit());
+  auto acc3 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
+  acc3->PrepareForNextIndexQuery();
+}
+
+TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
+  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+  auto acc1 = this->storage->Access();
+  auto vertex1 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  auto vertex2 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+  ASSERT_NO_ERROR(acc1->Commit());
+  auto acc2 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+  acc2->PrepareForNextIndexQuery();
+  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+  auto res_remove = vertex_to_delete->RemoveLabel(this->label1);
+  ASSERT_FALSE(res_remove.HasError());
+  auto res_add = vertex_to_delete->AddLabel(this->label1);
+  ASSERT_FALSE(res_add.HasError());
+  ASSERT_NO_ERROR(acc2->Commit());
+  auto acc3 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+  acc3->PrepareForNextIndexQuery();
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
