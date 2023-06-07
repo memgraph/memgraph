@@ -19,7 +19,7 @@
 #include "interp_handler.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
-#include "session_data.hpp"
+#include "session_context.hpp"
 #include "storage_handler.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
@@ -33,43 +33,41 @@ concept WithUUID = requires(T v) {
 
 using DeleteResult = utils::BasicResult<DeleteError>;
 
-class SessionDataHandler {
+class SessionContextHandler {
  public:
   using StorageT = storage::Storage;
   using StorageConfigT = storage::Config;
   using InterpT = query::InterpreterContext;
   using InterpConfigT = query::InterpreterConfig;
-  using config_type = std::pair<StorageConfigT, InterpConfigT>;
-  using NewResultT = utils::BasicResult<NewError, SessionData>;
+  using ConfigT = std::pair<StorageConfigT, InterpConfigT>;
+  using NewResultT = utils::BasicResult<NewError, SessionContext>;
 
-  SessionDataHandler(const SessionDataHandler &) = delete;
-  SessionDataHandler &operator=(const SessionDataHandler &) = delete;
-  SessionDataHandler(SessionDataHandler &&) = delete;
-  SessionDataHandler &operator=(SessionDataHandler &&) = delete;
+  SessionContextHandler(const SessionContextHandler &) = delete;
+  SessionContextHandler &operator=(const SessionContextHandler &) = delete;
+  SessionContextHandler(SessionContextHandler &&) = delete;
+  SessionContextHandler &operator=(SessionContextHandler &&) = delete;
 
-  static SessionDataHandler &get() {
-    static SessionDataHandler sd;
+  static SessionContextHandler &get() {
+    static SessionContextHandler sd;
     return sd;
   }
 
 #if MG_ENTERPRISE
   void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-            memgraph::audit::Log *audit_log, config_type configs) {
-    default_configs_ = configs;
-    auth_ = auth;
-    audit_log_ = audit_log;
-    // Always create the default DB
-    MG_ASSERT(!New(kDefaultDB).HasError(), "Failed while creating the default DB.");
-  }
+            memgraph::audit::Log *audit_log, ConfigT configs) {
 #else
-  static void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-                   config_type configs) {
+  void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+            ConfigT configs) {
+#endif
+    MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
     default_configs_ = configs;
     auth_ = auth;
-    // Always create the default DB
-    MG_ASSERT(!New(kDefaultDB).HasError(), "Failed while creating the default DB.");
-  }
+#if MG_ENTERPRISE
+    audit_log_ = audit_log;
 #endif
+    MG_ASSERT(!New(kDefaultDB).HasError(), "Failed while creating the default DB.");
+    initialized_ = true;
+  }
 
   // TODO: Think about what New returns. Maybe it's easier to return false on error (because how are we suppose to
   // handle errors if we don't know if they happened)
@@ -81,12 +79,12 @@ class SessionDataHandler {
           interp_handler_.New(name, new_storage.GetValue(), inter_config, storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
 #if MG_ENTERPRISE
-        SessionData sd{*new_storage, *new_interp, auth_, audit_log_};
+        SessionContext sd{*new_storage, *new_interp, auth_, audit_log_};
 #else
-        SessionData sd{*new_storage, new_interp.GetValue(), auth_};
+        SessionContext sd{*new_storage, new_interp.GetValue(), auth_};
 #endif
         sd.run_id = run_id_;
-        session_data_.emplace(name, sd);
+        session_context_.emplace(name, sd);
         return sd;
       }
       // TODO: Storage succeeded, but interpreter failed... How to handle?
@@ -107,11 +105,11 @@ class SessionDataHandler {
   NewResultT New(std::string_view name) { return New(name, name); }
 
   // Can throw
-  SessionData *GetPtr(const std::string &name) { return &session_data_.at(name); }
+  SessionContext *GetPtr(const std::string &name) { return &session_context_.at(name); }
 
   // Can throw
   bool SetFor(const std::string &uuid, const std::string &db_name) {
-    // if (const auto found = session_data_.find(uuid); found != session_data_.end()) {
+    // if (const auto found = session_context_.find(uuid); found != session_context_.end()) {
     const auto *ptr = GetPtr(db_name);
     if (ptr) {
       auto name_locked = get_db_name_.ReadLock();
@@ -165,7 +163,7 @@ class SessionDataHandler {
             return DeleteError::USING;
           }
         }
-        session_data_.erase(db_name);
+        session_context_.erase(db_name);
         return {};  // Success
       }
       return DeleteError::NON_EXISTENT;
@@ -174,13 +172,13 @@ class SessionDataHandler {
     }
   }
 
-  void SetDefaultConfigs(config_type configs) { default_configs_ = configs; }
-  std::optional<config_type> GetDefaultConfigs() { return default_configs_; }
+  void SetDefaultConfigs(ConfigT configs) { default_configs_ = configs; }
+  std::optional<ConfigT> GetDefaultConfigs() { return default_configs_; }
 
   std::vector<std::string> All() {
     std::vector<std::string> names;
-    names.reserve(session_data_.size());
-    for (const auto &sd : session_data_) {
+    names.reserve(session_context_.size());
+    for (const auto &sd : session_context_) {
       names.emplace_back(sd.first);
     }
     return names;
@@ -190,17 +188,17 @@ class SessionDataHandler {
   std::string Current(const std::string &uuid) { return get_db_name_.ReadLock()->at(uuid)(); }
 
  private:
-  SessionDataHandler() : run_id_(utils::GenerateUUID()) {}
-  ~SessionDataHandler() {}
+  SessionContextHandler() : run_id_{utils::GenerateUUID()}, initialized_{false} {}
+  ~SessionContextHandler() {}
 
   // Are storage objects ever deleted?
   // shared_ptr and custom destructor if we are destroying it
   // unique and raw ptrs if we are not destroying it
   // Create drop and create with same name?
-  std::unordered_map<std::string, SessionData> session_data_;
+  std::unordered_map<std::string, SessionContext> session_context_;
   StorageHandler<StorageT, StorageConfigT> storage_handler_;
   InterpContextHandler<InterpT, InterpConfigT> interp_handler_;
-  std::optional<config_type> default_configs_;
+  std::optional<ConfigT> default_configs_;
   const std::string run_id_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 #if MG_ENTERPRISE
@@ -212,6 +210,7 @@ class SessionDataHandler {
   memgraph::utils::Synchronized<std::unordered_map<std::string, std::function<std::string()>>,
                                 memgraph::utils::WritePrioritizedRWLock>
       get_db_name_;
+  std::atomic_bool initialized_;
 };
 
 }  // namespace memgraph::dbms

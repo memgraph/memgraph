@@ -24,20 +24,20 @@ namespace memgraph::dbms {
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
-struct SessionData {
+struct SessionContext {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
 #if MG_ENTERPRISE
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-              memgraph::audit::Log *audit_log)
+  SessionContext(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+                 memgraph::audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
 
 #else
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
+  SessionContext(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : db(db), interpreter_context(interpreter_context), auth(auth) {}
 
 #endif

@@ -13,6 +13,6 @@
 
 namespace memgraph::dbms {
 
-constexpr static const char *kDefaultDB = "Memgraph";
+constexpr static const char *kDefaultDB = "memgraph";
 
 }  // namespace memgraph::dbms

@@ -15,7 +15,6 @@
 
 #include <gflags/gflags.h>
 
-#include "dbms/session_data_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"

@@ -97,10 +97,10 @@ class OutputStream final {
  * Websocket Sessions. It handles socket ownership, inactivity timeout and protocol
  * wrapping.
  */
-template <typename TSession, typename TSessionData>
-class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionData>> {
+template <typename TSession, typename TSessionContext>
+class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>> {
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
-  using std::enable_shared_from_this<WebsocketSession<TSession, TSessionData>>::shared_from_this;
+  using std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -153,22 +153,27 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
  private:
   // Take ownership of the socket
-  explicit WebsocketSession(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint,
+  explicit WebsocketSession(tcp::socket &&socket, TSessionContext *session_context, tcp::endpoint endpoint,
                             std::string_view service_name)
       : WebsocketSession(
-            std::make_unique<typename TSession::impl_type>(data->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
-            std::forward<tcp::socket>(socket), data, endpoint, service_name) {}
+            std::make_unique<typename TSession::HLImplT>(session_context->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
+            std::forward<tcp::socket>(socket), session_context, endpoint, service_name) {}
 
-  explicit WebsocketSession(std::unique_ptr<typename TSession::impl_type> impl, tcp::socket &&socket,
-                            TSessionData *data, tcp::endpoint endpoint, std::string_view service_name)
+  explicit WebsocketSession(std::unique_ptr<typename TSession::HLImplT> pimpl, tcp::socket &&socket,
+                            TSessionContext *session_context, tcp::endpoint endpoint, std::string_view service_name)
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
         output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
-        impl_(std::move(impl)),
-        session_(input_buffer_.read_end(), &output_stream_, impl_.get()),
+        db_name_{memgraph::dbms::kDefaultDB},
+        session_{input_buffer_.read_end(), &output_stream_, pimpl.get()},
+        session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
-        service_name_{service_name} {}
+        service_name_{service_name} {
+    hl_sessions_.emplace(db_name_, std::move(pimpl));
+    session_context_->RegisterOnChange(session_, std::bind(&WebsocketSession::OnChange, this, std::placeholders::_1));
+    session_context_->RegisterGetDB(session_, [&]() { return db_name_; });
+  }
 
   void OnAccept(boost::beast::error_code ec) {
     if (ec) {
@@ -245,13 +250,30 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   bool IsConnected() const { return ws_.is_open() && execution_active_; }
 
+  bool OnChange(const std::string &db_name) {
+    if (session_.state_ == memgraph::communication::bolt::State::Result && db_name_ != db_name) {  // Only during pull
+      // TODO a 1000 checks
+      auto &ptr = hl_sessions_[db_name];
+      if (ptr == nullptr) {
+        ptr = std::make_unique<typename TSession::HLImplT>(session_context_->GetPtr(db_name), endpoint_);
+      }
+      if (session_.SetImpl(ptr.get())) {
+        db_name_ = db_name;
+        return true;
+      }
+    }
+    return false;
+  }
+
   WebSocket ws_;
   boost::asio::strand<WebSocket::executor_type> strand_;
 
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
-  std::unique_ptr<typename TSession::impl_type> impl_;
+  std::string db_name_;
+  std::unordered_map<std::string, std::unique_ptr<typename TSession::HLImplT>> hl_sessions_;
   TSession session_;
+  TSessionContext *session_context_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
   std::string_view service_name_;
@@ -263,11 +285,11 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
  * Sessions. It handles socket ownership, inactivity timeout and protocol
  * wrapping.
  */
-template <typename TSession, typename TSessionData>
-class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
+template <typename TSession, typename TSessionContext>
+class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>> {
   using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
-  using std::enable_shared_from_this<Session<TSession, TSessionData>>::shared_from_this;
+  using std::enable_shared_from_this<Session<TSession, TSessionContext>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -280,7 +302,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
 
-  ~Session() { data_->Delete(session_); }
+  ~Session() { session_context_->Delete(session_); }
 
   bool Start() {
     if (execution_active_) {
@@ -345,29 +367,31 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
  private:
-  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
-                   const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
-      : Session(std::make_unique<typename TSession::impl_type>(data->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
-                std::forward<tcp::socket>(socket), data, server_context, endpoint, inactivity_timeout_sec,
-                service_name) {}
+  explicit Session(tcp::socket &&socket, TSessionContext *session_context, ServerContext &server_context,
+                   tcp::endpoint endpoint, const std::chrono::seconds inactivity_timeout_sec,
+                   std::string_view service_name)
+      : Session(
+            std::make_unique<typename TSession::HLImplT>(session_context->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
+            std::forward<tcp::socket>(socket), session_context, server_context, endpoint, inactivity_timeout_sec,
+            service_name) {}
 
-  explicit Session(std::unique_ptr<typename TSession::impl_type> pimpl, tcp::socket &&socket, TSessionData *data,
-                   ServerContext &server_context, tcp::endpoint endpoint,
+  explicit Session(std::unique_ptr<typename TSession::HLImplT> pimpl, tcp::socket &&socket,
+                   TSessionContext *session_context, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         db_name_{memgraph::dbms::kDefaultDB},
         session_{input_buffer_.read_end(), &output_stream_, pimpl.get()},
-        data_{data},
+        session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
-    sessions_.emplace(db_name_, std::move(pimpl));
-    data_->RegisterOnChange(session_, std::bind(&Session::OnChange, this, std::placeholders::_1));
-    data_->RegisterGetDB(session_, [&]() { return db_name_; });
+    hl_sessions_.emplace(db_name_, std::move(pimpl));
+    session_context_->RegisterOnChange(session_, std::bind(&Session::OnChange, this, std::placeholders::_1));
+    session_context_->RegisterGetDB(session_, [&]() { return db_name_; });
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
       socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
@@ -418,7 +442,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         spdlog::info("Switching {} to websocket connection", remote_endpoint_);
         if (std::holds_alternative<TCPSocket>(socket_)) {
           auto sock = std::get<TCPSocket>(std::move(socket_));
-          WebsocketSession<TSession, TSessionData>::Create(std::move(sock), data_, endpoint_, service_name_)
+          WebsocketSession<TSession, TSessionContext>::Create(std::move(sock), session_context_, endpoint_,
+                                                              service_name_)
               ->DoAccept(parser.release());
           execution_active_ = false;
           return;
@@ -553,9 +578,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   bool OnChange(const std::string &db_name) {
     if (session_.state_ == memgraph::communication::bolt::State::Result && db_name_ != db_name) {  // Only during pull
       // TODO a 1000 checks
-      auto &ptr = sessions_[db_name];
+      auto &ptr = hl_sessions_[db_name];
       if (ptr == nullptr) {
-        ptr = std::make_unique<typename TSession::impl_type>(data_->GetPtr(db_name), endpoint_);
+        ptr = std::make_unique<typename TSession::HLImplT>(session_context_->GetPtr(db_name), endpoint_);
       }
       if (session_.SetImpl(ptr.get())) {
         db_name_ = db_name;
@@ -572,9 +597,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   std::string db_name_;
-  std::unordered_map<std::string, std::unique_ptr<typename TSession::impl_type>> sessions_;
+  std::unordered_map<std::string, std::unique_ptr<typename TSession::HLImplT>> hl_sessions_;
   TSession session_;
-  TSessionData *data_;
+  TSessionContext *session_context_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
   std::string_view service_name_;

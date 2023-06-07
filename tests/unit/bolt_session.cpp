@@ -33,13 +33,13 @@ static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
 static const char *kQueryShowTx = "SHOW TRANSACTIONS";
 static const char *kQueryEmpty = "no results";
 
-class TestSessionData {};
+class TestSessionContext {};
 
 class TestImpl {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TestOutputStream>>;
 
-  TestImpl(TestSessionData *data) {}
+  TestImpl(TestSessionContext *data) {}
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
                                                                     const std::map<std::string, Value> &params,
@@ -115,8 +115,8 @@ using TestSession = Session<TestInputStream, TestOutputStream, TestImpl>;
 #define INIT_VARS                                            \
   TestInputStream input_stream;                              \
   TestOutputStream output_stream;                            \
-  TestSessionData session_data;                              \
-  TestImpl impl(&session_data);                              \
+  TestSessionContext session_context;                        \
+  TestImpl impl(&session_context);                           \
   TestSession session(&input_stream, &output_stream, &impl); \
   std::vector<uint8_t> &output = output_stream.output;
 

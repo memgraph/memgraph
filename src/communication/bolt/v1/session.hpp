@@ -68,7 +68,7 @@ template <typename TInputStream, typename TOutputStream, HLImpl TSession>
 class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
-  using impl_type = TSession;
+  using HLImplT = TSession;
 
   Session(TInputStream *input_stream, TOutputStream *output_stream, TSession *impl)
       : input_stream_(*input_stream),

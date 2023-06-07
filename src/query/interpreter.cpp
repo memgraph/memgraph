@@ -29,7 +29,7 @@
 #include <variant>
 
 #include "auth/models.hpp"
-#include "dbms/session_data_handler.hpp"
+#include "dbms/session_context_handler.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -2776,7 +2776,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
   return PreparedQuery{{"STATUS"},
                        std::move(parsed_query.required_privileges),
                        [db_name = query->db_name_, action = query->action_, session_uuid,
-                        &sd_handler = memgraph::dbms::SessionDataHandler::get()](
+                        &sd_handler = memgraph::dbms::SessionContextHandler::get()](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          std::vector<std::vector<TypedValue>> status;
                          std::string res;
@@ -2844,7 +2844,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, const std::string &session_uuid) {
   return PreparedQuery{{"Name", "Current"},
                        std::move(parsed_query.required_privileges),
-                       [session_uuid, &sd_handler = memgraph::dbms::SessionDataHandler::get()](
+                       [session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          std::vector<std::vector<TypedValue>> status;
 

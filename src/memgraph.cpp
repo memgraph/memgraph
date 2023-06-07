@@ -93,7 +93,7 @@
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
-#include "dbms/session_data_handler.hpp"
+#include "dbms/session_context_handler.hpp"
 #include "glue/communication.hpp"
 
 #include "auth/auth.hpp"
@@ -475,31 +475,32 @@ namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
-class BoltSession final {
+class SessionHL final {
  public:
-  BoltSession(memgraph::dbms::SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint)
-      : db_(data->db),
-        interpreter_context_(data->interpreter_context),
-        interpreter_(data->interpreter_context),
-        auth_(data->auth),
+  SessionHL(memgraph::dbms::SessionContext *session_context,
+            const memgraph::communication::v2::ServerEndpoint &endpoint)
+      : db_(session_context->db),
+        interpreter_context_(session_context->interpreter_context),
+        interpreter_(session_context->interpreter_context),
+        auth_(session_context->auth),
 #if MG_ENTERPRISE
-        audit_log_(data->audit_log),
+        audit_log_(session_context->audit_log),
 #endif
         endpoint_(endpoint),
-        run_id_(data->run_id) {
+        run_id_(session_context->run_id) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
-  ~BoltSession() {
+  ~SessionHL() {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
-  BoltSession(const BoltSession &) = delete;
-  BoltSession &operator=(const BoltSession &) = delete;
-  BoltSession(BoltSession &&) = delete;
-  BoltSession &operator=(BoltSession &&) = delete;
+  SessionHL(const SessionHL &) = delete;
+  SessionHL &operator=(const SessionHL &) = delete;
+  SessionHL(SessionHL &&) = delete;
+  SessionHL &operator=(SessionHL &&) = delete;
 
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
@@ -669,11 +670,11 @@ class BoltSession final {
 };
 
 using SessionT = memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                                        memgraph::communication::v2::OutputStream, BoltSession>;
-using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionDataHandler>;
+                                                        memgraph::communication::v2::OutputStream, SessionHL>;
+using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionContextHandler>;
 using MonitoringServerT =
-    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionData>,
-                                          memgraph::dbms::SessionData>;
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
+                                          memgraph::dbms::SessionContext>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -906,18 +907,18 @@ int main(int argc, char **argv) {
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
   // FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
-  // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
-  auto &sd_handler = memgraph::dbms::SessionDataHandler::get();
-  sd_handler.Init(&auth, &audit_log, {db_config, interp_config});
+  // memgraph::dbms::SessionContext session_context{&db, &interpreter_context, &auth, &audit_log};
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
+  sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
 #else
-  // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth};
-  auto &sd_handler = memgraph::dbms::SessionDataHandler::get();
-  sd_handler.Init(&auth, {db_config, interp_config});
+  // memgraph::dbms::SessionContext session_context{&db, &interpreter_context, &auth};
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
+  sc_handler.Init(&auth, {db_config, interp_config});
 #endif
   // Just for current support...
-  auto session_data = *sd_handler.GetPtr(memgraph::dbms::kDefaultDB);
-  auto &interpreter_context = *session_data.interpreter_context;
-  auto &db = *session_data.db;
+  auto session_context = *sc_handler.GetPtr(memgraph::dbms::kDefaultDB);
+  auto &interpreter_context = *session_context.interpreter_context;
+  auto &db = *session_context.db;
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
@@ -974,13 +975,13 @@ int main(int argc, char **argv) {
   }
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-  ServerT server(server_endpoint, &sd_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+  ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
   // const auto run_id = memgraph::utils::GenerateUUID();
   const auto machine_id = memgraph::utils::GetMachineId();
-  // session_data.run_id = run_id;
-  const auto run_id = *session_data.run_id;  // For current compatibility
+  // session_context.run_id = run_id;
+  const auto run_id = *session_context.run_id;  // For current compatibility
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
@@ -1012,7 +1013,7 @@ int main(int argc, char **argv) {
   AddLoggerSink(websocket_server.GetLoggingSink());
 
   MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
