@@ -14,6 +14,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/skip_list.hpp"
@@ -160,7 +161,19 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
   return false;
 }
 
-void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {}
+void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update,
+                                              const Transaction &tx) {
+  entries_for_deletion.WithLock([added_label, vertex_before_update, &tx](auto &tx_to_entries_for_deletion) {
+    if (auto tx_it = tx_to_entries_for_deletion.find(tx.start_timestamp); tx_it != tx_to_entries_for_deletion.end()) {
+      if (auto vertex_label_index_it = tx_it->second.find(vertex_before_update->gid);
+          vertex_label_index_it != tx_it->second.end()) {
+        std::erase_if(vertex_label_index_it->second, [added_label](const std::pair<LabelId, PropertyId> &index) {
+          return index.first == added_label;
+        });
+      }
+    }
+  });
+}
 
 void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update,
                                                  const Transaction &tx) {

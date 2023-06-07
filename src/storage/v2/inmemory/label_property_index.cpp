@@ -78,15 +78,16 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   return create_index_seq(label, property, vertices, it);
 }
 
-void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
+void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
+                                                  const Transaction &tx) {
   for (auto &[label_prop, storage] : index_) {
-    if (label_prop.first != label) {
+    if (label_prop.first != added_label) {
       continue;
     }
-    auto prop_value = vertex->properties.GetProperty(label_prop.second);
+    auto prop_value = vertex_after_update->properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
       auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
+      acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
     }
   }
 }

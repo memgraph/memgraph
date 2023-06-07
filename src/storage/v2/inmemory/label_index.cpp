@@ -17,11 +17,11 @@ namespace memgraph::storage {
 InMemoryLabelIndex::InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config)
     : LabelIndex(indices, constraints, config) {}
 
-void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) {
+void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
   auto it = index_.find(added_label);
   if (it == index_.end()) return;
   auto acc = it->second.access();
-  acc.insert(Entry{vertex_before_update, tx.start_timestamp});
+  acc.insert(Entry{vertex_after_update, tx.start_timestamp});
 }
 
 bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,

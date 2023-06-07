@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gmock/gmock.h>
+#include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
 #include "storage/v2/disk/storage.hpp"
@@ -78,10 +79,10 @@ class IndexTest : public testing::Test {
   int vertex_id;
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 
 TYPED_TEST_CASE(IndexTest, StorageTypes);
+// TYPED_TEST_CASE(IndexTest, InMemoryStorageType);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexCreate) {
@@ -431,80 +432,88 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-// TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
-//   EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-//   EXPECT_FALSE(this->storage->CreateIndex(this->label2).HasError());
+TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    EXPECT_FALSE(this->storage->CreateIndex(this->label2).HasError());
 
-//   auto acc = this->storage->Access();
-//   for (int i = 0; i < 20; ++i) {
-//     auto vertex = this->CreateVertex(acc.get());
-//     ASSERT_NO_ERROR(vertex.AddLabel(i % 3 ? this->label1 : this->label2));
-//   }
+    auto acc = this->storage->Access();
+    for (int i = 0; i < 20; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 3 ? this->label1 : this->label2));
+    }
 
-//   EXPECT_EQ(acc->ApproximateVertexCount(this->label1), 13);
-//   EXPECT_EQ(acc->ApproximateVertexCount(this->label2), 7);
-// }
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1), 13);
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label2), 7);
+  }
+}
 
 TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-  auto acc1 = this->storage->Access();
-  auto vertex1 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-  auto vertex2 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-  EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-  acc1->PrepareForNextIndexQuery();
-  ASSERT_NO_ERROR(acc1->Commit());
-  auto acc2 = this->storage->Access();
-  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
-  auto res = acc2->DeleteVertex(&*vertex_to_delete);
-  ASSERT_FALSE(res.HasError());
-  ASSERT_NO_ERROR(acc2->Commit());
-  auto acc3 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
-  acc3->PrepareForNextIndexQuery();
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    auto acc1 = this->storage->Access();
+    auto vertex1 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    auto vertex2 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc1->PrepareForNextIndexQuery();
+    ASSERT_NO_ERROR(acc1->Commit());
+    auto acc2 = this->storage->Access();
+    auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+    auto res = acc2->DeleteVertex(&*vertex_to_delete);
+    ASSERT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(acc2->Commit());
+    auto acc3 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
+    acc3->PrepareForNextIndexQuery();
+  }
 }
 
 TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-  auto acc1 = this->storage->Access();
-  auto vertex1 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-  auto vertex2 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-  ASSERT_NO_ERROR(acc1->Commit());
-  auto acc2 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-  acc2->PrepareForNextIndexQuery();
-  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
-  auto res = vertex_to_delete->RemoveLabel(this->label1);
-  ASSERT_FALSE(res.HasError());
-  ASSERT_NO_ERROR(acc2->Commit());
-  auto acc3 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
-  acc3->PrepareForNextIndexQuery();
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    auto acc1 = this->storage->Access();
+    auto vertex1 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    auto vertex2 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(acc1->Commit());
+    auto acc2 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc2->PrepareForNextIndexQuery();
+    auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+    auto res = vertex_to_delete->RemoveLabel(this->label1);
+    ASSERT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(acc2->Commit());
+    auto acc3 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
+    acc3->PrepareForNextIndexQuery();
+  }
 }
 
 TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-  auto acc1 = this->storage->Access();
-  auto vertex1 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-  auto vertex2 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-  ASSERT_NO_ERROR(acc1->Commit());
-  auto acc2 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-  acc2->PrepareForNextIndexQuery();
-  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
-  auto res_remove = vertex_to_delete->RemoveLabel(this->label1);
-  ASSERT_FALSE(res_remove.HasError());
-  auto res_add = vertex_to_delete->AddLabel(this->label1);
-  ASSERT_FALSE(res_add.HasError());
-  ASSERT_NO_ERROR(acc2->Commit());
-  auto acc3 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-  acc3->PrepareForNextIndexQuery();
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    auto acc1 = this->storage->Access();
+    auto vertex1 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    auto vertex2 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(acc1->Commit());
+    auto acc2 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc2->PrepareForNextIndexQuery();
+    auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+    auto res_remove = vertex_to_delete->RemoveLabel(this->label1);
+    ASSERT_FALSE(res_remove.HasError());
+    auto res_add = vertex_to_delete->AddLabel(this->label1);
+    ASSERT_FALSE(res_add.HasError());
+    ASSERT_NO_ERROR(acc2->Commit());
+    auto acc3 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc3->PrepareForNextIndexQuery();
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -809,29 +818,30 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-// TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
-//   EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
 
-//   auto acc = this->storage->Access();
-//   for (int i = 1; i <= 10; ++i) {
-//     for (int j = 0; j < i; ++j) {
-//       auto vertex = this->CreateVertex(acc.get());
-//       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
-//       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
-//     }
-//   }
+    auto acc = this->storage->Access();
+    for (int i = 1; i <= 10; ++i) {
+      for (int j = 0; j < i; ++j) {
+        auto vertex = this->CreateVertex(acc.get());
+        ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+      }
+    }
 
-//   EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 55);
-//   for (int i = 1; i <= 10; ++i) {
-//     EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val, PropertyValue(i)), i);
-//   }
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 55);
+    for (int i = 1; i <= 10; ++i) {
+      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val, PropertyValue(i)), i);
+    }
 
-//   EXPECT_EQ(
-//       acc->ApproximateVertexCount(this->label1, this->prop_val,
-//       memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
-//                                   memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
-//       2 + 3 + 4 + 5 + 6);
-// }
+    EXPECT_EQ(
+        acc->ApproximateVertexCount(this->label1, this->prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
+        2 + 3 + 4 + 5 + 6);
+  }
+}
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
@@ -1042,58 +1052,94 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
-  auto acc1 = this->storage->Access();
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    auto acc1 = this->storage->Access();
 
-  auto vertex1 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-  ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
+    auto vertex1 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
 
-  auto vertex2 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-  ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
+    auto vertex2 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
-  EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-  acc1->PrepareForNextIndexQuery();
-  ASSERT_NO_ERROR(acc1->Commit());
+    EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc1->PrepareForNextIndexQuery();
+    ASSERT_NO_ERROR(acc1->Commit());
 
-  auto acc2 = this->storage->Access();
-  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
-  auto res = acc2->DeleteVertex(&*vertex_to_delete);
+    auto acc2 = this->storage->Access();
+    auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+    auto res = acc2->DeleteVertex(&*vertex_to_delete);
+    ASSERT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(acc2->Commit());
 
-  ASSERT_FALSE(res.HasError());
-  ASSERT_NO_ERROR(acc2->Commit());
-  auto acc3 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(1));
-  acc3->PrepareForNextIndexQuery();
+    auto acc3 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
+                UnorderedElementsAre(1));
+    acc3->PrepareForNextIndexQuery();
+  }
 }
 
 /// TODO: empty lines, so it is easier to read what is actually going on here
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
-  auto acc1 = this->storage->Access();
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    auto acc1 = this->storage->Access();
 
-  auto vertex1 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-  ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
+    auto vertex1 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
 
-  auto vertex2 = this->CreateVertex(acc1.get());
-  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-  ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
+    auto vertex2 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
-  EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-  acc1->PrepareForNextIndexQuery();
-  ASSERT_NO_ERROR(acc1->Commit());
+    EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc1->PrepareForNextIndexQuery();
+    ASSERT_NO_ERROR(acc1->Commit());
 
-  auto acc2 = this->storage->Access();
-  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
-  auto res = vertex_to_delete->RemoveLabel(this->label1);
+    auto acc2 = this->storage->Access();
+    auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+    auto res = vertex_to_delete->RemoveLabel(this->label1);
+    ASSERT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(acc2->Commit());
 
-  ASSERT_FALSE(res.HasError());
-  ASSERT_NO_ERROR(acc2->Commit());
-  auto acc3 = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(1));
-  acc3->PrepareForNextIndexQuery();
+    auto acc3 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
+                UnorderedElementsAre(1));
+    acc3->PrepareForNextIndexQuery();
+  }
+}
+
+TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    auto acc1 = this->storage->Access();
+
+    auto vertex1 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
+
+    auto vertex2 = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
+
+    EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+    acc1->PrepareForNextIndexQuery();
+    ASSERT_NO_ERROR(acc1->Commit());
+
+    auto acc2 = this->storage->Access();
+    auto target_vertex = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+    auto remove_res = target_vertex->RemoveLabel(this->label1);
+    ASSERT_FALSE(remove_res.HasError());
+    auto add_res = target_vertex->AddLabel(this->label1);
+    ASSERT_FALSE(add_res.HasError());
+    ASSERT_NO_ERROR(acc2->Commit());
+
+    auto acc3 = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1));
+    acc3->PrepareForNextIndexQuery();
+  }
 }

@@ -80,42 +80,37 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-
   if (vertex_->deleted) return Error::DELETED_OBJECT;
-
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
-  constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  /// TODO: add label call and unit test. Hopefully no need to add it on the end
-  // indices_->
-
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
-
   vertex_->labels.push_back(label);
 
+  /// TODO: some by pointers, some by reference => not good, make it better
+  constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   indices_->UpdateOnAddLabel(label, vertex_, *transaction_);
 
   return true;
 }
 
+/// TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
 
+  CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
+  std::swap(*it, *vertex_->labels.rbegin());
+  vertex_->labels.pop_back();
+
   /// TODO: some by pointers, some by reference => not good, make it better
   constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
   indices_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
 
-  CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
-
-  std::swap(*it, *vertex_->labels.rbegin());
-  vertex_->labels.pop_back();
   return true;
 }
 
