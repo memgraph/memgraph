@@ -121,6 +121,7 @@ bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid, uint64_t transacti
   return status.ok();
 }
 
+/// TODO: andi What if there no indices, no need to call it?
 bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                             uint64_t transaction_commit_timestamp) {
   spdlog::debug("Called delete vertices with removed indexing label");

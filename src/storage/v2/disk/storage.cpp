@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <limits>
+#include <stdexcept>
 
 #include <rocksdb/slice.h>
 
@@ -54,6 +55,7 @@ constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
 
+/// TODO: refactor with one return statement, no need for oom_exception
 bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
   OOMExceptionEnabler oom_exception;
   if (accessor.find(gid) != accessor.end()) {
@@ -148,6 +150,23 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
 
 bool HasVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
   return !GetVertexProperty(vertex, property, transaction, view).IsNull();
+}
+
+bool HasVertexEqualPropertyValue(const Vertex &vertex, PropertyId property_id, PropertyValue property_value,
+                                 Transaction *transaction, View view) {
+  return GetVertexProperty(vertex, property_id, transaction, view) == property_value;
+}
+
+bool IsPropertyValueWithinInterval(const PropertyValue &value,
+                                   const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                   const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+  if ((lower_bound && value < lower_bound->value()) || (lower_bound->IsExclusive() && value == lower_bound->value())) {
+    return false;
+  }
+  if ((upper_bound && value > upper_bound->value()) || (upper_bound->IsExclusive() && value == upper_bound->value())) {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -449,7 +468,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  //// This has to go before index iterator
   spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
@@ -492,7 +510,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  //// This has to go before index iterator
   spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
@@ -514,7 +531,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
     // TODO: andi this will be optimized bla bla
-    if (key.starts_with(utils::SerializeIdType(label)) && !utils::Contains(gids, curr_gid)) {
+    /// TODO: couple in one method
+    if (key.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
+        !utils::Contains(gids, curr_gid)) {
       spdlog::debug("Loaded vertex with gid {} from disk label index",
                     utils::ExtractGidFromLabelPropertyIndexStorage(key));
       /// TODO: against every law of programming
@@ -541,14 +560,16 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  //// This has to go before index iterator
   spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
-    if (VertexHasLabel(vertex, label, &transaction_, view)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
+    /// TODO: refactor in one method
+    if (VertexHasLabel(vertex, label, &transaction_, view) &&
+        HasVertexEqualPropertyValue(vertex, property, value, &transaction_, view)) {
+      spdlog::debug("Loaded vertex with gid {} from main cache to label-property index cache",
+                    utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
@@ -557,12 +578,16 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
   spdlog::debug("Reading from label-property index");
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
-    std::string key = index_it->key().ToString();
-    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
+    std::string key_str = index_it->key().ToString();
+    std::string it_value_str = index_it->value().ToString();
+    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key_str)));
     // TODO: andi this will be optimized bla bla
-    if (key.starts_with(utils::SerializeIdType(label)) && !utils::Contains(gids, curr_gid)) {
+    /// TODO: couple this condition
+    PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
+    if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
+        !utils::Contains(gids, curr_gid) && properties.IsPropertyEqual(property, value)) {
       spdlog::debug("Loaded vertex with gid {} from disk label index",
-                    utils::ExtractGidFromLabelPropertyIndexStorage(key));
+                    utils::ExtractGidFromLabelPropertyIndexStorage(key_str));
       /// TODO: against every law of programming
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
@@ -576,7 +601,56 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
+  OOMExceptionEnabler oom_exception;
+
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+
+  auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
+  disk_index_transaction->SetReadTimestampForValidation(transaction_.start_timestamp);
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
+
+  spdlog::debug("Reading from main disk transaction");
+  auto main_cache_acc = vertices_.access();
+  std::unordered_set<storage::Gid> gids(main_cache_acc.size());
+  for (const auto &vertex : main_cache_acc) {
+    gids.insert(vertex.gid);
+    /// TODO: refactor in one method
+    auto prop_value = GetVertexProperty(vertex, property, &transaction_, view);
+    if (VertexHasLabel(vertex, label, &transaction_, view) &&
+        IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
+      spdlog::debug("Loaded vertex with gid {} from main cache to label-property index cache",
+                    utils::SerializeIdType(vertex.gid));
+      LoadVertexToLabelPropertyIndexCache(
+          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
+    }
+  }
+
+  spdlog::debug("Reading from label-property index");
+  for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
+    std::string key_str = index_it->key().ToString();
+    std::string it_value_str = index_it->value().ToString();
+    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key_str)));
+    // TODO: andi this will be optimized bla bla
+    /// TODO: couple this condition
+    PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
+    auto prop_value = properties.GetProperty(property);
+    if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
+        !utils::Contains(gids, curr_gid) && IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
+      spdlog::debug("Loaded vertex with gid {} from disk label index",
+                    utils::ExtractGidFromLabelPropertyIndexStorage(key_str));
+      /// TODO: against every law of programming
+      LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
+    }
+  }
+
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
+                                              &storage_->constraints_, storage_->config_.items));
 }
 
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
