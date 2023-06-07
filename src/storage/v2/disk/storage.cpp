@@ -1263,15 +1263,6 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     return StorageDataManipulationError{SerializationError{}};
   }
 
-  logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
-  auto commitStatus = disk_transaction_->Commit();
-  disk_transaction_->ClearSnapshot();
-  delete disk_transaction_;
-  disk_transaction_ = nullptr;
-  if (!commitStatus.ok()) {
-    spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
-    return StorageDataManipulationError{SerializationError{}};
-  }
   return {};
 }
 
@@ -1396,6 +1387,15 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
       Abort();
       return res;
     }
+  }
+
+  logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
+  auto commitStatus = disk_transaction_->Commit();
+  delete disk_transaction_;
+  disk_transaction_ = nullptr;
+  if (!commitStatus.ok()) {
+    spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
+    return StorageDataManipulationError{SerializationError{}};
   }
 
   is_transaction_active_ = false;
