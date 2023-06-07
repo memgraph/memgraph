@@ -908,6 +908,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       ASSERT_EQ(*maybe_value, expected[i]);
     }
     ASSERT_EQ(i, expected.size());
+    acc->PrepareForNextIndexQuery();
   };
 
   // Range iteration with two specified bounds that have the same type should

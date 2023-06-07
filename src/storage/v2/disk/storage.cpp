@@ -160,10 +160,12 @@ bool HasVertexEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
 bool IsPropertyValueWithinInterval(const PropertyValue &value,
                                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                    const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  if ((lower_bound && value < lower_bound->value()) || (lower_bound->IsExclusive() && value == lower_bound->value())) {
+  if (lower_bound && (!PropertyValue::AreComparableTypes(value.type(), lower_bound->value().type()) ||
+                      value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {
     return false;
   }
-  if ((upper_bound && value > upper_bound->value()) || (upper_bound->IsExclusive() && value == upper_bound->value())) {
+  if (upper_bound && (!PropertyValue::AreComparableTypes(value.type(), upper_bound->value().type()) ||
+                      value > upper_bound->value() || (upper_bound->IsExclusive() && value == upper_bound->value()))) {
     return false;
   }
   return true;
