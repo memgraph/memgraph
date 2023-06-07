@@ -105,12 +105,14 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
                                            transaction->command_id);
 }
 
-/// TODO(andi): Add docs for this function.
-/// Command id will be ignored in the case of dealing with deserialized deltas since on the disk, we are operating
-/// in SnapshotIsolation mode.
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, uint64_t timestamp) {
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction) {
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get());
+}
+
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas) {
+  transaction->EnsureCommitTimestampExists();
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get());
 }
 
 /// This function creates a delta in the transaction for the object and links

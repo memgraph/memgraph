@@ -156,7 +156,10 @@ class DiskStorage final : public Storage {
     /// Currently, it does everything the same as in-memory version.
     void FinalizeTransaction() override;
 
-    void PrepareForNextIndexQuery() override { indexed_vertices_.clear(); }
+    void PrepareForNextIndexQuery() override {
+      indexed_vertices_.clear();
+      index_deltas_.clear();
+    }
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(const rocksdb::Slice &key,
                                                                        const rocksdb::Slice &value);
@@ -180,8 +183,7 @@ class DiskStorage final : public Storage {
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
-                                PropertyStore &&properties);
+                                const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
@@ -191,7 +193,7 @@ class DiskStorage final : public Storage {
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid,
-                                    uint64_t edge_commit_ts, std::string_view properties);
+                                    std::string_view properties);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
@@ -206,6 +208,10 @@ class DiskStorage final : public Storage {
     // Main object storage
     utils::SkipList<storage::Vertex> vertices_;
     utils::SkipList<storage::Vertex> indexed_vertices_;
+
+    /// We need them because query context for indexed reading is cleared after the query is done not after the
+    /// transaction is done
+    std::list<Delta> index_deltas_;
     utils::SkipList<storage::Edge> edges_;
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;

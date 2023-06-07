@@ -282,8 +282,4 @@ inline std::string StringTimestamp(uint64_t ts) {
   return ret;
 }
 
-inline uint64_t ExtractTimestampFromDeserializedUserKey(const rocksdb::Slice &user_key) {
-  return DecodeFixed64(user_key.data_ + user_key.size_);
-}
-
 }  // namespace memgraph::utils

@@ -38,6 +38,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/stat.hpp"
@@ -303,9 +304,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
     return std::nullopt;
   }
   std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key_str);
-  uint64_t vertex_commit_ts = transaction_.transaction_id;
-  return CreateVertex(main_storage_accessor, gid, vertex_commit_ts, labels_id,
-                      utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()));
+  return CreateVertex(main_storage_accessor, gid, labels_id,
+                      utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()),
+                      CreateDeleteDeserializedObjectDelta(&transaction_));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -320,9 +321,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
   const std::string value_str = value.ToString();
   std::vector<LabelId> labels = utils::DeserializeLabelsFromLabelIndexStorage(value_str);
-  uint64_t vertex_commit_ts = transaction_.transaction_id;
-  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels,
-                      utils::DeserializePropertiesFromLabelIndexStorage(value_str));
+  return CreateVertex(index_accessor, gid, labels, utils::DeserializePropertiesFromLabelIndexStorage(value_str),
+                      CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
@@ -337,9 +337,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
   const std::string value_str = value.ToString();
   std::vector<LabelId> labels = utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str);
-  uint64_t vertex_commit_ts = transaction_.transaction_id;
-  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels,
-                      utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()));
+  return CreateVertex(index_accessor, gid, labels,
+                      utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()),
+                      CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_));
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -372,8 +372,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
-  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid,
-                               utils::ExtractTimestampFromDeserializedUserKey(key), value.ToStringView());
+  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView());
   MG_ASSERT(maybe_edge.HasValue());
 
   return *maybe_edge;
@@ -546,11 +545,9 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
-/// TODO:  This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
-/// delta creation How to remove this duplication?
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                                       uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
-                                                       PropertyStore &&properties) {
+                                                       const std::vector<LabelId> &label_ids,
+                                                       PropertyStore &&properties, Delta *delta) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -561,11 +558,10 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                  std::memory_order_release);
-  auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
-  // NOTE: If the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
+  /// TODO: move
   for (auto label_id : label_ids) {
     it->labels.push_back(label_id);
   }
@@ -728,7 +724,7 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type, storage::Gid gid,
-                                                           uint64_t edge_commit_ts, std::string_view properties) {
+                                                           std::string_view properties) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
@@ -775,7 +771,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = edges_.access();
-    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
+    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1168,6 +1164,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   auto commitStatus = disk_transaction_->Commit();
+  disk_transaction_->ClearSnapshot();
   delete disk_transaction_;
   disk_transaction_ = nullptr;
   if (!commitStatus.ok()) {
@@ -1336,6 +1333,15 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 
 void DiskStorage::DiskAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  auto scope_exit = utils::OnScopeExit([&]() {
+    // On abort we need to delete disk transaction because after storage remove we couldn't remove
+    // disk_transaction correctly in destructor.
+    // This happens in tests when we create and remove storage in one test. For example, in
+    // query_plan_accumulate_aggregate.cpp
+    disk_transaction_->ClearSnapshot();
+    delete disk_transaction_;
+    disk_transaction_ = nullptr;
+  });
 
   // We collect vertices and edges we've created here and then splice them into
   // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -1347,7 +1353,7 @@ void DiskStorage::DiskAccessor::Abort() {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
-        auto vertex = prev.vertex;
+        auto *vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
@@ -1501,12 +1507,6 @@ void DiskStorage::DiskAccessor::Abort() {
 
   disk_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   disk_transaction_->Rollback();
-  // On abort we need to delete disk transaction because after storage remove we couldn't remove
-  // disk_transaction correctly in destructor.
-  // This happens in tests when we create and remove storage in one test. For example, in
-  // query_plan_accumulate_aggregate.cpp
-  delete disk_transaction_;
-  disk_transaction_ = nullptr;
   is_transaction_active_ = false;
 }
 
