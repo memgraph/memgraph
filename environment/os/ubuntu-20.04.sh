@@ -77,7 +77,8 @@ check() {
 
 install() {
     cd "$DIR"
-    apt update -y && DEBIAN_FRONTEND=noninteractive
+    export DEBIAN_FRONTEND=noninteractive
+    apt update -y
     apt install -y wget
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.

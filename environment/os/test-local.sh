@@ -7,14 +7,14 @@ IFS=' '
 # "script_name docker_image_name"
 OPERATING_SYSTEMS=(
   "amzn-2 amazonlinux:2"
-  "centos-7 centos:7"
-  "centos-9 dokken/centos-stream-9"
+  # "centos-7 centos:7"
+  # "centos-9 dokken/centos-stream-9"
   "debian-10 debian:10"
-  "debian-11 debian:11"
-  "fedora-36 fedora:36"
-  "ubuntu-18.04 ubuntu:18.04"
+  # "debian-11 debian:11"
+  # "fedora-36 fedora:36"
+  # "ubuntu-18.04 ubuntu:18.04"
   "ubuntu-20.04 ubuntu:20.04"
-  "ubuntu-22.04 ubuntu:22.04"
+  # "ubuntu-22.04 ubuntu:22.04"
 )
 
 if [ ! "$(docker info)" ]; then

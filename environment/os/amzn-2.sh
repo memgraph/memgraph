@@ -67,7 +67,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget
+    wget golang
 )
 
 list() {
