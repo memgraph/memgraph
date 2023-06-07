@@ -26,6 +26,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/concepts.hpp"
+#include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
@@ -116,6 +117,13 @@ struct BatchInfo {
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
+  // Check if snapshot file can be opened and have proper ownership.
+  utils::InputFile file;
+  if (!file.Open(path)) {
+    throw RecoveryFailure("Couldn't open snapshot file, check if the snapshot file has proper ownership and exist!");
+  }
+  file.Close();
+
   // Check magic and version.
   Decoder snapshot;
   auto version = snapshot.Initialize(path, kSnapshotMagic);
