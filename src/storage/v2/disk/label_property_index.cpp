@@ -36,7 +36,6 @@ bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
     return false;
   }
 
-  index_.emplace(label, property);
   /// TODO: how to deal with commit timestamp in a better way
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
@@ -71,19 +70,14 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
   throw utils::NotYetImplemented("DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel");
 }
 
-void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnAddLabel");
-}
+void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {}
 
 void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update,
-                                                 const Transaction &tx) {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnRemoveLabel");
-}
+                                                 const Transaction &tx) {}
 
+/// TODO: andi If stays the same, move it to the hpp
 void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                                 const Transaction &tx) {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnSetProperty");
-}
+                                                 const Transaction &tx) {}
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
   return index_.erase({label, property}) > 0;

@@ -210,7 +210,10 @@ inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId 
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }
 
-inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &key) { return ExtractGidFromKey(key); }
+inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  return key_vector[2];
+}
 
 /// TODO: refactor into one method with label index storage
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &value) {

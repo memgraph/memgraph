@@ -107,6 +107,46 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
   return has_label && !deleted;
 }
 
+PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
+  bool deleted = false;
+  PropertyValue value;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    deleted = vertex.deleted;
+    value = vertex.properties.GetProperty(property);
+    delta = vertex.delta;
+  }
+  ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::SET_PROPERTY: {
+        if (delta.property.key == property) {
+          value = delta.property.value;
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT:
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  return value;
+}
+
+bool HasVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
+  return !GetVertexProperty(vertex, property, transaction, view).IsNull();
+}
+
 }  // namespace
 
 /// TODO: remove constraints from Storage
@@ -314,7 +354,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   OOMExceptionEnabler oom_exception;
   auto index_accessor = indexed_vertices_.access();
 
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key.ToString())));
+  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key.ToString())));
   if (VertexExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
@@ -330,7 +370,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   OOMExceptionEnabler oom_exception;
   auto index_accessor = indexed_vertices_.access();
 
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key.ToString())));
+  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key.ToString())));
   if (VertexExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
@@ -455,8 +495,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
-    if (VertexHasLabel(vertex, label, &transaction_, view)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
+    /// TODO: refactor in one method
+    if (VertexHasLabel(vertex, label, &transaction_, view) &&
+        HasVertexProperty(vertex, property, &transaction_, view)) {
+      spdlog::debug("Loaded vertex with gid {} from main cache to label-property index cache",
+                    utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));

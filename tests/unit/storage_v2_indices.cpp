@@ -558,22 +558,30 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   }
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
               UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::NEW), View::NEW),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
 
   acc->AdvanceCommand();
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
               UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::OLD), View::OLD),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
               UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::NEW), View::NEW),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -586,12 +594,16 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
               UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::OLD), View::OLD),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::NEW), View::NEW),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -602,17 +614,25 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
               UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::OLD), View::OLD),
               UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
 
   acc->AdvanceCommand();
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, this->prop_val, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
