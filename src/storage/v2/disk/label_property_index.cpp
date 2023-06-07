@@ -19,6 +19,14 @@
 
 namespace memgraph::storage {
 
+namespace {
+
+bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, PropertyId property) {
+  return utils::Contains(vertex.labels, label) && vertex.properties.HasProperty(property);
+}
+
+}  // namespace
+
 DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
     : LabelPropertyIndex(indices, constraints, config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
@@ -58,7 +66,24 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelPropertyIndex::CreateRocksDBTrans
 
 bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex &vertex,
                                                                    uint64_t commit_timestamp) const {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage");
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  for (const auto &[index_label, index_property] : index_) {
+    if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
+      if (!disk_transaction
+               ->Put(utils::SerializeVertexAsKeyForLabelPropertyIndex(index_label, index_property, vertex.gid),
+                     utils::SerializeVertexAsValueForLabelPropertyIndex(index_label, vertex.labels, vertex.properties))
+               .ok()) {
+        return false;
+      }
+    }
+  }
+  disk_transaction->SetCommitTimestamp(commit_timestamp);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
 }
 
 bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const {

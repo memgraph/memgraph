@@ -26,10 +26,6 @@ namespace memgraph::storage {
 
 namespace {
 
-bool VertexHasLabel(const Vertex &vertex, LabelId label) {
-  return std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
-}
-
 [[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
     rocksdb::Transaction &disk_transaction, const std::map<Gid, std::vector<LabelId>> &transaction_entries) {
   for (const auto &[vertex_gid, labels] : transaction_entries) {
@@ -82,8 +78,7 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   for (const LabelId index_label : index_) {
-    if (VertexHasLabel(vertex, index_label)) {
-      /// TODO: andi, probably no need to transfer separately labels and gid
+    if (utils::Contains(vertex.labels, index_label)) {
       if (!disk_transaction
                ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
                      utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))

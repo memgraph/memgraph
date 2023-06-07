@@ -648,6 +648,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
+    acc->PrepareForNextIndexQuery();
 
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -656,6 +657,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
     auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
+    acc->PrepareForNextIndexQuery();
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue()));
@@ -663,15 +665,19 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW), IsEmpty());
+    acc->PrepareForNextIndexQuery();
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     }
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
+    acc->PrepareForNextIndexQuery();
   }
 }
 

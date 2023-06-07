@@ -140,6 +140,9 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
         break;
     }
   });
+  if (deleted) {
+    return {};
+  }
   return value;
 }
 
@@ -1183,6 +1186,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
   /// TODO: andi I don't like that std::optional is used for checking errors but that's how it was before, refactor!
   for (Vertex &vertex : vertex_acc) {
@@ -1217,6 +1222,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     /// TODO: andi don't ignore the return value
     disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
     disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_);
+    disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_);
 
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
 
