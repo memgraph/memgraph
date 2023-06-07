@@ -1040,3 +1040,60 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   // Iteration without any bounds should return all items of the index.
   verify(std::nullopt, std::nullopt, values);
 }
+
+TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
+  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+  auto acc1 = this->storage->Access();
+
+  auto vertex1 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
+
+  auto vertex2 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+  ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
+
+  EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+  acc1->PrepareForNextIndexQuery();
+  ASSERT_NO_ERROR(acc1->Commit());
+
+  auto acc2 = this->storage->Access();
+  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+  auto res = acc2->DeleteVertex(&*vertex_to_delete);
+
+  ASSERT_FALSE(res.HasError());
+  ASSERT_NO_ERROR(acc2->Commit());
+  auto acc3 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
+              UnorderedElementsAre(1));
+  acc3->PrepareForNextIndexQuery();
+}
+
+/// TODO: empty lines, so it is easier to read what is actually going on here
+TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
+  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+  auto acc1 = this->storage->Access();
+
+  auto vertex1 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  ASSERT_NO_ERROR(vertex1.SetProperty(this->prop_val, PropertyValue(0)));
+
+  auto vertex2 = this->CreateVertex(acc1.get());
+  ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+  ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
+
+  EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
+  acc1->PrepareForNextIndexQuery();
+  ASSERT_NO_ERROR(acc1->Commit());
+
+  auto acc2 = this->storage->Access();
+  auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
+  auto res = vertex_to_delete->RemoveLabel(this->label1);
+
+  ASSERT_FALSE(res.HasError());
+  ASSERT_NO_ERROR(acc2->Commit());
+  auto acc3 = this->storage->Access();
+  EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
+              UnorderedElementsAre(1));
+  acc3->PrepareForNextIndexQuery();
+}

@@ -110,7 +110,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  indices_->label_index_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
+  indices_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 

@@ -53,6 +53,8 @@ struct Indices {
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
 
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,

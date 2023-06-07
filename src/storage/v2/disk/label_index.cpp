@@ -124,7 +124,6 @@ bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid, uint64_t transacti
 /// TODO: andi What if there no indices, no need to call it?
 bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                             uint64_t transaction_commit_timestamp) {
-  spdlog::debug("Called delete vertices with removed indexing label");
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
@@ -138,7 +137,6 @@ bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction
                                  disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
     if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
         tx_it != tx_to_entries_for_deletion.end()) {
-      spdlog::debug("Found tx with removed indexing label, deleting entries");
       deletion_success = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
       tx_to_entries_for_deletion.erase(tx_it);
     }
@@ -178,8 +176,6 @@ void DiskLabelIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_b
       auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
           std::piecewise_construct, std::forward_as_tuple(vertex_before_update->gid), std::forward_as_tuple());
       it_vertex_map_store->second.emplace_back(removed_label);
-      spdlog::debug("Added to the map label index storage for vertex {} with label {}",
-                    utils::SerializeIdType(vertex_before_update->gid), utils::SerializeIdType(removed_label));
     });
   }
 }

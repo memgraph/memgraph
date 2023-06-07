@@ -12,6 +12,7 @@
 /// TODO: clear dependencies
 
 #include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -23,6 +24,21 @@ namespace {
 
 bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, PropertyId property) {
   return utils::Contains(vertex.labels, label) && vertex.properties.HasProperty(property);
+}
+
+[[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
+    rocksdb::Transaction &disk_transaction,
+    const std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> &transaction_entries) {
+  for (const auto &[vertex_gid, index] : transaction_entries) {
+    for (const auto &[indexing_label, indexing_property] : index) {
+      if (auto status = disk_transaction.Delete(
+              utils::SerializeVertexAsKeyForLabelPropertyIndex(indexing_label, indexing_property, vertex_gid));
+          !status.ok()) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -87,18 +103,83 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
 }
 
 bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ClearDeletedVertex");
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    if (std::string key = it->key().ToString(); gid == utils::ExtractGidFromLabelPropertyIndexStorage(key)) {
+      if (!disk_transaction->Delete(key).ok()) {
+        return false;
+      }
+    }
+  }
+  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
 }
 
 bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                                     uint64_t transaction_commit_timestamp) {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel");
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  bool deletion_success = true;
+  entries_for_deletion.WithLock([&deletion_success, transaction_start_timestamp,
+                                 disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
+    if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
+        tx_it != tx_to_entries_for_deletion.end()) {
+      deletion_success = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
+      tx_to_entries_for_deletion.erase(tx_it);
+    }
+  });
+  if (deletion_success) {
+    /// TODO: Extract to some useful method
+    disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
+    auto status = disk_transaction->Commit();
+    if (!status.ok()) {
+      /// TODO: better naming
+      spdlog::error("rocksdb: {}", status.getState());
+    }
+    return status.ok();
+  }
+  spdlog::error("Deletetion of vertices with removed indexing label failed.");
+  return false;
 }
 
 void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {}
 
 void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update,
-                                                 const Transaction &tx) {}
+                                                 const Transaction &tx) {
+  for (const auto &index_entry : index_) {
+    if (index_entry.first == removed_label) {
+      entries_for_deletion.WithLock([&index_entry, &tx, vertex_before_update](auto &tx_to_entries_for_deletion) {
+        const auto &[indexing_label, indexing_property] = index_entry;
+        auto [it, _] = tx_to_entries_for_deletion.emplace(
+            std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp), std::forward_as_tuple());
+        auto &vertex_map_store = it->second;
+        auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
+            std::piecewise_construct, std::forward_as_tuple(vertex_before_update->gid), std::forward_as_tuple());
+        it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
+        spdlog::debug("Added to the map label index storage for vertex {} with label {}",
+                      utils::SerializeIdType(vertex_before_update->gid), utils::SerializeIdType(indexing_label));
+      });
+    }
+  }
+}
 
 /// TODO: andi If stays the same, move it to the hpp
 void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,

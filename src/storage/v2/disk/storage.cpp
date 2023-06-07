@@ -1322,7 +1322,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
   for (const auto &[vertex_gid, serialized_vertex_to_delete] : vertices_to_delete_) {
     if (!DeleteVertexFromDisk(serialized_vertex_to_delete) ||
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
-        !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
+        !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
+        !disk_label_property_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }
@@ -1335,7 +1336,9 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp,
                                                                          *commit_timestamp_) ||
-      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp, *commit_timestamp_)) {
+      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp, *commit_timestamp_) ||
+      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp,
+                                                                         *commit_timestamp_)) {
     return StorageDataManipulationError{SerializationError{}};
   }
 

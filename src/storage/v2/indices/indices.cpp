@@ -23,6 +23,11 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction 
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
 }
 
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+  label_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
+}
+
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
