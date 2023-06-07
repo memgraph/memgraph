@@ -22,15 +22,22 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
   DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config);
 
-  // Key: INDEX_LABEL,INDEX_PROPERTY_KEY,OTHER_LABEL_1,OTHER_LABEL_2, ..|GID
-  // Value: VERTEX.PROPERTIES
-  /// TODO: andi Whenever vertex is updated you should go to the disk if it is indexed.
-  /// Optimize by using prefixed Bloom filters
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
 
+  std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction();
+
+  [[nodiscard]] bool SyncVertexToLabelPropertyIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
+
+  [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
+
+  [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
+                                                            uint64_t transaction_commit_timestamp);
+
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) override;
+
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override;
 
   /// @throw std::bad_alloc
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
@@ -65,8 +72,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void Clear() override;
 
   void RunGC() override;
-
-  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator();
 
  private:
   std::set<std::pair<LabelId, PropertyId>> index_;

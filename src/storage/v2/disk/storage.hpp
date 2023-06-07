@@ -343,6 +343,9 @@ class DiskStorage final : public Storage {
 
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelIndex(LabelId label);
 
+  std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelPropertyIndex(LabelId label,
+                                                                                          PropertyId property);
+
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
   /// be part of a transaction, and no other transaction can be active at the same time.

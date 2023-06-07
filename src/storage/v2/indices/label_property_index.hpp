@@ -33,7 +33,9 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) = 0;
+  virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) = 0;
+
+  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) = 0;
 
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                    const Transaction &tx) = 0;
