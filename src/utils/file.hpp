@@ -63,7 +63,7 @@ bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst
 /// don't exist, the renaming fails. Symlinks are not followed.
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst);
 
-/// Checks if user/process has read access to the file from the path.
+/// Checks if process has read access to the file.
 bool HasReadAccess(const std::filesystem::path &path);
 
 /// Buffer size used for `InputFile` and `OutputFile` implementations. Using
