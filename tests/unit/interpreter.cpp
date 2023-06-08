@@ -50,9 +50,20 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
 template <typename StorageType>
 class InterpreterTest : public ::testing::Test {
  public:
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType()};
+  memgraph::storage::Config config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
+                                                .label_index_directory{"rocksdb_test_label_index"},
+                                                .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config_)};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
   memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      std::filesystem::remove_all(config_.disk.main_storage_directory);
+      std::filesystem::remove_all(config_.disk.label_index_directory);
+      std::filesystem::remove_all(config_.disk.label_property_index_directory);
+    }
+  }
 
   InterpreterFaker default_interpreter{&interpreter_context};
 
