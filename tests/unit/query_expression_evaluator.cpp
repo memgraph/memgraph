@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -46,9 +47,10 @@ namespace {
 template <typename StorageType>
 class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
-  memgraph::query::DbAccessor dba{storage_dba.get()};
+  memgraph::storage::Config config;
+  std::unique_ptr<memgraph::storage::Storage> db;
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba;
+  memgraph::query::DbAccessor dba;
 
   AstStorage storage;
   memgraph::utils::MonotonicBufferResource mem{1024};
@@ -57,6 +59,22 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   Frame frame{128};
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::storage::View::OLD};
+
+  ExpressionEvaluatorTest()
+      : config{.disk = {.main_storage_directory{"rocksdb_test_db"},
+                        .label_index_directory{"rocksdb_test_label_index"},
+                        .label_property_index_directory{"rocksdb_test_label_property_index"}}},
+        db(new StorageType(config)),
+        storage_dba(db->Access()),
+        dba(storage_dba.get()) {}
+
+  ~ExpressionEvaluatorTest() {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      std::filesystem::remove_all(config.disk.main_storage_directory);
+      std::filesystem::remove_all(config.disk.label_index_directory);
+      std::filesystem::remove_all(config.disk.label_property_index_directory);
+    }
+  }
 
   Identifier *CreateIdentifierWithValue(std::string name, const TypedValue &value) {
     auto id = storage.template Create<Identifier>(name, true);

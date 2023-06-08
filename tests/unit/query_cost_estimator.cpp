@@ -37,6 +37,7 @@ template <typename StorageType>
 class QueryCostEstimator : public ::testing::Test {
  protected:
   std::unique_ptr<memgraph::storage::Storage> db;
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba;
   std::optional<memgraph::query::DbAccessor> dba;
   memgraph::storage::LabelId label;
@@ -51,14 +52,26 @@ class QueryCostEstimator : public ::testing::Test {
   Parameters parameters_;
   int symbol_count = 0;
 
-  void SetUp() {
-    db.reset(new StorageType());
+  void SetUp() override {
+    config = {.disk = {.main_storage_directory{"rocksdb_test_db"},
+                       .label_index_directory{"rocksdb_test_label_index"},
+                       .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+    db.reset(new StorageType(config));
     label = db->NameToLabel("label");
     property = db->NameToProperty("property");
     ASSERT_FALSE(db->CreateIndex(label).HasError());
     ASSERT_FALSE(db->CreateIndex(label, property).HasError());
     storage_dba = db->Access();
     dba.emplace(storage_dba.get());
+  }
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      std::filesystem::remove_all(config.disk.main_storage_directory);
+      std::filesystem::remove_all(config.disk.label_index_directory);
+      std::filesystem::remove_all(config.disk.label_property_index_directory);
+    }
+    db.reset(nullptr);
   }
 
   Symbol NextSymbol() { return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
