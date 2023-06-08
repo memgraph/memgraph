@@ -64,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip default-jdk-headless oracle-java17-installer custom-golang1.18.9 maven
+    wget curl tar gzip
 )
 
 list() {

@@ -56,7 +56,8 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel jdk-17 maven # for driver tests
+    which mono-complete dotnet-sdk-3.1 golang custom-golang1.18.9 # for driver tests
+    nodejs zip unzip java-11-openjdk-devel jdk-17 maven # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -66,7 +67,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip java-11-openjdk-devel jdk-17 custom-golang1.18.9 maven
+    wget curl tar gzip
 )
 
 list() {

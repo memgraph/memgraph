@@ -64,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip default-jdk-headless openjdk-17-jdk-headless custom-golang1.18.9 maven
+    wget curl tar gzip
 )
 
 list() {

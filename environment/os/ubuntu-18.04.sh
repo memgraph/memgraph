@@ -53,7 +53,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs nodejs zip unzip default-jdk-headless openjdk-17-jdk-headless # driver tests
+    mono-runtime mono-mcs nodejs zip unzip default-jdk-headless openjdk-17-jdk-headless maven # driver tests
+    custom-golang1.18.9 # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -63,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip default-jdk-headless openjdk-17-jdk-headless custom-golang1.18.9 maven
+    wget curl tar gzip
 )
 
 list() {
