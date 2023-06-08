@@ -82,9 +82,7 @@ check_all () {
     echo ""
     echo "~~~~ OPERATING ON $docker_image as $docker_name..."
     echo ""
-    docker_exec "$docker_name" "java --version"
     docker_exec "$docker_name" "mvn --version"
-    docker_exec "$docker_name" "/opt/go1.18.9/go/bin/go version"
     docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh check NEW_DEPS"
   done
 }

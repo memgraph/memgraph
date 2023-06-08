@@ -52,8 +52,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang zip unzip java-11-openjdk-devel java-17-openjdk-devel # for driver tests
-    sbcl # for custom Lisp C++ preprocessing
+    which zip unzip java-11-openjdk-devel java-17-openjdk-devel # for driver tests
+    sbcl nodejs golang custom-golang1.18.9 # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -63,7 +63,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip custom-golang1.18.9 maven
+    wget curl tar gzip java-11-openjdk-devel java-17-openjdk-devel custom-golang1.18.9 maven
 )
 
 list() {
@@ -72,10 +72,12 @@ list() {
 
 check() {
     local missing=""
-    # On Fedora yum/dnf and python10 use newer glibc which is not compatible
-    # with ours, so we need to momentarely disable env
-    local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
-    LD_LIBRARY_PATH=""
+    if [ -v LD_LIBRARY_PATH ]; then
+        # On Fedora yum/dnf and python10 use newer glibc which is not compatible
+        # with ours, so we need to momentarely disable env
+        local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
+        LD_LIBRARY_PATH=""
+    fi
     for pkg in $1; do
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
@@ -91,7 +93,10 @@ check() {
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
-    LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
+    if [ -v OLD_LD_LIBRARY_PATH ]; then
+        echo "Restoring LD_LIBRARY_PATH..."
+        LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
+    fi
 }
 
 install() {
@@ -115,6 +120,7 @@ install() {
         fi
         dnf install -y "$pkg"
     done
+    update-alternatives --set java java-11-openjdk.x86_64
 }
 
 deps=$2"[*]"

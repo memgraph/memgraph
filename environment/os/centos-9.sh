@@ -67,7 +67,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip custom-golang1.18.9 maven
+    wget curl tar gzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel custom-golang1.18.9 maven
 )
 
 list() {
