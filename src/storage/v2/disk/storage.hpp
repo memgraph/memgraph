@@ -201,7 +201,7 @@ class DiskStorage final : public Storage {
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckConstraintsAndFlushMainMemoryCache();
 
     bool WriteVertexToDisk(const Vertex &vertex);
-    bool WriteEdgeToDisk(const Edge *edgePtr, const std::string &serializedEdgeKey);
+    bool WriteEdgeToDisk(const EdgeRef edge, const std::string &serializedEdgeKey);
     bool DeleteVertexFromDisk(const std::string &vertex);
     bool DeleteEdgeFromDisk(const std::string &edge);
 

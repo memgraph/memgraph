@@ -1153,7 +1153,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
   auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
   auto [src_dest_del_key, dest_src_del_key] =
-      utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref.ptr);
+      utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges);
   edges_to_delete_.emplace_back(src_dest_del_key);
   edges_to_delete_.emplace_back(dest_src_del_key);
 
@@ -1203,10 +1203,15 @@ bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
 }
 
 /// TODO: at which storage naming
-bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const Edge *edgePtr, const std::string &serializedEdgeKey) {
+bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const EdgeRef edge, const std::string &serializedEdgeKey) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey,
-                                       utils::SerializeProperties(edgePtr->properties));
+  rocksdb::Status status;
+  if (config_.properties_on_edges) {
+    status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey,
+                                    utils::SerializeProperties(edge.ptr->properties));
+  } else {
+    status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey, "");
+  }
   if (status.ok()) {
     spdlog::debug("rocksdb: Saved edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
   } else if (status.IsBusy()) {
@@ -1303,15 +1308,15 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
 
     for (auto &edge_entry : vertex.out_edges) {
-      Edge *edge_ptr = std::get<2>(edge_entry).ptr;
-      auto [src_dest_key, dest_src_key] =
-          utils::SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
+      EdgeRef edge = std::get<2>(edge_entry);
+      auto [src_dest_key, dest_src_key] = utils::SerializeEdge(
+          vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge, config_.properties_on_edges);
 
-      if (!WriteEdgeToDisk(edge_ptr, src_dest_key)) {
+      if (!WriteEdgeToDisk(edge, src_dest_key)) {
         return StorageDataManipulationError{SerializationError{}};
       }
 
-      if (!WriteEdgeToDisk(edge_ptr, dest_src_key)) {
+      if (!WriteEdgeToDisk(edge, dest_src_key)) {
         return StorageDataManipulationError{SerializationError{}};
       }
 

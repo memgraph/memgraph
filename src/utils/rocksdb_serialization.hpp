@@ -254,12 +254,20 @@ inline std::pair<std::string, std::string> SerializeEdge(storage::EdgeAccessor *
 /// @tparam edge: Edge to be serialized
 /// @tparam edge_type_id: EdgeTypeId of the edge
 inline std::pair<std::string, std::string> SerializeEdge(storage::Gid src_vertex_gid, storage::Gid dest_vertex_gid,
-                                                         storage::EdgeTypeId edge_type_id, const storage::Edge *edge) {
+                                                         storage::EdgeTypeId edge_type_id,
+                                                         const storage::EdgeRef edge_ref, bool properties_on_edges) {
   // Serialized objects
   auto from_gid = utils::SerializeIdType(src_vertex_gid);
   auto to_gid = utils::SerializeIdType(dest_vertex_gid);
   auto edge_type = utils::SerializeIdType(edge_type_id);
-  auto edge_gid = utils::SerializeIdType(edge->gid);
+  std::string edge_gid;
+
+  if (properties_on_edges) {
+    edge_gid = utils::SerializeIdType(edge_ref.ptr->gid);
+  } else {
+    edge_gid = utils::SerializeIdType(edge_ref.gid);
+  }
+
   // source->destination key
   std::string src_dest_key = from_gid + "|";
   src_dest_key += to_gid + "|";
