@@ -117,12 +117,11 @@ struct BatchInfo {
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
-  // Check if snapshot file can be opened and have proper ownership.
-  utils::InputFile file;
-  if (!file.Open(path)) {
-    throw RecoveryFailure("Couldn't open snapshot file, check if the snapshot file has proper ownership and exist!");
+  // Check if snapshot file can be read.
+  if (!utils::HasReadAccess(path)) {
+    throw RecoveryFailure(
+        "Couldn't open snapshot file for reading, check the snapshot file ownership and read permissions!");
   }
-  file.Close();
 
   // Check magic and version.
   Decoder snapshot;
