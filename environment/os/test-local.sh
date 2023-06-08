@@ -22,7 +22,8 @@ if [ ! "$(docker info)" ]; then
   exit 1
 fi
 print_help () {
-  echo -e "$0 all\t => starts all containers in background"
+  echo -e "$0 all\t\t => starts all containers in background"
+  echo -e "$0 check_all\t => checks all containers"
   echo -e "$0 delete_all\t => stops all containers"
 }
 
@@ -64,11 +65,9 @@ start_all () {
     docker_name="mg_environment_os_$script_name"
     echo ""
     echo "~~~~ OPERATING ON $docker_image as $docker_name..."
-    echo ""
     docker_run "$docker_name" "$docker_image"
     docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh install NEW_DEPS"
-    echo ""
-    echo "~~~~ DONE EVERYHING FOR $docker_image as $docker_name..."
+    echo "---- DONE EVERYHING FOR $docker_image as $docker_name..."
     echo ""
   done
 }
@@ -81,9 +80,9 @@ check_all () {
     docker_name="mg_environment_os_$script_name"
     echo ""
     echo "~~~~ OPERATING ON $docker_image as $docker_name..."
-    echo ""
-    docker_exec "$docker_name" "mvn --version"
     docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh check NEW_DEPS"
+    echo "---- DONE EVERYHING FOR $docker_image as $docker_name..."
+    echo ""
   done
 }
 

@@ -64,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip custom-golang1.18.9 maven
+    wget curl tar gzip default-jdk-headless oracle-java17-installer custom-golang1.18.9 maven
 )
 
 list() {
@@ -140,6 +140,7 @@ EOF
         fi
         apt install -y "$pkg"
     done
+    update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
 }
 
 deps=$2"[*]"
