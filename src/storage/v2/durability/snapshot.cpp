@@ -117,12 +117,6 @@ struct BatchInfo {
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
-  // Check if snapshot file can be read.
-  if (!utils::HasReadAccess(path)) {
-    throw RecoveryFailure(
-        "Couldn't open snapshot file for reading, check the snapshot file ownership and read permissions!");
-  }
-
   // Check magic and version.
   Decoder snapshot;
   auto version = snapshot.Initialize(path, kSnapshotMagic);
