@@ -3,6 +3,14 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
+if [ -d "/usr/lib/jvm/java-17-oracle" ]; then
+  export JAVA_HOME="/usr/lib/jvm/java-17-oracle"
+fi
+if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+  export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+fi
+export PATH="$JAVA_HOME:$PATH"
+
 for i in java mvn; do
     if ! which $i >/dev/null; then
         echo "Please install $i!"

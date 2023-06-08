@@ -1,5 +1,13 @@
 #!/bin/bash -e
 
+GO_VERSION="1.18.9"
+GO_VERSION_DIR="/opt/go$GO_VERSION"
+if [ -f "$GO_VERSION_DIR/go/bin/go" ]; then
+    export GOROOT="$GO_VERSION_DIR/go"
+    export GOPATH="$HOME/go$GO_VERSION"
+    export PATH="$PATH:$GO_VERSION_DIR/go/bin"
+fi
+
 # check if go is installed
 for i in go; do
   if ! which $i >/dev/null; then
@@ -8,16 +16,5 @@ for i in go; do
   fi
 done
 
-# setup go 1.18.2
-go get golang.org/dl/go1.18.2
-go install golang.org/dl/go1.18.2
-if [ -z ${GOPATH+x} ]; then
-  export GO=$HOME/go/bin/go1.18.2
-else
-  export GO=$GOPATH/bin/go1.18.2
-fi
-$GO download
-
-# run tests using go 1.18.2
-$GO get github.com/neo4j/neo4j-go-driver/v5
-$GO run docs_quick_start.go
+go get github.com/neo4j/neo4j-go-driver/v5
+go run docs_quick_start.go
