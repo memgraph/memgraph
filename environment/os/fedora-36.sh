@@ -52,7 +52,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which zip unzip java-11-openjdk-devel java-17-openjdk-devel # for driver tests
+    which zip unzip java-11-openjdk-devel java-17-openjdk-devel maven # for driver tests
     nodejs golang custom-golang1.18.9 # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
@@ -64,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip java-11-openjdk-devel java-17-openjdk-devel custom-golang1.18.9 maven
+    wget curl tar gzip
 )
 
 list() {
