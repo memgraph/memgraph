@@ -255,6 +255,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
       // TODO a 1000 checks
       auto &ptr = hl_sessions_[db_name];
       if (ptr == nullptr) {
+        // todo checks
         ptr = std::make_unique<typename TSession::HLImplT>(session_context_->GetPtr(db_name), endpoint_);
       }
       if (session_.SetImpl(ptr.get())) {

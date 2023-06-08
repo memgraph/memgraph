@@ -915,7 +915,7 @@ int main(int argc, char **argv) {
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
   sc_handler.Init(&auth, {db_config, interp_config});
 #endif
-  // Just for current support...
+  // Just for current support... TODO remove
   auto session_context = *sc_handler.GetPtr(memgraph::dbms::kDefaultDB);
   auto &interpreter_context = *session_context.interpreter_context;
   auto &db = *session_context.db;
