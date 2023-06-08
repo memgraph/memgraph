@@ -54,8 +54,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk # for driver tests
-    golang nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk maven # for driver tests
+    golang custom-golang1.18.9 nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -65,7 +65,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget
+    wget curl tar gzip
 )
 
 list() {
@@ -73,7 +73,22 @@ list() {
 }
 
 check() {
-    check_all_dpkg "$1"
+    local missing=""
+    for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
+            missing="$pkg $missing"
+        fi
+    done
+    if [ "$missing" != "" ]; then
+        echo "MISSING PACKAGES: $missing"
+        exit 1
+    fi
 }
 
 install() {
@@ -98,6 +113,10 @@ EOF
     fi
     apt install -y wget
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
         apt install -y "$pkg"
     done
 }

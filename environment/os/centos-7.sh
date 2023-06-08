@@ -56,7 +56,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel jdk-17 # for driver tests
+    which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel jdk-17 maven # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -66,7 +66,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget
+    wget curl tar gzip java-11-openjdk-devel jdk-17 custom-golang1.18.9 maven
 )
 
 list() {
@@ -76,6 +76,12 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
         if [ "$pkg" == git ]; then
             if ! which "git" >/dev/null; then
                 missing="git $missing"
@@ -120,9 +126,16 @@ install() {
     yum install -y git
 
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
         if [ "$pkg" == jdk-17 ]; then
-            wget https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
-            rpm -ivh jdk-17_linux-x64_bin.rpm
+            if ! yum list installed jdk-17 >/dev/null 2>/dev/null; then
+                wget https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
+                rpm -ivh jdk-17_linux-x64_bin.rpm
+                update-alternatives --set java java-11-openjdk.x86_64
+            fi
             continue
         fi
         if [ "$pkg" == libipt ]; then

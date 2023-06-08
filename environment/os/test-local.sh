@@ -7,14 +7,14 @@ IFS=' '
 # "script_name docker_image_name"
 OPERATING_SYSTEMS=(
   "amzn-2 amazonlinux:2"
-  # "centos-7 centos:7"
-  # "centos-9 dokken/centos-stream-9"
+  "centos-7 centos:7"
+  "centos-9 dokken/centos-stream-9"
   "debian-10 debian:10"
-  # "debian-11 debian:11"
-  # "fedora-36 fedora:36"
-  # "ubuntu-18.04 ubuntu:18.04"
+  "debian-11 debian:11"
+  "fedora-36 fedora:36"
+  "ubuntu-18.04 ubuntu:18.04"
   "ubuntu-20.04 ubuntu:20.04"
-  # "ubuntu-22.04 ubuntu:22.04"
+  "ubuntu-22.04 ubuntu:22.04"
 )
 
 if [ ! "$(docker info)" ]; then
@@ -22,8 +22,8 @@ if [ ! "$(docker info)" ]; then
   exit 1
 fi
 print_help () {
-  echo -e "$0 start_all\t => starts all containers in background"
-  echo -e "$0 stop_all\t => stops all containers"
+  echo -e "$0 all\t => starts all containers in background"
+  echo -e "$0 delete_all\t => stops all containers"
 }
 
 # NOTE: This is an idempotent operation!
@@ -67,6 +67,9 @@ start_all () {
     echo ""
     docker_run "$docker_name" "$docker_image"
     docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh install NEW_DEPS"
+    echo ""
+    echo "~~~~ DONE EVERYHING FOR $docker_image as $docker_name..."
+    echo ""
   done
 }
 
@@ -80,6 +83,9 @@ check_all () {
     echo "~~~~ OPERATING ON $docker_image as $docker_name..."
     echo ""
     docker_exec "$docker_name" "java --version"
+    docker_exec "$docker_name" "mvn --version"
+    docker_exec "$docker_name" "/opt/go1.18.9/go/bin/go version"
+    docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh check NEW_DEPS"
   done
 }
 

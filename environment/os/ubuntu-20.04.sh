@@ -53,8 +53,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless # for driver tests
-    dotnet-sdk-3.1 golang nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless maven # for driver tests
+    dotnet-sdk-3.1 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -64,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget openjdk-17-jdk-headless
+    wget curl tar gzip default-jdk-headless openjdk-17-jdk-headless custom-golang1.18.9 maven
 )
 
 list() {
@@ -72,7 +72,22 @@ list() {
 }
 
 check() {
-    check_all_dpkg "$1"
+    local missing=""
+    for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
+            missing="$pkg $missing"
+        fi
+    done
+    if [ "$missing" != "" ]; then
+        echo "MISSING PACKAGES: $missing"
+        exit 1
+    fi
 }
 
 install() {
@@ -87,7 +102,12 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
         if [ "$pkg" == dotnet-sdk-3.1 ]; then
             if ! dpkg -s dotnet-sdk-3.1 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb

@@ -63,7 +63,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget
+    wget curl tar gzip custom-golang1.18.9 maven
 )
 
 list() {
@@ -77,6 +77,12 @@ check() {
     local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
     LD_LIBRARY_PATH=""
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -103,6 +109,10 @@ install() {
     fi
     dnf update -y
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
         dnf install -y "$pkg"
     done
 }

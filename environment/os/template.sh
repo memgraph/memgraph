@@ -26,7 +26,7 @@ MEMGRAPH_RUN_DEPS=(
 # NEW_DEPS is useful when you won't to test the installation of a new package.
 # NOTE: wget is here because it's required very often.
 NEW_DEPS=(
-  wget
+  wget curl tar gzip
 )
 
 list() {

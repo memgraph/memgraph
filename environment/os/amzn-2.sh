@@ -57,7 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang zip unzip java-11-openjdk-devel openjdk-17 # for driver tests
+    which nodejs golang zip unzip java-11-openjdk-devel jdk-17 maven # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -67,7 +67,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget golang
+    wget curl tar gzip custom-golang1.18.9 java-11-openjdk-devel jdk-17 maven
 )
 
 list() {
@@ -81,6 +81,12 @@ check() {
     local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-""}
     LD_LIBRARY_PATH=""
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
         if [ "$pkg" == "PyYAML" ]; then
             if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                 missing="$pkg $missing"
@@ -111,11 +117,20 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
     yum update -y
     for pkg in $1; do
-        if [ "$pkg" == openjdk-17 ]; then
-          wget --no-check-certificate -c --header "Cookie: oraclelicense=accept-securebackup-cookie" https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
-          rpm -Uvh jdk-17_linux-x64_bin.rpm
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
+        if [ "$pkg" == jdk-17 ]; then
+          if ! yum list installed jdk-17 >/dev/null 2>/dev/null; then
+              wget --no-check-certificate -c --header "Cookie: oraclelicense=accept-securebackup-cookie" https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
+              rpm -Uvh jdk-17_linux-x64_bin.rpm
+              # NOTE: Set Java 11 as default.
+              update-alternatives --set java java-11-openjdk.x86_64
+          fi
           continue
         fi
         if [ "$pkg" == libipt ]; then

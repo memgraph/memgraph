@@ -53,8 +53,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless oracle-java17-installer # for driver tests
-    dotnet-sdk-3.1 golang nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless oracle-java17-installer maven # for driver tests
+    dotnet-sdk-3.1 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -64,7 +64,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget golang
+    wget curl tar gzip custom-golang1.18.9 maven
 )
 
 list() {
@@ -72,7 +72,22 @@ list() {
 }
 
 check() {
-    check_all_dpkg "$1"
+    local missing=""
+    for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
+            missing="$pkg $missing"
+        fi
+    done
+    if [ "$missing" != "" ]; then
+        echo "MISSING PACKAGES: $missing"
+        exit 1
+    fi
 }
 
 install() {
@@ -100,7 +115,12 @@ EOF
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
         if [ "$pkg" == oracle-java17-installer ]; then
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
               echo oracle-java17-installer shared/accepted-oracle-license-v1-3 select true | /usr/bin/debconf-set-selections

@@ -67,7 +67,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget
+    wget curl tar gzip custom-golang1.18.9 maven
 )
 
 list() {
@@ -77,6 +77,12 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
         if [ "$pkg" == "PyYAML" ]; then
             if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                 missing="$pkg $missing"
@@ -111,7 +117,12 @@ install() {
     fi
     yum update -y
     yum install -y wget git python3 python3-pip
+
     for pkg in $1; do
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
         # Since there is no support for libipt-devel for CentOS 9 we install
         # Fedoras version of same libs, they are the same version but released
         # for different OS
