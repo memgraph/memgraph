@@ -87,6 +87,7 @@ make_package () {
     docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
     docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
+    # TODO(gitbuda): cmake fails locally if remote is clone via ssh because of the key -> FIX
     if [[ "$os" =~ "-arm" ]]; then
         docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
     else
