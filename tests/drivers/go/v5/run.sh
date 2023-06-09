@@ -5,7 +5,7 @@ GO_VERSION_DIR="/opt/go$GO_VERSION"
 if [ -f "$GO_VERSION_DIR/go/bin/go" ]; then
     export GOROOT="$GO_VERSION_DIR/go"
     export GOPATH="$HOME/go$GO_VERSION"
-    export PATH="$PATH:$GO_VERSION_DIR/go/bin"
+    export PATH="$GO_VERSION_DIR/go/bin:$PATH"
 fi
 
 # check if go is installed
