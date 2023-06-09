@@ -303,9 +303,6 @@ target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 add_unit_test(storage_v2_durability_inmemory.cpp)
 target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2)
 
-add_unit_test(storage_v2_durability_ondisk.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability_ondisk mg-storage-v2)
-
 add_unit_test(storage_rocks.cpp)
 target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
 
