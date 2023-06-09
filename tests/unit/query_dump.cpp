@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
+#include "disk_test_utils.hpp"
 #include "query/config.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
@@ -274,7 +275,15 @@ void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::
 template <typename StorageType>
 class DumpTest : public ::testing::Test {
  public:
-  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+  const std::string testSuite = "query_dump";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

@@ -20,6 +20,7 @@
 
 #include "gtest/gtest.h"
 
+#include "disk_test_utils.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -31,8 +32,11 @@ using memgraph::query::TypedValueException;
 template <typename StorageType>
 class AllTypesFixture : public testing::Test {
  protected:
+  const std::string testSuite = "transactin_queue_multiple";
+
   std::vector<TypedValue> values_;
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config_)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
@@ -59,6 +63,8 @@ class AllTypesFixture : public testing::Test {
     graph.InsertEdge(*edge);
     values_.emplace_back(std::move(graph));
   }
+
+  void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

@@ -13,6 +13,7 @@
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -33,6 +34,7 @@ template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
   void SetUp() override {
+    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     this->storage = std::make_unique<StorageType>(config_);
     auto acc = this->storage->Access();
     this->prop_id = acc->NameToProperty("id");
@@ -44,15 +46,12 @@ class IndexTest : public testing::Test {
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      /// TODO: extract this into some method
-      std::filesystem::remove_all(config_.disk.main_storage_directory);
-      std::filesystem::remove_all(config_.disk.label_index_directory);
-      std::filesystem::remove_all(config_.disk.label_property_index_directory);
-      std::filesystem::remove_all(config_.disk.unique_constraints_directory);
+      disk_test_utils::RemoveRocksDbDirs(testSuite)
     }
     this->storage.reset(nullptr);
   }
 
+  const std::string testSuite = "storage_v2_indices";
   memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> storage;
   PropertyId prop_id;

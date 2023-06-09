@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "auth/models.hpp"
+#include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -41,12 +42,19 @@ using namespace memgraph::query::plan;
 template <typename StorageType>
 class QueryPlanTest : public testing::Test {
  public:
-  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+  const std::string testSuite = "query_plan_create_set_remove_delete";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
   AstStorage storage;
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {

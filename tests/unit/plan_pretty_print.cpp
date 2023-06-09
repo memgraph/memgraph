@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/pretty_print.hpp"
@@ -37,11 +38,24 @@ using namespace nlohmann;
 template <typename StorageType>
 class PrintToJsonTest : public ::testing::Test {
  protected:
-  PrintToJsonTest() : db(new StorageType()), dba_storage(db->Access()), dba(dba_storage.get()) {}
+  const std::string testSuite = "plan_pretty_print";
+
+  PrintToJsonTest()
+      : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
+        db(new StorageType(config)),
+        dba_storage(db->Access()),
+        dba(dba_storage.get()) {}
+
+  ~PrintToJsonTest() {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 
   AstStorage storage;
   SymbolTable symbol_table;
 
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db;
   std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage;
   memgraph::query::DbAccessor dba;

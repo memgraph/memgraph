@@ -13,10 +13,12 @@
 #include <gtest/gtest.h>
 
 #include "auth/models.hpp"
+#include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 
 #include "license/license.hpp"
 #include "query_plan_common.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -25,7 +27,10 @@
 template <typename StorageType>
 class FineGrainedAuthCheckerFixture : public testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  const std::string testSuite = "auth_checker";
+
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
@@ -47,6 +52,12 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
     dba.AdvanceCommand();
+  }
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
   }
 };
 

@@ -14,8 +14,11 @@
 #include <filesystem>
 #include <variant>
 
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+
+#include "disk_test_utils.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -29,12 +32,11 @@ using testing::UnorderedElementsAre;
 template <typename StorageType>
 class ConstraintsTest : public testing::Test {
  public:
+  const std::string testSuite = "storage_v2_constraints";
+
   ConstraintsTest() {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
-    config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
-                        .label_index_directory{"rocksdb_test_label_index"},
-                        .label_property_index_directory{"rocksdb_test_label_property_index"},
-                        .unique_constraints_directory{"rocksdb_test_unique_constraints"}}};
+    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     storage = std::make_unique<StorageType>(config_);
     prop1 = storage->NameToProperty("prop1");
     prop2 = storage->NameToProperty("prop2");
@@ -43,14 +45,11 @@ class ConstraintsTest : public testing::Test {
   }
 
   void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      /// TODO: extract this into some method
-      std::filesystem::remove_all(config_.disk.main_storage_directory);
-      std::filesystem::remove_all(config_.disk.label_index_directory);
-      std::filesystem::remove_all(config_.disk.label_property_index_directory);
-      std::filesystem::remove_all(config_.disk.unique_constraints_directory);
-    }
     storage.reset(nullptr);
+
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
   }
 
   std::unique_ptr<Storage> storage;
@@ -62,8 +61,6 @@ class ConstraintsTest : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(ConstraintsTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

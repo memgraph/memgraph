@@ -14,6 +14,7 @@
 
 #include <limits>
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -24,10 +25,13 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {};
 INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));
 INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, StorageEdgeTest, ::testing::Values(false));
 
+const std::string testSuite = "storage_v2_edge_ondisk";
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -213,12 +217,14 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -386,12 +392,14 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_vertex = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
@@ -532,12 +540,14 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -802,12 +812,14 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -1072,12 +1084,14 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_vertex = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
@@ -1299,12 +1313,14 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -1568,12 +1584,14 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -1837,12 +1855,14 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_vertex = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
@@ -2063,12 +2083,14 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -2486,12 +2508,14 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -2910,12 +2934,14 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_vertex = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
@@ -3270,12 +3296,14 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -3410,12 +3438,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_vertex1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_vertex2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -3740,12 +3770,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       ASSERT_EQ(e.ToVertex(), *vertex2);
     }
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -3985,12 +4017,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = GetParam()}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = GetParam();
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid_vertex1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid_vertex2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -4631,12 +4665,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       ASSERT_EQ(e.ToVertex(), *vertex2);
     }
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithProperties, EdgePropertyCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = true}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = true;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -4762,12 +4798,14 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
 
     acc->Abort();
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithProperties, EdgePropertyAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = true}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = true;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
@@ -5054,12 +5092,14 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
     acc->Abort();
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithProperties, EdgePropertySerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = true}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = true;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -5165,11 +5205,13 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
 
     acc->Abort();
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 TEST(StorageWithProperties, EdgePropertyClear) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = true}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = true;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid;
   auto property1 = store->NameToProperty("property1");
   auto property2 = store->NameToProperty("property2");
@@ -5280,12 +5322,14 @@ TEST(StorageWithProperties, EdgePropertyClear) {
 
     acc->Abort();
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithoutProperties, EdgePropertyAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = false}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = false;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -5350,11 +5394,13 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
 
     acc->Abort();
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 TEST(StorageWithoutProperties, EdgePropertyClear) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = false}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = false;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid;
   {
     auto acc = store->Access();
@@ -5377,11 +5423,13 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
 
     acc->Abort();
   }
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::DiskStorage({.items = {.properties_on_edges = true}}));
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.items.properties_on_edges = true;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
 
   auto property = store->NameToProperty("property");
 
@@ -5412,4 +5460,5 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_EQ(*edge->GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
 
   ASSERT_FALSE(acc->Commit().HasError());
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }

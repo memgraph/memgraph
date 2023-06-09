@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <string>
 
+#include "disk_test_utils.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -23,7 +24,15 @@
 template <typename StorageType>
 class PyModule : public testing::Test {
  public:
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  const std::string testSuite = "query_procedure_py_module";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::GenerateOnDiskConfig(testSuite);
+    }
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

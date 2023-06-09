@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
@@ -65,7 +66,9 @@ class StreamsTestFixture : public ::testing::Test {
   StreamsTestFixture() { ResetStreamsObject(); }
 
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType()};
+  const std::string testSuite = "query_streams";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config)};
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
   KafkaClusterMock mock_cluster_{std::vector<std::string>{kTopicName}};
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
@@ -77,6 +80,12 @@ class StreamsTestFixture : public ::testing::Test {
                                                            data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 
   void ResetStreamsObject() { proxyStreams_->streams_.emplace(&interpreter_context_, streams_data_directory_); }
 

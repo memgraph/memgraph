@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 
+#include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -27,10 +28,14 @@ corresponding interpreter/.
 template <typename StorageType>
 class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType()};
+  const std::string testSuite = "transactin_queue";
+  memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
+  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config_)};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
   memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
+
+  void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

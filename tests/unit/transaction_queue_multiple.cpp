@@ -19,8 +19,10 @@
 #include "gmock/gmock.h"
 #include "spdlog/spdlog.h"
 
+#include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -33,7 +35,9 @@ corresponding interpreter.
 template <typename StorageType>
 class TransactionQueueMultipleTest : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType()};
+  const std::string testSuite = "transactin_queue_multiple";
+  memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
+  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config_)};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
   memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
@@ -51,6 +55,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
       delete running_interpreters[i];
     }
+    disk_test_utils::RemoveRocksDbDirs(testSuite);
   }
 };
 

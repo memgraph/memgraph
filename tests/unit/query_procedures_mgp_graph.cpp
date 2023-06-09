@@ -18,7 +18,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "mg_procedure.h"
+#include "ondisk_utils.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -154,7 +156,16 @@ class MgpGraphTest : public ::testing::Test {
     return db_accessors_.back();
   }
 
-  std::unique_ptr<memgraph::storage::Storage> storage{new StorageType()};
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
+
+  const std::string testSuite = "query_procedures_mgp_graph";
+
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> storage{new StorageType(config)};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
  private:
