@@ -9,7 +9,7 @@ fi
 if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
   export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
 fi
-export PATH="$JAVA_HOME:$PATH"
+export PATH="$JAVA_HOME/bin:$PATH"
 
 for i in java mvn; do
     if ! which $i >/dev/null; then
