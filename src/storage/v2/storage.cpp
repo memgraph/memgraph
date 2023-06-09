@@ -577,6 +577,12 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
+  // Need to inform the next CollectGarbage call that there are some
+  // non-transactional deletions that need to be collected
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    storage_->gc_full_scan_vertices_delete_ = true;
+  }
+
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
 }
@@ -646,6 +652,12 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
+
+  // Need to inform the next CollectGarbage call that there are some
+  // non-transactional deletions that need to be collected
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    storage_->gc_full_scan_vertices_delete_ = true;
+  }
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -857,6 +869,12 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
     auto *edge_ptr = edge_ref.ptr;
     CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
     edge_ptr->deleted = true;
+
+    // Need to inform the next CollectGarbage call that there are some
+    // non-transactional deletions that need to be collected
+    if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      storage_->gc_full_scan_edges_delete_ = true;
+    }
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
@@ -1457,26 +1475,42 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level, StorageMo
 }
 
 template <bool force>
-void Storage::CollectGarbage() {
-  if constexpr (force) {
-    // We take the unique lock on the main storage lock so we can forcefully clean
-    // everything we can
-    if (!main_lock_.try_lock()) {
-      CollectGarbage<false>();
-      return;
+void Storage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard) {
+  // NOTE: You do not need to consider cleanup of deleted object that occurred in
+  // different storage modes within the same CollectGarbage call. This is because
+  // SetStorageMode will ensure CollectGarbage is called before any new transactions
+  // with the new storage mode can start.
+
+  // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
+  // as reacquiring the lock would cause  deadlock. Otherwise, we need to get our own
+  // lock.
+  if (!main_guard.owns_lock()) {
+    if constexpr (force) {
+      // We take the unique lock on the main storage lock, so we can forcefully clean
+      // everything we can
+      if (!main_lock_.try_lock()) {
+        CollectGarbage<false>();
+        return;
+      }
+    } else {
+      // Because the garbage collector iterates through the indices and constraints
+      // to clean them up, it must take the main lock for reading to make sure that
+      // the indices and constraints aren't concurrently being modified.
+      main_lock_.lock_shared();
     }
   } else {
-    // Because the garbage collector iterates through the indices and constraints
-    // to clean them up, it must take the main lock for reading to make sure that
-    // the indices and constraints aren't concurrently being modified.
-    main_lock_.lock_shared();
+    MG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
   }
 
   utils::OnScopeExit lock_releaser{[&] {
-    if constexpr (force) {
-      main_lock_.unlock();
+    if (!main_guard.owns_lock()) {
+      if constexpr (force) {
+        main_lock_.unlock();
+      } else {
+        main_lock_.unlock_shared();
+      }
     } else {
-      main_lock_.unlock_shared();
+      main_guard.unlock();
     }
   }};
 
@@ -1506,14 +1540,18 @@ void Storage::CollectGarbage() {
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
+  auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
+  auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
+
   // Flag that will be used to determine whether the Index GC should be run. It
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
+  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty() ||
+                           need_full_scan_vertices || need_full_scan_edges;
 
   while (true) {
-    // We don't want to hold the lock on commited transactions for too long,
+    // We don't want to hold the lock on committed transactions for too long,
     // because that prevents other transactions from committing.
     Transaction *transaction;
     {
@@ -1709,11 +1747,35 @@ void Storage::CollectGarbage() {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
+
+  // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
+  // TODO: implement a fast internal iteration inside the skip_list (to avoid unnecessary find_node calls),
+  //  accessor.remove_if([](auto const & item){ return item.delta == nullptr && item.deleted;});
+  if (need_full_scan_vertices) {
+    auto vertex_acc = vertices_.access();
+    for (auto &vertex : vertex_acc) {
+      // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
+      if (vertex.delta == nullptr && vertex.deleted) {
+        vertex_acc.remove(vertex);
+      }
+    }
+  }
+
+  // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
+  if (need_full_scan_edges) {
+    auto edge_acc = edges_.access();
+    for (auto &edge : edge_acc) {
+      // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
+      if (edge.delta == nullptr && edge.deleted) {
+        edge_acc.remove(edge);
+      }
+    }
+  }
 }
 
-// tell the linker he can find the CollectGarbage definitions here
-template void Storage::CollectGarbage<true>();
-template void Storage::CollectGarbage<false>();
+// tell the linker it can find the CollectGarbage definitions here
+template void Storage::CollectGarbage<true>(std::unique_lock<utils::RWLock>);
+template void Storage::CollectGarbage<false>(std::unique_lock<utils::RWLock>);
 
 bool Storage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
@@ -2033,8 +2095,8 @@ utils::FileRetainer::FileLockerAccessor::ret_type Storage::UnlockPath() {
   return true;
 }
 
-void Storage::FreeMemory() {
-  CollectGarbage<true>();
+void Storage::FreeMemory(std::unique_lock<utils::RWLock> main_guard) {
+  CollectGarbage<true>(std::move(main_guard));
 
   // SkipList is already threadsafe
   vertices_.run_gc();
@@ -2211,7 +2273,11 @@ IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_le
 
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
-  storage_mode_ = storage_mode;
+  // Only if we change storage_mode do we want to force storage cleanup
+  if (storage_mode_ != storage_mode) {
+    storage_mode_ = storage_mode;
+    FreeMemory(std::move(main_guard));
+  }
 }
 
 StorageMode Storage::GetStorageMode() { return storage_mode_; }
