@@ -17,7 +17,8 @@ ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {os} [--for-docker|--for-platform]|docker|test"
+    # TODO(gitbuda): Update the release/package/run.sh help
+    echo "$0 init|package|docker|test {os} [--for-docker|--for-platform]"
     echo ""
     echo "    OSs: ${SUPPORTED_OS[*]}"
     exit 1
@@ -64,6 +65,7 @@ make_package () {
         git fetch origin master:master
     fi
     docker exec "$build_container" mkdir -p /memgraph
+    # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
 
     container_build_dir="/memgraph/build"
@@ -110,8 +112,13 @@ make_package () {
 case "$1" in
     init)
         cd "$SCRIPT_DIR"
-        docker-compose build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
-        docker-compose up -d
+        if ! which "docker-compose" >/dev/null; then
+            docker_compose_cmd="docker compose"
+        else
+            docker_compose_cmd="docker-compose"
+        fi
+        $docker_compose_cmd build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
+        $docker_compose_cmd up -d
     ;;
 
     docker)

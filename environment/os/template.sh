@@ -6,6 +6,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 check_operating_system "todo-os-name"
+check_architecture "todo-arch-name"
 
 TOOLCHAIN_BUILD_DEPS=(
     pkg
@@ -24,9 +25,9 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 # NEW_DEPS is useful when you won't to test the installation of a new package.
-# NOTE: wget is here because it's required very often.
+# During the test you can put here packages like wget curl tar gzip
 NEW_DEPS=(
-  wget curl tar gzip
+  pkg
 )
 
 list() {
