@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8,6 +8,8 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+#include <iostream>
 
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
@@ -36,7 +38,13 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
   pimpl_->db.reset(db);
 }
 
-KVStore::~KVStore() {}
+KVStore::~KVStore() {
+  // TODO check return for errors
+  const auto sync = pimpl_->db->SyncWAL();
+  if (!sync.ok()) std::cout << "Failed sync" << std::endl;
+  const auto close = pimpl_->db->Close();
+  if (!close.ok()) std::cout << "Failed close" << std::endl;
+}
 
 KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }
 

@@ -19,6 +19,7 @@ enum class DeleteError : uint8_t {
   DEFAULT_DB,
   USING,
   NON_EXISTENT,
+  FAIL,
 };
 
 enum class NewError : uint8_t {

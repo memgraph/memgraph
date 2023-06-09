@@ -106,7 +106,14 @@ class SessionContextHandler {
   bool RegisterOnChange(const T &session, std::function<bool(const std::string &)> cb) {
     std::lock_guard<LockT> wr(lock_);
     auto [_, success] = on_change_cb_.emplace(session.UUID(), cb);
-    if (!success) std::cout << "FAILED TO EMPLACE!" << std::endl;
+    return true;
+    // todo checks
+  }
+
+  template <WithUUID T>
+  bool RegisterOnDelete(const T &session, std::function<bool(const std::string &)> cb) {
+    std::lock_guard<LockT> wr(lock_);
+    auto [_, success] = on_delete_cb_.emplace(session.UUID(), cb);
     return true;
     // todo checks
   }
@@ -115,7 +122,6 @@ class SessionContextHandler {
   bool RegisterGetDB(const T &session, std::function<std::string()> cb) {
     std::lock_guard<LockT> wr(lock_);
     auto [_, success] = get_db_name_.emplace(session.UUID(), cb);
-    if (!success) std::cout << "FAILED TO EMPLACE!" << std::endl;
     return true;
     // todo checks
   }
@@ -126,6 +132,7 @@ class SessionContextHandler {
     const auto &uuid = session.UUID();
     get_db_name_.erase(uuid);
     on_change_cb_.erase(uuid);
+    on_delete_cb_.erase(uuid);
   }
 
   DeleteResult Delete(const std::string &db_name) {
@@ -134,7 +141,7 @@ class SessionContextHandler {
       // MSG cannot delete the default db
       return DeleteError::DEFAULT_DB;
     }
-    if (db_context_.find(db_name) != db_context_.end()) {
+    if (auto itr = db_context_.find(db_name); itr != db_context_.end()) {
       for (const auto &itr : get_db_name_) {
         const auto &db = itr.second();
         if (db == db_name) {
@@ -142,7 +149,17 @@ class SessionContextHandler {
           return DeleteError::USING;
         }
       }
-      db_context_.erase(db_name);
+      // High level handlers
+      for (const auto &itr : on_delete_cb_) {
+        if (!itr.second(db_name)) {
+          return DeleteError::FAIL;
+        }
+      }
+      // Low level handlers
+      if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
+        return DeleteError::FAIL;
+      }
+      db_context_.erase(itr);
       return {};  // Success
     }
     return DeleteError::NON_EXISTENT;
@@ -223,7 +240,9 @@ class SessionContextHandler {
 #if MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
 #endif
+  // TODO create a visitor instead of this
   std::unordered_map<std::string, std::function<bool(const std::string &)>> on_change_cb_;
+  std::unordered_map<std::string, std::function<bool(const std::string &)>> on_delete_cb_;
   std::unordered_map<std::string, std::function<std::string()>> get_db_name_;
 };
 

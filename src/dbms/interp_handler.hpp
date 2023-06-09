@@ -62,8 +62,11 @@ class InterpContextHandler {
     return {};
   }
 
-  bool Delete(std::string_view name) {
-    // TODO: Are we deleting the storage or just "deleting" its content?
+  bool Delete(const std::string &name) {
+    if (auto itr = storage_.find(name); itr != storage_.end()) {
+      storage_.erase(itr);
+      return true;
+    }
     return false;
   }
 

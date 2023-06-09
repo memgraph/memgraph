@@ -2823,6 +2823,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                                  case dbms::DeleteError::USING:
                                    res = "Cannot delete " + db_name + ", it is currently being used.";
                                    break;
+                                 case dbms::DeleteError::FAIL:
+                                   res = "Failed while deleting " + db_name;
+                                   break;
                                }
                              } else {
                                res = "Successfully deleted " + db_name;

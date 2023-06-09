@@ -19,6 +19,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -172,6 +173,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         service_name_{service_name} {
     hl_sessions_.emplace(db_name_, std::move(pimpl));
     session_context_->RegisterOnChange(session_, std::bind(&WebsocketSession::OnChange, this, std::placeholders::_1));
+    session_context_->RegisterOnDelete(session_, std::bind(&WebsocketSession::OnDelete, this, std::placeholders::_1));
     session_context_->RegisterGetDB(session_, [&]() { return db_name_; });
   }
 
@@ -262,6 +264,14 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         db_name_ = db_name;
         return true;
       }
+    }
+    return false;
+  }
+
+  bool OnDelete(const std::string &db_name) {
+    if (db_name_ != db_name) {
+      hl_sessions_.erase(db_name);
+      return true;
     }
     return false;
   }
@@ -392,6 +402,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         timeout_timer_(GetExecutor()) {
     hl_sessions_.emplace(db_name_, std::move(pimpl));
     session_context_->RegisterOnChange(session_, std::bind(&Session::OnChange, this, std::placeholders::_1));
+    session_context_->RegisterOnDelete(session_, std::bind(&Session::OnDelete, this, std::placeholders::_1));
     session_context_->RegisterGetDB(session_, [&]() { return db_name_; });
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
@@ -587,6 +598,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         db_name_ = db_name;
         return true;
       }
+    }
+    return false;
+  }
+
+  bool OnDelete(const std::string &db_name) {
+    if (db_name_ != db_name) {
+      hl_sessions_.erase(db_name);
+      return true;
     }
     return false;
   }
