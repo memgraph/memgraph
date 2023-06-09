@@ -141,6 +141,7 @@ EOF
         apt install -y "$pkg"
     done
     update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+    update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
 }
 
 deps=$2"[*]"

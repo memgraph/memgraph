@@ -130,6 +130,7 @@ install() {
               rpm -Uvh jdk-17_linux-x64_bin.rpm
               # NOTE: Set Java 11 as default.
               update-alternatives --set java java-11-openjdk.x86_64
+              update-alternatives --set javac java-11-openjdk.x86_64
           fi
           continue
         fi

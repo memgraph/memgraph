@@ -122,6 +122,7 @@ install() {
         dnf install -y "$pkg"
     done
     update-alternatives --set java java-11-openjdk.x86_64
+    update-alternatives --set javac java-11-openjdk.x86_64
 }
 
 deps=$2"[*]"

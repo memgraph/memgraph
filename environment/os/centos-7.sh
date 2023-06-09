@@ -136,6 +136,7 @@ install() {
                 wget https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
                 rpm -ivh jdk-17_linux-x64_bin.rpm
                 update-alternatives --set java java-11-openjdk.x86_64
+                update-alternatives --set javac java-11-openjdk.x86_64
             fi
             continue
         fi
