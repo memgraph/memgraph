@@ -20,7 +20,6 @@
 
 #include "disk_test_utils.hpp"
 #include "mg_procedure.h"
-#include "ondisk_utils.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"

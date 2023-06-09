@@ -46,7 +46,7 @@ class IndexTest : public testing::Test {
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite)
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
     this->storage.reset(nullptr);
   }

@@ -30,7 +30,7 @@ template <typename StorageType>
 class StorageV2Test : public testing::Test {
  public:
   StorageV2Test() {
-    config_ = disk_test_utils::CreateConfig(testSuite);
+    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     store = std::make_unique<StorageType>(config_);
   }
 
