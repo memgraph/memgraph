@@ -1473,7 +1473,10 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     }
   }
 
-  logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
+  if (commit_timestamp_) {
+    // commit_timestamp_ is set only if the transaction has writes.
+    logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
+  }
   auto commitStatus = disk_transaction_->Commit();
   delete disk_transaction_;
   disk_transaction_ = nullptr;
