@@ -311,9 +311,6 @@ class InMemoryStorage final : public Storage {
   void FreeMemory() override;
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
-  void SetStorageMode(StorageMode storage_mode) override;
-
-  StorageMode GetStorageMode() override;
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 

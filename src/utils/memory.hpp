@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -134,7 +134,7 @@ class Allocator {
 
   void deallocate(T *p, size_t count_elements) { memory_->Deallocate(p, count_elements * sizeof(T), alignof(T)); }
 
-  /// Return default NewDeleteResource() allocator.
+  /// Return default NewDevertex_id_leteResource() allocator.
   Allocator select_on_container_copy_construction() const { return utils::NewDeleteResource(); }
 
   template <class U, class... TArgs>

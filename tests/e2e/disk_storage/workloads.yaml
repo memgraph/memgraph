@@ -1,0 +1,14 @@
+disk_storage: &disk_storage
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--memory-limit", "10"]
+      log_file: "disk_storage.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Test data import on a disk storage"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/data_import.py"]
+    <<: *disk_storage

@@ -38,8 +38,10 @@
 #include "storage/v2/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/stat.hpp"
@@ -55,15 +57,8 @@ constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
 
-/// TODO: refactor with one return statement, no need for oom_exception
 bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  if (accessor.find(gid) != accessor.end()) {
-    // spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
-    return true;
-  }
-  // spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
-  return false;
+  return accessor.find(gid) != accessor.end();
 }
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
@@ -333,6 +328,8 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
+  spdlog::debug("Tracker size when creating accessor: {}",
+                utils::GetReadableSize(utils::total_memory_tracker.Amount()));
   rocksdb::WriteOptions write_options;
   // auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   // rocksdb::Slice ts(strTs);
@@ -345,6 +342,8 @@ DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel iso
 DiskStorage::DiskAccessor::DiskAccessor(DiskAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {
   // Don't allow the other accessor to abort our transaction in destructor.
+  spdlog::debug("Tracker size when creating accessor: {}",
+                utils::GetReadableSize(utils::total_memory_tracker.Amount()));
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
 }
@@ -359,7 +358,6 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
     const rocksdb::Slice &key, const rocksdb::Slice &value) {
-  OOMExceptionEnabler oom_exception;
   auto main_storage_accessor = vertices_.access();
 
   const std::string key_str = key.ToString();
@@ -375,7 +373,6 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
     const rocksdb::Slice &key, const rocksdb::Slice &value) {
-  OOMExceptionEnabler oom_exception;
   auto index_accessor = indexed_vertices_.access();
 
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key.ToString())));
@@ -391,7 +388,6 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
     const rocksdb::Slice &key, const rocksdb::Slice &value) {
-  OOMExceptionEnabler oom_exception;
   auto index_accessor = indexed_vertices_.access();
 
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key.ToString())));
@@ -458,10 +454,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
-  OOMExceptionEnabler oom_exception;
-
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
-
   auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
   disk_index_transaction->SetReadTimestampForValidation(transaction_.start_timestamp);
   rocksdb::ReadOptions ro;
@@ -499,8 +492,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  OOMExceptionEnabler oom_exception;
-
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
@@ -549,8 +540,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
-  OOMExceptionEnabler oom_exception;
-
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
@@ -603,8 +592,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
-  OOMExceptionEnabler oom_exception;
-
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
@@ -665,7 +652,6 @@ uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = vertices_.access();
@@ -1825,7 +1811,6 @@ IndicesInfo DiskStorage::ListAllIndices() const {
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
@@ -1875,7 +1860,6 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                     const std::optional<uint64_t> desired_commit_timestamp) {
-  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
@@ -2419,13 +2403,6 @@ bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation o
   FinalizeWalFile();
   return finalized_on_all_replicas;
 }
-
-void DiskStorage::SetStorageMode(StorageMode storage_mode) {
-  std::unique_lock main_guard{main_lock_};
-  storage_mode_ = storage_mode;
-}
-
-StorageMode DiskStorage::GetStorageMode() { return storage_mode_; }
 
 utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot(std::optional<bool> is_periodic) {
   throw utils::NotYetImplemented("CreateSnapshot");

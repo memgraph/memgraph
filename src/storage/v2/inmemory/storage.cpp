@@ -195,7 +195,10 @@ InMemoryStorage::~InMemoryStorage() {
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode)
-    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {}
+    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
+  spdlog::debug("Tracker size when creating accessor: {}",
+                utils::GetReadableSize(utils::total_memory_tracker.Amount()));
+}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1843,13 +1846,6 @@ utils::BasicResult<Storage::SetIsolationLevelError> InMemoryStorage::SetIsolatio
   isolation_level_ = isolation_level;
   return {};
 }
-
-void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
-  std::unique_lock main_guard{main_lock_};
-  storage_mode_ = storage_mode;
-}
-
-StorageMode InMemoryStorage::GetStorageMode() { return storage_mode_; }
 
 void InMemoryStorage::RestoreReplicas() {
   MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());

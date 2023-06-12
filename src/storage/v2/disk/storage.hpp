@@ -326,10 +326,6 @@ class DiskStorage final : public Storage {
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
 
-  void SetStorageMode(StorageMode storage_mode) override;
-
-  StorageMode GetStorageMode() override;
-
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;

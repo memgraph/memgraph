@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/storage.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/transaction.hpp"
 #include "utils/stat.hpp"
 #include "utils/typeinfo.hpp"
@@ -95,6 +96,19 @@ PropertyId Storage::NameToProperty(const std::string_view name) {
 EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
+
+void Storage::SetStorageMode(StorageMode storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL && storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL) {
+    spdlog::info(
+        "You cannot switch from on-disk storage to in-memory storage while the database is running. "
+        "Please restart the database with the desired storage mode.");
+  } else {
+    storage_mode_ = storage_mode;
+  }
+}
+
+StorageMode Storage::GetStorageMode() const { return storage_mode_; }
 
 const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 

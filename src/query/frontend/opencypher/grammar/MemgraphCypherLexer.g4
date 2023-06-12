@@ -84,6 +84,7 @@ MODULE_WRITE            : M O D U L E UNDERSCORE W R I T E ;
 NEXT                    : N E X T ;
 NO                      : N O ;
 NOTHING                 : N O T H I N G ;
+ON_DISK_TRANSACTIONAL   : O N UNDERSCORE D I S K UNDERSCORE T R A N S A C T I O N A L ;
 PASSWORD                : P A S S W O R D ;
 PORT                    : P O R T ;
 PRIVILEGES              : P R I V I L E G E S ;

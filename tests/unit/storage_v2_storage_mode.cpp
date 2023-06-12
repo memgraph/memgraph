@@ -33,6 +33,19 @@ class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::Stora
   };
 };
 
+/// TODO: andi Once we add the suppport for initializing different storage mode, you can change this test so that it
+/// allows and forbids different storage mode changes.
+TEST_P(StorageModeTest, ChangeStorageMode) {
+  const memgraph::storage::StorageMode storage_mode = GetParam();
+
+  std::unique_ptr<memgraph::storage::Storage> storage =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
+
+  storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
+  ASSERT_EQ(storage->GetStorageMode(), memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
+}
+
 // you should be able to see nodes if there is analytics mode
 TEST_P(StorageModeTest, Mode) {
   const memgraph::storage::StorageMode storage_mode = GetParam();

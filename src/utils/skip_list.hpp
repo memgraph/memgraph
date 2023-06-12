@@ -21,13 +21,17 @@
 #include <random>
 #include <utility>
 
+#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
+#include "utils/stat.hpp"
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -864,6 +868,9 @@ class SkipList final {
   SkipList &operator=(const SkipList &) = delete;
 
   ~SkipList() {
+    int size = size_;
+    spdlog::debug("Tracker size before destroying skip list with {} elements: {}", size,
+                  utils::GetReadableSize(utils::total_memory_tracker.Amount()));
     if (head_ != nullptr) {
       // Remove all items from the list.
       clear();
@@ -874,6 +881,8 @@ class SkipList final {
       head_->lock.~SpinLock();
       GetMemoryResource()->Deallocate(head_, SkipListNodeSize(*head_));
     }
+    spdlog::debug("Tracker size after destroying skip list with {} elements: {}", size,
+                  utils::GetReadableSize(utils::total_memory_tracker.Amount()));
   }
 
   /// Functions that return an accessor to the list. All operations on the list

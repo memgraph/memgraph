@@ -55,6 +55,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -2018,6 +2019,8 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
       return storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
     case StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL:
       return storage::StorageMode::IN_MEMORY_ANALYTICAL;
+    case StorageModeQuery::StorageMode::ON_DISK_TRANSACTIONAL:
+      return storage::StorageMode::ON_DISK_TRANSACTIONAL;
   }
 }
 

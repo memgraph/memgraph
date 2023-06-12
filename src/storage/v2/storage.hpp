@@ -231,6 +231,10 @@ class Storage {
   /// @throw std::bad_alloc if unable to insert a new mapping
   EdgeTypeId NameToEdgeType(std::string_view name);
 
+  void SetStorageMode(StorageMode storage_mode);
+
+  StorageMode GetStorageMode() const;
+
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
@@ -406,10 +410,6 @@ class Storage {
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   virtual utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) = 0;
-
-  virtual void SetStorageMode(StorageMode storage_mode) = 0;
-
-  virtual StorageMode GetStorageMode() = 0;
 
   virtual StorageInfo GetInfo() const = 0;
 
