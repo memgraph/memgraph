@@ -131,7 +131,12 @@ class ModuleRegistry final {
  private:
   class SharedLibraryHandle {
    public:
-    SharedLibraryHandle(const std::string &shared_library, int mode) : handle_{dlopen(shared_library.c_str(), mode)} {}
+    SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "") {
+      handle_ = dlopen(shared_library.c_str(), mode);
+      if (!handle_) {
+        spdlog::warn("Unable to load {}. {}", shared_library, hint_message);
+      }
+    }
     SharedLibraryHandle(const SharedLibraryHandle &) = delete;
     SharedLibraryHandle(SharedLibraryHandle &&) = delete;
     SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
@@ -144,18 +149,15 @@ class ModuleRegistry final {
     }
 
    private:
-    // TODO(gitbuda): If handle is not there -> warning that some modules might
-    // not work as expected. Explained below. It's possible to run Memgraph on
-    // older systems (CentOS 7). The problem is how to know if there is the
-    // version of libstdc++, also what is libc++ if used?
-    //
     void *handle_;
   };
 
+  inline static const std::string kLibstdcppWarning =
+      "Query modules might not work as expected. Please install libstdc++ or compile from source.";
 #if __has_feature(address_sanitizer)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89
-  // SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE, kLibstdcppWarning};
 #else
   // The reason behind opening share library during runtime is to avoid issues
   // with loading symbols from stdlib. We have encounter issues with locale
@@ -166,7 +168,7 @@ class ModuleRegistry final {
   // mentioned library will be first performed in the already existing binded
   // libraries and then the global namespace.
   // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
-  // SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND, kLibstdcppWarning};
 #endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
