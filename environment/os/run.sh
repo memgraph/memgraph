@@ -7,7 +7,6 @@ IFS=' '
 # "docker_container_type script_name docker_image_name"
 OPERATING_SYSTEMS=(
   "mgrun amzn-2 amazonlinux:2"
-  "mgrun centos-7 centos:7"
   "mgrun centos-9 dokken/centos-stream-9"
   "mgrun debian-10 debian:10"
   "mgrun debian-11 debian:11"
@@ -15,19 +14,19 @@ OPERATING_SYSTEMS=(
   "mgrun ubuntu-18.04 ubuntu:18.04"
   "mgrun ubuntu-20.04 ubuntu:20.04"
   "mgrun ubuntu-22.04 ubuntu:22.04"
+  "mgrun centos-7 centos:7"
   # "mgbuild centos-7 package-mgbuild_centos-7"
 )
-
-# TODO(gitbuda): Copy and install system package from the mgbuild container.
 
 if [ ! "$(docker info)" ]; then
   echo "ERROR: Docker is required"
   exit 1
 fi
 print_help () {
-  echo -e "$0 all\t\t => starts all containers in background"
-  echo -e "$0 check_all\t => checks all containers"
-  echo -e "$0 delete_all\t => stops all containers"
+  echo -e "$0 all\t\t\t\t  => start + init all containers in the background"
+  echo -e "$0 check\t\t\t\t  => check all containers"
+  echo -e "$0 delete\t\t\t\t  => stop + remove all containers"
+  echo -e "$0 copy src_container dst_container => copy build package from src to dst container"
 }
 
 # NOTE: This is an idempotent operation!
@@ -70,7 +69,6 @@ start_all () {
     echo ""
     echo "~~~~ OPERATING ON $docker_image as $docker_name..."
     docker_run "$docker_name" "$docker_image"
-    # TODO(gitbuda): This is not working on the mgbuild containers.
     docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh install NEW_DEPS"
     echo "---- DONE EVERYHING FOR $docker_image as $docker_name..."
     echo ""
@@ -104,11 +102,23 @@ delete_all () {
   done
 }
 
+copy_build_package () {
+  src_container="$1"
+  dst_container="$2"
+  src="$src_container:/memgraph/build/output"
+  tmp_dst="$SCRIPT_DIR/../../build"
+  mkdir -p "$tmp_dst"
+  rm -rf "$tmp_dst/output"
+  dst="$dst_container:/"
+  docker cp "$src" "$tmp_dst"
+  docker cp "$tmp_dst/output" "$dst"
+}
+
 if [ "$#" -eq 0 ]; then
   print_help
 else
   case $1 in
-    run)
+    all)
       start_all
     ;;
     check)
@@ -116,6 +126,9 @@ else
     ;;
     delete)
       delete_all
+    ;;
+    copy) # src_container dst_container
+      copy_build_package "$2" "$3"
     ;;
     *)
       print_help
