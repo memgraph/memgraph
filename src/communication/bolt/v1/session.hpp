@@ -50,11 +50,8 @@ concept HLImpl = requires(T v) {
 template <typename T>
 class MultiSessionHandler {
  public:
-  MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p)
-      : id_(id),
-        current_(std::move(p))  //, all_{{id_, std::move(p)}}, current_{all_[id_]} {}
-  {
-    all_.emplace(id, current_);
+  MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p) : id_(id), current_(all_[id_]) {
+    all_[id_] = std::move(p);
   }
   ~MultiSessionHandler() = default;
 
@@ -81,22 +78,7 @@ class MultiSessionHandler {
     return true;
   }
 
-  struct SafePtr {
-    explicit SafePtr(std::shared_ptr<T> p) : p_(p) {}
-    ~SafePtr() = default;
-
-    SafePtr(const SafePtr &) = delete;
-    SafePtr &operator=(const SafePtr &) = delete;
-    SafePtr(SafePtr &&) noexcept = delete;
-    SafePtr &operator=(SafePtr &&) noexcept = delete;
-
-    std::shared_ptr<T> p_;
-
-    T *operator->() const { return p_.get(); }
-    T &operator*() const { return *p_; }
-  };
-
-  SafePtr GetImpl() { return SafePtr{current_}; }
+  std::shared_ptr<T> GetImpl() { return current_; }
 
   bool DelImpl(std::string id) {
     if (id != id_) {
@@ -111,7 +93,7 @@ class MultiSessionHandler {
  private:
   std::string id_;
   std::unordered_map<std::string, std::shared_ptr<T>> all_;
-  std::shared_ptr<T> current_;
+  std::shared_ptr<T> &current_;
 };
 
 /**
