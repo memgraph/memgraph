@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 
+#include "disk_test_utils.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -36,6 +37,7 @@ using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
 template <typename StorageType>
 class QueryCostEstimator : public ::testing::Test {
  protected:
+  const std::string testSuite = "query_cost_estimator";
   std::unique_ptr<memgraph::storage::Storage> db;
   memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba;
@@ -53,9 +55,7 @@ class QueryCostEstimator : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() override {
-    config = {.disk = {.main_storage_directory{"rocksdb_test_db"},
-                       .label_index_directory{"rocksdb_test_label_index"},
-                       .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+    config = disk_test_utils::GenerateOnDiskConfig(testSuite);
     db.reset(new StorageType(config));
     label = db->NameToLabel("label");
     property = db->NameToProperty("property");
@@ -67,9 +67,7 @@ class QueryCostEstimator : public ::testing::Test {
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      std::filesystem::remove_all(config.disk.main_storage_directory);
-      std::filesystem::remove_all(config.disk.label_index_directory);
-      std::filesystem::remove_all(config.disk.label_property_index_directory);
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
     db.reset(nullptr);
   }
@@ -122,8 +120,7 @@ class QueryCostEstimator : public ::testing::Test {
   const std::nullopt_t nullopt = std::nullopt;
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(QueryCostEstimator, StorageTypes);
 
 // multiply with 1 to avoid linker error (possibly fixed in CLang >= 3.81)

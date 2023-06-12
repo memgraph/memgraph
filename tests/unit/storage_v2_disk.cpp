@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/file.hpp"
@@ -18,7 +19,11 @@
 class DiskStorageTest : public ::testing::TestWithParam<bool> {};
 
 TEST_F(DiskStorageTest, CreateDiskStorageInDataDirectory) {
-  memgraph::storage::Config config;
+  const std::string testSuite = "storage_v2_disk";
+
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   auto storage = std::make_unique<memgraph::storage::DiskStorage>(config);
   ASSERT_TRUE(memgraph::utils::DirExists(config.disk.main_storage_directory));
+
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }

@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <limits>
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -29,27 +30,23 @@ template <typename StorageType>
 class StorageV2Test : public testing::Test {
  public:
   StorageV2Test() {
-    config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
-                        .label_index_directory{"rocksdb_test_label_index"},
-                        .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     store = std::make_unique<StorageType>(config_);
   }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      std::filesystem::remove_all(config_.disk.main_storage_directory);
-      std::filesystem::remove_all(config_.disk.label_index_directory);
-      std::filesystem::remove_all(config_.disk.label_property_index_directory);
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
     store.reset(nullptr);
   }
 
+  const std::string testSuite = "storage_v2";
   std::unique_ptr<memgraph::storage::Storage> store;
   memgraph::storage::Config config_;
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(StorageV2Test, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

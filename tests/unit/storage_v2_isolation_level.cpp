@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -116,10 +117,14 @@ TEST_P(StorageIsolationLevelTest, VisibilityInMemoryStorage) {
 TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
   const auto default_isolation_level = GetParam();
 
+  const std::string testSuite = "storage_v2_isolation_level";
+  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  config.transaction.isolation_level = default_isolation_level;
+
   for (const auto override_isolation_level : isolation_levels) {
-    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(
-        {memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}}));
+    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(config));
     this->TestVisibility(storage, default_isolation_level, override_isolation_level);
+    disk_test_utils::RemoveRocksDbDirs(testSuite);
   }
 }
 

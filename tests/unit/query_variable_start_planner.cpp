@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <variant>
 
+#include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
 
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -91,8 +92,16 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
 template <typename StorageType>
 class TestVariableStartPlanner : public testing::Test {
  public:
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  const std::string testSuite = "query_variable_start_planner";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   AstStorage storage;
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

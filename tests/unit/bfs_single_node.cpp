@@ -11,6 +11,7 @@
 
 #include "bfs_common.hpp"
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -20,18 +21,13 @@ using namespace memgraph::query::plan;
 template <typename StorageType>
 class SingleNodeDb : public Database {
  public:
-  SingleNodeDb() {
-    config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
-                        .label_index_directory{"rocksdb_test_label_index"},
-                        .label_property_index_directory{"rocksdb_test_label_property_index"}}};
-    db_ = std::make_unique<StorageType>(config_);
-  }
+  const std::string testSuite = "bfs_single_node";
+
+  SingleNodeDb() : config_(disk_test_utils::GenerateOnDiskConfig(testSuite)), db_(new StorageType(config_)) {}
 
   ~SingleNodeDb() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      std::filesystem::remove_all(config_.disk.main_storage_directory);
-      std::filesystem::remove_all(config_.disk.label_index_directory);
-      std::filesystem::remove_all(config_.disk.label_property_index_directory);
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
 

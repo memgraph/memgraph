@@ -15,6 +15,7 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
+#include "disk_test_utils.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -50,18 +51,16 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
 template <typename StorageType>
 class InterpreterTest : public ::testing::Test {
  public:
-  memgraph::storage::Config config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
-                                                .label_index_directory{"rocksdb_test_label_index"},
-                                                .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+  const std::string testSuite = "interpreter";
+
+  memgraph::storage::Config config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config_)};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
   memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      std::filesystem::remove_all(config_.disk.main_storage_directory);
-      std::filesystem::remove_all(config_.disk.label_index_directory);
-      std::filesystem::remove_all(config_.disk.label_property_index_directory);
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
 

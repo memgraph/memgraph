@@ -13,6 +13,7 @@
 #include <sstream>
 #include <variant>
 
+#include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
 
 #include "query/exceptions.hpp"
@@ -30,10 +31,18 @@ using namespace memgraph::query;
 template <typename StorageType>
 class TestSymbolGenerator : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  const std::string testSuite = "query_semantic";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

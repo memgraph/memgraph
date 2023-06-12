@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 
+#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -30,6 +31,8 @@ DECLARE_bool(query_cost_planner);
 template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
+  const std::string testSuite = "query_plan_edge_cases";
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
@@ -37,7 +40,8 @@ class QueryExecution : public testing::Test {
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
-    db_.reset(new StorageType());
+    config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    db_.reset(new StorageType(config));
     interpreter_context_.emplace(db_.get(), memgraph::query::InterpreterConfig{}, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
@@ -46,6 +50,10 @@ class QueryExecution : public testing::Test {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
     db_.reset(nullptr);
+
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
   }
 
   /**
@@ -66,7 +74,6 @@ class QueryExecution : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(QueryExecution, StorageTypes);
 
 TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {

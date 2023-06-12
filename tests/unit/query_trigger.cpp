@@ -14,6 +14,7 @@
 #include <filesystem>
 
 #include <fmt/format.h>
+#include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -22,6 +23,7 @@
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
@@ -48,14 +50,24 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
 };
 }  // namespace
 
+const std::string testSuite = "query_trigger";
+
 template <typename StorageType>
 class TriggerContextTest : public ::testing::Test {
  public:
-  void SetUp() override { db.reset(new StorageType()); }
+  void SetUp() override {
+    config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config)};
+    db.reset(new StorageType(config));
+  }
 
   void TearDown() override {
     accessors.clear();
     db.reset();
+
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
   }
 
   memgraph::storage::Storage::Accessor *StartTransaction() {
@@ -64,6 +76,7 @@ class TriggerContextTest : public ::testing::Test {
   }
 
  protected:
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db;
   std::list<std::unique_ptr<memgraph::storage::Storage::Accessor>> accessors;
 };
@@ -890,7 +903,8 @@ class TriggerStoreTest : public ::testing::Test {
   void SetUp() override {
     Clear();
 
-    storage = std::make_unique<StorageType>();
+    config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    storage = std::make_unique<StorageType>(config);
     storage_accessor = storage->Access();
     dba.emplace(storage_accessor.get());
   }
@@ -901,6 +915,10 @@ class TriggerStoreTest : public ::testing::Test {
     dba.reset();
     storage_accessor.reset();
     storage.reset();
+
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
   }
 
   std::optional<memgraph::query::DbAccessor> dba;
@@ -914,11 +932,11 @@ class TriggerStoreTest : public ::testing::Test {
     std::filesystem::remove_all(testing_directory);
   }
 
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> storage;
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_accessor;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(TriggerStoreTest, StorageTypes);
 
 TYPED_TEST(TriggerStoreTest, Restore) {

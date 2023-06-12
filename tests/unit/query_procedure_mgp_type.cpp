@@ -20,12 +20,21 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
+#include "disk_test_utils.hpp"
 #include "test_utils.hpp"
 
 template <typename StorageType>
 class CypherType : public testing::Test {
  public:
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  const std::string testSuite = "query_procedure_mgp_type";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

@@ -16,6 +16,7 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -25,7 +26,13 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  virtual void SetUp() { mgp::memory = &memory; }
+  virtual void SetUp() override { mgp::memory = &memory; }
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
 
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
     // the execution context can be null as it shouldn't be used in these tests
@@ -38,7 +45,10 @@ struct CppApiTestFixture : public ::testing::Test {
     return db_accessors_.back();
   }
 
-  std::unique_ptr<memgraph::storage::Storage> storage{new StorageType()};
+  const std::string testSuite = "cpp_api";
+
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> storage{new StorageType(config)};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
  private:

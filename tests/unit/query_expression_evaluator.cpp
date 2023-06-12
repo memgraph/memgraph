@@ -19,6 +19,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -47,6 +48,8 @@ namespace {
 template <typename StorageType>
 class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
+  const std::string testSuite = "expression_evaluator";
+
   memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db;
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba;
@@ -61,18 +64,14 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::storage::View::OLD};
 
   ExpressionEvaluatorTest()
-      : config{.disk = {.main_storage_directory{"rocksdb_test_db"},
-                        .label_index_directory{"rocksdb_test_label_index"},
-                        .label_property_index_directory{"rocksdb_test_label_property_index"}}},
+      : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
         storage_dba(db->Access()),
         dba(storage_dba.get()) {}
 
   ~ExpressionEvaluatorTest() {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      std::filesystem::remove_all(config.disk.main_storage_directory);
-      std::filesystem::remove_all(config.disk.label_index_directory);
-      std::filesystem::remove_all(config.disk.label_property_index_directory);
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
 
