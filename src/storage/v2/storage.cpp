@@ -34,6 +34,8 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -41,6 +43,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
+#include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
 /// REPLICATION ///
@@ -48,6 +51,13 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/storage_error.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotCreationLatency_us;
+
+extern const Event ActiveLabelIndices;
+extern const Event ActiveLabelPropertyIndices;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -1213,6 +1223,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+
   if (success) {
     return {};
   }
@@ -1232,6 +1245,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+
   if (success) {
     return {};
   }
@@ -1250,6 +1266,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
 
   if (success) {
     return {};
@@ -1271,6 +1290,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 
   if (success) {
     return {};
@@ -1943,6 +1965,8 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
   }
 
   auto snapshot_creator = [this]() {
+    utils::Timer timer;
+
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
@@ -1950,6 +1974,9 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
                                &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
+
+    memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   };
 
   std::lock_guard snapshot_guard(snapshot_lock_);
@@ -1980,16 +2007,23 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
   return CreateSnapshotError::ReachedMaxNumTries;
 }
 
-bool Storage::LockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::IsPathLocked() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.IsPathLocked(config_.durability.storage_directory);
+}
+
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);
 }
 
-bool Storage::UnlockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
+    const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
+    if (ret.HasError() || !ret.GetValue()) {
+      // Exit without cleaning the queue
+      return ret;
     }
   }
 
@@ -2172,6 +2206,8 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   isolation_level_ = isolation_level;
   return {};
 }
+
+IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
