@@ -189,7 +189,7 @@ class SessionContextHandler {
 #if MG_ENTERPRISE
         SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_, audit_log_};
 #else
-        SessionContext sd{*new_storage, new_interp.GetValue(), auth_};
+        SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_};
 #endif
         sd.run_id = run_id_;
         db_context_.emplace(name, sd);
@@ -213,7 +213,6 @@ class SessionContextHandler {
 #if MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
 #endif
-  // TODO create a visitor instead of this
   std::unordered_map<std::string, SessionInterface &> sessions_;
 };
 

@@ -37,7 +37,8 @@ struct SessionContext {
 
 #else
 
-  SessionContext(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
+                 std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context,
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : db(db), interpreter_context(interpreter_context), auth(auth) {}
 
