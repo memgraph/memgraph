@@ -372,15 +372,15 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     ASSERT_EQ(session.version_.minor, 3);
     ASSERT_EQ(session.version_.major, 4);
   }
-  // With multiple offsets
+  // With multiple offsets (added v5.2)
   {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x07, 0x00, 0x03,
                                         0x03, 0x06, 0x00, 0x03, 0x03, 0x05, 0x00, 0x03, 0x03, 0x04};
-    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x02, 0x05};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
-    ASSERT_EQ(session.version_.minor, 3);
-    ASSERT_EQ(session.version_.major, 4);
+    ASSERT_EQ(session.version_.minor, 2);
+    ASSERT_EQ(session.version_.major, 5);
   }
   // Offset overflows
   {

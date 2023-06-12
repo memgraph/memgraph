@@ -310,6 +310,12 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandleRunV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleRunV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandlePullV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<true>(session, state, marker);
 }
@@ -320,6 +326,12 @@ State HandlePullV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandlePullV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandlePullV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
@@ -327,6 +339,12 @@ State HandleDiscardV1(TSession &session, const State state, const Marker marker)
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<false>(session, state, marker);
+}
+
+template <typename TSession>
+State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleDiscardV4<TSession>(session, state, marker);
 }
 
 template <typename TSession>
@@ -485,5 +503,11 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   return State::Error;
+}
+
+template <typename TSession>
+State HandleLogOff() {
+  // Not arguments sent, the user just needs to reauthenticate
+  return State::Init;
 }
 }  // namespace memgraph::communication::bolt
