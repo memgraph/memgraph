@@ -89,3 +89,13 @@ function install_custom_golang() {
     fi
     echo "go $GOVERSION installed under $GOROOT"
 }
+
+function install_custom_maven() {
+  MVNVERSION="$1"
+  MVNINSTALLDIR="/opt/apache-maven-$MVNVERSION"
+  if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
+    curl -LO "https://dlcdn.apache.org/maven/maven-3/$MVNVERSION/binaries/apache-maven-$MVNVERSION-bin.tar.gz"
+    tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
+  fi
+  echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
+}

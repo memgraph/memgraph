@@ -6,16 +6,16 @@ IFS=' '
 # NOTE: each line has to be under quotes, docker_container_type, script_name and docker_image_name separate with a space.
 # "docker_container_type script_name docker_image_name"
 OPERATING_SYSTEMS=(
-#   "mgrun amzn-2 amazonlinux:2"
+  "mgrun amzn-2 amazonlinux:2"
   "mgrun centos-7 centos:7"
-  "mgbuild centos-7 package-mgbuild_centos-7"
-#   "mgrun centos-9 dokken/centos-stream-9"
-#   "mgrun debian-10 debian:10"
-#   "mgrun debian-11 debian:11"
-#   "mgrun fedora-36 fedora:36"
-#   "mgrun ubuntu-18.04 ubuntu:18.04"
-#   "mgrun ubuntu-20.04 ubuntu:20.04"
-#   "mgrun ubuntu-22.04 ubuntu:22.04"
+  "mgrun centos-9 dokken/centos-stream-9"
+  "mgrun debian-10 debian:10"
+  "mgrun debian-11 debian:11"
+  "mgrun fedora-36 fedora:36"
+  "mgrun ubuntu-18.04 ubuntu:18.04"
+  "mgrun ubuntu-20.04 ubuntu:20.04"
+  "mgrun ubuntu-22.04 ubuntu:22.04"
+  # "mgbuild centos-7 package-mgbuild_centos-7"
 )
 
 # TODO(gitbuda): Copy and install system package from the mgbuild container.
@@ -108,18 +108,14 @@ if [ "$#" -eq 0 ]; then
   print_help
 else
   case $1 in
-    all)
+    run)
       start_all
     ;;
-    check_all)
+    check)
       check_all
     ;;
-    delete_all)
+    delete)
       delete_all
-    ;;
-    delete_one)
-      shift 1
-      docker_stop_and_rm $1
     ;;
     *)
       print_help
