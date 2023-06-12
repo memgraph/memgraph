@@ -9,7 +9,10 @@ fi
 if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
   export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
 fi
-export PATH="$JAVA_HOME/bin:$PATH"
+if [ -d "/opt/apache-maven-3.9.2" ]; then
+  export M2_HOME="/opt/apache-maven-3.9.2"
+fi
+export PATH="$JAVA_HOME/bin:$M2_HOME/bin:$PATH"
 
 for i in java mvn; do
     if ! which $i >/dev/null; then
