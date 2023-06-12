@@ -31,7 +31,7 @@ namespace memgraph::dbms {
 template <typename TContext = query::InterpreterContext, typename TConfig = query::InterpreterConfig>
 class InterpContextHandler {
  public:
-  using NewResult = utils::BasicResult<NewError, TContext *>;
+  using NewResult = utils::BasicResult<NewError, std::shared_ptr<TContext>>;
 
   InterpContextHandler() {}
 
@@ -41,8 +41,8 @@ class InterpContextHandler {
     // TODO: Is there anything that can conflict
     // Create storage
     auto [itr, success] =
-        storage_.emplace(name, std::make_pair(std::make_unique<TContext>(db, config, data_directory), config));
-    if (success) return itr->second.first.get();
+        storage_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory), config));
+    if (success) return itr->second.first;
     // TODO: Handle errors and return {}?
     return NewError::EXISTS;
   }
@@ -55,9 +55,9 @@ class InterpContextHandler {
   //   return {};
   // }
 
-  std::optional<TContext *> Get(std::string_view name) {
+  std::optional<std::shared_ptr<TContext>> Get(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.first.get();
+      return search->second.first;
     }
     return {};
   }
@@ -78,7 +78,7 @@ class InterpContextHandler {
   // shared_ptr and custom destructor if we are destroying it
   // unique and raw ptrs if we are not destroying it
   // Create drop and create with same name?
-  std::unordered_map<std::string, std::pair<std::unique_ptr<TContext>, TConfig>> storage_;
+  std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>> storage_;
   std::optional<TConfig> default_config_;
 };
 

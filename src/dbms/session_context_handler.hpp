@@ -29,11 +29,6 @@
 
 namespace memgraph::dbms {
 
-template <typename T>
-concept WithUUID = requires(T v) {
-  { v.UUID() } -> std::same_as<std::string>;
-};
-
 using DeleteResult = utils::BasicResult<DeleteError>;
 
 class SessionContextHandler {
@@ -81,58 +76,36 @@ class SessionContextHandler {
 
   // TODO rethink if we want a raw pointer here
   //  in theory delete is protected by USING, but I still don't like it
+  // SessionContext is copied since it only has pointers (shared to sync storage destruction)
   //  Can throw
-  SessionContext *GetPtr(const std::string &name) {
+  SessionContext Get(const std::string &name) {
     std::shared_lock<LockT> rd(lock_);
     // TODO checks
-    return &db_context_.at(name);
+    return db_context_.at(name);
   }
 
   // Can throw
   bool SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
     if (db_context_.find(db_name) != db_context_.end()) {
-      const auto &name = get_db_name_.at(uuid)();
-      if (name != db_name) {
-        // todo checks
-        return on_change_cb_.at(uuid)(db_name);
-      }
+      auto &s = sessions_.at(uuid);
+      // todo checks
+      return s.OnChange(db_name);
       return true;
     }
     return false;
   }
 
-  template <WithUUID T>
-  bool RegisterOnChange(const T &session, std::function<bool(const std::string &)> cb) {
+  bool Register(SessionInterface &session) {
     std::lock_guard<LockT> wr(lock_);
-    auto [_, success] = on_change_cb_.emplace(session.UUID(), cb);
-    return true;
-    // todo checks
+    auto [_, success] = sessions_.emplace(session.UUID(), session);
+    return success;
   }
 
-  template <WithUUID T>
-  bool RegisterOnDelete(const T &session, std::function<bool(const std::string &)> cb) {
-    std::lock_guard<LockT> wr(lock_);
-    auto [_, success] = on_delete_cb_.emplace(session.UUID(), cb);
-    return true;
-    // todo checks
-  }
-
-  template <WithUUID T>
-  bool RegisterGetDB(const T &session, std::function<std::string()> cb) {
-    std::lock_guard<LockT> wr(lock_);
-    auto [_, success] = get_db_name_.emplace(session.UUID(), cb);
-    return true;
-    // todo checks
-  }
-
-  template <WithUUID T>
-  void Delete(const T &session) {
+  void Delete(const SessionInterface &session) {
     std::lock_guard<LockT> wr(lock_);
     const auto &uuid = session.UUID();
-    get_db_name_.erase(uuid);
-    on_change_cb_.erase(uuid);
-    on_delete_cb_.erase(uuid);
+    sessions_.erase(uuid);
   }
 
   DeleteResult Delete(const std::string &db_name) {
@@ -142,16 +115,15 @@ class SessionContextHandler {
       return DeleteError::DEFAULT_DB;
     }
     if (auto itr = db_context_.find(db_name); itr != db_context_.end()) {
-      for (const auto &itr : get_db_name_) {
-        const auto &db = itr.second();
-        if (db == db_name) {
+      for (const auto &[_, s] : sessions_) {
+        if (s.GetDB() == db_name) {
           // At least one session is using the db
           return DeleteError::USING;
         }
       }
       // High level handlers
-      for (const auto &itr : on_delete_cb_) {
-        if (!itr.second(db_name)) {
+      for (auto &[_, s] : sessions_) {
+        if (!s.OnDelete(db_name)) {
           return DeleteError::FAIL;
         }
       }
@@ -160,6 +132,7 @@ class SessionContextHandler {
         return DeleteError::FAIL;
       }
       db_context_.erase(itr);
+      // todo custom shared ptr desct to sync?
       return {};  // Success
     }
     return DeleteError::NON_EXISTENT;
@@ -170,12 +143,12 @@ class SessionContextHandler {
     default_configs_ = configs;
   }
 
-  std::optional<ConfigT> GetDefaultConfigs() {
+  std::optional<ConfigT> GetDefaultConfigs() const {
     std::shared_lock<LockT> rd(lock_);
     return default_configs_;
   }
 
-  std::vector<std::string> All() {
+  std::vector<std::string> All() const {
     std::shared_lock<LockT> rd(lock_);
     std::vector<std::string> names;
     names.reserve(db_context_.size());
@@ -186,9 +159,9 @@ class SessionContextHandler {
   }
 
   // can throw
-  std::string Current(const std::string &uuid) {
+  std::string Current(const std::string &uuid) const {
     std::shared_lock<LockT> rd(lock_);
-    return get_db_name_.at(uuid)();
+    return sessions_.at(uuid).GetDB();
   }
 
  private:
@@ -210,11 +183,11 @@ class SessionContextHandler {
     auto new_storage = storage_handler_.New(name, storage_config);
     if (new_storage.HasValue()) {
       // storage config can be something else if storage already exists, or return false or reread config
-      auto new_interp =
-          interp_handler_.New(name, new_storage.GetValue(), inter_config, storage_config.durability.storage_directory);
+      auto new_interp = interp_handler_.New(name, new_storage.GetValue().get(), inter_config,
+                                            storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
 #if MG_ENTERPRISE
-        SessionContext sd{*new_storage, new_interp.GetValue(), auth_, audit_log_};
+        SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_, audit_log_};
 #else
         SessionContext sd{*new_storage, new_interp.GetValue(), auth_};
 #endif
@@ -229,7 +202,7 @@ class SessionContextHandler {
   }
 
   // Should storage objects ever be deleted?
-  LockT lock_;
+  mutable LockT lock_;
   std::atomic_bool initialized_;
   StorageHandler<StorageT, StorageConfigT> storage_handler_;
   InterpContextHandler<InterpT, InterpConfigT> interp_handler_;
@@ -241,9 +214,7 @@ class SessionContextHandler {
   memgraph::audit::Log *audit_log_;
 #endif
   // TODO create a visitor instead of this
-  std::unordered_map<std::string, std::function<bool(const std::string &)>> on_change_cb_;
-  std::unordered_map<std::string, std::function<bool(const std::string &)>> on_delete_cb_;
-  std::unordered_map<std::string, std::function<std::string()>> get_db_name_;
+  std::unordered_map<std::string, SessionInterface &> sessions_;
 };
 
 }  // namespace memgraph::dbms

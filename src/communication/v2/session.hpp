@@ -47,6 +47,7 @@
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
+#include "dbms/global.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -99,7 +100,8 @@ class OutputStream final {
  * wrapping.
  */
 template <typename TSession, typename TSessionContext>
-class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>> {
+class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>,
+                         dbms::SessionInterface {
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
   using std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>::shared_from_this;
 
@@ -108,6 +110,13 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   static std::shared_ptr<WebsocketSession> Create(Args &&...args) {
     return std::shared_ptr<WebsocketSession>(new WebsocketSession(std::forward<Args>(args)...));
   }
+
+  ~WebsocketSession() override { session_context_->Delete(*this); }
+
+  WebsocketSession(const WebsocketSession &) = delete;
+  WebsocketSession &operator=(const WebsocketSession &) = delete;
+  WebsocketSession(WebsocketSession &&) noexcept = delete;
+  WebsocketSession &operator=(WebsocketSession &&) noexcept = delete;
 
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
@@ -157,7 +166,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   explicit WebsocketSession(tcp::socket &&socket, TSessionContext *session_context, tcp::endpoint endpoint,
                             std::string_view service_name)
       : WebsocketSession(
-            std::make_unique<typename TSession::HLImplT>(session_context->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
+            std::make_unique<typename TSession::HLImplT>(session_context->Get(memgraph::dbms::kDefaultDB), endpoint),
             std::forward<tcp::socket>(socket), session_context, endpoint, service_name) {}
 
   explicit WebsocketSession(std::unique_ptr<typename TSession::HLImplT> pimpl, tcp::socket &&socket,
@@ -165,16 +174,12 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
         output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
-        db_name_{memgraph::dbms::kDefaultDB},
-        session_{input_buffer_.read_end(), &output_stream_, pimpl.get()},
+        session_{input_buffer_.read_end(), &output_stream_, std::move(pimpl)},
         session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
         service_name_{service_name} {
-    hl_sessions_.emplace(db_name_, std::move(pimpl));
-    session_context_->RegisterOnChange(session_, std::bind(&WebsocketSession::OnChange, this, std::placeholders::_1));
-    session_context_->RegisterOnDelete(session_, std::bind(&WebsocketSession::OnDelete, this, std::placeholders::_1));
-    session_context_->RegisterGetDB(session_, [&]() { return db_name_; });
+    session_context_->Register(*this);
   }
 
   void OnAccept(boost::beast::error_code ec) {
@@ -252,37 +257,25 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   bool IsConnected() const { return ws_.is_open() && execution_active_; }
 
-  bool OnChange(const std::string &db_name) {
-    if (session_.state_ == memgraph::communication::bolt::State::Result && db_name_ != db_name) {  // Only during pull
+  bool OnChange(const std::string &db_name) override {
+    // std::unique_lock<std::mutex> l(mtx_);
+    if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
-      auto &ptr = hl_sessions_[db_name];
-      if (ptr == nullptr) {
-        // todo checks
-        ptr = std::make_unique<typename TSession::HLImplT>(session_context_->GetPtr(db_name), endpoint_);
-      }
-      if (session_.SetImpl(ptr.get())) {
-        db_name_ = db_name;
-        return true;
-      }
+      return session_.SetImpl(db_name, session_context_->Get(db_name), endpoint_);
     }
     return false;
   }
 
-  bool OnDelete(const std::string &db_name) {
-    if (db_name_ != db_name) {
-      hl_sessions_.erase(db_name);
-      return true;
-    }
-    return false;
-  }
+  bool OnDelete(const std::string &db_name) override { return session_.DelImpl(db_name); }
+
+  std::string GetDB() const override { return session_.GetID(); }
+  std::string UUID() const override { return session_.UUID(); }
 
   WebSocket ws_;
   boost::asio::strand<WebSocket::executor_type> strand_;
 
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
-  std::string db_name_;
-  std::unordered_map<std::string, std::unique_ptr<typename TSession::HLImplT>> hl_sessions_;
   TSession session_;
   TSessionContext *session_context_;
   tcp::endpoint endpoint_;
@@ -297,7 +290,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
  * wrapping.
  */
 template <typename TSession, typename TSessionContext>
-class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>> {
+class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>>, dbms::SessionInterface {
   using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
   using std::enable_shared_from_this<Session<TSession, TSessionContext>>::shared_from_this;
@@ -313,7 +306,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
 
-  ~Session() { session_context_->Delete(session_); }
+  ~Session() override { session_context_->Delete(*this); }
 
   bool Start() {
     if (execution_active_) {
@@ -382,7 +375,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                    tcp::endpoint endpoint, const std::chrono::seconds inactivity_timeout_sec,
                    std::string_view service_name)
       : Session(
-            std::make_unique<typename TSession::HLImplT>(session_context->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
+            std::make_unique<typename TSession::HLImplT>(session_context->Get(memgraph::dbms::kDefaultDB), endpoint),
             std::forward<tcp::socket>(socket), session_context, server_context, endpoint, inactivity_timeout_sec,
             service_name) {}
 
@@ -392,18 +385,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
-        db_name_{memgraph::dbms::kDefaultDB},
-        session_{input_buffer_.read_end(), &output_stream_, pimpl.get()},
+        session_{input_buffer_.read_end(), &output_stream_, std::move(pimpl)},
         session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
-    hl_sessions_.emplace(db_name_, std::move(pimpl));
-    session_context_->RegisterOnChange(session_, std::bind(&Session::OnChange, this, std::placeholders::_1));
-    session_context_->RegisterOnDelete(session_, std::bind(&Session::OnDelete, this, std::placeholders::_1));
-    session_context_->RegisterGetDB(session_, [&]() { return db_name_; });
+    session_context_->Register(*this);
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
       socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
@@ -587,28 +576,19 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::visit(utils::Overloaded{std::forward<F>(fun)}, socket_);
   }
 
-  bool OnChange(const std::string &db_name) {
-    if (session_.state_ == memgraph::communication::bolt::State::Result && db_name_ != db_name) {  // Only during pull
+  bool OnChange(const std::string &db_name) override {
+    // std::unique_lock<std::mutex> l(mtx_);
+    if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
-      auto &ptr = hl_sessions_[db_name];
-      if (ptr == nullptr) {
-        ptr = std::make_unique<typename TSession::HLImplT>(session_context_->GetPtr(db_name), endpoint_);
-      }
-      if (session_.SetImpl(ptr.get())) {
-        db_name_ = db_name;
-        return true;
-      }
+      return session_.SetImpl(db_name, session_context_->Get(db_name), endpoint_);
     }
     return false;
   }
 
-  bool OnDelete(const std::string &db_name) {
-    if (db_name_ != db_name) {
-      hl_sessions_.erase(db_name);
-      return true;
-    }
-    return false;
-  }
+  bool OnDelete(const std::string &db_name) override { return session_.DelImpl(db_name); }
+
+  std::string GetDB() const override { return session_.GetID(); }
+  std::string UUID() const override { return session_.UUID(); }
 
   std::variant<TCPSocket, SSLSocket> socket_;
   std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
@@ -616,8 +596,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
-  std::string db_name_;
-  std::unordered_map<std::string, std::unique_ptr<typename TSession::HLImplT>> hl_sessions_;
   TSession session_;
   TSessionContext *session_context_;
   tcp::endpoint endpoint_;
@@ -627,5 +605,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   boost::asio::steady_timer timeout_timer_;
   bool execution_active_{false};
   bool has_received_msg_{false};
+
+  // TODO debugging
+  mutable std::mutex mtx_;
+  typename TSession::HLImplT *prev_hl_;
 };
 }  // namespace memgraph::communication::v2

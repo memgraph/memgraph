@@ -112,12 +112,11 @@ using TestSession = Session<TestInputStream, TestOutputStream, TestImpl>;
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS                                            \
-  TestInputStream input_stream;                              \
-  TestOutputStream output_stream;                            \
-  TestSessionContext session_context;                        \
-  TestImpl impl(&session_context);                           \
-  TestSession session(&input_stream, &output_stream, &impl); \
+#define INIT_VARS                                                                                   \
+  TestInputStream input_stream;                                                                     \
+  TestOutputStream output_stream;                                                                   \
+  TestSessionContext session_context;                                                               \
+  TestSession session(&input_stream, &output_stream, std::make_unique<TestImpl>(&session_context)); \
   std::vector<uint8_t> &output = output_stream.output;
 
 // Sample testdata that has correct inputs and outputs.

@@ -26,12 +26,15 @@ namespace memgraph::dbms {
 template <typename TStorage = memgraph::storage::Storage, typename TConfig = memgraph::storage::Config>
 class StorageHandler {
  public:
-  using NewResult = utils::BasicResult<NewError, TStorage *>;
+  using NewResult = utils::BasicResult<NewError, std::shared_ptr<TStorage>>;
 
   StorageHandler() {}
 
   NewResult New(std::string_view name, const TConfig &config) {
     // Control that no one is using the same data directory
+    if (storage_.find(std::string(name)) != storage_.end()) {
+      return NewError::EXISTS;
+    }
     // TODO better check
     if (std::any_of(storage_.begin(), storage_.end(), [&](const auto &elem) {
           return elem.second.second.durability.storage_directory == config.durability.storage_directory;
@@ -40,8 +43,8 @@ class StorageHandler {
       return NewError::EXISTS;
     }
     // Create storage
-    auto [itr, success] = storage_.emplace(name, std::make_pair(std::make_unique<TStorage>(config), config));
-    if (success) return itr->second.first.get();
+    auto [itr, success] = storage_.emplace(name, std::make_pair(std::make_shared<TStorage>(config), config));
+    if (success) return itr->second.first;
     // TODO: Handle errors and return {}?
     return NewError::EXISTS;
   }
@@ -57,9 +60,9 @@ class StorageHandler {
 
   NewResult New(std::string_view name) { return New(name, name); }
 
-  std::optional<TStorage *> Get(std::string_view name) {
+  std::optional<std::shared_ptr<TStorage>> Get(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.first.get();
+      return search->second.first;
     }
     return {};
   }
@@ -87,7 +90,7 @@ class StorageHandler {
   // shared_ptr and custom destructor if we are destroying it
   // unique and raw ptrs if we are not destroying it
   // Create drop and create with same name?
-  std::unordered_map<std::string, std::pair<std::unique_ptr<TStorage>, TConfig>> storage_;
+  std::unordered_map<std::string, std::pair<std::shared_ptr<TStorage>, TConfig>> storage_;
   std::optional<TConfig> default_config_;
 };
 

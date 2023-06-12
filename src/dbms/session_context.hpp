@@ -29,7 +29,8 @@ struct SessionContext {
   // supplied.
 #if MG_ENTERPRISE
 
-  SessionContext(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
+                 std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context,
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
                  memgraph::audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
@@ -42,8 +43,10 @@ struct SessionContext {
 
 #endif
 
-  memgraph::storage::Storage *db;
-  memgraph::query::InterpreterContext *interpreter_context;
+  std::shared_ptr<memgraph::storage::Storage> db;
+  std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
+
+  // TODO: if shared_ptr fix works do that for everything
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
 #if MG_ENTERPRISE

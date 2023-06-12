@@ -27,6 +27,7 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
@@ -44,6 +45,73 @@ concept HLImpl = requires(T v) {
   { v.Abort() } -> std::same_as<void>;
   { v.Authenticate({}, {}) } -> std::same_as<bool>;
   { v.GetServerNameForInit() } -> std::same_as<std::optional<std::string>>;
+};
+
+template <typename T>
+class MultiSessionHandler {
+ public:
+  MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p)
+      : id_(id),
+        current_(std::move(p))  //, all_{{id_, std::move(p)}}, current_{all_[id_]} {}
+  {
+    all_.emplace(id, current_);
+  }
+  ~MultiSessionHandler() = default;
+
+  MultiSessionHandler(const MultiSessionHandler &) = delete;
+  MultiSessionHandler &operator=(const MultiSessionHandler &) = delete;
+  MultiSessionHandler(MultiSessionHandler &&) noexcept = delete;
+  MultiSessionHandler &operator=(MultiSessionHandler &&) noexcept = delete;
+
+  /**
+   * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
+   * connection.
+   */
+  template <typename... TArgs>
+  bool SetImpl(std::string id, TArgs &&...args) {
+    if (id.empty() || id == id_) {
+      return false;
+    }
+    auto &ptr = all_[id];
+    if (ptr == nullptr) {
+      ptr = std::make_shared<T>(std::forward<TArgs>(args)...);
+    }
+    current_ = ptr;
+    id_ = id;
+    return true;
+  }
+
+  struct SafePtr {
+    explicit SafePtr(std::shared_ptr<T> p) : p_(p) {}
+    ~SafePtr() = default;
+
+    SafePtr(const SafePtr &) = delete;
+    SafePtr &operator=(const SafePtr &) = delete;
+    SafePtr(SafePtr &&) noexcept = delete;
+    SafePtr &operator=(SafePtr &&) noexcept = delete;
+
+    std::shared_ptr<T> p_;
+
+    T *operator->() const { return p_.get(); }
+    T &operator*() const { return *p_; }
+  };
+
+  SafePtr GetImpl() { return SafePtr{current_}; }
+
+  bool DelImpl(std::string id) {
+    if (id != id_) {
+      all_.erase(id);
+      return true;
+    }
+    return false;
+  }
+
+  std::string GetID() const { return id_; }
+
+ private:
+  std::string id_;
+  std::unordered_map<std::string, std::shared_ptr<T>> all_;
+  std::shared_ptr<T> current_;
 };
 
 /**
@@ -65,28 +133,17 @@ class SessionException : public utils::BasicException {
  * @tparam TOutputStream type of output stream that will be used
  */
 template <typename TInputStream, typename TOutputStream, HLImpl TSession>
-class Session {
+class Session : public MultiSessionHandler<TSession> {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
   using HLImplT = TSession;
+  using MultiSessionHandler<TSession>::GetImpl;
 
-  Session(TInputStream *input_stream, TOutputStream *output_stream, TSession *impl)
-      : input_stream_(*input_stream),
+  Session(TInputStream *input_stream, TOutputStream *output_stream, std::unique_ptr<TSession> impl)
+      : MultiSessionHandler<TSession>(dbms::kDefaultDB, std::move(impl)),
+        input_stream_(*input_stream),
         output_stream_(*output_stream),
-        pimpl_(impl),
         session_uuid_(utils::GenerateUUID()) {}
-
-  /**
-   * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
-   * connection.
-   */
-  bool SetImpl(TSession *impl) {
-    if (impl == nullptr || pimpl_ == impl) {
-      return false;
-    }
-    pimpl_ = impl;
-    return true;
-  }
 
   /**
    * Process the given `query` with `params`.
@@ -96,7 +153,7 @@ class Session {
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
       const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
-    return pimpl_->Interpret(query, params, metadata, session_uuid_);
+    return GetImpl()->Interpret(query, params, metadata, session_uuid_);
   }
 
   /**
@@ -108,7 +165,7 @@ class Session {
    * otherwise the last query is used.
    */
   std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
-    return pimpl_->Pull(encoder, n, qid);
+    return GetImpl()->Pull(encoder, n, qid);
   }
 
   /**
@@ -119,25 +176,27 @@ class Session {
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) { return pimpl_->Discard(n, qid); }
+  std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) {
+    return GetImpl()->Discard(n, qid);
+  }
 
   void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &params) {
-    pimpl_->BeginTransaction(params);
+    return GetImpl()->BeginTransaction(params);
   }
-  void CommitTransaction() { pimpl_->CommitTransaction(); }
-  void RollbackTransaction() { pimpl_->RollbackTransaction(); }
+  void CommitTransaction() { return GetImpl()->CommitTransaction(); }
+  void RollbackTransaction() { return GetImpl()->RollbackTransaction(); }
 
   /** Aborts currently running query. */
-  void Abort() { pimpl_->Abort(); }
+  void Abort() { return GetImpl()->Abort(); }
 
   /** Return `true` if the user was successfully authenticated. */
   bool Authenticate(const std::string &username, const std::string &password) {
-    return pimpl_->Authenticate(username, password);
+    return GetImpl()->Authenticate(username, password);
   }
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
-  std::optional<std::string> GetServerNameForInit() { return pimpl_->GetServerNameForInit(); }
+  std::optional<std::string> GetServerNameForInit() { return GetImpl()->GetServerNameForInit(); }
 
   /**
    * Executes the session after data has been read into the buffer.
@@ -236,7 +295,6 @@ class Session {
     throw SessionException("Something went wrong during session execution!");
   }
 
-  TSession *pimpl_;
   const std::string session_uuid_;
 };
 

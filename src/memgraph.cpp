@@ -477,17 +477,17 @@ extern const Event ActiveBoltSessions;
 
 class SessionHL final {
  public:
-  SessionHL(memgraph::dbms::SessionContext *session_context,
-            const memgraph::communication::v2::ServerEndpoint &endpoint)
-      : db_(session_context->db),
-        interpreter_context_(session_context->interpreter_context),
-        interpreter_(session_context->interpreter_context),
-        auth_(session_context->auth),
+  SessionHL(memgraph::dbms::SessionContext session_context, const memgraph::communication::v2::ServerEndpoint &endpoint)
+      : session_context_(session_context),
+        db_(session_context_.db.get()),
+        interpreter_context_(session_context_.interpreter_context.get()),
+        interpreter_(session_context_.interpreter_context.get()),
+        auth_(session_context_.auth),
 #if MG_ENTERPRISE
-        audit_log_(session_context->audit_log),
+        audit_log_(session_context_.audit_log),
 #endif
         endpoint_(endpoint),
-        run_id_(session_context->run_id) {
+        run_id_(session_context_.run_id) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
@@ -502,6 +502,7 @@ class SessionHL final {
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
 
+  memgraph::dbms::SessionContext session_context_;
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
@@ -916,7 +917,7 @@ int main(int argc, char **argv) {
   sc_handler.Init(&auth, {db_config, interp_config});
 #endif
   // Just for current support... TODO remove
-  auto session_context = *sc_handler.GetPtr(memgraph::dbms::kDefaultDB);
+  auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
   auto &interpreter_context = *session_context.interpreter_context;
   auto &db = *session_context.db;
 
@@ -1012,13 +1013,13 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
-  MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
+  // MonitoringServerT metrics_server{
+  //     {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+    auto shutdown = [/*&metrics_server,*/ &websocket_server, &server, &interpreter_context] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
@@ -1028,7 +1029,7 @@ int main(int argc, char **argv) {
       memgraph::query::Shutdown(&interpreter_context);
 
       websocket_server.Shutdown();
-      metrics_server.Shutdown();
+      // metrics_server.Shutdown();
     };
 
     InitSignalHandlers(shutdown);
@@ -1070,7 +1071,7 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.Start();
+    // metrics_server.Start();
   }
 #endif
 
@@ -1089,7 +1090,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.AwaitShutdown();
+    // metrics_server.AwaitShutdown();
   }
 #endif
 

@@ -11,9 +11,21 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
+#include <string>
 
 namespace memgraph::dbms {
+
+class SessionInterface {
+ public:
+  virtual ~SessionInterface() = default;
+
+  virtual std::string UUID() const = 0;
+  virtual std::string GetDB() const = 0;
+  virtual bool OnChange(const std::string &) = 0;
+  virtual bool OnDelete(const std::string &) = 0;
+};
 
 enum class DeleteError : uint8_t {
   DEFAULT_DB,
