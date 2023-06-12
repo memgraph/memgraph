@@ -14,6 +14,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -220,8 +221,11 @@ class DiskStorage final : public Storage {
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    return std::unique_ptr<DiskAccessor>(
-        new DiskAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+    auto isolation_level = override_isolation_level.value_or(isolation_level_);
+    if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
+      throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    }
+    return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
   }
 
   /// Create an index.
