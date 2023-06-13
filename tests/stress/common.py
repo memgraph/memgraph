@@ -113,7 +113,7 @@ def batch(input, batch_size):
     Return:
         a generator that yields batches of elements.
     """
-    assert batch_size > 1, "Batch size must be greater then zero"
+    assert batch_size > 1, "Batch size must be greater than zero"
 
     batch = []
     for element in input:

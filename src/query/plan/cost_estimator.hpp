@@ -43,8 +43,8 @@ namespace memgraph::query::plan {
  * allowed.
  *
  * This kind of cost estimation can only be used for comparing logical plans.
- * It's aim is to estimate cost(A) to be less then cost(B) in every case where
- * actual query execution for plan A is less then that of plan B. It can NOT be
+ * It's aim is to estimate cost(A) to be less than cost(B) in every case where
+ * actual query execution for plan A is less than that of plan B. It can NOT be
  * used to estimate how MUCH execution between A and B will differ.
  */
 template <class TDbAccessor>

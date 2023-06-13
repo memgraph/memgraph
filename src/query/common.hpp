@@ -59,7 +59,7 @@ class TypedValueVectorCompare final {
     }
 
     // at least one collection is exhausted
-    // c1 is less then c2 iff c1 reached the end but c2 didn't
+    // c1 is less than c2 iff c1 reached the end but c2 didn't
     return (c1_it == c1.end()) && (c2_it != c2.end());
   }
 

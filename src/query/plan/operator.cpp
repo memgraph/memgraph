@@ -1511,7 +1511,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         edge_list.emplace_back(previous_edge.value());
       }
 
-      // expand only if what we've just expanded is less then max depth
+      // expand only if what we've just expanded is less than max depth
       if (static_cast<int64_t>(edge_list.size()) < upper_bound_) expand_from_vertex(expansion.second);
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;

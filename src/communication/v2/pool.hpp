@@ -29,7 +29,7 @@ class IOContextThreadPool final {
 
  public:
   explicit IOContextThreadPool(size_t pool_size) : guard_{io_context_.get_executor()}, pool_size_{pool_size} {
-    MG_ASSERT(pool_size != 0, "Pool size must be greater then 0!");
+    MG_ASSERT(pool_size != 0, "Pool size must be greater than 0!");
   }
 
   IOContextThreadPool(const IOContextThreadPool &) = delete;

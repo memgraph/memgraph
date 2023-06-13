@@ -145,7 +145,7 @@ class Path {
  private:
   // Contains all the vertices in the path.
   utils::pmr::vector<VertexAccessor> vertices_;
-  // Contains all the edges in the path (one less then there are vertices).
+  // Contains all the edges in the path (one less than there are vertices).
   utils::pmr::vector<EdgeAccessor> edges_;
 };
 
