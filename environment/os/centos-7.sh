@@ -39,7 +39,7 @@ TOOLCHAIN_RUN_DEPS=(
 )
 
 MEMGRAPH_BUILD_DEPS=(
-    make pkgconfig # build system
+    make cmake pkgconfig # build system
     curl wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console

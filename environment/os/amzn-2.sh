@@ -41,7 +41,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make # build system
+    make cmake # build system
     wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
