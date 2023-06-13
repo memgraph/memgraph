@@ -131,10 +131,9 @@ class ModuleRegistry final {
  private:
   class SharedLibraryHandle {
    public:
-    SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "") {
-      handle_ = dlopen(shared_library.c_str(), mode);
+    SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "")
+        : handle_(dlopen(shared_library.c_str(), mode)) {
       if (!handle_) {
-        // TODO(gitbuda): Verify that this is printed out 100%.
         spdlog::warn("Unable to load {}. {}", shared_library, hint_message);
       }
     }

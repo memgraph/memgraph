@@ -23,10 +23,12 @@ def wrap_text(s, initial_indent="# "):
 def extract_flags(binary_path):
     ret = {}
     data = subprocess.run([binary_path, "--help-xml"], stdout=subprocess.PIPE).stdout.decode("utf-8")
-    # TODO(gitbuda): Only take the XML help part and parse it.
-    # This gets called during memgraph build phase.
-    # If something is printed out before the help output, it will break the the XML parsing here.
-    print(data)
+    # If something is printed out before the help output, it will break the the
+    # XML parsing -> filter out if something is not XML line because something
+    # can be logged before gflags output (e.g. during the global objects init).
+    # This gets called during memgraph build phase to generate default config
+    # file later installed under /etc/memgraph/memgraph.conf
+    data = "\n".join([line for line in data.split("\n") if line.startswith("<")])
     root = ET.fromstring(data)
     for child in root:
         if child.tag == "usage" and child.text.lower().count("warning"):
