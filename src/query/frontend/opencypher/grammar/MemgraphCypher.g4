@@ -59,7 +59,7 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
-                      | IGNORE_EMPTY_STRINGS
+                      | NULLIF
                       | ISOLATION
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -225,7 +225,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
-         ( IGNORE_EMPTY_STRINGS ) ?
+         ( NULLIF nullif ) ?
          AS rowVar ;
 
 csvFile : literal ;
@@ -233,6 +233,8 @@ csvFile : literal ;
 delimiter : literal ;
 
 quote : literal ;
+
+nullif : literal ;
 
 rowVar : variable ;
 

@@ -3020,9 +3020,9 @@ class LoadCsv : public memgraph::query::Clause {
   memgraph::query::Expression *file_;
   bool with_header_;
   bool ignore_bad_;
-  bool ignore_empty_strings_;
   memgraph::query::Expression *delimiter_{nullptr};
   memgraph::query::Expression *quote_{nullptr};
+  memgraph::query::Expression *nullif_{nullptr};
   memgraph::query::Identifier *row_var_{nullptr};
 
   LoadCsv *Clone(AstStorage *storage) const override {
@@ -3030,7 +3030,7 @@ class LoadCsv : public memgraph::query::Clause {
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
-    object->ignore_empty_strings_ = ignore_empty_strings_;
+    object->nullif_ = nullif_;
     object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
@@ -3038,14 +3038,14 @@ class LoadCsv : public memgraph::query::Clause {
   }
 
  protected:
-  explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, bool ignore_empty_strings,
-                   Expression *delimiter, Expression *quote, Identifier *row_var)
+  explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter, Expression *quote,
+                   Expression *nullif, Identifier *row_var)
       : file_(file),
         with_header_(with_header),
         ignore_bad_(ignore_bad),
-        ignore_empty_strings_(ignore_empty_strings),
         delimiter_(delimiter),
         quote_(quote),
+        nullif_(nullif),
         row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadCsv cannot take nullptr for identifier");
   }

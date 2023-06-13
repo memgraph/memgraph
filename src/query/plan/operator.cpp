@@ -4637,14 +4637,14 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
-                 bool ignore_empty_strings, Expression *delimiter, Expression *quote, Symbol row_var)
+                 Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())),
       file_(file),
       with_header_(with_header),
       ignore_bad_(ignore_bad),
-      ignore_empty_strings_(ignore_empty_strings),
       delimiter_(delimiter),
       quote_(quote),
+      nullif_(nullif),
       row_var_(row_var) {
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
@@ -4689,12 +4689,13 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row, bool ignore_empty_strings = 
   return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header, bool ignore_empty_strings = false) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
+                            std::optional<utils::pmr::string> nullif) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    if (!ignore_empty_strings || !row[i].empty()) {
+    if (!nullif.has_value() || row[i] == nullif.value()) {
       m.emplace(std::move(header[i]), std::move(row[i]));
     } else {
       m.emplace(std::move(header[i]), mem);
@@ -4710,6 +4711,7 @@ class LoadCsvCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   bool input_is_once_;
   std::optional<csv::Reader> reader_{};
+  std::optional<utils::pmr::string> nullif_;
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -4728,7 +4730,7 @@ class LoadCsvCursor : public Cursor {
     //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
     //  without massacring the code even worse than I did here
     if (UNLIKELY(!reader_)) {
-      reader_ = MakeReader(&context.evaluation_context);
+      InitializeReader(&context.evaluation_context);
     }
 
     bool input_pulled = input_cursor_->Pull(frame, context);
@@ -4747,8 +4749,7 @@ class LoadCsvCursor : public Cursor {
       frame[self_->row_var_] = CsvRowToTypedList(*row);
     } else {
       frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
-                           self_->ignore_empty_strings_);
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
     }
     if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
       context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
@@ -4760,7 +4761,7 @@ class LoadCsvCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
  private:
-  csv::Reader MakeReader(EvaluationContext *eval_context) {
+  void InitializeReader(EvaluationContext *eval_context) {
     Frame frame(0);
     SymbolTable symbol_table;
     DbAccessor *dba = nullptr;
@@ -4769,16 +4770,18 @@ class LoadCsvCursor : public Cursor {
     auto maybe_file = ToOptionalString(&evaluator, self_->file_);
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
     auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
+    auto maybe_nullif = ToOptionalString(&evaluator, self_->nullif_);
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
     // Note that the reader has to be given its own memory resource, as it
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
-    return csv::Reader(*maybe_file,
-                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, self_->ignore_empty_strings_,
-                                           std::move(maybe_delim), std::move(maybe_quote)),
-                       utils::NewDeleteResource());
+    reader_ = csv::Reader(
+        *maybe_file,
+        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
+        utils::NewDeleteResource());
+    nullif_ = std::move(maybe_nullif);
   }
 };
 
