@@ -318,14 +318,10 @@ DiskStorage::~DiskStorage() {
   }
   delete kvstore_->options_.comparator;
   kvstore_->options_.comparator = nullptr;
-  spdlog::debug("Tracker when destroying storage: {}", utils::GetReadableSize(utils::total_memory_tracker.Amount()));
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
-  spdlog::debug("Tracker size when creating accessor: {}",
-                utils::GetReadableSize(utils::total_memory_tracker.Amount()));
-  spdlog::debug("Process size when creating accessor {}", utils::GetReadableSize(utils::GetMemoryUsage()));
   rocksdb::WriteOptions write_options;
   // auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   // rocksdb::Slice ts(strTs);
@@ -338,8 +334,6 @@ DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel iso
 DiskStorage::DiskAccessor::DiskAccessor(DiskAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {
   // Don't allow the other accessor to abort our transaction in destructor.
-  spdlog::debug("Tracker size when creating accessor: {}",
-                utils::GetReadableSize(utils::total_memory_tracker.Amount()));
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
 }
@@ -350,7 +344,6 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
-  spdlog::debug("Tracker when destroying accessor: {}", utils::GetReadableSize(utils::total_memory_tracker.Amount()));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(

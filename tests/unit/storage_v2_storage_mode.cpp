@@ -23,6 +23,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
+#include "utils/exceptions.hpp"
 
 class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
@@ -33,17 +34,36 @@ class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::Stora
   };
 };
 
-/// TODO: andi Once we add the suppport for initializing different storage mode, you can change this test so that it
-/// allows and forbids different storage mode changes.
-TEST_P(StorageModeTest, ChangeStorageMode) {
-  const memgraph::storage::StorageMode storage_mode = GetParam();
-
+TEST(StorageModeTest, InMemoryToDiskTransactionalWithEmptyDatabase) {
   std::unique_ptr<memgraph::storage::Storage> storage =
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
   storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
   ASSERT_EQ(storage->GetStorageMode(), memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
+}
+
+TEST_P(StorageModeTest, DiskToInMemoryTransactionalForbidden) {
+  std::unique_ptr<memgraph::storage::Storage> storage =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
+
+  storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
+  ASSERT_EQ(storage->GetStorageMode(), memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
+
+  ASSERT_THROW(storage->SetStorageMode(GetParam()), memgraph::utils::BasicException);
+}
+
+TEST(StorageModeTest, InMemoryToDiskTransactionalDatabaseNotEmpty) {
+  std::unique_ptr<memgraph::storage::Storage> storage =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
+
+  auto creator = storage->Access();
+  creator->CreateVertex();
+  // ASSERT_THROW(storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL),
+  //  memgraph::utils::BasicException);
+  storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
 }
 
 // you should be able to see nodes if there is analytics mode

@@ -12,6 +12,7 @@
 #include "storage/v2/storage.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/transaction.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/stat.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -99,13 +100,12 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
 
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
-  if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL && storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL) {
-    spdlog::info(
+  if (storage_mode != StorageMode::ON_DISK_TRANSACTIONAL && storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw utils::BasicException(
         "You cannot switch from on-disk storage to in-memory storage while the database is running. "
         "Please restart the database with the desired storage mode.");
-  } else {
-    storage_mode_ = storage_mode;
   }
+  storage_mode_ = storage_mode;
 }
 
 StorageMode Storage::GetStorageMode() const { return storage_mode_; }

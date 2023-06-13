@@ -376,8 +376,6 @@ class Interpreter final {
       // of execution memory.
       prepared_query.reset();
       std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
-      spdlog::debug("Tracker size when destroying query execution: {}",
-                    utils::GetReadableSize(utils::total_memory_tracker.Amount()));
     }
   };
 

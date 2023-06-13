@@ -868,11 +868,6 @@ class SkipList final {
   SkipList &operator=(const SkipList &) = delete;
 
   ~SkipList() {
-    int size = size_;
-    spdlog::debug("Tracker size before destroying skip list with {} elements: {}", size,
-                  utils::GetReadableSize(utils::total_memory_tracker.Amount()));
-    spdlog::debug("Process size before destroying skip with {} elements: {}", size,
-                  utils::GetReadableSize(utils::GetMemoryUsage()));
     if (head_ != nullptr) {
       // Remove all items from the list.
       clear();
@@ -883,10 +878,6 @@ class SkipList final {
       head_->lock.~SpinLock();
       GetMemoryResource()->Deallocate(head_, SkipListNodeSize(*head_));
     }
-    spdlog::debug("Tracker size after destroying skip list with {} elements: {}", size,
-                  utils::GetReadableSize(utils::total_memory_tracker.Amount()));
-    spdlog::debug("Process size after destroying skip with {} elements: {}", size,
-                  utils::GetReadableSize(utils::GetMemoryUsage()));
   }
 
   /// Functions that return an accessor to the list. All operations on the list

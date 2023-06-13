@@ -195,10 +195,7 @@ InMemoryStorage::~InMemoryStorage() {
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode)
-    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
-  spdlog::debug("Tracker size when creating accessor: {}",
-                utils::GetReadableSize(utils::total_memory_tracker.Amount()));
-}
+    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
