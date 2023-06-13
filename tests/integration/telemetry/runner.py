@@ -88,8 +88,8 @@ TESTS = [
     {"no_response_count": 2},
     {"wrong_code_count": 2},
     {"hang": True, "duration": 0},
-    {"path": "/nonexistant/", "no_check": True},
-    {"endpoint": "http://127.0.0.1:9000/nonexistant/", "no_check": True},
+    {"path": "/nonexistent/", "no_check": True},
+    {"endpoint": "http://127.0.0.1:9000/nonexistent/", "no_check": True},
     {"start_server": False},
     {"startups": 4, "no_check_duration": True},  # the last 3 tests failed
     # to send any data + this test

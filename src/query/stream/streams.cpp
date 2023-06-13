@@ -571,7 +571,7 @@ void Streams::RestoreStreams() {
         spdlog::warn(get_failed_message("invalid type conversion", exception.what()));
         return;
       } catch (const nlohmann::json::out_of_range &exception) {
-        spdlog::warn(get_failed_message("non existing field", exception.what()));
+        spdlog::warn(get_failed_message("nonexistent field", exception.what()));
         return;
       }
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);

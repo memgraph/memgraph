@@ -899,7 +899,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
 bool SharedLibraryModule::Close() {
   MG_ASSERT(handle_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
-  // non-existent shutdown function is semantically the same as a shutdown
+  // nonexistent shutdown function is semantically the same as a shutdown
   // function that does nothing.
   int shutdown_res = 0;
   if (shutdown_fn_) shutdown_res = shutdown_fn_();

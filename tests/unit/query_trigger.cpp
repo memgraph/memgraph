@@ -574,7 +574,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
   dba.AdvanceCommand();
 
   const auto label_id = dba.NameToLabel("LABEL");
-  // You cannot add the same label multiple times and you cannot remove non existing labels
+  // You cannot add the same label multiple times and you cannot remove nonexistent labels
   // so REMOVE -> REMOVE and SET -> SET doesn't make sense
   {
     SPDLOG_DEBUG("SET -> REMOVE");

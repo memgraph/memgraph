@@ -20,7 +20,7 @@ Feature: SyntaxErrorAcceptance
   Background:
     Given any graph
 
-  Scenario: Using a non-existent function
+  Scenario: Using a nonexistent function
     When executing query:
       """
       MATCH (a)

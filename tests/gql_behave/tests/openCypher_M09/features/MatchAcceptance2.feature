@@ -17,7 +17,7 @@
 
 Feature: MatchAcceptance2
 
-  Scenario: Do not return non-existent nodes
+  Scenario: Do not return nonexistent nodes
     Given an empty graph
     When executing query:
       """
@@ -28,7 +28,7 @@ Feature: MatchAcceptance2
       | n |
     And no side effects
 
-  Scenario: Do not return non-existent relationships
+  Scenario: Do not return nonexistent relationships
     Given an empty graph
     When executing query:
       """
@@ -1692,7 +1692,7 @@ Feature: MatchAcceptance2
       | <({prop: 'a'})-[:T]->({prop: 'b'})> |
     And no side effects
 
-  Scenario: Respecting direction when matching non-existent path
+  Scenario: Respecting direction when matching nonexistent path
     Given an empty graph
     And having executed:
       """
@@ -1708,7 +1708,7 @@ Feature: MatchAcceptance2
       | p |
     And no side effects
 
-  Scenario: Respecting direction when matching non-existent path with multiple directions
+  Scenario: Respecting direction when matching nonexistent path with multiple directions
     Given an empty graph
     And having executed:
       """

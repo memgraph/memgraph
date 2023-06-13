@@ -101,7 +101,7 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
   ASSERT_NE(auth.Authenticate("test", "456"), std::nullopt);
 
-  ASSERT_EQ(auth.Authenticate("nonexistant", "123"), std::nullopt);
+  ASSERT_EQ(auth.Authenticate("nonexistent", "123"), std::nullopt);
 }
 
 TEST_F(AuthWithStorage, UserRolePermissions) {

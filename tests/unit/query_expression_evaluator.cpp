@@ -389,7 +389,7 @@ TEST_F(ExpressionEvaluatorTest, MapProjectionIndexing) {
     EXPECT_EQ(value.ValueInt(), 1);
   }
   {
-    // Legal indexing; property created by PropertyLookup of a non-existent map variable key
+    // Legal indexing; property created by PropertyLookup of a nonexistent map variable key
     auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("y"));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());

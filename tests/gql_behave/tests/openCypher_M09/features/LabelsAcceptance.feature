@@ -230,7 +230,7 @@ Feature: LabelsAcceptance
     And the side effects should be:
       | -labels | 1 |
 
-  Scenario: Removing a non-existent label
+  Scenario: Removing a nonexistent label
     And having executed:
       """
       CREATE (:Foo)

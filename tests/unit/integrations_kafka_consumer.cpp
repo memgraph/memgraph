@@ -279,7 +279,7 @@ TEST_F(ConsumerTest, InvalidBootstrapServers) {
 
 TEST_F(ConsumerTest, InvalidTopic) {
   auto info = CreateDefaultConsumerInfo();
-  info.topics = {"Nonexistingtopic"};
+  info.topics = {"Nonexistenttopic"};
   EXPECT_THROW(Consumer(std::move(info), kDummyConsumerFunction), TopicNotFoundException);
 }
 
