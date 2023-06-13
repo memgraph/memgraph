@@ -40,7 +40,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make pkg-config # build system
+    make cmake pkg-config # build system
     curl wget # for downloading libs
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
@@ -136,6 +136,8 @@ EOF
               echo oracle-java17-installer shared/accepted-oracle-license-v1-3 select true | /usr/bin/debconf-set-selections
               echo oracle-java17-installer shared/accepted-oracle-license-v1-3 seen true | /usr/bin/debconf-set-selections
               apt install -y "$pkg"
+              update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+              update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
             fi
             continue
         fi
@@ -150,8 +152,6 @@ EOF
         fi
         apt install -y "$pkg"
     done
-    update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-    update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
 }
 
 deps=$2"[*]"
