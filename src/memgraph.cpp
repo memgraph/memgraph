@@ -517,6 +517,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   ~BoltSession() override {
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
+    spdlog::debug("Tracker when destroying session: {}",
+                  memgraph::utils::GetReadableSize(memgraph::utils::total_memory_tracker.Amount()));
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,

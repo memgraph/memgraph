@@ -385,16 +385,9 @@ class DiskStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
-
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
-
-  // Vertices that are logically deleted and removed from indices and now wait
-  // to be removed from the main storage.
-  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.

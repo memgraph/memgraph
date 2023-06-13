@@ -324,12 +324,14 @@ DiskStorage::~DiskStorage() {
   }
   delete kvstore_->options_.comparator;
   kvstore_->options_.comparator = nullptr;
+  spdlog::debug("Tracker when destroying storage: {}", utils::GetReadableSize(utils::total_memory_tracker.Amount()));
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
   spdlog::debug("Tracker size when creating accessor: {}",
                 utils::GetReadableSize(utils::total_memory_tracker.Amount()));
+  spdlog::debug("Process size when creating accessor {}", utils::GetReadableSize(utils::GetMemoryUsage()));
   rocksdb::WriteOptions write_options;
   // auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   // rocksdb::Slice ts(strTs);
@@ -354,6 +356,7 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
+  spdlog::debug("Tracker when destroying accessor: {}", utils::GetReadableSize(utils::total_memory_tracker.Amount()));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
@@ -1691,15 +1694,7 @@ void DiskStorage::DiskAccessor::Abort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    uint64_t mark_timestamp = storage_->timestamp_;
-    // Take garbage_undo_buffers lock while holding the engine lock to make
-    // sure that entries are sorted by mark timestamp in the list.
-    disk_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // Release engine lock because we don't have to hold it anymore and
-      // emplace back could take a long time.
-      engine_guard.unlock();
-      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
-    });
+
     disk_storage->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
     disk_storage->deleted_edges_.WithLock(
@@ -1987,12 +1982,6 @@ void DiskStorage::CollectGarbage() {
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
-  // Flag that will be used to determine whether the Index GC should be run. It
-  // should be run when there were any items that were cleaned up (there were
-  // updates between this run of the GC and the previous run of the GC). This
-  // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
-
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
@@ -2122,40 +2111,6 @@ void DiskStorage::CollectGarbage() {
       committed_transactions.pop_front();
     });
   }
-
-  {
-    std::unique_lock<utils::SpinLock> guard(engine_lock_);
-    uint64_t mark_timestamp = timestamp_;
-    // Take garbage_undo_buffers lock while holding the engine lock to make
-    // sure that entries are sorted by mark timestamp in the list.
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // Release engine lock because we don't have to hold it anymore and
-      // this could take a long time.
-      guard.unlock();
-      // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
-      // transactions from aborting until we're done marking, maybe we should
-      // add them one-by-one or something
-      for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
-        timestamp = mark_timestamp;
-      }
-      garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
-    });
-    for (auto vertex : current_deleted_vertices) {
-      garbage_vertices_.emplace_back(mark_timestamp, vertex);
-    }
-  }
-
-  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
-    // if force is set to true we can simply delete all the leftover undos because
-    // no transaction is active
-    if constexpr (force) {
-      undo_buffers.clear();
-    } else {
-      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
-        undo_buffers.pop_front();
-      }
-    }
-  });
 }
 
 // tell the linker he can find the CollectGarbage definitions here
@@ -2408,7 +2363,7 @@ bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation o
 }
 
 utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot(std::optional<bool> is_periodic) {
-  throw utils::NotYetImplemented("CreateSnapshot");
+  return {};
 }
 
 void DiskStorage::FreeMemory() { throw utils::NotYetImplemented("FreeMemory"); }
