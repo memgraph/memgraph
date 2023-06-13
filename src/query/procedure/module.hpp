@@ -132,7 +132,7 @@ class ModuleRegistry final {
   class SharedLibraryHandle {
    public:
     SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "")
-        : handle_(dlopen(shared_library.c_str(), mode)) {
+        : handle_{dlopen(shared_library.c_str(), mode)} {
       if (!handle_) {
         spdlog::warn("Unable to load {}. {}", shared_library, hint_message);
       }
