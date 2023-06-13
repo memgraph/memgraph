@@ -10,9 +10,8 @@ fi
 
 if [ ! -d node_modules ]; then
     # Driver generated with: `npm install neo4j-driver`
-    npm install --no-package-lock --no-save neo4j-driver@4.1.1
+    npm install --no-package-lock --no-save neo4j-driver@5.8.0
 fi
 
 node docs_how_to_query.js
 node max_query_length.js
-node metadata.js
