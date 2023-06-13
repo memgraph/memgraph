@@ -91,7 +91,7 @@ class StorageHandler {
    * @param name name of the database
    * @return std::optional<std::shared_ptr<TStorage>>
    */
-  std::optional<std::shared_ptr<TStorage>> Get(std::string_view name) {
+  std::optional<std::shared_ptr<TStorage>> Get(const std::string &name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
       return search->second.first;
     }
@@ -138,6 +138,20 @@ class StorageHandler {
    * @return std::optional<TConfig>
    */
   std::optional<TConfig> GetDefaultConfig() { return default_config_; }
+
+  /**
+   * @brief Return all active databases.
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> All() const {
+    std::vector<std::string> res;
+    res.reserve(storage_.size());
+    for (const auto &[name, _] : storage_) {
+      res.emplace_back(name);
+    }
+    return res;
+  }
 
  private:
   std::unordered_map<std::string, std::pair<std::shared_ptr<TStorage>, TConfig>>

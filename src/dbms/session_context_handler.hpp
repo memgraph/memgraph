@@ -22,12 +22,23 @@
 #include "query/interpreter.hpp"
 #include "session_context.hpp"
 #include "storage_handler.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
+
+/**
+ * SessionContext Exception
+ *
+ * Used to indicate that something went wrong while handling multiple sessions.
+ */
+class SessionContextException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
 
 using DeleteResult = utils::BasicResult<DeleteError>;
 
@@ -100,12 +111,11 @@ class SessionContextHandler {
    *
    * @param name
    * @return SessionContext
-   * @throw
+   * @throw SessionContextException unknown database
    */
   SessionContext Get(const std::string &name) {
     std::shared_lock<LockT> rd(lock_);
-    // TODO checks
-    return db_context_.at(name);
+    return Get_(name);
   }
 
   /**
@@ -114,14 +124,12 @@ class SessionContextHandler {
    * @param uuid unique session identifier
    * @param db_name unique database name
    * @return true on success
+   * @throws if uuid unknown or OnChange throws
    */
   bool SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
-    if (db_context_.find(db_name) != db_context_.end()) {
-      auto &s = sessions_.at(uuid);
-      return s.OnChange(db_name);
-    }
-    return false;
+    auto &s = sessions_.at(uuid);
+    return s.OnChange(db_name);
   }
 
   /**
@@ -159,27 +167,29 @@ class SessionContextHandler {
       // MSG cannot delete the default db
       return DeleteError::DEFAULT_DB;
     }
-    if (auto itr = db_context_.find(db_name); itr != db_context_.end()) {
-      for (const auto &[_, s] : sessions_) {
-        if (s.GetDB() == db_name) {
-          // At least one session is using the db
-          return DeleteError::USING;
-        }
+    // Check if db exists
+    try {
+      (void)Get_(db_name);
+    } catch (SessionContextException &) {
+      return DeleteError::NON_EXISTENT;
+    }
+    // Check if a session is using the db
+    for (const auto &[_, s] : sessions_) {
+      if (s.GetDB() == db_name) {
+        return DeleteError::USING;
       }
-      // High level handlers
-      for (auto &[_, s] : sessions_) {
-        if (!s.OnDelete(db_name)) {
-          return DeleteError::FAIL;
-        }
-      }
-      // Low level handlers
-      if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
+    }
+    // High level handlers
+    for (auto &[_, s] : sessions_) {
+      if (!s.OnDelete(db_name)) {
         return DeleteError::FAIL;
       }
-      db_context_.erase(itr);
-      return {};  // Success
     }
-    return DeleteError::NON_EXISTENT;
+    // Low level handlers
+    if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
+      return DeleteError::FAIL;
+    }
+    return {};  // Success
   }
 
   /**
@@ -209,12 +219,7 @@ class SessionContextHandler {
    */
   std::vector<std::string> All() const {
     std::shared_lock<LockT> rd(lock_);
-    std::vector<std::string> names;
-    names.reserve(db_context_.size());
-    for (const auto &[name, _] : db_context_) {
-      names.emplace_back(name);
-    }
-    return names;
+    return storage_handler_.All();
   }
 
   /**
@@ -278,7 +283,6 @@ class SessionContextHandler {
         SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_};
 #endif
         sd.run_id = run_id_;
-        db_context_.emplace(name, sd);
         return sd;
       }
       // TODO: Storage succeeded, but interpreter failed... How to handle?
@@ -287,16 +291,35 @@ class SessionContextHandler {
     return new_storage.GetError();
   }
 
+  /**
+   * @brief Get the context associated with the "name" database
+   *
+   * @param name
+   * @return SessionContext
+   * @throw SessionContextException unknown database
+   */
+  SessionContext Get_(const std::string &name) {
+    auto storage = storage_handler_.Get(name);
+    if (storage) {
+      auto interp = interp_handler_.Get(name);
+      if (interp) {
+#if MG_ENTERPRISE
+        return {*storage, *interp, auth_, audit_log_};
+#else
+        return {*new_storage, *new_interp, auth_};
+#endif
+      }
+    }
+    throw SessionContextException("Tried to retrieve an unknown database.");
+  }
+
   // Should storage objects ever be deleted?
   mutable LockT lock_;            //!< protective lock
   std::atomic_bool initialized_;  //!< initialized flag (safeguard against multiple init calls)
   StorageHandler<StorageT, StorageConfigT> storage_handler_;     //!< multi-tenancy storage handler
   InterpContextHandler<InterpT, InterpConfigT> interp_handler_;  //!< multi-tenancy interpreter handler
   std::optional<ConfigT> default_configs_;                       //!< default storage and interpreter configurations
-  std::unordered_map<std::string, SessionContext>
-      db_context_;  //!< map of all active databases and their contexts (todo remove; not needed since holding shared
-                    //!< pointers)
-  const std::string run_id_;  //!< run's unique identifier (auto generated)
+  const std::string run_id_;                                     //!< run's unique identifier (auto generated)
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>
       *auth_;  //!< pointer to the authorizer
 #if MG_ENTERPRISE

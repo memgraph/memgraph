@@ -57,7 +57,7 @@ class InterpContextHandler {
     return NewError::EXISTS;
   }
 
-  std::optional<std::shared_ptr<TContext>> Get(std::string_view name) {
+  std::optional<std::shared_ptr<TContext>> Get(const std::string &name) {
     if (auto search = interp_.find(name); search != interp_.end()) {
       return search->second.first;
     }
