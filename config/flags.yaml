@@ -103,6 +103,10 @@ modifications:
     value: "true"
     override: false
 
+  - name: "storage_parallel_index_recovery"
+    value: "false"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"
