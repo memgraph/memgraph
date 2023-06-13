@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # shellcheck disable=1091
+
+apt update
+
 set -Eeuo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
