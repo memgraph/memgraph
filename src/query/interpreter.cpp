@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/interpreter.hpp"
+#include <bits/ranges_algo.h>
 #include <fmt/core.h>
 
 #include <algorithm>
@@ -50,6 +51,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
@@ -78,7 +80,6 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -1284,6 +1285,31 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
+bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &clauses, DbAccessor *dba) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
+  for (auto &clause : clauses) {
+    if (clause->GetTypeInfo() == CallProcedure::kType) {
+      auto *call_procedure_clause = utils::Downcast<CallProcedure>(clause);
+
+      const auto &maybe_found = memgraph::query::procedure::FindProcedure(
+          procedure::gModuleRegistry, call_procedure_clause->procedure_name_, evaluation_context.memory);
+      if (!maybe_found) {
+        throw QueryRuntimeException("There is no procedure named '{}'.", call_procedure_clause->procedure_name_);
+      }
+      const auto &[module, proc] = *maybe_found;
+      if (proc->info.is_batched) {
+        spdlog::trace("Using PoolResource for batched query procedure");
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -1315,7 +1341,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     contains_csv = true;
   }
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv;
+  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses, dba);
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
@@ -1447,7 +1473,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     contains_csv = true;
   }
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv;
+  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses, dba);
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
@@ -2854,10 +2880,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
         cypher_query = profile_query->cypher_query_;
       }
-
+      storage::Storage::Accessor temp_storage_accessor{interpreter_context_->db->Access(GetIsolationLevelOverride())};
+      DbAccessor temp_db_accessor{&temp_storage_accessor};
       if (const auto &clauses = cypher_query->single_query_->clauses_;
-          true || std::any_of(clauses.begin(), clauses.end(),
-                              [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+          IsCallBatchedProcedureQuery(clauses, &temp_db_accessor) ||
+          std::any_of(clauses.begin(), clauses.end(),
+                      [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
         // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(utils::PoolResource(
