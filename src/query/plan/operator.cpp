@@ -4572,6 +4572,9 @@ class CallProcedureCursor : public Cursor {
                                     self_->procedure_name_, get_proc_type_str(self_->is_write_),
                                     get_proc_type_str(proc->info.is_write));
       }
+      if (!proc->info.is_batched) {
+        stream_exhausted = true;
+      }
 
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
@@ -4589,17 +4592,12 @@ class CallProcedureCursor : public Cursor {
       if (!cleanup_ && proc->cleanup) [[unlikely]] {
         cleanup_.emplace(*proc->cleanup);
       }
+      // Unpluging memory without calling destruct on each object since everything was allocated with this memory
+      // resource
       self_->monotonic_memory.Release();
       result_ =
           utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
 
-      // In case of batching, we can reuse memory
-      // result_.~mgp_result();
-
-      // result_ = mgp_result(nullptr, self_->memory_resource);
-
-      if (proc->info.batch_info) {
-      }
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
@@ -4608,7 +4606,7 @@ class CallProcedureCursor : public Cursor {
 
       // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
-      // generator like procedures which yield a new result on each invocation.
+      // generator like procedures which yield a new result on new query calls.
       auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
@@ -4662,9 +4660,6 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    // result_.rows.clear();
-    // result_.error_msg.reset();
-    // input_cursor_->Reset();
     self_->monotonic_memory.Release();
     result_ =
         utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
@@ -4674,8 +4669,6 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Shutdown() override {
-    // cleaning of old resources
-    // result_.~mgp_result();
     self_->monotonic_memory.Release();
     if (cleanup_) {
       cleanup_.value()();

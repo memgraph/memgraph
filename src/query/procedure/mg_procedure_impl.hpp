@@ -728,12 +728,9 @@ struct mgp_type {
   memgraph::query::procedure::CypherTypePtr impl;
 };
 
-struct BatchInfo {
-  int batch_size;
-};
 struct ProcedureInfo {
-  bool is_write = false;
-  std::optional<BatchInfo> batch_info = std::nullopt;
+  bool is_write{false};
+  bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };
 struct mgp_proc {

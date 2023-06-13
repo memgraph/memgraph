@@ -2772,22 +2772,22 @@ mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, m
 
 mgp_error mgp_module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
                                               mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
-                                              const int batch_size, mgp_proc **result) {
+                                              mgp_proc **result) {
   return WrapExceptions(
       [=] {
         return mgp_module_add_batch_procedure(module, name, cb_batch, initializer, cleanup,
-                                              {.is_write = false, .batch_info = BatchInfo{.batch_size = batch_size}});
+                                              {.is_write = false, .is_batched = true});
       },
       result);
 }
 
 mgp_error mgp_module_add_batch_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
                                                mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
-                                               const int batch_size, mgp_proc **result) {
+                                               mgp_proc **result) {
   return WrapExceptions(
       [=] {
         return mgp_module_add_batch_procedure(module, name, cb_batch, initializer, cleanup,
-                                              {.is_write = true, .batch_info = BatchInfo{.batch_size = batch_size}});
+                                              {.is_write = true, .is_batched = true});
       },
       result);
 }

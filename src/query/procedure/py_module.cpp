@@ -951,32 +951,32 @@ std::optional<py::ExceptionInfo> AddMultipleBatchRecordsFromPython(mgp_result *r
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
   result->rows.reserve(len);
-
   for (Py_ssize_t i = 0; i < len; ++i) {
     py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
     if (!py_record) return py::FetchError();
     auto maybe_exc = AddRecordFromPython(result, py_record, memory);
     if (maybe_exc) return maybe_exc;
   }
-  // Clear at the end what left
   PySequence_DelSlice(py_seq.Ptr(), 0, PySequence_Size(py_seq.Ptr()));
   return std::nullopt;
 }
 
-std::function<void()> PyObjectCleanup(py::Object &py_object) {
-  return [py_object]() {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
+std::function<void()> PyObjectCleanup(py::Object &py_object, bool start_gc) {
+  return [py_object, start_gc]() {
+    if (start_gc) {
+      // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
+      // sure the procedure cleaned up everything it held references to. If the
+      // user stored a reference to one of our `_mgp` instances then the
+      // internally used `mgp_*` structs will stay unfreed and a memory leak
+      // will be reported at the end of the query execution.
+      py::Object gc(PyImport_ImportModule("gc"));
+      if (!gc) {
+        LOG_FATAL(py::FetchError().value());
+      }
 
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
+      if (!gc.CallMethod("collect")) {
+        LOG_FATAL(py::FetchError().value());
+      }
     }
 
     // After making sure all references from our side have been cleared,
@@ -991,8 +991,7 @@ std::function<void()> PyObjectCleanup(py::Object &py_object) {
 }
 
 void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
-                         mgp_memory *memory) {
-  // *memory here is memory from `EvalContext`
+                         mgp_memory *memory, bool is_batched) {
   auto gil = py::EnsureGIL();
 
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
@@ -1010,10 +1009,12 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
+      if (is_batched) {
+        return AddMultipleBatchRecordsFromPython(result, py_res, memory);
+      }
       return AddMultipleRecordsFromPython(result, py_res, memory);
-    } else {
-      return AddRecordFromPython(result, py_res, memory);
     }
+    return AddRecordFromPython(result, py_res, memory);
   };
 
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
@@ -1028,57 +1029,7 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
-    if (py_graph) {
-      maybe_msg = error_to_msg(call(py_graph));
-    } else {
-      maybe_msg = error_to_msg(py::FetchError());
-    }
-  }
-
-  if (maybe_msg) {
-    static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
-  }
-}
-
-void CallPythonBatchProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
-                              mgp_memory *memory) {
-  // memory should be dedicated to memory for procedure
-  auto gil = py::EnsureGIL();
-
-  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
-    if (!exc_info) return std::nullopt;
-    // Here we tell the traceback formatter to skip the first line of the
-    // traceback because that line will always be our wrapper function in our
-    // internal `mgp.py` file. With that line skipped, the user will always
-    // get only the relevant traceback that happened in his Python code.
-    return py::FormatException(*exc_info, /* skip_first_line = */ true);
-  };
-
-  auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
-    if (!py_args) return py::FetchError();
-    auto py_res = py_cb.Call(py_graph, py_args);
-    if (!py_res) return py::FetchError();
-    if (PySequence_Check(py_res.Ptr())) {
-      return AddMultipleBatchRecordsFromPython(result, py_res, memory);
-    } else {
-      return AddRecordFromPython(result, py_res, memory);
-    }
-  };
-
-  // It is *VERY IMPORTANT* to note that this code takes great care not to keep
-  // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
-  // as not to introduce extra reference counts and prevent their deallocation.
-  // In particular, the `ExceptionInfo` object has a `traceback` field that
-  // contains references to the Python frames and their arguments, and therefore
-  // our `_mgp` instances as well. Within this code we ensure not to keep the
-  // `ExceptionInfo` object alive so that no extra reference counts are
-  // introduced. We only fetch the error message and immediately destroy the
-  // object.
-  std::optional<std::string> maybe_msg;
-  {
-    py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, !is_batched));
     if (py_graph) {
       maybe_msg = error_to_msg(call(py_graph));
     } else {
@@ -1118,6 +1069,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
 
   {
     py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, false));
     call(py_graph);
   }
 }
@@ -1158,8 +1110,8 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     py::Object py_graph(MakePyGraph(graph, memory));
     py::Object py_messages(MakePyMessages(msgs, memory));
 
-    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph));
-    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, true));
+    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages, true));
 
     if (py_graph && py_messages) {
       maybe_msg = error_to_msg(call(py_graph, py_messages));
@@ -1210,7 +1162,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, true));
     if (py_graph) {
       auto maybe_result = call(py_graph);
       if (!maybe_result.HasError()) {
@@ -1246,7 +1198,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
   mgp_proc proc(name,
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-                  CallPythonProcedure(py_cb, args, graph, result, memory);
+                  CallPythonProcedure(py_cb, args, graph, result, memory, false);
                 },
                 memory, {.is_write = is_write_procedure});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
@@ -1288,13 +1240,12 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
   mgp_proc proc(
       name,
       [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-        CallPythonBatchProcedure(py_cb, args, graph, result, memory);
+        CallPythonProcedure(py_cb, args, graph, result, memory, true);
       },
       [py_initializer](mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
         CallPythonInitializer(py_initializer, args, graph, memory);
       },
-      [py_cleanup] { CallPythonCleanup(py_cleanup); }, memory,
-      {.is_write = is_write_procedure, .batch_info = BatchInfo{.batch_size = 1000}});
+      [py_cleanup] { CallPythonCleanup(py_cleanup); }, memory, {.is_write = is_write_procedure, .is_batched = true});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
