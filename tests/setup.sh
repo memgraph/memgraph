@@ -16,7 +16,7 @@ PIP_DEPS=(
    "pyyaml==5.4.1"
    "six==1.15.0"
    "networkx==2.4"
-   "gqlalchemy==1.4.1"
+   "gqlalchemy==1.3.3"
 )
 cd "$DIR"
 
