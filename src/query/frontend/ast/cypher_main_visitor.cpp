@@ -1542,7 +1542,7 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
   if (ctx->READ()) return AuthQuery::FineGrainedPrivilege::READ;
   if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
   if (ctx->CREATE_DELETE()) return AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
-  LOG_FATAL("Should not get here - unknown fine grained privilege!");
+  LOG_FATAL("Should not get here - unknown fine-grained privilege!");
 }
 
 /**
