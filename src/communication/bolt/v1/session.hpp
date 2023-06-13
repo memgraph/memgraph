@@ -35,6 +35,9 @@
 namespace memgraph::communication::bolt {
 
 template <typename T>
+/**
+ * @brief High level session interface concept.
+ */
 concept HLImpl = requires(T v) {
   { v.Interpret({}, {}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
   { v.Pull({}, {}, {}) } -> std::same_as<std::map<std::string, Value>>;
@@ -47,9 +50,29 @@ concept HLImpl = requires(T v) {
   { v.GetServerNameForInit() } -> std::same_as<std::optional<std::string>>;
 };
 
+/**
+ * @brief Handles multiple high-level session instances.
+ *
+ * Each bolt::Session needs to have a high-level session instance (@ref SessionHL).
+ * This hl session implements the core APIs (like: Interpret, Pull, etc.).
+ * With multi-tenancy, one Bolt Session can support multiple hl sessions (one per used database).
+ * Here we handle the multiple hl instances and their addition/deletion.
+ *
+ * @note about session concurency: Set and Del are called from the session context handler (singleton) and are
+ * exclusive. GetImpl is called during normal operation, but it is safe, since the Set can be called only from the
+ * session itself. Del can be called at any time, but the id_ (set during Set) protects the current_ ref.
+ *
+ * @tparam T high-level implementation's type
+ */
 template <typename T>
 class MultiSessionHandler {
  public:
+  /**
+   * @brief Construct a new Multi Session Handler object
+   *
+   * @param id unique identifier of the instance (usually the database name)
+   * @param p unique_ptr to the high-level session instance (the handler needs to have at least one at any time)
+   */
   MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p)
       : id_(id), all_({std::make_pair(id, std::move(p))}), current_(all_[id]) {}
   ~MultiSessionHandler() = default;
@@ -60,12 +83,13 @@ class MultiSessionHandler {
   MultiSessionHandler &operator=(MultiSessionHandler &&) noexcept = delete;
 
   /**
-   * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
-   * connection.
+   * @brief Set the current high-level implementation object
    *
-   * Note (session concurency): Set and Del are called from the session context handler (singleton) and are exclusive.
-   * GetImpl is called during normal operation, but since the Set can be called only from the session itself,
-   * it is safe. Del can be called at any time, but the id_ protects the current_ ref.
+   * @tparam TArgs types of arguments to pass to T's constructor
+   * @param id unique identifier of the instance (usually the database name)
+   * @param args arguments forwarded to the high-level implementation constructor
+   * @return true on success
+   * @return false if already set to the id
    */
   template <typename... TArgs>
   bool SetImpl(std::string id, TArgs &&...args) {
@@ -81,8 +105,20 @@ class MultiSessionHandler {
     return true;
   }
 
+  /**
+   * @brief Get the current high-level implementation object
+   *
+   * @return std::shared_ptr<T>
+   */
   std::shared_ptr<T> GetImpl() { return current_; }
 
+  /**
+   * @brief Delete a high-level implementation object
+   *
+   * @param id unique identifier of the instance (usually the database name)
+   * @return true on success
+   * @return false if using the instance
+   */
   bool DelImpl(std::string id) {
     if (id == id_) return false;
     if (auto itr = all_.find(id); itr != all_.end()) {
@@ -91,12 +127,19 @@ class MultiSessionHandler {
     return true;
   }
 
+  /**
+   * @brief Get the current unique id identifying the high-level implementation.
+   *
+   * @return std::string
+   */
   std::string GetID() const { return id_; }
 
  private:
-  std::string id_;
-  std::unordered_map<std::string, std::shared_ptr<T>> all_;
-  std::shared_ptr<T> current_;
+  std::string id_;  //!< identifier of the current high-level implementation
+  std::unordered_map<std::string, std::shared_ptr<T>>
+      all_;  //!< map of all hl implementations used @note a single implementation can be used at a time, but multiple
+             //!< are ready for fast switching in case of a query spanning multiple databases
+  std::shared_ptr<T> current_;  //!< currently used hl implementation
 };
 
 /**
@@ -124,6 +167,13 @@ class Session : public MultiSessionHandler<TSession> {
   using HLImplT = TSession;
   using MultiSessionHandler<TSession>::GetImpl;
 
+  /**
+   * @brief Construct a new Session object
+   *
+   * @param input_stream stream to read from
+   * @param output_stream stream to write to
+   * @param impl a default high-level implementation to use (has to be defined)
+   */
   Session(TInputStream *input_stream, TOutputStream *output_stream, std::unique_ptr<TSession> &&impl)
       : MultiSessionHandler<TSession>(dbms::kDefaultDB, std::move(impl)),
         input_stream_(*input_stream),
@@ -243,8 +293,7 @@ class Session : public MultiSessionHandler<TSession> {
 
   std::string UUID() const { return session_uuid_; }
 
-  // TODO: Rethink if there is a way to hide some members. At the momement all
-  // of them are public.
+  // TODO: Rethink if there is a way to hide some members. At the momement all of them are public.
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
 
@@ -280,7 +329,7 @@ class Session : public MultiSessionHandler<TSession> {
     throw SessionException("Something went wrong during session execution!");
   }
 
-  const std::string session_uuid_;
+  const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
 };
 
 }  // namespace memgraph::communication::bolt

@@ -502,7 +502,6 @@ class SessionHL final {
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
 
-  memgraph::dbms::SessionContext session_context_;
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
@@ -656,6 +655,7 @@ class SessionHL final {
     const memgraph::storage::Storage *db_;
   };
 
+  memgraph::dbms::SessionContext session_context_;  //!< session context (must copy)
   // NOTE: Needed only for ToBoltValue conversions
   const memgraph::storage::Storage *db_;
   memgraph::query::InterpreterContext *interpreter_context_;
@@ -894,10 +894,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
 
-  // memgraph::storage::Storage db(db_config);
-
-  // memgraph::query::InterpreterContext interpreter_context{
-  // &db,
+  // Default interpreter configuration
   memgraph::query::InterpreterConfig interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
       .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
@@ -906,14 +903,12 @@ int main(int argc, char **argv) {
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
-  // FLAGS_data_directory};
-#ifdef MG_ENTERPRISE
-  // memgraph::dbms::SessionContext session_context{&db, &interpreter_context, &auth, &audit_log};
+
+  // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
+#ifdef MG_ENTERPRISE
   sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
 #else
-  // memgraph::dbms::SessionContext session_context{&db, &interpreter_context, &auth};
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
   sc_handler.Init(&auth, {db_config, interp_config});
 #endif
   // Just for current support... TODO remove
@@ -1013,13 +1008,13 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
-  // MonitoringServerT metrics_server{
-  //     {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
+  MonitoringServerT metrics_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    auto shutdown = [/*&metrics_server,*/ &websocket_server, &server, &interpreter_context] {
+    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
@@ -1029,7 +1024,7 @@ int main(int argc, char **argv) {
       memgraph::query::Shutdown(&interpreter_context);
 
       websocket_server.Shutdown();
-      // metrics_server.Shutdown();
+      metrics_server.Shutdown();
     };
 
     InitSignalHandlers(shutdown);
@@ -1071,7 +1066,7 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    // metrics_server.Start();
+    metrics_server.Start();
   }
 #endif
 
@@ -1090,7 +1085,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    // metrics_server.AwaitShutdown();
+    metrics_server.AwaitShutdown();
   }
 #endif
 

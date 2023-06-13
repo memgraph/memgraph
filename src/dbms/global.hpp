@@ -17,13 +17,45 @@
 
 namespace memgraph::dbms {
 
+/**
+ * @brief Session interface used by the DBMS to handle the the active sessions.
+ */
 class SessionInterface {
  public:
+  SessionInterface() = default;
   virtual ~SessionInterface() = default;
 
+  SessionInterface(const SessionInterface &) = default;
+  SessionInterface &operator=(const SessionInterface &) = default;
+  SessionInterface(SessionInterface &&) noexcept = default;
+  SessionInterface &operator=(SessionInterface &&) noexcept = default;
+
+  /**
+   * @brief Return the unique string identifying the session.
+   *
+   * @return std::string
+   */
   virtual std::string UUID() const = 0;
+
+  /**
+   * @brief Return the currently active database.
+   *
+   * @return std::string
+   */
   virtual std::string GetDB() const = 0;
+
+  /**
+   * @brief Gets called on database change.
+   *
+   * @return true on success
+   */
   virtual bool OnChange(const std::string &) = 0;
+
+  /**
+   * @brief Gets called on database delete (drop).
+   *
+   * @return true on success
+   */
   virtual bool OnDelete(const std::string &) = 0;
 };
 

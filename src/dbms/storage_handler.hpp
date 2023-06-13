@@ -8,7 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-// TODO: Check if comment above is ok
+
 #pragma once
 
 #include <filesystem>
@@ -24,6 +24,12 @@
 
 namespace memgraph::dbms {
 
+/**
+ * @brief Multi-tenancy handler of storage.
+ *
+ * @tparam TStorage
+ * @tparam TConfig
+ */
 template <typename TStorage = memgraph::storage::Storage, typename TConfig = memgraph::storage::Config>
 class StorageHandler {
  public:
@@ -31,6 +37,13 @@ class StorageHandler {
 
   StorageHandler() {}
 
+  /**
+   * @brief Create a new storage associated to the "name" database.
+   *
+   * @param name name of the database
+   * @param config storage configuration
+   * @return NewResult pointer to storage on success, error on failure
+   */
   NewResult New(std::string_view name, const TConfig &config) {
     // Control that no one is using the same data directory
     if (storage_.find(std::string(name)) != storage_.end()) {
@@ -47,10 +60,16 @@ class StorageHandler {
     auto [itr, success] =
         storage_.emplace(std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(config, config));
     if (success) return itr->second.ptr_;
-    // TODO: Handle errors and return {}?
     return NewError::EXISTS;
   }
 
+  /**
+   * @brief Create a new storage associated to the "name" database.
+   *
+   * @param name name of the database
+   * @param storage_subdir undelying RocksDB directory
+   * @return NewResult pointer to storage on success, error on failure
+   */
   NewResult New(std::string_view name, std::filesystem::path storage_subdir) {
     if (default_config_) {
       auto config = default_config_;
@@ -60,15 +79,33 @@ class StorageHandler {
     return NewError::NO_CONFIGS;
   }
 
+  /**
+   * @brief Create a new storage associated to the "name" database.
+   *
+   * @param name name of the database
+   * @return NewResult pointer to storage on success, error on failure
+   */
   NewResult New(std::string_view name) { return New(name, name); }
 
-  std::optional<std::shared_ptr<TStorage>> Get(std::string_view name) {
+  /**
+   * @brief Get storage associated with "name" database
+   *
+   * @param name name of the database
+   * @return std::optional<std::shared_ptr<TStorage>>
+   */
+  std::optional<std::shared_ptr<TStorage>> Get(const std::string &name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
       return search->second.ptr_;
     }
     return {};
   }
 
+  /**
+   * @brief Get the storage configuration associated with "name" database
+   *
+   * @param name name of the database
+   * @return std::optional<TConfig>
+   */
   std::optional<TConfig> GetConfig(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
       return search->second.config_;
@@ -76,6 +113,12 @@ class StorageHandler {
     return {};
   }
 
+  /**
+   * @brief Delete the storage associated with the "name" database
+   *
+   * @param name name of the database
+   * @return true on success
+   */
   bool Delete(const std::string &name) {
     if (auto itr = storage_.find(name); itr != storage_.end()) {
       storage_.erase(itr);
@@ -84,16 +127,37 @@ class StorageHandler {
     return false;
   }
 
+  /**
+   * @brief Set the default configuration
+   *
+   * @param config
+   */
   void SetDefaultConfig(TConfig config) { default_config_ = config; }
+
+  /**
+   * @brief Get the default configuration
+   *
+   * @return std::optional<TConfig>
+   */
   std::optional<TConfig> GetDefaultConfig() { return default_config_; }
 
+  /**
+   * @brief Return all active databases.
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> All() const {
+    std::vector<std::string> res;
+    res.reserve(storage_.size());
+    for (const auto &[name, _] : storage_) {
+      res.emplace_back(name);
+    }
+    return res;
+  }
+
  private:
-  // Are storage objects ever deleted?
-  // shared_ptr and custom destructor if we are destroying it
-  // unique and raw ptrs if we are not destroying it
-  // Create drop and create with same name?
-  std::unordered_map<std::string, SyncPtr<TStorage, TConfig>> storage_;
-  std::optional<TConfig> default_config_;
+  std::unordered_map<std::string, SyncPtr<TStorage, TConfig>> storage_;  //!< map to all active storages
+  std::optional<TConfig> default_config_;                                //!< default configuration
 };
 
 }  // namespace memgraph::dbms

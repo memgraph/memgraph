@@ -50,7 +50,7 @@ struct MetricsResponse {
 template <typename TSessionContext>
 class MetricsService {
  public:
-  explicit MetricsService(TSessionContext *data) : db_(data->db) {}
+  explicit MetricsService(TSessionContext *session_context) : db_(session_context->db.get()) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -144,7 +144,7 @@ class MetricsService {
 template <typename TSessionContext>
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(TSessionContext *data) : service_(data) {
+  explicit MetricsRequestHandler(TSessionContext *session_context) : service_(session_context) {
     spdlog::info("Basic request handler started!");
   }
 

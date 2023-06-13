@@ -17,9 +17,7 @@
 #include <cstring>
 #include <deque>
 #include <functional>
-#include <iostream>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -258,7 +256,6 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   bool IsConnected() const { return ws_.is_open() && execution_active_; }
 
   bool OnChange(const std::string &db_name) override {
-    // std::unique_lock<std::mutex> l(mtx_);
     if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
       return session_.SetImpl(db_name, session_context_->Get(db_name), endpoint_);
@@ -577,7 +574,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   bool OnChange(const std::string &db_name) override {
-    // std::unique_lock<std::mutex> l(mtx_);
     if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
       return session_.SetImpl(db_name, session_context_->Get(db_name), endpoint_);
@@ -605,9 +601,5 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   boost::asio::steady_timer timeout_timer_;
   bool execution_active_{false};
   bool has_received_msg_{false};
-
-  // TODO debugging
-  mutable std::mutex mtx_;
-  typename TSession::HLImplT *prev_hl_;
 };
 }  // namespace memgraph::communication::v2

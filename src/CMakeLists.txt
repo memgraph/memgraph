@@ -16,7 +16,6 @@ add_subdirectory(slk)
 add_subdirectory(rpc)
 add_subdirectory(license)
 add_subdirectory(auth)
-add_subdirectory(dbms)
 
 if(MG_ENTERPRISE)
         add_subdirectory(audit)

@@ -8,7 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-// TODO: Check if comment above is ok
+
 #pragma once
 
 #include "auth/auth.hpp"
@@ -22,8 +22,11 @@
 
 namespace memgraph::dbms {
 
-/// Encapsulates Dbms and Interpreter that are passed through the network server
-/// and worker to the session.
+/**
+ * @brief Structure encapsulating storage and interpreter context.
+ *
+ * @note Each session contains a copy.
+ */
 struct SessionContext {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
@@ -47,7 +50,6 @@ struct SessionContext {
   std::shared_ptr<memgraph::storage::Storage> db;
   std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
 
-  // TODO: if shared_ptr fix works do that for everything
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
 #if MG_ENTERPRISE
