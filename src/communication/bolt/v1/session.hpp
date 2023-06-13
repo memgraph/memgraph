@@ -50,9 +50,8 @@ concept HLImpl = requires(T v) {
 template <typename T>
 class MultiSessionHandler {
  public:
-  MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p) : id_(id), current_(all_[id_]) {
-    all_[id_] = std::move(p);
-  }
+  MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p)
+      : id_(id), all_({std::make_pair(id, std::move(p))}), current_(all_[id]) {}
   ~MultiSessionHandler() = default;
 
   MultiSessionHandler(const MultiSessionHandler &) = delete;
@@ -63,6 +62,10 @@ class MultiSessionHandler {
   /**
    * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
    * connection.
+   *
+   * Note (session concurency): Set and Del are called from the session context handler (singleton) and are exclusive.
+   * GetImpl is called during normal operation, but since the Set can be called only from the session itself,
+   * it is safe. Del can be called at any time, but the id_ protects the current_ ref.
    */
   template <typename... TArgs>
   bool SetImpl(std::string id, TArgs &&...args) {
@@ -81,11 +84,11 @@ class MultiSessionHandler {
   std::shared_ptr<T> GetImpl() { return current_; }
 
   bool DelImpl(std::string id) {
-    if (id != id_) {
-      all_.erase(id);
-      return true;
+    if (id == id_) return false;
+    if (auto itr = all_.find(id); itr != all_.end()) {
+      all_.erase(itr);
     }
-    return false;
+    return true;
   }
 
   std::string GetID() const { return id_; }
@@ -93,7 +96,7 @@ class MultiSessionHandler {
  private:
   std::string id_;
   std::unordered_map<std::string, std::shared_ptr<T>> all_;
-  std::shared_ptr<T> &current_;
+  std::shared_ptr<T> current_;
 };
 
 /**
@@ -121,7 +124,7 @@ class Session : public MultiSessionHandler<TSession> {
   using HLImplT = TSession;
   using MultiSessionHandler<TSession>::GetImpl;
 
-  Session(TInputStream *input_stream, TOutputStream *output_stream, std::unique_ptr<TSession> impl)
+  Session(TInputStream *input_stream, TOutputStream *output_stream, std::unique_ptr<TSession> &&impl)
       : MultiSessionHandler<TSession>(dbms::kDefaultDB, std::move(impl)),
         input_stream_(*input_stream),
         output_stream_(*output_stream),
