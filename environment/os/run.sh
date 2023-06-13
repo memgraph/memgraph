@@ -29,6 +29,7 @@ print_help () {
   echo -e "$0 copy src_container dst_container => copy build package from src to dst container"
 }
 
+# TODO(gitbuda): Make docker_run always delete + start a new container.
 # NOTE: This is an idempotent operation!
 docker_run () {
   cnt_name="$1"
@@ -59,6 +60,7 @@ docker_stop_and_rm () {
   fi
 }
 
+# TODO(gitbuda): Configure NEW_DEPS, etc.
 start_all () {
   for script_docker_pair in "${OPERATING_SYSTEMS[@]}"; do
     read -a script_docker <<< "$script_docker_pair"
@@ -102,6 +104,7 @@ delete_all () {
   done
 }
 
+# TODO(gitbuda): Copy file betwene containers is a useful util, also delete, + consider folder.
 copy_build_package () {
   src_container="$1"
   dst_container="$2"
