@@ -34,6 +34,7 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "audit/log.hpp"
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/http/server.hpp"
@@ -97,10 +98,6 @@
 
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
-
-#ifdef MG_ENTERPRISE
-#include "audit/log.hpp"
-#endif
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
