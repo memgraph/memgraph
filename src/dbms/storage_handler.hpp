@@ -19,6 +19,7 @@
 
 #include "global.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::dbms {
@@ -37,14 +38,15 @@ class StorageHandler {
     }
     // TODO better check
     if (std::any_of(storage_.begin(), storage_.end(), [&](const auto &elem) {
-          return elem.second.second.durability.storage_directory == config.durability.storage_directory;
+          return elem.second.config_.durability.storage_directory == config.durability.storage_directory;
         })) {
       // LOG
       return NewError::EXISTS;
     }
     // Create storage
-    auto [itr, success] = storage_.emplace(name, std::make_pair(std::make_shared<TStorage>(config), config));
-    if (success) return itr->second.first;
+    auto [itr, success] =
+        storage_.emplace(std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(config, config));
+    if (success) return itr->second.ptr_;
     // TODO: Handle errors and return {}?
     return NewError::EXISTS;
   }
@@ -62,14 +64,14 @@ class StorageHandler {
 
   std::optional<std::shared_ptr<TStorage>> Get(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.first;
+      return search->second.ptr_;
     }
     return {};
   }
 
   std::optional<TConfig> GetConfig(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.second;
+      return search->second.config_;
     }
     return {};
   }
@@ -90,7 +92,7 @@ class StorageHandler {
   // shared_ptr and custom destructor if we are destroying it
   // unique and raw ptrs if we are not destroying it
   // Create drop and create with same name?
-  std::unordered_map<std::string, std::pair<std::shared_ptr<TStorage>, TConfig>> storage_;
+  std::unordered_map<std::string, SyncPtr<TStorage, TConfig>> storage_;
   std::optional<TConfig> default_config_;
 };
 

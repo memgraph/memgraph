@@ -21,6 +21,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils.hpp"
 
 // TODO: Fix this
 namespace memgraph::query {
@@ -37,34 +38,25 @@ class InterpContextHandler {
 
   NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
                 const std::filesystem::path &data_directory) {
-    // Control that the new configuration does not conflict with the previous ones
     // TODO: Is there anything that can conflict
+    // Control that the new configuration does not conflict with the previous ones
     // Create storage
-    auto [itr, success] =
-        storage_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory), config));
-    if (success) return itr->second.first;
-    // TODO: Handle errors and return {}?
+    auto [itr, success] = interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                          std::forward_as_tuple(config, db, config, data_directory));
+    if (success) return itr->second.ptr_;
     return NewError::EXISTS;
   }
 
-  // std::optional<TContext *> New(std::string_view name, storage::Storage *db,
-  //                               const std::filesystem::path &data_directory) {
-  //   if (default_config_) {
-  //     return New(name, db, *default_config_, data_directory);
-  //   }
-  //   return {};
-  // }
-
   std::optional<std::shared_ptr<TContext>> Get(std::string_view name) {
-    if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.first;
+    if (auto search = interp_.find(name); search != interp_.end()) {
+      return search->second.ptr_;
     }
     return {};
   }
 
   bool Delete(const std::string &name) {
-    if (auto itr = storage_.find(name); itr != storage_.end()) {
-      storage_.erase(itr);
+    if (auto itr = interp_.find(name); itr != interp_.end()) {
+      interp_.erase(itr);
       return true;
     }
     return false;
@@ -74,11 +66,7 @@ class InterpContextHandler {
   std::optional<TConfig> GetDefaultConfig() { return default_config_; }
 
  private:
-  // Are storage objects ever deleted?
-  // shared_ptr and custom destructor if we are destroying it
-  // unique and raw ptrs if we are not destroying it
-  // Create drop and create with same name?
-  std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>> storage_;
+  std::unordered_map<std::string, SyncPtr<TContext, TConfig>> interp_;
   std::optional<TConfig> default_config_;
 };
 

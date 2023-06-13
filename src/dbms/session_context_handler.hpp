@@ -89,9 +89,7 @@ class SessionContextHandler {
     std::shared_lock<LockT> rd(lock_);
     if (db_context_.find(db_name) != db_context_.end()) {
       auto &s = sessions_.at(uuid);
-      // todo checks
       return s.OnChange(db_name);
-      return true;
     }
     return false;
   }
@@ -127,12 +125,11 @@ class SessionContextHandler {
           return DeleteError::FAIL;
         }
       }
+      db_context_.erase(itr);
       // Low level handlers
       if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
         return DeleteError::FAIL;
       }
-      db_context_.erase(itr);
-      // todo custom shared ptr desct to sync?
       return {};  // Success
     }
     return DeleteError::NON_EXISTENT;

@@ -169,7 +169,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
             std::make_unique<typename TSession::HLImplT>(session_context->Get(memgraph::dbms::kDefaultDB), endpoint),
             std::forward<tcp::socket>(socket), session_context, endpoint, service_name) {}
 
-  explicit WebsocketSession(std::unique_ptr<typename TSession::HLImplT> pimpl, tcp::socket &&socket,
+  explicit WebsocketSession(std::unique_ptr<typename TSession::HLImplT> &&pimpl, tcp::socket &&socket,
                             TSessionContext *session_context, tcp::endpoint endpoint, std::string_view service_name)
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
@@ -379,7 +379,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             std::forward<tcp::socket>(socket), session_context, server_context, endpoint, inactivity_timeout_sec,
             service_name) {}
 
-  explicit Session(std::unique_ptr<typename TSession::HLImplT> pimpl, tcp::socket &&socket,
+  explicit Session(std::unique_ptr<typename TSession::HLImplT> &&pimpl, tcp::socket &&socket,
                    TSessionContext *session_context, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
       : socket_(CreateSocket(std::move(socket), server_context)),
