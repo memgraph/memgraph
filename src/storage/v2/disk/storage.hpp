@@ -386,8 +386,6 @@ class DiskStorage final : public Storage {
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
-  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
-  std::mutex gc_lock_;
 
   // class ReplicationServer;
   // std::unique_ptr<ReplicationServer> replication_server_{nullptr};
