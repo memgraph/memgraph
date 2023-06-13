@@ -377,6 +377,7 @@ class DiskStorage final : public Storage {
 
   bool ShouldStoreAndRestoreReplicas() const;
 
+  /// TODO: andi Why not on abstract storage
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 
@@ -386,16 +387,7 @@ class DiskStorage final : public Storage {
   // whatever.
   std::optional<CommitLog> commit_log_;
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
-  utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
-
-  // Vertices that are logically deleted but still have to be removed from
-  // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
-
-  // Edges that are logically deleted and wait to be removed from the main
-  // storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 
   // class ReplicationServer;
   // std::unique_ptr<ReplicationServer> replication_server_{nullptr};

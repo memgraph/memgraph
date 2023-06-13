@@ -1692,14 +1692,6 @@ void DiskStorage::DiskAccessor::Abort() {
   }
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  {
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-
-    disk_storage->deleted_vertices_.WithLock(
-        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
-    disk_storage->deleted_edges_.WithLock(
-        [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
-  }
 
   disk_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   disk_transaction_->Rollback();
@@ -1979,13 +1971,11 @@ void DiskStorage::CollectGarbage() {
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
-  deleted_vertices_->swap(current_deleted_vertices);
-  deleted_edges_->swap(current_deleted_edges);
 
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
-    Transaction *transaction;
+    Transaction *transaction = nullptr;
     {
       auto committed_transactions_ptr = committed_transactions_.Lock();
       if (committed_transactions_ptr->empty()) {
