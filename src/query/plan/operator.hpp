@@ -2252,9 +2252,9 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
-    object->nullif_ = nullif_;
     object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
+    object->nullif_ = nullif_;
     object->row_var_ = row_var_;
     return object;
   }

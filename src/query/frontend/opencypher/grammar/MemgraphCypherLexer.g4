@@ -69,7 +69,7 @@ GRAPH                   : G R A P H ;
 GRANTS                  : G R A N T S ;
 HEADER                  : H E A D E R ;
 IDENTIFIED              : I D E N T I F I E D ;
-IGNORE_EMPTY_STRINGS    : I G N O R E UNDERSCORE E M P T Y UNDERSCORE S T R I N G S;
+IGNORE                  : I G N O R E ;
 ISOLATION               : I S O L A T I O N ;
 IN_MEMORY_ANALYTICAL    : I N UNDERSCORE M E M O R Y UNDERSCORE A N A L Y T I C A L ;
 IN_MEMORY_TRANSACTIONAL : I N UNDERSCORE M E M O R Y UNDERSCORE T R A N S A C T I O N A L ;

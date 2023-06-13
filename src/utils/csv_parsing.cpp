@@ -124,7 +124,6 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
           } else if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
             // The current field has an empty value.
             row.emplace_back("");
-
             state = CsvParserState::NEXT_FIELD;
             line_string_view.remove_prefix(read_config_.delimiter->size());
           } else {
