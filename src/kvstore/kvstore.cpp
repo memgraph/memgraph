@@ -39,11 +39,10 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
 }
 
 KVStore::~KVStore() {
-  // TODO check return for errors
   const auto sync = pimpl_->db->SyncWAL();
-  if (!sync.ok()) std::cout << "Failed sync" << std::endl;
+  if (!sync.ok()) std::cerr << "Failed KVStore sync!" << std::endl;
   const auto close = pimpl_->db->Close();
-  if (!close.ok()) std::cout << "Failed close" << std::endl;
+  if (!close.ok()) std::cerr << "Failed KVStore close!" << std::endl;
 }
 
 KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }

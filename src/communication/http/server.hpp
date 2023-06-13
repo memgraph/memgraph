@@ -26,9 +26,10 @@ class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(io::network::Endpoint endpoint, TSessionContext *data, ServerContext *context)
+  explicit Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context)
       : listener_{Listener<TRequestHandler, TSessionContext>::Create(
-            ioc_, data, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
+            ioc_, session_context, context,
+            tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;

@@ -8,7 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-// TODO: Check if comment above is ok
+
 #pragma once
 
 #include <filesystem>
@@ -22,12 +22,14 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 
-// TODO: Fix this
-namespace memgraph::query {
-struct InterpreterContext;
-}
 namespace memgraph::dbms {
 
+/**
+ * @brief Multi-tenancy handler of interpreter context.
+ *
+ * @tparam TContext
+ * @tparam TConfig
+ */
 template <typename TContext = query::InterpreterContext, typename TConfig = query::InterpreterConfig>
 class InterpContextHandler {
  public:
@@ -35,51 +37,65 @@ class InterpContextHandler {
 
   InterpContextHandler() {}
 
+  /**
+   * @brief Create a new interpreter context associated to the "name" database.
+   *
+   * @param name name of the database
+   * @param db database storage pointer
+   * @param config interpreter configuration
+   * @param data_directory underlying RocksDB directory
+   * @return NewResult pointer to context on success, error on failure
+   */
   NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
                 const std::filesystem::path &data_directory) {
     // Control that the new configuration does not conflict with the previous ones
     // TODO: Is there anything that can conflict
     // Create storage
     auto [itr, success] =
-        storage_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory), config));
+        interp_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory), config));
     if (success) return itr->second.first;
-    // TODO: Handle errors and return {}?
     return NewError::EXISTS;
   }
 
-  // std::optional<TContext *> New(std::string_view name, storage::Storage *db,
-  //                               const std::filesystem::path &data_directory) {
-  //   if (default_config_) {
-  //     return New(name, db, *default_config_, data_directory);
-  //   }
-  //   return {};
-  // }
-
   std::optional<std::shared_ptr<TContext>> Get(std::string_view name) {
-    if (auto search = storage_.find(name); search != storage_.end()) {
+    if (auto search = interp_.find(name); search != interp_.end()) {
       return search->second.first;
     }
     return {};
   }
 
+  /**
+   * @brief Delete the interpreter context associated with the "name" database
+   *
+   * @param name name of the database
+   * @return true on success
+   */
   bool Delete(const std::string &name) {
-    if (auto itr = storage_.find(name); itr != storage_.end()) {
-      storage_.erase(itr);
+    if (auto itr = interp_.find(name); itr != interp_.end()) {
+      interp_.erase(itr);
       return true;
     }
     return false;
   }
 
+  /**
+   * @brief Set the default configuration
+   *
+   * @param config
+   */
   void SetDefaultConfig(TConfig config) { default_config_ = config; }
+
+  /**
+   * @brief Get the default configuration
+   *
+   * @return std::optional<TConfig>
+   */
   std::optional<TConfig> GetDefaultConfig() { return default_config_; }
 
  private:
-  // Are storage objects ever deleted?
-  // shared_ptr and custom destructor if we are destroying it
-  // unique and raw ptrs if we are not destroying it
-  // Create drop and create with same name?
-  std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>> storage_;
-  std::optional<TConfig> default_config_;
+  std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>>
+      interp_;                             //!< map to all active interpreters
+  std::optional<TConfig> default_config_;  //!< default configuration to use
 };
 
 }  // namespace memgraph::dbms
