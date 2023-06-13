@@ -4675,15 +4675,15 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row &row, bool ignore_empty_strings = false) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::string> nullif) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
-    if (!ignore_empty_strings || column.empty()) {
+    if (!nullif.has_value() || column != nullif.value()) {
       typed_columns.emplace_back(std::move(column));
     } else {
-      typed_columns.emplace_back(mem);
+      typed_columns.emplace_back(TypedValue(mem));
     }
   }
   return {std::move(typed_columns), mem};
@@ -4695,10 +4695,10 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    if (!nullif.has_value() || row[i] == nullif.value()) {
+    if (!nullif.has_value() || row[i] != nullif.value()) {
       m.emplace(std::move(header[i]), std::move(row[i]));
     } else {
-      m.emplace(std::move(header[i]), mem);
+      m.emplace(std::move(header[i]), TypedValue(mem));
     }
   }
   return {std::move(m), mem};
@@ -4730,7 +4730,8 @@ class LoadCsvCursor : public Cursor {
     //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
     //  without massacring the code even worse than I did here
     if (UNLIKELY(!reader_)) {
-      InitializeReader(&context.evaluation_context);
+      reader_ = MakeReader(&context.evaluation_context);
+      nullif_ = ParseNullif(&context.evaluation_context);
     }
 
     bool input_pulled = input_cursor_->Pull(frame, context);
@@ -4746,7 +4747,7 @@ class LoadCsvCursor : public Cursor {
       return false;
     }
     if (!reader_->HasHeader()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row);
+      frame[self_->row_var_] = CsvRowToTypedList(*row, nullif_);
     } else {
       frame[self_->row_var_] =
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
@@ -4761,7 +4762,7 @@ class LoadCsvCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
  private:
-  void InitializeReader(EvaluationContext *eval_context) {
+  csv::Reader MakeReader(EvaluationContext *eval_context) {
     Frame frame(0);
     SymbolTable symbol_table;
     DbAccessor *dba = nullptr;
@@ -4770,18 +4771,25 @@ class LoadCsvCursor : public Cursor {
     auto maybe_file = ToOptionalString(&evaluator, self_->file_);
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
     auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
-    auto maybe_nullif = ToOptionalString(&evaluator, self_->nullif_);
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
     // Note that the reader has to be given its own memory resource, as it
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
-    reader_ = csv::Reader(
+    return csv::Reader(
         *maybe_file,
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         utils::NewDeleteResource());
-    nullif_ = std::move(maybe_nullif);
+  }
+
+  std::optional<utils::pmr::string> ParseNullif(EvaluationContext *eval_context) {
+    Frame frame(0);
+    SymbolTable symbol_table;
+    DbAccessor *dba = nullptr;
+    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::View::OLD);
+
+    return ToOptionalString(&evaluator, self_->nullif_);
   }
 };
 
