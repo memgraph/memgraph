@@ -474,21 +474,26 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
                          memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx);
   std::ifstream file(cypherl_file_path);
-  if (file.is_open()) {
-    std::string line;
-    while (std::getline(file, line)) {
-      if (!line.empty()) {
-        auto results = interpreter.Prepare(line, {}, {});
-        memgraph::query::DiscardValueResultStream stream;
-        interpreter.Pull(&stream, {}, results.qid);
 
-        if (audit_log) {
-          audit_log->Record("", "", line, {});
-        }
+  if (!file.is_open()) {
+    spdlog::trace("Could not find init file {}", cypherl_file_path);
+    return;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    if (!line.empty()) {
+      auto results = interpreter.Prepare(line, {}, {});
+      memgraph::query::DiscardValueResultStream stream;
+      interpreter.Pull(&stream, {}, results.qid);
+
+      if (audit_log) {
+        audit_log->Record("", "", line, {});
       }
     }
-    file.close();
   }
+
+  file.close();
 }
 
 namespace memgraph::metrics {
@@ -936,7 +941,7 @@ int main(int argc, char **argv) {
   interpreter_context.auth_checker = &auth_checker;
 
   if (!FLAGS_init_file.empty()) {
-    spdlog::info("Running init file.");
+    spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
