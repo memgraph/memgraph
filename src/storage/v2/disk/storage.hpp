@@ -346,20 +346,6 @@ class DiskStorage final : public Storage {
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelPropertyIndex(LabelId label,
                                                                                           PropertyId property);
 
-  /// The force parameter determines the behaviour of the garbage collector.
-  /// If it's set to true, it will behave as a global operation, i.e. it can't
-  /// be part of a transaction, and no other transaction can be active at the same time.
-  /// This allows it to delete immediately vertices without worrying that some other
-  /// transaction is possibly using it. If there are active transactions when this method
-  /// is called with force set to true, it will fallback to the same method with the force
-  /// set to false.
-  /// If it's set to false, it will execute in parallel with other transactions, ensuring
-  /// that no object in use can be deleted.
-  /// @throw std::system_error
-  /// @throw std::bad_alloc
-  template <bool force>
-  void CollectGarbage();
-
   bool InitializeWalFile();
   void FinalizeWalFile();
 
@@ -380,12 +366,6 @@ class DiskStorage final : public Storage {
   /// TODO: andi Why not on abstract storage
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-
-  // TODO: This isn't really a commit log, it doesn't even care if a
-  // transaction commited or aborted. We could probably combine this with
-  // `timestamp_` in a sensible unit, something like TransactionClock or
-  // whatever.
-  std::optional<CommitLog> commit_log_;
 
   // class ReplicationServer;
   // std::unique_ptr<ReplicationServer> replication_server_{nullptr};

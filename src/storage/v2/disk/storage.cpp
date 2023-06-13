@@ -270,12 +270,6 @@ DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_T
     // gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
   }
 
-  if (timestamp_ == kTimestampInitialId) {
-    commit_log_.emplace();
-  } else {
-    commit_log_.emplace(timestamp_);
-  }
-
   /// TODO(andi): Return capabilities for restoring replicas
   // if (config_.durability.restore_replicas_on_startup) {
   //   spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
@@ -1402,15 +1396,11 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     // We don't have to update the commit timestamp here because no one reads
     // it.
     // If there are no deltas, then we don't have to serialize anything on the disk.
-    disk_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Result of validating the vertex against unqiue constraints. It has to be
     // declared outside of the critical section scope because its value is
     // tested for Abort call which has to be done out of the scope.
     std::optional<ConstraintViolation> unique_constraint_violation;
-
-    // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
@@ -1431,8 +1421,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
           could_replicate_all_sync_replicas =
               disk_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
-
-        disk_storage->commit_log_->MarkFinished(start_timestamp);
       }
     }
 
@@ -1671,18 +1659,13 @@ void DiskStorage::DiskAccessor::Abort() {
     }
   }
 
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-
-  disk_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   disk_transaction_->Rollback();
   is_transaction_active_ = false;
 }
 
 // maybe will need some usages here
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (commit_timestamp_) {
-    disk_storage->commit_log_->MarkFinished(*commit_timestamp_);
     commit_timestamp_.reset();
   }
 }
@@ -1698,7 +1681,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   const auto success =
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1722,7 +1704,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
                                            {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1742,7 +1723,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success =
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1761,7 +1741,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success =
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1795,7 +1774,6 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
                                            {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1814,7 +1792,6 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
                                            {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1849,7 +1826,6 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
                                            properties, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1871,7 +1847,6 @@ DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &pro
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
                                            properties, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
@@ -1901,13 +1876,6 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode};
 }
-
-template <bool force>
-void DiskStorage::CollectGarbage() {}
-
-// tell the linker he can find the CollectGarbage definitions here
-template void DiskStorage::CollectGarbage<true>();
-template void DiskStorage::CollectGarbage<false>();
 
 bool DiskStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
