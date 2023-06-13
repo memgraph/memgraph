@@ -874,11 +874,27 @@ bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
 bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
   json self;
   self["name"] = "LoadCsv";
-  self["file"] = ToJson(op.file_);
-  self["with_header"] = op.with_header_;
-  self["ignore_bad"] = op.ignore_bad_;
-  self["delimiter"] = ToJson(op.delimiter_);
-  self["quote"] = ToJson(op.quote_);
+
+  if (op.file_) {
+    self["file"] = ToJson(op.file_);
+  }
+
+  if (op.with_header_) {
+    self["with_header"] = op.with_header_;
+  }
+
+  if (op.ignore_bad_) {
+    self["ignore_bad"] = op.ignore_bad_;
+  }
+
+  if (op.delimiter_) {
+    self["delimiter"] = ToJson(op.delimiter_);
+  }
+
+  if (op.quote_) {
+    self["quote"] = ToJson(op.quote_);
+  }
+
   self["row_variable"] = ToJson(op.row_var_);
 
   op.input_->Accept(*this);

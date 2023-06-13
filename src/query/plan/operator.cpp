@@ -4649,7 +4649,7 @@ LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool 
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
 
-bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
+ACCEPT_WITH_INPUT(LoadCsv)
 
 class LoadCsvCursor;
 
