@@ -158,7 +158,7 @@ class ModuleRegistry final {
   // would call stdlib (e.g. pytorch).
   // The way that those issues were solved was
   // by using RTLD_DEEPBIND. RTLD_DEEPBIND ensures that the lookup for the
-  // mentioned library will be first performed in the already existing binded
+  // mentioned library will be first performed in the already existing bound
   // libraries and then the global namespace.
   // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
   SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
