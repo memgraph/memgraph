@@ -239,7 +239,7 @@ def periodically_execute(callable, args, interval, daemon=True):
         callable - the callable to call
         args - arguments to pass to callable
         interval - time (in seconds) between two calls
-        deamon - if the execution thread should be a daemon
+        daemon - if the execution thread should be a daemon
     """
     def periodic_call():
         while True:
