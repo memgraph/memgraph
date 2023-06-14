@@ -209,7 +209,7 @@ def transfer(storage, neo_driver, memgraph_driver):
     memgraph_session.run("MATCH (n) REMOVE n:%s, n.%s" % (TEMP_LABEL, TEMP_ID))
     neo_session.run("MATCH (n) REMOVE n:%s, n.%s" % (TEMP_LABEL, TEMP_ID))
     neo_session.run("DROP INDEX ON :%s(%s)" % (TEMP_LABEL, TEMP_ID))
-    log.info("Created %d vertiecs and %d edges", vertex_count, edge_count)
+    log.info("Created %d vertices and %d edges", vertex_count, edge_count)
 
 
 def main():
