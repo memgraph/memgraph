@@ -43,7 +43,7 @@ def parse_args():
 
 def create_vertex_cypher(vertex):
     """
-    Helper function that generates a cypher query for creting
+    Helper function that generates a cypher query for creating
     a vertex based on the given Bolt vertex.
     """
     labels = ""
@@ -57,7 +57,7 @@ def create_vertex_cypher(vertex):
 
 def create_edge_cypher(edge, edge_num):
     """
-    Helper function that generates a cypher query for creting
+    Helper function that generates a cypher query for creating
     a edge based on the given Bolt edge.
     """
     properties = ", ".join('%s: %r' % kv for kv
