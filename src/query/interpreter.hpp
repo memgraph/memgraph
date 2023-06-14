@@ -399,7 +399,7 @@ class Interpreter final {
 
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
-  // move this unique_ptr into a shrared_ptr.
+  // move this unique_ptr into a shared_ptr.
   std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
