@@ -1410,7 +1410,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   // PROFILE isn't allowed inside multi-command (explicit) transactions. This is
   // because PROFILE executes each PROFILE'd query and collects additional
-  // perfomance metadata that it displays to the user instead of the results
+  // performance metadata that it displays to the user instead of the results
   // yielded by the query. Because PROFILE has side-effects, each transaction
   // that is used to execute a PROFILE query *MUST* be aborted. That isn't
   // possible when using multicommand (explicit) transactions (because the user
