@@ -14,7 +14,7 @@ set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "High performance, in-memory, transactional graph database")
 
-# Setting arhitecture extension for deb packages
+# Setting architecture extension for deb packages
 set(MG_ARCH_EXTENSION_DEB "all")
 
 if(${MG_ARCH} STREQUAL "x86_64")
@@ -50,7 +50,7 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 # We also depend on `python3` because we embed it in Memgraph.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0), libstdc++6")
 
-# Setting arhitecture extension for rpm packages
+# Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
 
 if(${MG_ARCH} STREQUAL "x86_64")
