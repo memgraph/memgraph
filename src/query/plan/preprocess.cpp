@@ -343,7 +343,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
     return is_prop_filter;
   };
-  // Check if maybe_id_fun is ID invocation on an indentifier and add it as
+  // Check if maybe_id_fun is ID invocation on an identifier and add it as
   // IdFilter.
   auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
     auto *id_fun = utils::Downcast<Function>(maybe_id_fun);
