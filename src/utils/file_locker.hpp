@@ -70,7 +70,7 @@ namespace memgraph::utils {
  *
  * void Bar() {
  *   // I want to delete file1.
- *   file_retiner.DeleteFile(file1);
+ *   file_retainer.DeleteFile(file1);
  * }
  *
  * int main() {
