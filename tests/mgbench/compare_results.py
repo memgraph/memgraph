@@ -89,7 +89,7 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
                             )
                         if row.get(key) != None and (
                             "diff" not in row[key]
-                            or ("diff_treshold" in field and abs(row[key]["diff"]) >= field["diff_treshold"])
+                            or ("diff_threshold" in field and abs(row[key]["diff"]) >= field["diff_threshold"])
                         ):
                             performance_changed = True
                     if performance_changed:
@@ -246,7 +246,7 @@ if __name__ == "__main__":
             "positive_diff_better": True,
             "scaling": 1,
             "unit": "QPS",
-            "diff_treshold": 0.05,  # 5%
+            "diff_threshold": 0.05,  # 5%
         },
         {
             "name": "duration",
@@ -277,7 +277,7 @@ if __name__ == "__main__":
             "positive_diff_better": False,
             "scaling": 1 / 1024 / 1024,
             "unit": "MiB",
-            "diff_treshold": 0.02,  # 2%
+            "diff_threshold": 0.02,  # 2%
         },
         {
             "name": "max",
@@ -339,8 +339,8 @@ if __name__ == "__main__":
 
     if args.difference_threshold > 0.01:
         for field in fields:
-            if "diff_treshold" in field.keys():
-                field["diff_treshold"] = args.difference_threshold
+            if "diff_threshold" in field.keys():
+                field["diff_threshold"] = args.difference_threshold
 
     data = {}
     for file_from, file_to in args.compare:

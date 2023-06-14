@@ -43,11 +43,11 @@ def compare_values(headers_cur, results_cur, headers_prev, results_prev):
                 if header != "max_memory":
                     fmt = "{:.3f}ms"
                     scale = 1000.0
-                    treshold = 0.050
+                    threshold = 0.050
                 else:
                     fmt = "{:.2f}MiB"
                     scale = 1.0 / 1024.0
-                    treshold = 0.025
+                    threshold = 0.025
                 # TODO: add statistics check
                 if item_prev != None:
                     value_prev = item_prev["median"]
@@ -55,10 +55,10 @@ def compare_values(headers_cur, results_cur, headers_prev, results_prev):
                         diff = (value_cur - value_prev) / value_prev
                     else:
                         diff = 0.0
-                    if diff < -treshold and value_cur > 0.0005:
+                    if diff < -threshold and value_cur > 0.0005:
                         performance_change = True
                         sign = " {icon arrow-down color=green}"
-                    elif diff > treshold and value_cur > 0.0005:
+                    elif diff > threshold and value_cur > 0.0005:
                         performance_change = True
                         sign = " {icon arrow-up color=red}"
                     else:
