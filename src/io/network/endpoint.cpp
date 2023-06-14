@@ -75,7 +75,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
       return std::nullopt;
     }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
-      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
+      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceeds the maximum possible size.",
                                            "https://memgr.ph/ports"));
       return std::nullopt;
     }
