@@ -784,7 +784,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
    * Creates an expansion. All parameters except input and input_symbol are
    * forwarded to @c ExpandCommon and are documented there.
    *
-   * @param input Optional logical operator that preceeds this one.
+   * @param input Optional logical operator that precedes this one.
    * @param input_symbol Symbol that points to a VertexAccessor in the frame
    *    that expansion should emanate from.
    */
@@ -895,7 +895,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
    * Expansion length bounds are both inclusive (as in Neo's Cypher
    * implementation).
    *
-   * @param input Optional logical operator that preceeds this one.
+   * @param input Optional logical operator that precedes this one.
    * @param input_symbol Symbol that points to a VertexAccessor in the frame
    *    that expansion should emanate from.
    * @param type - Either Type::DEPTH_FIRST (default variable-length expansion),
