@@ -13,7 +13,7 @@
                               s/start-node!))
 
 (defn full-nemesis
-  "Can kill and restart all processess and initiate network partitions."
+  "Can kill and restart all processes and initiate network partitions."
   [opts]
   (nemesis/compose
     {{:kill-node    :start
