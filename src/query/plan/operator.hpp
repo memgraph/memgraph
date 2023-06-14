@@ -1825,7 +1825,7 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
 
 /// Merge operator. For every successful Pull from the
 /// input operator a Pull from the merge_match is attempted. All
-/// successfull Pulls from the merge_match are passed on as output.
+/// successful Pulls from the merge_match are passed on as output.
 /// If merge_match Pull does not yield any elements, a single Pull
 /// from the merge_create op is performed.
 ///

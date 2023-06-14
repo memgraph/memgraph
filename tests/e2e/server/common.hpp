@@ -27,7 +27,7 @@ inline void OnTimeoutExpiration(const boost::system::error_code &ec) {
 }
 
 inline void EstablishConnection(const uint16_t bolt_port, const bool use_ssl) {
-  spdlog::info("Testing successfull connection from one client");
+  spdlog::info("Testing successful connection from one client");
   mg::Client::Init();
 
   boost::asio::io_context ioc;
@@ -41,7 +41,7 @@ inline void EstablishConnection(const uint16_t bolt_port, const bool use_ssl) {
 }
 
 inline void EstablishMultipleConnections(const uint16_t bolt_port, const bool use_ssl) {
-  spdlog::info("Testing successfull connection from multiple clients");
+  spdlog::info("Testing successful connection from multiple clients");
   mg::Client::Init();
 
   boost::asio::io_context ioc;
