@@ -116,7 +116,7 @@ inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_v
 
 // TODO: implement within MGP API
 // with primitive types ({bool, int, double, string}), create a new identical value
-// otherwise call mgp_##TYPE_copy and convert tpye
+// otherwise call mgp_##TYPE_copy and convert type
 inline mgp_value *value_copy(mgp_value *val, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_value_copy, val, memory);
 }
