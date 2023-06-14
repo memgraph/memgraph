@@ -96,7 +96,7 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
 
 TEST_F(QueryExecution, EdgeUniquenessInOptional) {
   // Validating that an edge uniqueness check can't fail when the edge is Null
-  // due to optonal match. Since edge-uniqueness only happens in one OPTIONAL
+  // due to optional match. Since edge-uniqueness only happens in one OPTIONAL
   // MATCH, we only need to check that scenario.
   Execute("CREATE (), ()-[:Type]->()");
   ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 3);
