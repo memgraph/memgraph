@@ -248,7 +248,7 @@ class TypedValueArithmeticTest : public AllTypesFixture {
    *
    * @param string_list_ok Indicates if or not the operation tested works
    *  with String and List values (does not throw).
-   * @param op  The operation lambda. Takes two values and resturns
+   * @param op  The operation lambda. Takes two values and returns
    *  the results.
    */
   void ExpectArithmeticThrowsAndNull(bool string_list_ok,
