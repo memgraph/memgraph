@@ -93,7 +93,7 @@ not_read_node_with_index_operation_cases = [
     ],
 ]
 
-not_read_node_with_index_operation_cases_expexted_sizes = [0, 0, 0, 0, 2, 0, 2]
+not_read_node_with_index_operation_cases_expected_sizes = [0, 0, 0, 0, 2, 0, 2]
 
 
 def get_admin_cursor():
@@ -153,7 +153,7 @@ def test_can_not_read_node_when_authorized():
     ):
         execute_read_node_assertion(operation_case, match_queries_without_index, False, expected_size)
     for expected_size, operation_case in zip(
-        not_read_node_with_index_operation_cases_expexted_sizes, not_read_node_with_index_operation_cases
+        not_read_node_with_index_operation_cases_expected_sizes, not_read_node_with_index_operation_cases
     ):
         execute_read_node_assertion(operation_case, match_queries_with_index, True, expected_size)
 
