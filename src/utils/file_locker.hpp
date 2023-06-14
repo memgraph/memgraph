@@ -29,7 +29,7 @@ namespace memgraph::utils {
  * Helper class used for safer modifying and reading of files
  * by preventing a deletion of a file until the file is not used in any of
  * currently running threads.
- * Also, while a single thread modyifies it's list of locked files, the deletion
+ * Also, while a single thread modifies it's list of locked files, the deletion
  * of ALL the files is delayed.
  *
  * Basic usage of FileRetainer consists of following parts:
