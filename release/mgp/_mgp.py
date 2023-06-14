@@ -60,7 +60,7 @@ class Edge:
     def get_property(self, property_name: str) -> "Property":  # type: ignore
         pass
 
-    def set_property(self, property_name: str, valuse: Any) -> "Property":  # type: ignore
+    def set_property(self, property_name: str, values: Any) -> "Property":  # type: ignore
         pass
 
     def get_type_name() -> str:  # type: ignore
