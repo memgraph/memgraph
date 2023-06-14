@@ -156,7 +156,7 @@ def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
                     and f"topic: $topic" in test_results[i][common.QUERIES][INDEX_OF_FIRST_BATCH][common.QUERY_LITERAL]
                 )
                 parameters = test_results[i][common.QUERIES][INDEX_OF_FIRST_BATCH][common.PARAMETERS_LITERAL]
-                # this is not a very sofisticated test, but checks if
+                # this is not a very sophisticated test, but checks if
                 # timestamp has some kind of value
                 assert parameters["timestamp"] > 1000000000000
                 assert parameters["topic"] == kafka_topics[0]
