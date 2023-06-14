@@ -886,7 +886,7 @@ instantiation."
 
 (defun resolve-typestring-for-super-class (typestring cpp-class)
   "Resolve the typestring TYPESTRING for a superclass. CPP-CLASS is the
-CPP-CLASS instance that subclasss the class named by the typestring and is used
+CPP-CLASS instance that subclass the class named by the typestring and is used
 to perform proper relative lookup, if any."
   (flet ((rec (cpp-type)
            ;; NOTE: This will surely produce the original typestring because
