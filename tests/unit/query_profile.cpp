@@ -62,7 +62,7 @@ TEST(QueryProfileTest, SimpleQuery) {
   auto json = ProfilingStatsToJson(ProfilingStatsWithTotalTime{produce, total_time});
 
   /*
-   * NOTE: When one of these comparions fails and Google Test tries to report
+   * NOTE: When one of these comparisons fails and Google Test tries to report
    * the failure, it will try to print out the JSON object. For some reason this
    * ends up recursing infinitely within Google Test's printing internals and we
    * get a segfault (stack overflow most likely).
