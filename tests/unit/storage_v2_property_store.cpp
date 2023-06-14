@@ -657,7 +657,7 @@ TEST(PropertyStore, SetMultipleProperties) {
                                                     memgraph::storage::PropertyValue()};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
-  // The order of property ids are purposfully not monotonic to test that PropertyStore orders them properly
+  // The order of property ids are purposefully not monotonic to test that PropertyStore orders them properly
   const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
       {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
       {memgraph::storage::PropertyId::FromInt(10), memgraph::storage::PropertyValue(123)},
