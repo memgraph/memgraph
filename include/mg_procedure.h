@@ -67,7 +67,7 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
 /// more efficient as explained before.
 ///@{
 
-/// Provides memory managament access and state.
+/// Provides memory management access and state.
 struct mgp_memory;
 
 /// Allocate a block of memory with given size in bytes.
