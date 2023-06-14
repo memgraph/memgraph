@@ -1646,7 +1646,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         if (info.uuid != uuid) continue;
         old_snapshot_files.emplace_back(info.start_timestamp, item.path());
       } catch (const RecoveryFailure &e) {
-        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}", item.path(), e.what());
+        spdlog::warn("Found a corrupt snapshot file {} because of: {}", item.path(), e.what());
         continue;
       }
     }

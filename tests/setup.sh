@@ -40,7 +40,7 @@ for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
 
-# Install mgclient from source becasue of full flexibility.
+# Install mgclient from source because of full flexibility.
 pushd "$DIR/../libs/pymgclient" > /dev/null
 export MGCLIENT_INCLUDE_DIR="$DIR/../libs/mgclient/include"
 export MGCLIENT_LIB_DIR="$DIR/../libs/mgclient/lib"

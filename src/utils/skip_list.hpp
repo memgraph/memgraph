@@ -41,7 +41,7 @@ namespace memgraph::utils {
 /// this value because it isn't practical to have skip lists that have larger
 /// heights than 32. The probability of heights larger than 32 gets extremely
 /// small. Also, the internal implementation can handle a maximum height of 32
-/// primarily becase of the height generator (see the `gen_height` function).
+/// primarily because of the height generator (see the `gen_height` function).
 const uint64_t kSkipListMaxHeight = 32;
 
 /// This is the height that a node that is accessed from the list has to have in
