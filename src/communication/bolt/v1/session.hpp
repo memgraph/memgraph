@@ -106,13 +106,6 @@ class MultiSessionHandler {
   }
 
   /**
-   * @brief Get the current high-level implementation object
-   *
-   * @return std::shared_ptr<T>
-   */
-  std::shared_ptr<T> GetImpl() { return current_; }
-
-  /**
    * @brief Delete a high-level implementation object
    *
    * @param id unique identifier of the instance (usually the database name)
@@ -133,6 +126,14 @@ class MultiSessionHandler {
    * @return std::string
    */
   std::string GetID() const { return id_; }
+
+ protected:
+  /**
+   * @brief Get the current high-level implementation object
+   *
+   * @return std::shared_ptr<T>
+   */
+  std::shared_ptr<T> GetImpl() { return current_; }
 
  private:
   std::string id_;  //!< identifier of the current high-level implementation
