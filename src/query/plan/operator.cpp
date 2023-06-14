@@ -4675,7 +4675,7 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::string> nullif) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::string> &nullif) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
@@ -4690,7 +4690,7 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::st
 }
 
 TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
-                            std::optional<utils::pmr::string> nullif) {
+                            std::optional<utils::pmr::string> &nullif) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);

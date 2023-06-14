@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 from gqlalchemy import Memgraph
-from mgclient import DatabaseError
 
 NULLIF_CSV_FILE = "nullif.csv"
 
