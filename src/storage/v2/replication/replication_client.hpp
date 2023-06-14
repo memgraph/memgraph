@@ -169,7 +169,7 @@ class Storage::ReplicationClient {
   //  - the implementation is simplified as we have a total control of what
   //    this pool is executing. Also, we can simply queue multiple tasks
   //    and be sure of the execution order.
-  //    Not having mulitple possible threads in the same client allows us
+  //    Not having multiple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
   std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
