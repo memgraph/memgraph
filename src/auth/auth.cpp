@@ -53,7 +53,7 @@ const std::string kLinkPrefix = "link:";
  * the data has to be encoded. The encoding used is as follows:
  *
  * User: key="user:<username>", value="<json_encoded_members_of_user>"
- * Role: key="role:<rolename>", value="<json_endoded_members_of_role>"
+ * Role: key="role:<rolename>", value="<json_encoded_members_of_role>"
  *
  * The User->Role relationship isn't stored in the `User` encoded data because
  * we want to be able to delete/modify a Role and have it automatically be
