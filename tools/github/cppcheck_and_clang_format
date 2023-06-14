@@ -18,7 +18,7 @@ else
 fi
 
 cat > .cppcheck_suppressions <<EOF
-// supress all explicit constructor warnings since we use the implicit conversion all over the codebase
+// suppress all explicit constructor warnings since we use the implicit conversion all over the codebase
 noExplicitConstructor:src/storage/property_value.hpp
 noExplicitConstructor:src/query/typed_value.hpp
 noExplicitConstructor:src/communication/bolt/v1/decoder/decoded_value.hpp
@@ -28,7 +28,7 @@ variableScope:src/query/frontend/opencypher/generated/CypherParser.h
 variableScope:src/query/frontend/opencypher/generated/CypherLexer.h
 variableScope:src/query/frontend/opencypher/generated/CypherParser.cpp
 
-// supress all warnings of this type in the codebase
+// suppress all warnings of this type in the codebase
 missingInclude
 unusedFunction
 unusedStructMember
