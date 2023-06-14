@@ -901,7 +901,7 @@ namespace memgraph::utils {
 /// GrowPod - This is an implementation of the Grow() method which only works
 /// on POD-like datatypes and is out of line to reduce code duplication.
 inline void SmallVectorBase::GrowPod(void *first_el, size_t min_size_in_bytes, size_t t_size) {
-  size_t cur_size_btyes = size_in_bytes();
+  size_t cur_size_bytes = size_in_bytes();
   size_t new_capacity_in_bytes = 2 * capacity_in_bytes() + t_size;  // Always Grow.
   if (new_capacity_in_bytes < min_size_in_bytes) new_capacity_in_bytes = min_size_in_bytes;
 
@@ -910,14 +910,14 @@ inline void SmallVectorBase::GrowPod(void *first_el, size_t min_size_in_bytes, s
     new_elts = malloc(new_capacity_in_bytes);
 
     // Copy the elements over.  No need to run dtors on PODs.
-    memcpy(new_elts, this->begin_x_, cur_size_btyes);
+    memcpy(new_elts, this->begin_x_, cur_size_bytes);
   } else {
     // If this wasn't grown from the inline copy, Grow the allocated space.
     new_elts = realloc(this->begin_x_, new_capacity_in_bytes);
   }
   assert(new_elts && "Out of memory");
 
-  this->end_x_ = (char *)new_elts + cur_size_btyes;
+  this->end_x_ = (char *)new_elts + cur_size_bytes;
   this->begin_x_ = new_elts;
   this->capacity_x_ = (char *)this->begin_x_ + new_capacity_in_bytes;
 }
