@@ -2858,7 +2858,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (const auto &clauses = cypher_query->single_query_->clauses_;
           std::any_of(clauses.begin(), clauses.end(),
                       [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
-        // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
+        // Using PoolResource without MonotonicMemoryResource for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(
             utils::PoolResource(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
