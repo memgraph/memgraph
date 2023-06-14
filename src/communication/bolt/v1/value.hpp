@@ -225,7 +225,7 @@ class Value {
   DECL_GETTER_BY_REFERENCE(LocalTime, utils::LocalTime)
   DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
   DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
-#undef DECL_GETTER_BY_REFERNCE
+#undef DECL_GETTER_BY_REFERENCE
 
 #define TYPE_CHECKER(type) \
   bool Is##type() const { return type_ == Type::type; }
