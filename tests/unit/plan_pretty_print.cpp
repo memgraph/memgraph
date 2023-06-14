@@ -25,7 +25,7 @@ using namespace memgraph::query::plan;
 // maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
 // there will be no need to be super careful.
 
-// This is a hack to prevent Googletest from crashing when outputing JSONs.
+// This is a hack to prevent Googletest from crashing when outputting JSONs.
 namespace nlohmann {
 void PrintTo(const json &json, std::ostream *os) { *os << std::endl << json.dump(1); }
 }  // namespace nlohmann
