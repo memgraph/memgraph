@@ -53,7 +53,7 @@ class NotFoundException : public std::exception {
 
 class NotEnoughMemoryException : public std::exception {
  public:
-  const char *what() const throw() { return "Not enough memory!"; }
+  const char *what() const noexcept override { return "Not enough memory!"; }
 };
 
 class MustAbortException : public std::exception {
