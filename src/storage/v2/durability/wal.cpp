@@ -122,7 +122,7 @@ Marker VertexActionToMarker(Delta::Action action) {
   }
 }
 
-// This function convertes a Marker to a WalDeltaData::Type. It checks for the
+// This function converts a Marker to a WalDeltaData::Type. It checks for the
 // validity of the marker and throws if an invalid marker is specified.
 // @throw RecoveryFailure
 WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
