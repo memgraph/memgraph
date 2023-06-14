@@ -498,7 +498,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
 /// producing a cartesian product of input Pulls and database elements.
 ///
 /// ScanAll can either iterate over the previous graph state (state before
-/// the current transacton+command) or over current state. This is controlled
+/// the current transaction+command) or over current state. This is controlled
 /// with a constructor argument.
 ///
 /// @sa ScanAllByLabel
