@@ -59,7 +59,7 @@ namespace memgraph::utils {
  *   {
  *     // Create accessor to the locker so you can
  *     // add the files which need to be locked.
- *     // Accesor prevents deletion of any files
+ *     // Accessor prevents deletion of any files
  *     // so you safely add multiple files in atomic way
  *     auto accessor = locker.Access();
  *     accessor.AddPath(file1);
