@@ -25,7 +25,7 @@ using namespace std::string_literals;
 using namespace memgraph::utils;
 
 TEST(Algorithm, PrintIterable) {
-  // Checkss both variants of the function (using iterators and collections)
+  // Checks both variants of the function (using iterators and collections)
   auto check = [](const std::vector<int> &iterable, const std::string &expected_output) {
     {
       std::ostringstream oss;
