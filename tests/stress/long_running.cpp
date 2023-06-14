@@ -43,7 +43,7 @@ DEFINE_uint64(max_queries, 1 << 30, "Maximum number of queries to execute");
 DEFINE_int32(max_time, 1, "Maximum execution time in minutes");
 DEFINE_int32(verify, 0, "Interval (seconds) between checking local info");
 DEFINE_int32(worker_count, 1, "The number of workers that operate on the graph independently");
-DEFINE_bool(global_queries, true, "If queries that modifiy globally should be executed sometimes");
+DEFINE_bool(global_queries, true, "If queries that modify globally should be executed sometimes");
 
 DEFINE_string(stats_file, "", "File into which to write statistics.");
 
