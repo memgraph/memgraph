@@ -2438,7 +2438,7 @@ antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(MemgraphCypher::BooleanLite
   if (ctx->getTokens(MemgraphCypher::FALSE).size()) {
     return false;
   }
-  DLOG_FATAL("Shouldn't happend");
+  DLOG_FATAL("Shouldn't happen");
   throw std::exception();
 }
 
