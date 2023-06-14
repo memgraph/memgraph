@@ -6,15 +6,15 @@ IFS=' '
 # NOTE: each line has to be under quotes, docker_container_type, script_name and docker_image_name separate with a space.
 # "docker_container_type script_name docker_image_name"
 OPERATING_SYSTEMS=(
-  # "mgrun amzn-2 amazonlinux:2"
-  # "mgrun centos-9 dokken/centos-stream-9"
+  "mgrun amzn-2 amazonlinux:2"
+  "mgrun centos-9 dokken/centos-stream-9"
   "mgrun debian-10 debian:10"
-  # "mgrun debian-11 debian:11"
-  # "mgrun fedora-36 fedora:36"
-  # "mgrun ubuntu-18.04 ubuntu:18.04"
-  # "mgrun ubuntu-20.04 ubuntu:20.04"
-  # "mgrun ubuntu-22.04 ubuntu:22.04"
-  # "mgrun centos-7 centos:7"
+  "mgrun debian-11 debian:11"
+  "mgrun fedora-36 fedora:36"
+  "mgrun ubuntu-18.04 ubuntu:18.04"
+  "mgrun ubuntu-20.04 ubuntu:20.04"
+  "mgrun ubuntu-22.04 ubuntu:22.04"
+  "mgrun centos-7 centos:7"
   # "mgbuild centos-7 package-mgbuild_centos-7"
 )
 
@@ -105,6 +105,7 @@ delete_all () {
 }
 
 # TODO(gitbuda): Copy file betwene containers is a useful util, also delete, + consider folder.
+# TODO(gitbuda): Add args: src_cnt dst_cnt abs_path; both file and recursive folder, always delete + copy.
 copy_build_package () {
   src_container="$1"
   dst_container="$2"
