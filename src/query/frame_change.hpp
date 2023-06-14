@@ -18,7 +18,7 @@ namespace memgraph::query {
 using CachedType = utils::pmr::unordered_map<size_t, std::vector<TypedValue>>;
 
 struct CachedValue {
-  // Cached value, this can be probably templateized
+  // Cached value, this can be probably templatized
   CachedType cache_;
 
   explicit CachedValue(utils::MemoryResource *mem) : cache_(mem) {}
