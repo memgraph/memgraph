@@ -99,7 +99,7 @@ class Storage::ReplicationClient {
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
-  // function will run a callback if, after previously callling
+  // function will run a callback if, after previously calling
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
 
