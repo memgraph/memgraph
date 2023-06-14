@@ -173,7 +173,7 @@ class Socket {
    * non-blocking socket, you can call this function to ensure that your next
    * `Read` operation will succeed.
    *
-   * The function returns `true` if the wait succeded (there is data waiting to
+   * The function returns `true` if the wait succeeded (there is data waiting to
    * be read from the socket) and returns `false` if the wait failed (the socket
    * was closed or something else bad happened).
    *
@@ -190,7 +190,7 @@ class Socket {
    * non-blocking socket, you can call this function to ensure that your next
    * `Write` operation will succeed.
    *
-   * The function returns `true` if the wait succeded (the socket can be written
+   * The function returns `true` if the wait succeeded (the socket can be written
    * to) and returns `false` if the wait failed (the socket was closed or
    * something else bad happened).
    *
