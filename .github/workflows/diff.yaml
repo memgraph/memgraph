@@ -406,7 +406,7 @@ jobs:
           source /opt/toolchain-v4/activate
           # Initialize dependencies.
           ./init
-          # Build only memgraph release binarie.
+          # Build only memgraph release binaries.
           cd build
           cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
           make -j$THREADS memgraph
