@@ -66,7 +66,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
       parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
-      // on the original query to get an appropriate error messsage.
+      // on the original query to get an appropriate error message.
       parser = std::make_unique<frontend::opencypher::Parser>(query_string);
 
       // If an exception was not thrown here, the stripper messed something
