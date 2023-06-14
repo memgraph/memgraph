@@ -227,7 +227,7 @@ TEST_F(QueryCostEstimator, Union) {
 
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
-// Intentially a macro (instead of function) for better test feedback.
+// Intentionally a macro (instead of function) for better test feedback.
 #define TEST_OP(OP, OP_COST_PARAM, OP_CARD_PARAM) \
   OP;                                             \
   EXPECT_COST(OP_COST_PARAM);                     \
