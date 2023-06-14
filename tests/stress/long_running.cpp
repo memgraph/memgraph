@@ -49,7 +49,7 @@ DEFINE_string(stats_file, "", "File into which to write statistics.");
 
 /**
  * Encapsulates a Graph and a Bolt session and provides CRUD op functions.
- * Also defines a run-loop for a generic exectutor, and a graph state
+ * Also defines a run-loop for a generic executor, and a graph state
  * verification function.
  */
 class GraphSession {
