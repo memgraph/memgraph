@@ -45,7 +45,7 @@ inline constexpr std::array kSupportedLogLevels{"debug", "trace", "info", "warni
 
 struct Credentials {
   std::string_view username;
-  std::string_view passsword;
+  std::string_view password;
 };
 
 inline void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
@@ -53,7 +53,7 @@ inline void Fail(beast::error_code ec, char const *what) { std::cerr << what << 
 inline std::string GetAuthenticationJSON(const Credentials &creds) {
   nlohmann::json json_creds;
   json_creds["username"] = creds.username;
-  json_creds["password"] = creds.passsword;
+  json_creds["password"] = creds.password;
   return json_creds.dump();
 }
 
