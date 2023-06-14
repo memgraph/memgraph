@@ -43,7 +43,7 @@ cpp<#
      (current-commit-timestamp :uint64_t)
      (epoch-id "std::string"))))
 
-;; FrequentHearthbeat is required because calling Heartbeat takes the storage lock.
+;; FrequentHeartbeat is required because calling Heartbeat takes the storage lock.
 ;; Configured by `replication_replica_check_delay`.
 (lcp:define-rpc frequent-heartbeat
   (:request ())
