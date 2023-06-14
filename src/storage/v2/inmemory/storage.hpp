@@ -450,7 +450,7 @@ class InMemoryStorage final : public Storage {
   // Example of this:
   // We have 2 instances of the same storage, S1 and S2.
   // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
-  // At the moment when S1 commited a transaction with timestamp 20, and S2
+  // At the moment when S1 committed a transaction with timestamp 20, and S2
   // a different transaction with timestamp 15, we change S2's role to REPLICA
   // and register it on S1.
   // Without using the epoch_id, we don't know that S1 and S2 have completely
@@ -470,7 +470,7 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLocker global_locker_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
-  // transaction commited or aborted. We could probably combine this with
+  // transaction committed or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;

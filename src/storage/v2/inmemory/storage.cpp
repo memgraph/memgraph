@@ -1139,7 +1139,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // Replica should have only read queries and the write queries
     // can come from main instance with any past timestamp.
     // To preserve snapshot isolation we set the start timestamp
-    // of any query on replica to the last commited transaction
+    // of any query on replica to the last committed transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
     if (replication_role_ == replication::ReplicationRole::REPLICA) {
