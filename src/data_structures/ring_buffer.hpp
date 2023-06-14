@@ -23,7 +23,7 @@
 
 /**
  * A thread-safe ring buffer. Multi-producer, multi-consumer. Producers get
- * blocked if the buffer is full. Consumers get returnd a nullopt. First in
+ * blocked if the buffer is full. Consumers get returned a nullopt. First in
  * first out.
  *
  * @tparam TElement - type of element the buffer tracks.
