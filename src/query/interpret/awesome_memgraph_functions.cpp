@@ -1198,7 +1198,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
     const mgp_func &func, const std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    /// Find function is called to aquire the lock on Module pointer while user-defined function is executed
+    /// Find function is called to acquire the lock on Module pointer while user-defined function is executed
     const auto &maybe_found =
         procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
     if (!maybe_found) {
@@ -1206,7 +1206,7 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
           "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
           fully_qualified_name);
     }
-    /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
+    /// Explicit extraction of module pointer, to clearly state that the lock is acquired.
     // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
     const auto &module_ptr = (*maybe_found).first;
 
