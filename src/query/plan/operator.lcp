@@ -149,7 +149,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
 /**
- * @brief Base class for hierarhical visitors of @c LogicalOperator class
+ * @brief Base class for hierarchical visitors of @c LogicalOperator class
  * hierarchy.
  */
 class HierarchicalLogicalOperatorVisitor
