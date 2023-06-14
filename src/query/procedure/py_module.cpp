@@ -2120,7 +2120,7 @@ static PyMethodDef PyLoggerMethods[] = {
     {"info", reinterpret_cast<PyCFunction>(PyLoggerLogInfo), METH_VARARGS,
      "Logs a message with level INFO on this logger."},
     {"warning", reinterpret_cast<PyCFunction>(PyLoggerLogWarning), METH_VARARGS,
-     "Logs a message with level WARNNING on this logger."},
+     "Logs a message with level WARNING on this logger."},
     {"error", reinterpret_cast<PyCFunction>(PyLoggerLogError), METH_VARARGS,
      "Logs a message with level ERROR on this logger."},
     {"critical", reinterpret_cast<PyCFunction>(PyLoggerLogCritical), METH_VARARGS,
