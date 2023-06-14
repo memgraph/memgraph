@@ -137,7 +137,7 @@ class Socket {
 
   /**
    * Write data to the socket.
-   * Theese functions guarantee that all data will be written.
+   * These functions guarantee that all data will be written.
    *
    * @param data uint8_t* to data that should be written
    * @param len length of char* or uint8_t* data
