@@ -189,7 +189,7 @@ def bolt_session(url, auth, ssl=False):
         driver.close()
 
 
-# If you are using session with multiprocessing take a look at SesssionCache
+# If you are using session with multiprocessing take a look at SessionCache
 # in bipartite for an idea how to reuse sessions.
 def argument_session(args):
     '''
