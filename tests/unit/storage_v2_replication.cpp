@@ -205,7 +205,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // label index create
   // label property index create
   // existence constraint create
-  // unique constriant create
+  // unique constraint create
   const auto *label = "label";
   const auto *property = "property";
   const auto *property_extra = "property_extra";
@@ -239,7 +239,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // label index drop
   // label property index drop
   // existence constraint drop
-  // unique constriant drop
+  // unique constraint drop
   {
     ASSERT_FALSE(main_store.DropIndex(main_store.NameToLabel(label)).HasError());
     ASSERT_FALSE(main_store.DropIndex(main_store.NameToLabel(label), main_store.NameToProperty(property)).HasError());
