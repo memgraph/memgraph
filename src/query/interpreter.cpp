@@ -3202,9 +3202,9 @@ void Interpreter::Commit() {
   }
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
-  // only one of the transactions can be commiting at the same time, so when the commit is finished, that transaction
+  // only one of the transactions can be committing at the same time, so when the commit is finished, that transaction
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still
-  // waiting for commiting or one of them just started commiting its changes.
+  // waiting for committing or one of them just started committing its changes.
   // This means the ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
     interpreter_context_->after_commit_trigger_pool.AddTask(

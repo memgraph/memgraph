@@ -504,7 +504,7 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
   }
   maybe_error = consumer->commitSync(partitions);
   if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
-    spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
+    spdlog::warn("Committing offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
   }
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
