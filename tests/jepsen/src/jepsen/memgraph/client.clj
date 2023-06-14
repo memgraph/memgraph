@@ -14,7 +14,7 @@
 ;; neo4j-clj related utils.
 (defmacro with-session
   "Execute body expressions by using the same session. Useful when executing
-  multiple queries, each as a separete transaction."
+  multiple queries, each as a separate transaction."
   [connection session & body]
   `(with-open [~session (dbclient/get-session ~connection)]
      ~@body))
