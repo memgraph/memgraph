@@ -360,7 +360,7 @@ TEST_F(TypedValueArithmeticTest, Difference) {
 
 TEST_F(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(memgraph::utils::Duration(1))); }
 
-TEST_F(TypedValueArithmeticTest, Divison) {
+TEST_F(TypedValueArithmeticTest, Division) {
   ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
   EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
 
