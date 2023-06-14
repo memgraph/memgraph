@@ -292,7 +292,7 @@ def mixed_workload(
             function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
 
             for t in function_type:
-                # Get the appropriate functions with same probabilty
+                # Get the appropriate functions with same probability
                 if t == "query":
                     full_workload.append(base_query())
                 else:
