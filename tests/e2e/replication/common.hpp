@@ -20,7 +20,7 @@
 #include "utils/string.hpp"
 
 DEFINE_string(database_endpoints, "127.0.0.1:7687,127.0.0.1:7688,127.0.0.1:7689",
-              "An array of database endspoints. Each endpoint is separated by "
+              "An array of database endpoints. Each endpoint is separated by "
               "comma. Within each endpoint, colon separates host and port. Use "
               "IPv4 addresses as hosts. First endpoint represents main "
               "replication instance.");
