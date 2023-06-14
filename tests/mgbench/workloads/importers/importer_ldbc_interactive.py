@@ -71,7 +71,7 @@ class ImporterLDBCInteractive:
         client = vendor_runner.fetch_client()
 
         if self._benchmark_context.vendor_name == "neo4j":
-            print("Runnning Neo4j import")
+            print("Running Neo4j import")
             dump_dir = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "dump"
             dump_dir.mkdir(parents=True, exist_ok=True)
             dir_name = self._csv_dict[self._variant].split("/")[-1:][0].replace(".tar.zst", "")

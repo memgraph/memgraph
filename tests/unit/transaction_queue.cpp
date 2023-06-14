@@ -20,7 +20,7 @@
 #include "interpreter_faker.hpp"
 
 /*
-Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
+Tests rely on the fact that interpreters are sequentially added to running_interpreters to get transaction_id of its
 corresponding interpreter/.
 */
 class TransactionQueueSimpleTest : public ::testing::Test {
