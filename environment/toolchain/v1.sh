@@ -587,7 +587,7 @@ fi
 
 # check that we aren't root
 if [ "\$USER" == "root" ]; then
-    echo "You shouldn't use the toolchan as root!"
+    echo "You shouldn't use the toolchain as root!"
     return 0
 fi
 
