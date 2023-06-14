@@ -1743,12 +1743,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-/// TODO: andi possible to put it into abstract storage
-IndicesInfo DiskStorage::ListAllIndices() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
-}
-
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1847,12 +1841,6 @@ DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &pro
   }
 
   return StorageUniqueConstraintDroppingError{ReplicationError{}};
-}
-
-/// TODO: andi this should be handled on an above level of abstraction
-ConstraintsInfo DiskStorage::ListAllConstraints() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
 }
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {

@@ -169,14 +169,12 @@ class InMemoryStorage final : public Storage {
 
     IndicesInfo ListAllIndices() const override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return {mem_storage->indices_.label_index_->ListIndices(),
-              mem_storage->indices_.label_property_index_->ListIndices()};
+      return mem_storage->ListAllIndices();
     }
 
     ConstraintsInfo ListAllConstraints() const override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
-              mem_storage->constraints_.unique_constraints_->ListConstraints()};
+      return mem_storage->ListAllConstraints();
     }
 
     /// Returns void if the transaction has been committed.
@@ -244,8 +242,6 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  IndicesInfo ListAllIndices() const override;
-
   /// Returns void if the existence constraint has been created.
   /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
@@ -287,8 +283,6 @@ class InMemoryStorage final : public Storage {
   /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  ConstraintsInfo ListAllConstraints() const override;
 
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
 

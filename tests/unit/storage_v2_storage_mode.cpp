@@ -68,9 +68,9 @@ INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testin
 
 class StorageModeMultiTxTest : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db_ = std::make_unique<memgraph::storage::InMemoryStorage>();
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_storage_mode"};
-  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{
+      std::make_unique<memgraph::storage::InMemoryStorage>(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 
@@ -87,11 +87,11 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
     while (!started) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
     main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
 
     // should change state
-    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+    ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
 
     // finish thread
     running_thread.request_stop();
@@ -100,7 +100,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
 
 TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
   // transactional state
-  ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("BEGIN");
 
   bool started = false;
@@ -119,7 +119,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should not change still
-    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
 
     main_interpreter.Interpret("COMMIT");
 
@@ -127,7 +127,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should change state
-    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+    ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
 
     // finish thread
     running_thread.request_stop();
@@ -135,11 +135,11 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
 }
 
 TEST_F(StorageModeMultiTxTest, ErrorChangeIsolationLevel) {
-  ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
 
   // should change state
-  ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  ASSERT_EQ(interpreter_context.db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
 
   ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;"),
                memgraph::query::IsolationLevelModificationInAnalyticsException);

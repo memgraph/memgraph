@@ -139,12 +139,12 @@ class DiskStorage final : public Storage {
 
     IndicesInfo ListAllIndices() const override {
       auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return {disk_storage->indices_.label_index_->ListIndices(),
-              disk_storage->indices_.label_property_index_->ListIndices()};
+      return disk_storage->ListAllIndices();
     }
 
     ConstraintsInfo ListAllConstraints() const override {
-      throw utils::NotYetImplemented("ListAllConstraints() is not implemented for DiskStorage.");
+      auto *disk_storage = static_cast<DiskStorage *>(storage_);
+      return disk_storage->ListAllConstraints();
     }
 
     utils::BasicResult<StorageDataManipulationError, void> Commit(
@@ -262,8 +262,6 @@ class DiskStorage final : public Storage {
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  IndicesInfo ListAllIndices() const override;
-
   /// Returns void if the existence constraint has been created.
   /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
@@ -305,8 +303,6 @@ class DiskStorage final : public Storage {
   /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  ConstraintsInfo ListAllConstraints() const override;
 
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
 

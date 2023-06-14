@@ -67,8 +67,6 @@ class StreamsTestFixture : public ::testing::Test {
 
  protected:
   const std::string testSuite = "query_streams";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config)};
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
   KafkaClusterMock mock_cluster_{std::vector<std::string>{kTopicName}};
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
@@ -76,8 +74,9 @@ class StreamsTestFixture : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  memgraph::query::InterpreterContext interpreter_context_{db_.get(), memgraph::query::InterpreterConfig{},
-                                                           data_directory_};
+  memgraph::query::InterpreterContext interpreter_context_{
+      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
+      memgraph::query::InterpreterConfig{}, data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
 

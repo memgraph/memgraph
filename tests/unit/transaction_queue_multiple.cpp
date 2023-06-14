@@ -36,11 +36,10 @@ template <typename StorageType>
 class TransactionQueueMultipleTest : public ::testing::Test {
  protected:
   const std::string testSuite = "transactin_queue_multiple";
-  memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config_)};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
-  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{
+      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {}, data_directory};
   InterpreterFaker main_interpreter{&interpreter_context};
   std::vector<InterpreterFaker *> running_interpreters;
 

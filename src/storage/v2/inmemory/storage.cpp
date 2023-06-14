@@ -953,11 +953,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-IndicesInfo InMemoryStorage::ListAllIndices() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
-}
-
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1049,11 +1044,6 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
   }
 
   return StorageUniqueConstraintDroppingError{ReplicationError{}};
-}
-
-ConstraintsInfo InMemoryStorage::ListAllConstraints() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {

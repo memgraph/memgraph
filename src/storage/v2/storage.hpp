@@ -27,6 +27,7 @@
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
@@ -204,6 +205,8 @@ class Storage {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name);
 
+    StorageMode GetCreationStorageMode() const;
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
@@ -211,6 +214,9 @@ class Storage {
     std::optional<uint64_t> commit_timestamp_;
     /// TODO: andi how can we remove usage of this?
     bool is_transaction_active_;
+
+   private:
+    StorageMode creation_storage_mode_;
   };
 
   bool LockPath();
@@ -288,7 +294,7 @@ class Storage {
     return DropIndex(label, property, std::optional<uint64_t>{});
   }
 
-  virtual IndicesInfo ListAllIndices() const = 0;
+  IndicesInfo ListAllIndices() const;
 
   /// Returns void if the existence constraint has been created.
   /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -354,7 +360,7 @@ class Storage {
     return DropUniqueConstraint(label, properties, std::optional<uint64_t>{});
   }
 
-  virtual ConstraintsInfo ListAllConstraints() const = 0;
+  ConstraintsInfo ListAllConstraints() const;
 
   virtual bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) = 0;
 

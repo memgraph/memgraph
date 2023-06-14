@@ -3092,6 +3092,14 @@ void Interpreter::Commit() {
   utils::OnScopeExit clean_status(
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
+  auto current_storage_mode = interpreter_context_->db->GetStorageMode();
+  auto creation_mode = db_accessor_->GetCreationStorageMode();
+  if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+      current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw QueryException(
+        "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");
+  }
+
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {
     trigger_context.emplace(std::move(*trigger_context_collector_).TransformToTriggerContext());
