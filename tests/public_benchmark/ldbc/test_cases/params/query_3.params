@@ -1,2 +1,2 @@
-person_id, messageX_createionDate, duration, countryX_name, countryY_name
+person_id, messageX_creationDate, duration, countryX_name, countryY_name
 17592186055119,1306886400000,42,Laos,Scotland  
