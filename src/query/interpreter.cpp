@@ -2024,6 +2024,16 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
   }
 }
 
+bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
+  return current_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+         next_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL;
+}
+
+bool SwitchingFromDiskToInMemory(storage::StorageMode current_mode, storage::StorageMode next_mode) {
+  return current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+         next_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+}
+
 PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context, Interpreter *interpreter) {
   if (in_explicit_transaction) {
@@ -2067,6 +2077,8 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       InterpreterContext *interpreter_context) {
+  /// TODO: andi Too big function, too many things going on, probably the best to split into changing storage mode for
+  /// fully in-memory and hyrbid changes
   if (in_explicit_transaction) {
     throw StorageModeModificationInMulticommandTxException();
   }
@@ -2086,8 +2098,34 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
         "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
   }
 
+  /// TODO: I think there is no need for ON_DISK_TRANSACTIONAL storage mode
+  /// TODO: LOCK the database when switching to ON_DISK_TRANSACTIONAL
   auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
-    return [interpreter_context, storage_mode] { interpreter_context->db->SetStorageMode(storage_mode); };
+    return [interpreter_context, storage_mode] {
+      std::unique_lock main_guard{interpreter_context->db->main_lock_};
+      auto current_mode = interpreter_context->db->GetStorageMode();
+      if (current_mode == storage_mode) {
+        return;
+      }
+      if (SwitchingFromDiskToInMemory(current_mode, storage_mode)) {
+        throw utils::BasicException(
+            "You cannot switch from on-disk storage to in-memory storage while the database is running. "
+            "Please restart the database to switch to in-memory storage.");
+      }
+      if (SwitchingFromInMemoryToDisk(current_mode, storage_mode)) {
+        if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+          throw utils::BasicException(
+              "You cannot switch from in-memory storage to on-disk storage when the database  "
+              "contains data. Please delete all entries from the database, restart the database and then run this "
+              "command again.");
+        }
+        auto db_config = interpreter_context->db->config_;
+        /// TODO: this is wrong
+        interpreter_context->db = std::make_unique<memgraph::storage::DiskStorage>(db_config).get();
+      } else {
+        interpreter_context->db->SetStorageMode(storage_mode);
+      }
+    };
   }();
 
   return PreparedQuery{{},

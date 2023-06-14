@@ -494,7 +494,10 @@ antlrcpp::Any CypherMainVisitor::visitStorageModeQuery(MemgraphCypher::StorageMo
     if (mode->IN_MEMORY_ANALYTICAL()) {
       return StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL;
     }
-    return StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL;
+    if (mode->IN_MEMORY_TRANSACTIONAL()) {
+      return StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL;
+    }
+    return StorageModeQuery::StorageMode::ON_DISK_TRANSACTIONAL;
   });
 
   query_ = storage_mode_query;

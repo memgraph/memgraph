@@ -34,38 +34,6 @@ class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::Stora
   };
 };
 
-TEST(StorageModeTest, InMemoryToDiskTransactionalWithEmptyDatabase) {
-  std::unique_ptr<memgraph::storage::Storage> storage =
-      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
-
-  storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
-  ASSERT_EQ(storage->GetStorageMode(), memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
-}
-
-TEST_P(StorageModeTest, DiskToInMemoryTransactionalForbidden) {
-  std::unique_ptr<memgraph::storage::Storage> storage =
-      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
-
-  storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
-  ASSERT_EQ(storage->GetStorageMode(), memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
-
-  ASSERT_THROW(storage->SetStorageMode(GetParam()), memgraph::utils::BasicException);
-}
-
-TEST(StorageModeTest, InMemoryToDiskTransactionalDatabaseNotEmpty) {
-  std::unique_ptr<memgraph::storage::Storage> storage =
-      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
-
-  auto creator = storage->Access();
-  creator->CreateVertex();
-  // ASSERT_THROW(storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL),
-  //  memgraph::utils::BasicException);
-  storage->SetStorageMode(memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL);
-}
-
 // you should be able to see nodes if there is analytics mode
 TEST_P(StorageModeTest, Mode) {
   const memgraph::storage::StorageMode storage_mode = GetParam();

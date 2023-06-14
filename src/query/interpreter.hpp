@@ -530,4 +530,5 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
+
 }  // namespace memgraph::query

@@ -15,7 +15,32 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
-# TODO: finish this test when you decide about initialization strategy
-def memory_to_disk_passes(connect):
+def test_allow_switching_from_memory_to_disk_when_database_is_empty(connect):
     cursor = connect.cursor()
-    # execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+
+
+#     # TODO: now you should check GetStorageInfo
+
+# def test_forbid_switching_from_memory_to_disk_when_database_is_not_empty(connect):
+#     cursor = connect.cursor()
+#     execute_and_fetch_all(cursor, "CREATE (:DiskLabel {id: 1})")
+#     try:
+#       execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+#       assert False
+#     except:
+#       assert True
+
+# # TODO: parametrize
+# def test_forbid_switching_from_disk_to_memory(connect):
+#     cursor = connect.cursor()
+#     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+#     try:
+#       execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL")
+#       assert False
+#     except:
+#       assert True
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
