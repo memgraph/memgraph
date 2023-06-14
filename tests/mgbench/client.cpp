@@ -481,7 +481,7 @@ int main(int argc, char **argv) {
   spdlog::info("Input: {}", FLAGS_input);
   spdlog::info("Output: {}", FLAGS_output);
   spdlog::info("Validation: {}", FLAGS_validation);
-  spdlog::info("Time dependend execution: {}", FLAGS_time_dependent_execution);
+  spdlog::info("Time dependent execution: {}", FLAGS_time_dependent_execution);
 
   memgraph::communication::SSLInit sslInit;
 
