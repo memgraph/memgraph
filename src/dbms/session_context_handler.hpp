@@ -70,7 +70,6 @@ class SessionContextHandler {
     return sd;
   }
 
-#if MG_ENTERPRISE
   /**
    * @brief Initialize the handler.
    *
@@ -78,6 +77,7 @@ class SessionContextHandler {
    * @param audit_log pointer to the audit logger
    * @param configs storage and interpreter configurations
    */
+#if MG_ENTERPRISE
   void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
             memgraph::audit::Log *audit_log, ConfigT configs) {
 #else
@@ -304,10 +304,12 @@ class SessionContextHandler {
       auto interp = interp_handler_.Get(name);
       if (interp) {
 #if MG_ENTERPRISE
-        return {*storage, *interp, auth_, audit_log_};
+        SessionContext sd{*storage, *interp, auth_, audit_log_};
 #else
-        return {*storage, *interp, auth_};
+        SessionContext sd{*storage, *interp, auth_};
 #endif
+        sd.run_id = run_id_;
+        return sd;
       }
     }
     throw SessionContextException("Tried to retrieve an unknown database.");
