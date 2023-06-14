@@ -33,7 +33,7 @@ int64_t ParseIntegerLiteral(const std::string &s) {
 
 std::string ParseStringLiteral(const std::string &s) {
   // These functions is declared as lambda since its semantics is highly
-  // specific for this conxtext and shouldn't be used elsewhere.
+  // specific for this context and shouldn't be used elsewhere.
   auto EncodeEscapedUnicodeCodepointUtf32 = [](const std::string &s, int &i) {
     const int kLongUnicodeLength = 8;
     int j = i + 1;
