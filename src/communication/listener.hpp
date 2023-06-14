@@ -203,11 +203,11 @@ class Listener final {
       CloseSession(session);
     } else if (!(event.events & EPOLLIN) || event.events & (EPOLLHUP | EPOLLERR)) {
       // There was an error on the server side.
-      spdlog::error("Error occured in {} session associated with {}", service_name_, session.socket().endpoint());
+      spdlog::error("Error occurred in {} session associated with {}", service_name_, session.socket().endpoint());
       CloseSession(session);
     } else {
       // Unhandled epoll event.
-      spdlog::error("Unhandled event occured in {} session associated with {} events: {}", service_name_,
+      spdlog::error("Unhandled event occurred in {} session associated with {} events: {}", service_name_,
                     session.socket().endpoint(), event.events);
       CloseSession(session);
     }

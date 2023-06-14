@@ -8,7 +8,7 @@ import (
 
 func handle_if_error(err error) {
 	if err != nil {
-	  log.Fatal("Error occured: %s", err)
+	  log.Fatal("Error occurred: %s", err)
 	}
   }
 

@@ -19,7 +19,7 @@ from behave import then
 def handle_error(context):
     """
     Function checks if exception exists in context.
-    Exception exists if error occured in executing query
+    Exception exists if error occurred in executing query
 
     @param context:
         behave.runner.Context, context of behave.

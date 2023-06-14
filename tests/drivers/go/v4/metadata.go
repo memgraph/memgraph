@@ -5,7 +5,7 @@ import "log"
 import "fmt"
 
 func handle_error(err error) {
-  log.Fatal("Error occured: %s", err)
+  log.Fatal("Error occurred: %s", err)
 }
 
 func check_md(result neo4j.Result, err error) {

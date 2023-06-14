@@ -6,7 +6,7 @@ import "log"
 
 func handle_if_error(err error) {
   if err != nil {
-    log.Fatal("Error occured: %s", err)
+    log.Fatal("Error occurred: %s", err)
   }
 }
 
@@ -23,7 +23,7 @@ func main() {
   sessionConfig := neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite}
   session, err := driver.NewSession(sessionConfig)
   if err != nil {
-    log.Fatal("An error occured while creating a session: %s", err)
+    log.Fatal("An error occurred while creating a session: %s", err)
   }
   defer session.Close()
 

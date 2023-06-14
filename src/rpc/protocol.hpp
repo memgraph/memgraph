@@ -34,7 +34,7 @@ class Server;
 
 /**
  * This class is thrown when the Session wants to indicate that a fatal error
- * occured during execution.
+ * occurred during execution.
  */
 class SessionException : public utils::BasicException {
   using utils::BasicException::BasicException;

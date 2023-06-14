@@ -138,7 +138,7 @@ def test_basic_recovery(connection):
     # 9/ We add some data to main.
     # 10/ We re-add the two replicas dropped/killed and check the data.
     # 11/ We kill another replica.
-    # 12/ Add some more data to main. It must still still occured but exception is expected since one replica is down.
+    # 12/ Add some more data to main. It must still still occurred but exception is expected since one replica is down.
     # 13/ Restart the replica
     # 14/ Check the states of replicas.
     # 15/ Add some data again.

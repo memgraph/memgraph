@@ -124,7 +124,7 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_direct
     for query in queries:
         mg_instance.query(query)
 
-    assert mg_instance.is_running(), "An error occured after starting Memgraph instance: application stopped running."
+    assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
 
 
 def stop_all():
