@@ -19,14 +19,14 @@
 
 using AsyncTimer = memgraph::utils::AsyncTimer;
 
-inline constexpr auto kSecondsInMilis = 1000.0;
+inline constexpr auto kSecondsInMillis = 1000.0;
 inline constexpr auto kIntervalInSeconds = 0.3;
-inline constexpr auto kIntervalInMilis = kIntervalInSeconds * kSecondsInMilis;
-inline constexpr auto kAbsoluteErrorInMilis = 50;
+inline constexpr auto kIntervalInMillis = kIntervalInSeconds * kSecondsInMillis;
+inline constexpr auto kAbsoluteErrorInMillis = 50;
 
 std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::now(); }
 
-int ElapsedMilis(const std::chrono::steady_clock::time_point &start, const std::chrono::steady_clock::time_point &end) {
+int ElapsedMillis(const std::chrono::steady_clock::time_point &start, const std::chrono::steady_clock::time_point &end) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
@@ -34,12 +34,12 @@ void CheckTimeSimple() {
   const auto before = Now();
   AsyncTimer timer{kIntervalInSeconds};
   while (!timer.IsExpired()) {
-    ASSERT_LT(ElapsedMilis(before, Now()), 2 * kIntervalInMilis);
+    ASSERT_LT(ElapsedMillis(before, Now()), 2 * kIntervalInMillis);
   }
 
   const auto after = Now();
 
-  EXPECT_NEAR(ElapsedMilis(before, after), kIntervalInMilis, kAbsoluteErrorInMilis);
+  EXPECT_NEAR(ElapsedMillis(before, after), kIntervalInMillis, kAbsoluteErrorInMillis);
 }
 
 TEST(AsyncTimer, SimpleWait) { CheckTimeSimple(); }
@@ -59,15 +59,15 @@ TEST(AsyncTimer, MoveConstruct) {
   const auto first_check_point = Now();
 
   while (!timer_2.IsExpired()) {
-    ASSERT_LT(ElapsedMilis(before, Now()), 2 * kIntervalInMilis);
+    ASSERT_LT(ElapsedMillis(before, Now()), 2 * kIntervalInMillis);
   }
   const auto second_check_point = Now();
 
   EXPECT_FALSE(timer_1.IsExpired());
   EXPECT_TRUE(timer_2.IsExpired());
 
-  EXPECT_LT(ElapsedMilis(before, first_check_point), kIntervalInMilis / 2);
-  EXPECT_NEAR(ElapsedMilis(before, second_check_point), kIntervalInMilis, kAbsoluteErrorInMilis);
+  EXPECT_LT(ElapsedMillis(before, first_check_point), kIntervalInMillis / 2);
+  EXPECT_NEAR(ElapsedMillis(before, second_check_point), kIntervalInMillis, kAbsoluteErrorInMillis);
 }
 
 TEST(AsyncTimer, MoveAssign) {
@@ -84,15 +84,15 @@ TEST(AsyncTimer, MoveAssign) {
   EXPECT_FALSE(timer_2.IsExpired());
 
   while (!timer_2.IsExpired()) {
-    ASSERT_LT(ElapsedMilis(before, Now()), 3 * kIntervalInMilis);
+    ASSERT_LT(ElapsedMillis(before, Now()), 3 * kIntervalInMillis);
   }
   const auto second_check_point = Now();
 
   EXPECT_FALSE(timer_1.IsExpired());
   EXPECT_TRUE(timer_2.IsExpired());
 
-  EXPECT_LT(ElapsedMilis(before, first_check_point), kIntervalInMilis / 2);
-  EXPECT_NEAR(ElapsedMilis(before, second_check_point), 2 * kIntervalInMilis, kAbsoluteErrorInMilis);
+  EXPECT_LT(ElapsedMillis(before, first_check_point), kIntervalInMillis / 2);
+  EXPECT_NEAR(ElapsedMillis(before, second_check_point), 2 * kIntervalInMillis, kAbsoluteErrorInMillis);
 }
 
 TEST(AsyncTimer, AssignToExpiredTimer) {
@@ -105,7 +105,7 @@ TEST(AsyncTimer, AssignToExpiredTimer) {
   const auto first_check_point = Now();
 
   while (!timer_2.IsExpired()) {
-    ASSERT_LT(ElapsedMilis(before, Now()), 3 * kIntervalInMilis);
+    ASSERT_LT(ElapsedMillis(before, Now()), 3 * kIntervalInMillis);
   }
 
   EXPECT_FALSE(timer_1.IsExpired());
@@ -118,17 +118,17 @@ TEST(AsyncTimer, AssignToExpiredTimer) {
   const auto third_check_point = Now();
 
   while (!timer_2.IsExpired()) {
-    ASSERT_LT(ElapsedMilis(before, Now()), 3 * kIntervalInMilis);
+    ASSERT_LT(ElapsedMillis(before, Now()), 3 * kIntervalInMillis);
   }
 
   EXPECT_FALSE(timer_1.IsExpired());
   EXPECT_TRUE(timer_2.IsExpired());
   const auto fourth_check_point = Now();
 
-  EXPECT_LT(ElapsedMilis(before, first_check_point), kIntervalInMilis / 2);
-  EXPECT_NEAR(ElapsedMilis(before, second_check_point), kIntervalInMilis, kAbsoluteErrorInMilis);
-  EXPECT_LT(ElapsedMilis(before, third_check_point), 1.5 * kIntervalInMilis);
-  EXPECT_NEAR(ElapsedMilis(before, fourth_check_point), 2 * kIntervalInMilis, kAbsoluteErrorInMilis);
+  EXPECT_LT(ElapsedMillis(before, first_check_point), kIntervalInMillis / 2);
+  EXPECT_NEAR(ElapsedMillis(before, second_check_point), kIntervalInMillis, kAbsoluteErrorInMillis);
+  EXPECT_LT(ElapsedMillis(before, third_check_point), 1.5 * kIntervalInMillis);
+  EXPECT_NEAR(ElapsedMillis(before, fourth_check_point), 2 * kIntervalInMillis, kAbsoluteErrorInMillis);
 }
 
 TEST(AsyncTimer, DestroyTimerWhileItIsStillRunning) {
@@ -136,7 +136,7 @@ TEST(AsyncTimer, DestroyTimerWhileItIsStillRunning) {
   const auto before = Now();
   AsyncTimer timer_to_wait{1.5 * kIntervalInSeconds};
   while (!timer_to_wait.IsExpired()) {
-    ASSERT_LT(ElapsedMilis(before, Now()), 3 * kIntervalInMilis);
+    ASSERT_LT(ElapsedMillis(before, Now()), 3 * kIntervalInMillis);
   }
   // At this point the timer_to_destroy has expired, nothing bad happened. This doesn't mean the timer cancellation
   // works properly, it just means that nothing bad happens if a timer get cancelled.
