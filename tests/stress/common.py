@@ -59,10 +59,10 @@ class OutputData:
 
     def dump(self, print_f=print):
         '''
-        Dumps output using the given ouput function.
+        Dumps output using the given output function.
 
         Args:
-            print_f - the function that consumes ouptput. Defaults to
+            print_f - the function that consumes output. Defaults to
             the 'print' function.
         '''
         print_f("Output data:")
