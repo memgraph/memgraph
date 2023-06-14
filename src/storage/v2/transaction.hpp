@@ -68,7 +68,7 @@ struct Transaction {
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
-  // `commited_transactions_` list for GC.
+  // `committed_transactions_` list for GC.
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
   std::list<Delta> deltas;

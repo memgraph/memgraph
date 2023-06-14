@@ -72,7 +72,7 @@
   M(BoltMessages, Session, "Number of Bolt messages sent.")                                                          \
                                                                                                                      \
   M(ActiveTransactions, Transaction, "Number of active transactions.")                                               \
-  M(CommitedTransactions, Transaction, "Number of committed transactions.")                                          \
+  M(CommittedTransactions, Transaction, "Number of committed transactions.")                                         \
   M(RollbackedTransactions, Transaction, "Number of rollbacked transactions.")                                       \
   M(FailedQuery, Transaction, "Number of times executing a query failed.")
 

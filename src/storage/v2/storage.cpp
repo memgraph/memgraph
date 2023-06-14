@@ -1444,7 +1444,7 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level, StorageMo
     // Replica should have only read queries and the write queries
     // can come from main instance with any past timestamp.
     // To preserve snapshot isolation we set the start timestamp
-    // of any query on replica to the last commited transaction
+    // of any query on replica to the last committed transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
     if (replication_role_ == ReplicationRole::REPLICA) {
@@ -1513,7 +1513,7 @@ void Storage::CollectGarbage() {
   bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
 
   while (true) {
-    // We don't want to hold the lock on commited transactions for too long,
+    // We don't want to hold the lock on committed transactions for too long,
     // because that prevents other transactions from committing.
     Transaction *transaction;
     {

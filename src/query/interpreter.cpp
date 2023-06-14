@@ -89,7 +89,7 @@ extern const Event TriggersCreated;
 
 extern const Event QueryExecutionLatency_us;
 
-extern const Event CommitedTransactions;
+extern const Event CommittedTransactions;
 extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
 }  // namespace memgraph::metrics
@@ -3124,7 +3124,7 @@ void Interpreter::Commit() {
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
   utils::OnScopeExit update_metrics([]() {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::CommittedTransactions);
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
   });
 
