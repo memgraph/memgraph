@@ -30,34 +30,35 @@ namespace memgraph::dbms {
 struct SessionContext {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
+
+  SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
+                 std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
+                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
 #if MG_ENTERPRISE
-
-  SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
-                 std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context,
-                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-                 memgraph::audit::Log *audit_log)
-      : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-
-#else
-
-  SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
-                 std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context,
-                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : db(db), interpreter_context(interpreter_context), auth(auth) {}
-
+                 ,
+                 memgraph::audit::Log *audit_log
 #endif
+                 )
+      : db(db),
+        interpreter_context(interpreter_context),
+        run_id(run),
+        auth(auth)
+#if MG_ENTERPRISE
+        ,
+        audit_log(audit_log)
+#endif
+  {
+  }
 
   std::shared_ptr<memgraph::storage::Storage> db;
   std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
+  const std::string run_id;
 
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
 #if MG_ENTERPRISE
   memgraph::audit::Log *audit_log;
 #endif
-
-  // NOTE: run_id should be const but that complicates code a lot.
-  std::optional<std::string> run_id;
 };
 
 }  // namespace memgraph::dbms

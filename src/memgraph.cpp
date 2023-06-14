@@ -974,10 +974,8 @@ int main(int argc, char **argv) {
   ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
-  // const auto run_id = memgraph::utils::GenerateUUID();
   const auto machine_id = memgraph::utils::GetMachineId();
-  // session_context.run_id = run_id;
-  const auto run_id = *session_context.run_id;  // For current compatibility
+  const auto run_id = session_context.run_id;  // For current compatibility
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};

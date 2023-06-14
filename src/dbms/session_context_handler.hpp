@@ -277,13 +277,13 @@ class SessionContextHandler {
       auto new_interp = interp_handler_.New(name, new_storage.GetValue().get(), inter_config,
                                             storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
+        return SessionContext {
+          new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_
 #if MG_ENTERPRISE
-        SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_, audit_log_};
-#else
-        SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_};
+              ,
+              audit_log_
 #endif
-        sd.run_id = run_id_;
-        return sd;
+        };
       }
       // TODO: Storage succeeded, but interpreter failed... How to handle?
       return new_interp.GetError();
@@ -303,13 +303,13 @@ class SessionContextHandler {
     if (storage) {
       auto interp = interp_handler_.Get(name);
       if (interp) {
+        return SessionContext {
+          *storage, *interp, run_id_, auth_
 #if MG_ENTERPRISE
-        SessionContext sd{*storage, *interp, auth_, audit_log_};
-#else
-        SessionContext sd{*storage, *interp, auth_};
+              ,
+              audit_log_
 #endif
-        sd.run_id = run_id_;
-        return sd;
+        };
       }
     }
     throw SessionContextException("Tried to retrieve an unknown database.");
