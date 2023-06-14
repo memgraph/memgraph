@@ -10,18 +10,19 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+
 #include "storage/v2/replication/enums.hpp"
 #include "utils/logging.hpp"
 
 namespace {
-const std::string kReplicaName = "replica_name";
-const std::string kIpAddress = "replica_ip_address";
-const std::string kPort = "replica_port";
-const std::string kSyncMode = "replica_sync_mode";
-const std::string kCheckFrequency = "replica_check_frequency";
-const std::string kSSLKeyFile = "replica_ssl_key_file";
-const std::string kSSLCertFile = "replica_ssl_cert_file";
-const std::string kReplicationRole = "replication_role";
+inline constexpr auto *kReplicaName = "replica_name";
+inline constexpr auto *kIpAddress = "replica_ip_address";
+inline constexpr auto *kPort = "replica_port";
+inline constexpr auto *kSyncMode = "replica_sync_mode";
+inline constexpr auto *kCheckFrequency = "replica_check_frequency";
+inline constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
+inline constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
+inline constexpr auto *kReplicationRole = "replication_role";
 }  // namespace
 
 namespace memgraph::storage::replication {
