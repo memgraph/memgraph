@@ -1012,7 +1012,7 @@ TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
+TYPED_TEST(TestPlanner, AggregationWithListWithAggregationAndGroupBy) {
   // Test RETURN sum(2), [sum(3), 42]
   AstStorage storage;
   auto sum2 = SUM(LITERAL(2), false);
