@@ -34,7 +34,7 @@ namespace memgraph::query::plan {
  * write operation. We let that get evaluated like all other cardinality
  * influencing ops. Also, Merge cardinality modification should be contained (it
  * can never reduce it's input cardinality), but since Merge always happens
- * after the read part, and can't be reoredered, we can ignore that.
+ * after the read part, and can't be reordered, we can ignore that.
  *
  * Limiting and accumulating (Aggregate, OrderBy, Accumulate) operations are
  * cardinality modifiers that always execute at the end of the query part. Their
