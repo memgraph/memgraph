@@ -1011,7 +1011,7 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
     return *maybe_sub;
   }
-  EnsureArithmeticallyOk(a, b, true, "subraction");
+  EnsureArithmeticallyOk(a, b, true, "subtraction");
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
