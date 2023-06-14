@@ -68,7 +68,7 @@ case $1 in
     # take a look under jepsen/docker/docker-compose.yml.
     # NOTE: If you delete the jepsen folder where docker config is located,
     # the current cluster is broken because it relies on the folder. That can
-    # happen easiliy because the jepsen folder is git ignored.
+    # happen easily because the jepsen folder is git ignored.
     cluster-up)
         "$script_dir/jepsen/docker/bin/up" --daemon
     ;;
