@@ -568,7 +568,7 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
 };
 
 /// Behaves like @c ScanAll, but produces only vertices with given label and
-/// property value which is inside a range (inclusive or exlusive).
+/// property value which is inside a range (inclusive or exclusive).
 ///
 /// @sa ScanAll
 /// @sa ScanAllByLabel
