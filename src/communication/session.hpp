@@ -169,7 +169,7 @@ class Session final {
           // received.
           return true;
         } else if (err == SSL_ERROR_WANT_WRITE) {
-          // The OpenSSL library wants to perfrom some kind of handshake so we
+          // The OpenSSL library wants to perform some kind of handshake so we
           // wait for the socket to become ready for a write and call the read
           // again. We return `false` so that the listener calls this function
           // again.
