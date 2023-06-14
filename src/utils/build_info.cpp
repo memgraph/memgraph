@@ -17,7 +17,7 @@ BuildInfo GetBuildInfo() {
 #ifdef CMAKE_BUILD_TYPE_NAME
   constexpr const char *build_info_name = CMAKE_BUILD_TYPE_NAME;
 #else
-  constexpr const char *build_info_name = "unkown";
+  constexpr const char *build_info_name = "unknown";
 #endif
   BuildInfo info{build_info_name};
   return info;
