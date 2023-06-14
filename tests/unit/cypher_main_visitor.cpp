@@ -1420,7 +1420,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
 //             parser.pattern_parts_.end());
 // }
 
-TEST_P(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
+TEST_P(CypherMainVisitorTest, ReturnUnnamedIdentifier) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN var"));
   ASSERT_TRUE(query);
