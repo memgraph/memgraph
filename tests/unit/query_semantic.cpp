@@ -1151,7 +1151,7 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
   symbol_table = memgraph::query::MakeSymbolTable(query, {first_op});
   ASSERT_EQ(symbol_table.max_position(), 6);
 
-  // You cannot redaclare the predefined identifier in the same scope
+  // You cannot redeclare the predefined identifier in the same scope
   // UNWIND first_op as u CREATE(first_op {prop: u})
   auto unwind = UNWIND(first_op, AS("u"));
   auto node = NODE("first_op");
