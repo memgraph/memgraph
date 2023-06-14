@@ -165,7 +165,7 @@ def main():
     argp.add_argument("runner", help="Engine to use.")
     # named, optional arguments
     argp.add_argument("--groups", nargs="+", help="Groups to run. If none are"
-                      " provided, all available grups are run.")
+                      " provided, all available groups are run.")
     argp.add_argument("--scenarios", nargs="+", help="Scenarios to run. If "
                       "none are provided, all available are run.")
     argp.add_argument("--logging", default="INFO", choices=["INFO", "DEBUG"],
