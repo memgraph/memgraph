@@ -1033,7 +1033,7 @@ class ExpandVariableCursor : public Cursor {
     // exists an edge on the frame for this level. If so first remove it.
     DMG_ASSERT(edges_.size() > 0, "Edges are empty");
     if (self_.is_reverse_) {
-      // TODO: This is innefficient, we should look into replacing
+      // TODO: This is inefficient, we should look into replacing
       // vector with something else for TypedValue::List.
       size_t diff = edges_on_frame->size() - std::min(edges_on_frame->size(), edges_.size() - 1U);
       if (diff > 0U) edges_on_frame->erase(edges_on_frame->begin(), edges_on_frame->begin() + diff);
