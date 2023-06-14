@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,12 +54,14 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(IfOperator &op) override;
   void Visit(ListLiteral &op) override;
   void Visit(MapLiteral &op) override;
+  void Visit(MapProjectionLiteral &op) override;
   void Visit(LabelsTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
   void Visit(Reduce &op) override;
   void Visit(Coalesce &op) override;
   void Visit(Extract &op) override;
+  void Visit(Exists &op) override;
   void Visit(All &op) override;
   void Visit(Single &op) override;
   void Visit(Any &op) override;
@@ -67,6 +69,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override;
   void Visit(PrimitiveLiteral &op) override;
   void Visit(PropertyLookup &op) override;
+  void Visit(AllPropertiesLookup &op) override;
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
@@ -87,6 +90,8 @@ void PrintObject(std::ostream *out, const std::string &str);
 void PrintObject(std::ostream *out, Aggregation::Op op);
 
 void PrintObject(std::ostream *out, Expression *expr);
+
+void PrintObject(std::ostream *out, AllPropertiesLookup *apl);
 
 void PrintObject(std::ostream *out, Identifier *expr);
 
@@ -116,6 +121,15 @@ void PrintObject(std::ostream *out, Expression *expr) {
   if (expr) {
     ExpressionPrettyPrinter printer{out};
     expr->Accept(printer);
+  } else {
+    *out << "<null>";
+  }
+}
+
+void PrintObject(std::ostream *out, AllPropertiesLookup *apl) {
+  if (apl) {
+    ExpressionPrettyPrinter printer{out};
+    *out << ".*";
   } else {
     *out << "<null>";
   }
@@ -248,6 +262,17 @@ void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
   PrintObject(out_, map);
 }
 
+void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
+  std::map<std::string, Expression *> map_projection_elements;
+  for (const auto &kv : op.elements_) {
+    map_projection_elements[kv.first.name] = kv.second;
+  }
+  PrintObject(out_, op.map_variable_);
+  PrintObject(out_, map_projection_elements);
+}
+
+void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
+
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, "LabelsTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, "Aggregation", op.op_); }
@@ -263,6 +288,8 @@ void ExpressionPrettyPrinter::Visit(Coalesce &op) { PrintOperator(out_, "Coalesc
 void ExpressionPrettyPrinter::Visit(Extract &op) {
   PrintOperator(out_, "Extract", op.identifier_, op.list_, op.expression_);
 }
+
+void ExpressionPrettyPrinter::Visit(Exists & /*op*/) { PrintOperator(out_, "Exists", "expression"); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {
   PrintOperator(out_, "All", op.identifier_, op.list_expression_, op.where_->expression_);

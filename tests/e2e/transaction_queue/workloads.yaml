@@ -1,0 +1,14 @@
+test_transaction_queue: &test_transaction_queue
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
+      log_file: "transaction_queue.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "test-transaction-queue" # should be the same as the python file
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/transaction_queue/procedures/"
+    args: ["transaction_queue/test_transaction_queue.py"]
+    <<: *test_transaction_queue

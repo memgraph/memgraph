@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1532,7 +1532,7 @@ TEST(QueryPlan, NodeFilterSet) {
                            false, memgraph::storage::View::OLD);
   auto *filter_expr =
       EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_, storage.GetPropertyIx(prop.first)), LITERAL(42));
-  auto node_filter = std::make_shared<Filter>(expand.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   // SET n.prop = n.prop + 1
   auto set_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto add = ADD(set_prop, LITERAL(1));
@@ -1569,7 +1569,8 @@ TEST(QueryPlan, FilterRemove) {
   auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m",
                            false, memgraph::storage::View::OLD);
   auto filter_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
-  auto filter = std::make_shared<Filter>(expand.op_, LESS(filter_prop, LITERAL(43)));
+  auto filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                         LESS(filter_prop, LITERAL(43)));
   // REMOVE n.prop
   auto rem_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto rem = std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);

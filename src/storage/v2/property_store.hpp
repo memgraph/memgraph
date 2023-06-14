@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,6 +59,18 @@ class PropertyStore {
   /// @throw std::bad_alloc
   bool SetProperty(PropertyId property, const PropertyValue &value);
 
+  /// Init property values and return `true` if insertion took place. `false` is
+  /// returned if there is any existing property in property store and insertion couldn't take place. The time
+  /// complexity of this function is O(n).
+  /// @throw std::bad_alloc
+  bool InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+
+  /// Init property values and return `true` if insertion took place. `false` is
+  /// returned if there is any existing property in property store and insertion couldn't take place. The time
+  /// complexity of this function is O(n*log(n)):
+  /// @throw std::bad_alloc
+  bool InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties);
+
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time
   /// complexity of this function is O(1).
@@ -66,6 +78,9 @@ class PropertyStore {
   bool ClearProperties();
 
  private:
+  template <typename TContainer>
+  bool DoInitProperties(const TContainer &properties);
+
   uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };
 

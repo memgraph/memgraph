@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -292,7 +292,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   // node filtering
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
                           EQ(PROPERTY_LOOKUP(n.node_->identifier_, property), LITERAL(42)));
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -344,7 +344,7 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
 
   // node filtering
   auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -679,7 +679,7 @@ class QueryPlanExpandVariable : public testing::Test {
                                             bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
+        n_from.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
         storage.Create<memgraph::query::LabelsTest>(
             n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
@@ -1355,7 +1355,7 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
+        n_from.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
         storage.Create<memgraph::query::LabelsTest>(
             n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
@@ -1546,7 +1546,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
+        n_from.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
         storage.Create<memgraph::query::LabelsTest>(
             n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
@@ -1813,7 +1813,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
     auto last_op = n.op_;
     if (node_id) {
-      last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+      last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                         EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
@@ -1967,8 +1968,9 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
     // scan the nodes optionally filtering on property value
     auto n0 = MakeScanAll(storage, symbol_table, "n0");
     if (preceeding_node_id) {
-      auto filter = std::make_shared<Filter>(
-          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
+      auto filter =
+          std::make_shared<Filter>(n0.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                   EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
       // inject the filter op into the ScanAllTuple. that way the filter
       // op can be passed into the ExpandWShortest function without too
       // much refactor
@@ -2243,7 +2245,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
     auto last_op = n.op_;
     if (node_id) {
-      last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+      last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                         EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
@@ -2739,7 +2742,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   n.node_->labels_.emplace_back(storage.GetLabelIx(label_missing));
 
   auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   auto optional = std::make_shared<plan::Optional>(nullptr, node_filter, std::vector<Symbol>{n.sym_});
   // WITH n
   auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
@@ -2868,7 +2871,7 @@ TEST(QueryPlan, EdgeFilter) {
     r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
     std::get<0>(r_m.edge_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
     auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
-    auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
+    auto edge_filter = std::make_shared<Filter>(r_m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
     // make a named expression and a produce
     auto output =
@@ -2936,7 +2939,7 @@ TEST(QueryPlan, Filter) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), property);
-  auto f = std::make_shared<Filter>(n.op_, e);
+  auto f = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, e);
 
   auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(f, output);
@@ -3441,7 +3444,8 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     memgraph::query::DbAccessor dba(&storage_dba);
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
     auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
-    auto filter = std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
+    auto filter = std::make_shared<Filter>(scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                           EQ(e, LITERAL(prop_value)));
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(filter, output);
@@ -3454,4 +3458,491 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 
   count_with_index(prop_value2, vertex_count - vertex_prop_count);
   count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
+}
+
+class ExistsFixture : public testing::Test {
+ protected:
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+
+  memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
+  memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type)};
+
+  memgraph::query::VertexAccessor v3{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v4{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type_unknown{db.NameToEdgeType("Other")};
+  memgraph::query::EdgeAccessor r2{*dba.InsertEdge(&v3, &v4, edge_type_unknown)};
+
+  void SetUp() override {
+    // (:l1)-[:Edge]->(:l2), (:l3)-[:Other]->(:l4)
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    ASSERT_TRUE(v4.AddLabel(dba.NameToLabel("l4")).HasValue());
+
+    ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    ASSERT_TRUE(v3.SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+    ASSERT_TRUE(v4.SetProperty(prop.second, memgraph::storage::PropertyValue(4)).HasValue());
+
+    ASSERT_TRUE(r1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    memgraph::license::global_license_checker.EnableTesting();
+
+    dba.AdvanceCommand();
+  }
+
+  int TestExists(std::string match_label, EdgeAtom::Direction direction,
+                 std::vector<memgraph::storage::EdgeTypeId> edge_types,
+                 std::optional<std::string> destination_label = std::nullopt,
+                 std::optional<int64_t> destination_prop = std::nullopt,
+                 std::optional<int64_t> edge_prop = std::nullopt) {
+    std::vector<std::string> edge_type_names;
+    for (const auto &type : edge_types) {
+      edge_type_names.emplace_back(db.EdgeTypeToName(type));
+    }
+
+    auto *source_node = NODE("n");
+    auto source_sym = symbol_table.CreateSymbol("n", true);
+    source_node->identifier_->MapTo(source_sym);
+
+    auto *expansion_edge = EDGE("edge", direction, edge_type_names, false);
+    auto edge_sym = symbol_table.CreateSymbol("edge", false);
+    expansion_edge->identifier_->MapTo(edge_sym);
+
+    auto *destination_node = NODE("n2", destination_label, false);
+    auto dest_sym = symbol_table.CreateSymbol("n2", false);
+    destination_node->identifier_->MapTo(dest_sym);
+
+    auto *exists_expression = EXISTS(PATTERN(source_node, expansion_edge, destination_node));
+    exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
+
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+
+    std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
+        nullptr, scan_all.sym_, dest_sym, edge_sym, direction, edge_types, false, memgraph::storage::View::OLD);
+
+    if (destination_label.has_value() || destination_prop.has_value() || edge_prop.has_value()) {
+      Expression *filter_expr = nullptr;
+
+      if (destination_label.has_value()) {
+        auto labelIx = storage.GetLabelIx(destination_label.value());
+        destination_node->labels_.emplace_back(labelIx);
+
+        auto label_expr = static_cast<Expression *>(
+            storage.Create<LabelsTest>(destination_node->identifier_, std::vector<memgraph::query::LabelIx>{labelIx}));
+
+        filter_expr = filter_expr ? AND(filter_expr, label_expr) : label_expr;
+      }
+
+      if (destination_prop.has_value()) {
+        auto prop_expr = static_cast<Expression *>(
+            EQ(PROPERTY_LOOKUP(destination_node->identifier_, prop), LITERAL(destination_prop.value())));
+        filter_expr = filter_expr ? AND(filter_expr, prop_expr) : prop_expr;
+      }
+
+      if (edge_prop.has_value()) {
+        auto prop_expr = static_cast<Expression *>(
+            EQ(PROPERTY_LOOKUP(expansion_edge->identifier_, prop), LITERAL(edge_prop.value())));
+        filter_expr = filter_expr ? AND(filter_expr, prop_expr) : prop_expr;
+      }
+
+      last_op =
+          std::make_shared<Filter>(std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+    }
+
+    last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+
+    auto *total_expression =
+        AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_), exists_expression);
+
+    auto filter = std::make_shared<Filter>(scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{last_op},
+                                           total_expression);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+    auto produce = MakeProduce(filter, output);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    return PullAll(*produce, &context);
+  }
+
+  int TestDoubleExists(std::string match_label, EdgeAtom::Direction direction,
+                       std::vector<memgraph::storage::EdgeTypeId> first_edge_type,
+                       std::vector<memgraph::storage::EdgeTypeId> second_edge_type, bool or_flag = false) {
+    std::vector<std::string> first_edge_type_names;
+    for (const auto &type : first_edge_type) {
+      first_edge_type_names.emplace_back(db.EdgeTypeToName(type));
+    }
+
+    std::vector<std::string> second_edge_type_names;
+    for (const auto &type : second_edge_type) {
+      second_edge_type_names.emplace_back(db.EdgeTypeToName(type));
+    }
+
+    auto *source_node = NODE("n");
+    auto source_sym = symbol_table.CreateSymbol("n", true);
+    source_node->identifier_->MapTo(source_sym);
+
+    auto *expansion_edge = EDGE("edge", direction, first_edge_type_names, false);
+    auto edge_sym = symbol_table.CreateSymbol("edge", false);
+    expansion_edge->identifier_->MapTo(edge_sym);
+
+    auto *destination_node = NODE("n2", std::nullopt, false);
+    auto dest_sym = symbol_table.CreateSymbol("n2", false);
+    destination_node->identifier_->MapTo(dest_sym);
+
+    auto *exists_expression = EXISTS(PATTERN(source_node, expansion_edge, destination_node));
+    exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
+
+    auto *expansion_edge2 = EDGE("edge2", direction, second_edge_type_names, false);
+    auto edge_sym2 = symbol_table.CreateSymbol("edge2", false);
+    expansion_edge2->identifier_->MapTo(edge_sym2);
+
+    auto *destination_node2 = NODE("n22", std::nullopt, false);
+    auto dest_sym2 = symbol_table.CreateSymbol("n22", false);
+    destination_node2->identifier_->MapTo(dest_sym2);
+
+    auto *exists_expression2 = EXISTS(PATTERN(source_node, expansion_edge2, destination_node2));
+    exists_expression2->MapTo(symbol_table.CreateAnonymousSymbol());
+
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+
+    std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
+        nullptr, scan_all.sym_, dest_sym, edge_sym, direction, first_edge_type, false, memgraph::storage::View::OLD);
+    last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+
+    std::shared_ptr<LogicalOperator> last_op2 = std::make_shared<Expand>(
+        nullptr, scan_all.sym_, dest_sym2, edge_sym2, direction, second_edge_type, false, memgraph::storage::View::OLD);
+    last_op2 = std::make_shared<Limit>(std::move(last_op2), storage.Create<PrimitiveLiteral>(1));
+    last_op2 = std::make_shared<EvaluatePatternFilter>(std::move(last_op2), symbol_table.at(*exists_expression2));
+
+    Expression *total_expression = storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_);
+
+    if (or_flag) {
+      total_expression = AND(total_expression, OR(exists_expression, exists_expression2));
+    } else {
+      total_expression = AND(total_expression, AND(exists_expression, exists_expression2));
+    }
+
+    auto filter = std::make_shared<Filter>(
+        scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{last_op, last_op2}, total_expression);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+    auto produce = MakeProduce(filter, output);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    return PullAll(*produce, &context);
+  }
+};
+
+TEST_F(ExistsFixture, BasicExists) {
+  std::vector<memgraph::storage::EdgeTypeId> known_edge_types;
+  known_edge_types.push_back(edge_type);
+  std::vector<memgraph::storage::EdgeTypeId> unknown_edge_types;
+  unknown_edge_types.push_back(edge_type_unknown);
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, {}));
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::IN, {}));
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, known_edge_types));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::OUT, unknown_edge_types));
+}
+
+TEST_F(ExistsFixture, ExistsWithFiltering) {
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2"));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l3"));
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1));
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 1));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 2));
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2, 1));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1, 1));
+}
+
+TEST_F(ExistsFixture, DoubleFilters) {
+  EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, true));
+  EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, false));
+}
+
+class SubqueriesFeature : public testing::Test {
+ protected:
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+
+  memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
+  memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type)};
+
+  void SetUp() override {
+    // (:l1)-[:Edge]->(:l2)
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
+
+    ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+
+    ASSERT_TRUE(r1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    memgraph::license::global_license_checker.EnableTesting();
+
+    dba.AdvanceCommand();
+  }
+};
+
+TEST_F(SubqueriesFeature, BasicCartesian) {
+  // MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(m.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 4);
+}
+
+TEST_F(SubqueriesFeature, BasicCartesianWithFilter) {
+  // MATCH (n) WHERE n.prop = 2 CALL { MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(2)));
+  auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(m.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
+}
+
+TEST_F(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
+  // MATCH (n) CALL { MATCH (m) WHERE m.prop = 2 RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(2)));
+  auto filter = std::make_shared<Filter>(m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(filter, return_m);
+
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
+}
+
+TEST_F(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
+  // MATCH (n) WHERE n.prop = 3 CALL { MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(3)));
+  auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(m.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 0);
+}
+
+TEST_F(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
+  // MATCH (n) CALL { MATCH (m) CALL { MATCH (o) RETURN o} RETURN m, o } RETURN n, m, o
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+
+  auto o = MakeScanAll(storage, symbol_table, "o");
+  auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto produce_nested_subquery = MakeProduce(o.op_, return_o);
+
+  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, true);
+  auto produce_subquery = MakeProduce(inner_apply, return_o, return_m);
+
+  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto produce = MakeProduce(outer_apply, return_n, return_m, return_o);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  EXPECT_EQ(results.size(), 8);
+}
+
+TEST_F(SubqueriesFeature, UnitSubquery) {
+  // CALL { MATCH (m) RETURN m } RETURN m
+
+  auto once = std::make_shared<Once>();
+
+  auto o = MakeScanAll(storage, symbol_table, "o");
+  auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto produce_subquery = MakeProduce(o.op_, return_o);
+
+  auto apply = std::make_shared<Apply>(once, produce_subquery, true);
+  auto produce = MakeProduce(apply, return_o);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  EXPECT_EQ(results.size(), 2);
+}
+
+TEST_F(SubqueriesFeature, SubqueryWithBoundedSymbol) {
+  // MATCH (n) CALL { WITH n MATCH (n)-[]->(m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto once = std::make_shared<Once>();
+  auto produce_with = MakeProduce(once, return_n);
+  auto expand = MakeExpand(storage, symbol_table, produce_with, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+                           memgraph::storage::View::OLD);
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto produce_subquery = MakeProduce(expand.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  EXPECT_EQ(results.size(), 1);
+}
+
+TEST_F(SubqueriesFeature, SubqueryWithUnionAll) {
+  // MATCH (n) CALL { MATCH (m) RETURN m UNION ALL MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m1 = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_left_union_subquery = MakeProduce(m1.op_, return_m);
+
+  auto m2 = MakeScanAll(storage, symbol_table, "m");
+  auto produce_right_union_subquery = MakeProduce(m2.op_, return_m);
+
+  auto union_operator =
+      std::make_shared<Union>(produce_left_union_subquery, produce_right_union_subquery, std::vector<Symbol>{m1.sym_},
+                              produce_left_union_subquery->OutputSymbols(symbol_table),
+                              produce_right_union_subquery->OutputSymbols(symbol_table));
+
+  auto apply = std::make_shared<Apply>(n.op_, union_operator, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 8);
+}
+
+TEST_F(SubqueriesFeature, SubqueryWithUnion) {
+  // MATCH (n) CALL { MATCH (m) RETURN m UNION MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m1 = MakeScanAll(storage, symbol_table, "m");
+
+  auto subquery_return_symbol = symbol_table.CreateSymbol("named_expression_2", true);
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(subquery_return_symbol);
+
+  auto produce_left_union_subquery = MakeProduce(m1.op_, return_m);
+
+  auto m2 = MakeScanAll(storage, symbol_table, "m");
+  auto produce_right_union_subquery = MakeProduce(m2.op_, return_m);
+
+  auto union_operator = std::make_shared<Union>(produce_left_union_subquery, produce_right_union_subquery,
+                                                std::vector<Symbol>{subquery_return_symbol},
+                                                produce_left_union_subquery->OutputSymbols(symbol_table),
+                                                produce_right_union_subquery->OutputSymbols(symbol_table));
+
+  auto union_output_symbols = union_operator->OutputSymbols(symbol_table);
+  auto distinct = std::make_shared<Distinct>(union_operator, std::vector<Symbol>{union_output_symbols});
+
+  auto apply = std::make_shared<Apply>(n.op_, distinct, true);
+
+  auto produce = MakeProduce(apply, return_n);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 4);
+}
+
+TEST_F(SubqueriesFeature, SubqueriesWithForeach) {
+  // MATCH (n) CALL { FOREACH (i in range(1, 5) | CREATE (n)) } RETURN n
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto once_create = std::make_shared<Once>();
+  NodeCreationInfo node_creation_info;
+  node_creation_info.symbol = symbol_table.CreateSymbol("n", true);
+  auto create = std::make_shared<plan::CreateNode>(once_create, node_creation_info);
+
+  auto once_foreach = std::make_shared<Once>();
+  auto iteration_symbol = symbol_table.CreateSymbol("i", true);
+  auto iterating_list = LIST(LITERAL(1), LITERAL(2), LITERAL(3), LITERAL(4), LITERAL(5));
+  auto foreach = std::make_shared<plan::Foreach>(once_foreach, create, iterating_list, iteration_symbol);
+  auto empty_result = std::make_shared<EmptyResult>(foreach);
+
+  auto apply = std::make_shared<Apply>(n.op_, empty_result, false);
+
+  auto produce = MakeProduce(apply, return_n);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
 }

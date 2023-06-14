@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstddef>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -70,6 +71,16 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::PropertyValue(tt_vec))),
             "[DURATION(\"P0DT0H0M0.000001S\"), DURATION(\"P0DT0H0M-0.000002S\"), LOCALTIME(\"00:00:00.000002\"), "
             "LOCALDATETIME(\"1970-01-01T00:00:00.000003\"), DATE(\"1970-01-01\")]");
+
+  // map {literalEntry: 10, variableSelector: a, .map, .*}
+  auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
+      {storage.GetPropertyIx("literalEntry"), LITERAL(10)},
+      {storage.GetPropertyIx("variableSelector"), IDENT("a")},
+      {storage.GetPropertyIx("propertySelector"), PROPERTY_LOOKUP("map", PROPERTY_PAIR("hello"))},
+      {storage.GetPropertyIx("allPropertiesSelector"), ALL_PROPERTIES_LOOKUP("map")}};
+  EXPECT_EQ(ToString(MAP_PROJECTION(IDENT("map"), elements)),
+            "(Identifier \"map\"){\"allPropertiesSelector\": .*, \"literalEntry\": 10, \"propertySelector\": "
+            "(PropertyLookup (Identifier \"map\") \"hello\"), \"variableSelector\": (Identifier \"a\")}");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, Identifiers) {
@@ -163,5 +174,4 @@ TEST_F(ExpressionPrettyPrinterTest, NamedExpression) {
   // n AS 1
   EXPECT_EQ(ToString(NEXPR("n", LITERAL(1))), "(NamedExpression \"n\" 1)");
 }
-
 }  // namespace

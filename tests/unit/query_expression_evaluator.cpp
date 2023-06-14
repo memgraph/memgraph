@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -372,6 +373,81 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
   }
 }
 
+TEST_F(ExpressionEvaluatorTest, MapProjectionIndexing) {
+  auto *map_variable = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
+      map_variable,
+      std::unordered_map<PropertyIx, Expression *>{
+          {storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)},
+          {storage.GetPropertyIx("y"), storage.Create<PropertyLookup>(map_variable, storage.GetPropertyIx("y"))}});
+
+  {
+    // Legal indexing.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("a"));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueInt(), 1);
+  }
+  {
+    // Legal indexing; property created by PropertyLookup of a non-existent map variable key
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("y"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Legal indexing, non-existing property.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("z"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Wrong key type.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>(42));
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
+  }
+  {
+    // Indexing with Null.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal,
+                                                 storage.Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
+TEST_F(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupBefore) {
+  // AllPropertiesLookup (.*) may contain properties whose names also occur in MapProjectionLiteral
+  // The ones in MapProjectionLiteral are explicitly given and thus take precedence over those in AllPropertiesLookup
+  // Test case: AllPropertiesLookup comes before the identically-named properties
+
+  auto *map_variable = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
+      map_variable, std::unordered_map<PropertyIx, Expression *>{
+                        {storage.GetPropertyIx("*"), storage.Create<AllPropertiesLookup>(map_variable)},
+                        {storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(1)}});
+
+  auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("x"));
+  auto value = Eval(op);
+  EXPECT_EQ(value.ValueInt(), 1);
+}
+
+TEST_F(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupAfter) {
+  // AllPropertiesLookup (.*) may contain properties whose names also occur in MapProjectionLiteral
+  // The ones in MapProjectionLiteral are explicitly given and thus take precedence over those in AllPropertiesLookup
+  // Test case: AllPropertiesLookup comes after the identically-named properties
+
+  auto *map_variable = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
+      map_variable, std::unordered_map<PropertyIx, Expression *>{
+                        {storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(1)},
+                        {storage.GetPropertyIx("*"), storage.Create<AllPropertiesLookup>(map_variable)}});
+
+  auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("x"));
+  auto value = Eval(op);
+  EXPECT_EQ(value.ValueInt(), 1);
+}
+
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto edge_type = dba.NameToEdgeType("edge_type");
   auto prop = dba.NameToProperty("prop");
@@ -423,6 +499,47 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
                                                   storage.Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
     auto value2 = Eval(op2);
     EXPECT_TRUE(value2.IsNull());
+  }
+}
+
+TEST_F(ExpressionEvaluatorTest, TypedValueListIndexing) {
+  auto list_vector = memgraph::utils::pmr::vector<TypedValue>(ctx.memory);
+  list_vector.emplace_back("string1");
+  list_vector.emplace_back(TypedValue("string2"));
+
+  auto *identifier = storage.Create<Identifier>("n");
+  auto node_symbol = symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+  frame[node_symbol] = TypedValue(list_vector, ctx.memory);
+
+  {
+    // Legal indexing.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(0));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueString(), "string1");
+  }
+  {
+    // Out of bounds indexing
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(3));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Out of bounds indexing with negative bound.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(-100));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Legal indexing with negative index.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(-2));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueString(), "string1");
+  }
+  {
+    // Indexing with incompatible type.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>("bla"));
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
 }
 
@@ -1155,10 +1272,87 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
   EXPECT_TRUE(Value(prop_age).IsNull());
 }
 
-TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
+TEST_F(ExpressionEvaluatorPropertyLookup, Map) {
   frame[symbol] = TypedValue(std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
+}
+
+class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest {
+ protected:
+  std::pair<std::string, memgraph::storage::PropertyId> prop_age = std::make_pair("age", dba.NameToProperty("age"));
+  std::pair<std::string, memgraph::storage::PropertyId> prop_height =
+      std::make_pair("height", dba.NameToProperty("height"));
+  Identifier *identifier = storage.Create<Identifier>("element");
+  Symbol symbol = symbol_table.CreateSymbol("element", true);
+
+  void SetUp() { identifier->MapTo(symbol); }
+
+  auto Value() {
+    auto *op = storage.Create<AllPropertiesLookup>(identifier);
+    return Eval(op);
+  }
+};
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
+  auto v1 = dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(v1);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Edge) {
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
+  ASSERT_TRUE(e12.HasValue());
+  ASSERT_TRUE(e12->SetProperty(prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(*e12);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Duration) {
+  const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
+  frame[symbol] = TypedValue(dur);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Date) {
+  const memgraph::utils::Date date({1996, 11, 22});
+  frame[symbol] = TypedValue(date);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
+  const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
+  frame[symbol] = TypedValue(lt);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
+  const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
+  frame[symbol] = TypedValue(ldt);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Null) {
+  frame[symbol] = TypedValue();
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Map) {
+  frame[symbol] = TypedValue(std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
 }
 
 class FunctionTest : public ExpressionEvaluatorTest {
