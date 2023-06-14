@@ -1969,7 +1969,7 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
 }
 
 utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::optional<bool> is_periodic) {
-  if (replication_role_.load() != ReplicationRole::MAIN) {
+  if (replication_role_.load() != replication::ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
