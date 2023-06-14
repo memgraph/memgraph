@@ -879,7 +879,7 @@ struct ExpansionLambda {
 /// Filtering on existing means that for a pattern that references
 /// an already declared node or edge (for example in
 /// MATCH (a) MATCH (a)--(b)),
-/// only expansions that match defined equalities are succesfully
+/// only expansions that match defined equalities are successfully
 /// pulled.
 class ExpandVariable : public memgraph::query::plan::LogicalOperator {
  public:

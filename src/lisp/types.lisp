@@ -358,7 +358,7 @@ attempt is made to handle erroneous declarations.
 Note that the function doesn't aim to support the whole of C++'s type
 declaration syntax. Certain declarations just aren't supported.
 
-If the declaration is successfuly parsed, the resulting CPP-TYPE instance is
+If the declaration is successfully parsed, the resulting CPP-TYPE instance is
 returned. Otherwise, if the string is empty or if unsupported constructs were
 used, NIL is returned."
   (check-type type-decl string)

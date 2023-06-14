@@ -63,7 +63,7 @@ TEST(RWLock, ReadPriority) {
   /*
    * - Main thread is holding a shared lock until T = 100ms.
    * - Thread 1 tries to acquire an unique lock at T = 30ms.
-   * - Thread 2 successfuly acquires a shared lock at T = 60ms, even though
+   * - Thread 2 successfully acquires a shared lock at T = 60ms, even though
    *   there's a writer waiting.
    */
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);

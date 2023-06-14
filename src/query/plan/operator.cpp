@@ -949,7 +949,7 @@ class ExpandVariableCursor : public Cursor {
       } else
         return false;
       // else continue with the loop, try to expand again
-      // because we succesfully pulled from the input
+      // because we successfully pulled from the input
     }
   }
 
