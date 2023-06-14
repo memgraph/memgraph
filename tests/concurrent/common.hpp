@@ -114,7 +114,7 @@ void check_zero(size_t key_range, long array[], const char *str) {
 
 void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
   for (int i = 0; i < static_cast<int>(set.size()); i++) {
-    MG_ASSERT(!(set[i] ^ db.at(i)), "Set constraints aren't fullfilled.");
+    MG_ASSERT(!(set[i] ^ db.at(i)), "Set constraints aren't fulfilled.");
   }
 }
 

@@ -487,7 +487,7 @@ def test_async_replication_when_main_is_killed():
         # res_from_async_replica is an arithmetic sequence with:
         # -first term 0
         # -common difference 1
-        # So we check its properties. If properties are fullfilled, it means the ASYNC replicas received a correct subset of messages
+        # So we check its properties. If properties are fulfilled, it means the ASYNC replicas received a correct subset of messages
         # from main in the correct order.
         # In other word: res_from_async_replica is as [0, 1, ..., n-1, n] where values are consecutive integers. $
         # It should have the two properties:
