@@ -1408,7 +1408,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
 
 static PyMethodDef PyPropertiesIteratorMethods[] = {
     {"get", reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet), METH_NOARGS,
-     "Get the current proprety pointed to by the iterator or return None."},
+     "Get the current property pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next property and return it."},
     {nullptr},
