@@ -276,7 +276,7 @@ TEST_F(UtilsFileTest, OutputFileDescriptorLeakage) {
   }
 }
 
-TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
+TEST_F(UtilsFileTest, ConcurrentReadingAndWriting) {
   const auto file_path = storage / "existing_dir_777" / "existing_file_777";
   memgraph::utils::OutputFile handle;
   handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
