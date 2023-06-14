@@ -43,7 +43,7 @@ class RingBuffer {
   /**
    * Emplaces a new element into the buffer. This call blocks until space in the
    * buffer is available. If multiple threads are waiting for space to become
-   * available, there are no order-of-entrace guarantees.
+   * available, there are no order-of-entrance guarantees.
    */
   template <typename... TArgs>
   void emplace(TArgs &&...args) {
