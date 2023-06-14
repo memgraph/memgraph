@@ -23,7 +23,7 @@
 
 namespace memgraph::storage::replication {
 
-static const std::string kReservedReplicationRoleName{"__replication_role"};
+inline constexpr std::string_view kReservedReplicationRoleName{"__replication_role"};
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 

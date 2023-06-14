@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/logging.hpp"
 
 namespace {
@@ -77,10 +78,8 @@ std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) 
     }
 
     if (data.find(kReplicationRole) != data.end()) {
-      auto role = replication::ReplicationRole::MAIN;  // initializing it to dummy value because of clang-tidy
-      data.at(kReplicationRole).get_to(role);          // here happens the assigning of the role
-
-      replica_status.role = role;
+      replica_status.role = replication::ReplicationRole::MAIN;
+      data.at(kReplicationRole).get_to(replica_status.role.value());
     }
   } catch (const nlohmann::json::type_error &exception) {
     spdlog::error(get_failed_message("Invalid type conversion", exception.what()));
