@@ -23,7 +23,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
 # When you create a new permission just add a testcase to this list (a tuple
-# of query, touple of required permissions) and the test will automatically
+# of query, tuple of required permissions) and the test will automatically
 # detect the new permission (from the query required permissions) and test all
 # queries against all combinations of permissions.
 
