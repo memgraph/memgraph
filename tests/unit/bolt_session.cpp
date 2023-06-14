@@ -794,7 +794,7 @@ TEST(BoltSession, ErrorOK) {
         output.clear();
         output_stream.SetWriteSuccess(write_success);
 
-        // ACK_FAILURE does not exist in v3+, ingored message is sent
+        // ACK_FAILURE does not exist in v3+, ignored message is sent
         if (write_success) {
           ExecuteCommand(input_stream, session, dataset[i], 2);
         } else {
