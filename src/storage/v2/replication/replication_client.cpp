@@ -341,7 +341,7 @@ uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
   return response.current_commit_timestamp;
 }
 
-/// This method tries to find the optimal path for recoverying a single replica.
+/// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transfered to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much
 /// smaller in size as they contain only the Deltas (changes) made during the
