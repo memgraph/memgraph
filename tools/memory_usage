@@ -5,7 +5,7 @@ import time
 import sys  
 import os
 
-# hackish way to resuse existing start code
+# hackish way to reuse existing start code
 sys.path.append(os.path.dirname(os.path.realpath(__file__)) + 
         "/../tests/macro_benchmark/")
 from databases import *
