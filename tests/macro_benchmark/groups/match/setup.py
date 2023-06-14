@@ -79,7 +79,7 @@ def main():
             print(";")
     print("MATCH (n) RETURN assert(count(n) = %d);" % VERTEX_COUNT)
 
-    # create edges stohastically
+    # create edges stochastically
     attempts = VERTEX_COUNT ** 2
     p = EDGE_COUNT / VERTEX_COUNT ** 2
     print("MATCH (a) WITH a MATCH (b) WITH a, b WHERE rand() < %f "
