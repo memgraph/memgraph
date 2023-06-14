@@ -41,7 +41,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * to the given `path`.
  *
  * @param url url to which to send the request
- * @param path path to the file where the response in writeen
+ * @param path path to the file where the response in written
  * @param timeout the timeout that should be used when making the request
  * @return bool true if the request was successful, false otherwise.
  */
