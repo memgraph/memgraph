@@ -1548,7 +1548,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     int64_t count_property_value = std::accumulate(
         values_map.begin(), values_map.end(), 0,
         [](int64_t prev_value, const auto &prop_value_count) { return prev_value + prop_value_count.second; });
-    // num_distinc_values will never be 0
+    // num_distinct_values will never be 0
     double avg_group_size = static_cast<double>(count_property_value) / static_cast<double>(values_map.size());
     double chi_squared_stat = std::accumulate(
         values_map.begin(), values_map.end(), 0.0, [avg_group_size](double prev_result, const auto &value_entry) {
