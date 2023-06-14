@@ -121,7 +121,7 @@ class Session {
         return;
       }
       handshake_done_ = true;
-      // Update the decoder's Bolt version (v5 has changed the undelying structure)
+      // Update the decoder's Bolt version (v5 has changed the underlying structure)
       decoder_.UpdateVersion(version_.major);
       encoder_.UpdateVersion(version_.major);
     }

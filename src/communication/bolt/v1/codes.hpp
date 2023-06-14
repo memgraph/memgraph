@@ -60,7 +60,7 @@ enum class Marker : uint8_t {
   // TinyStructX represents the value of TinyStruct + X
   // This is defined to make decoding easier. To check if a marker is equal
   // to TinyStruct + 1 you should use something like:
-  //   underyling_cast(marker) == underyling_cast(Marker::TinyStruct) + 1
+  //   underlying_cast(marker) == underlying_cast(Marker::TinyStruct) + 1
   // This way you can just use:
   //   marker == Marker::TinyStruct1
   TinyStruct1 = 0xB1,
