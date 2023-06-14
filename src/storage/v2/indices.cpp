@@ -305,12 +305,12 @@ void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSki
 
 template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
 void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
-                                  TIndex &index, TIndexKey key, const ParalellizedIndexCreationInfo &paralell_exec_info,
+                                  TIndex &index, TIndexKey key, const ParalellizedIndexCreationInfo &parallel_exec_info,
                                   const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  const auto &vertex_batches = paralell_exec_info.first;
-  const auto thread_count = std::min(paralell_exec_info.second, vertex_batches.size());
+  const auto &vertex_batches = parallel_exec_info.first;
+  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
 
   MG_ASSERT(!vertex_batches.empty(),
             "The size of batches should always be greater than zero if you want to use the parallel version of index "
@@ -364,7 +364,7 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
 }
 
 bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                             const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                             const std::optional<ParalellizedIndexCreationInfo> &parallel_exec_info) {
   auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -379,10 +379,10 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
 
   auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                 const ParalellizedIndexCreationInfo &paralell_exec_info) {
+                                 const ParalellizedIndexCreationInfo &parallel_exec_info) {
     using IndexAccessor = decltype(label_it->second.access());
 
-    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, paralell_exec_info,
+    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, parallel_exec_info,
                                  [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
                                    TryInsertLabelIndex(vertex, label, index_accessor);
                                  });
@@ -396,8 +396,8 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
     return false;
   }
 
-  if (paralell_exec_info) {
-    return create_index_par(label, vertices, it, *paralell_exec_info);
+  if (parallel_exec_info) {
+    return create_index_par(label, vertices, it, *parallel_exec_info);
   }
   return create_index_seq(label, vertices, it);
 }
@@ -526,7 +526,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
 }
 
 bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                                     const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                     const std::optional<ParalellizedIndexCreationInfo> &parallel_exec_info) {
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -542,11 +542,11 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
   auto create_index_par =
       [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParalellizedIndexCreationInfo &paralell_exec_info) {
+             const ParalellizedIndexCreationInfo &parallel_exec_info) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), paralell_exec_info,
+            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             });
@@ -561,8 +561,8 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
     return false;
   }
 
-  if (paralell_exec_info) {
-    return create_index_par(label, property, vertices, it, *paralell_exec_info);
+  if (parallel_exec_info) {
+    return create_index_par(label, property, vertices, it, *parallel_exec_info);
   }
   return create_index_seq(label, property, vertices, it);
 }

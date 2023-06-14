@@ -62,7 +62,7 @@ class LabelIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
+                   const std::optional<ParalellizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
@@ -165,7 +165,7 @@ class LabelPropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
+                   const std::optional<ParalellizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
 
   bool DropIndex(LabelId label, PropertyId property) { return index_.erase({label, property}) > 0; }
 

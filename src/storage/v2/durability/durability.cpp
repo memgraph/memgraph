@@ -120,12 +120,12 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                                  const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                  const std::optional<ParalellizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info))
+    if (!indices->label_index.CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");

@@ -102,7 +102,7 @@ using ParalellizedIndexCreationInfo =
 void RecoverIndicesAndConstraints(
     const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
     utils::SkipList<Vertex> *vertices,
-    const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
+    const std::optional<ParalellizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
 
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
