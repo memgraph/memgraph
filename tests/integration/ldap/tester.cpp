@@ -26,7 +26,7 @@ DEFINE_bool(auth_should_fail, false, "Set to true to expect authentication failu
 DEFINE_bool(query_should_fail, false, "Set to true to expect query execution failure.");
 
 /**
- * Logs in to the server and executes the queries specified as arguments. On any
+ * Logs into the server and executes the queries specified as arguments. On any
  * errors it exits with a non-zero exit code.
  */
 int main(int argc, char **argv) {
