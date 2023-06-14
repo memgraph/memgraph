@@ -604,7 +604,7 @@ TEST_P(CypherMainVisitorTest, AdditionSubtractionOperators) {
   ast_generator.CheckLiteral(addition_operator->expression2_, 3);
 }
 
-TEST_P(CypherMainVisitorTest, MulitplicationOperator) {
+TEST_P(CypherMainVisitorTest, MultiplicationOperator) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 * 3"));
   ASSERT_TRUE(query);
