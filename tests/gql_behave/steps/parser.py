@@ -18,7 +18,7 @@ def parse(el, ignore_order):
     node, list, path, relationship, map or string. Function returns
     same string for two same elements, etc. if properties of two nodes
     are inverted, but labels and properties are the same, function
-    will return the same string for them. For two differenet
+    will return the same string for them. For two different
     elements function will not return the same strings.
 
     @param el:
