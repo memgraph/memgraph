@@ -123,7 +123,7 @@ struct EdgeInfo {
   int edge_id;
 };
 
-void ValidateVertexExistance(mg::Client &client, const bool should_exist, const std::string_view label, const int id) {
+void ValidateVertexExistence(mg::Client &client, const bool should_exist, const std::string_view label, const int id) {
   should_exist ? CheckVertexExists(client, label, id) : CheckVertexMissing(client, label, id);
 };
 
@@ -182,15 +182,15 @@ int main(int argc, char **argv) {
         WaitForNumberOfAllVertices(*client, number_of_expected_vertices);
       }
 
-      ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::VERTEX),
+      ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::VERTEX),
                               kTriggerDeletedVertexLabel, vertex_ids[0]);
-      ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
+      ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
                               kTriggerDeletedObjectLabel, vertex_ids[0]);
 
       for (const auto &edge : edges) {
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::EDGE),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::EDGE),
                                 kTriggerDeletedEdgeLabel, edge.edge_id);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
                                 kTriggerDeletedObjectLabel, edge.edge_id);
       }
 
@@ -229,13 +229,13 @@ int main(int argc, char **argv) {
 
         CheckNumberOfAllVertices(*client, number_of_expected_vertices);
 
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::EDGE),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::EDGE),
                                 kTriggerDeletedEdgeLabel, 1);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
                                 kTriggerDeletedObjectLabel, 1);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::VERTEX),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::VERTEX),
                                 kTriggerDeletedVertexLabel, 2);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
                                 kTriggerDeletedObjectLabel, 2);
 
         DropOnDeleteTriggers(*client, allowed_trigger_types);
@@ -272,13 +272,13 @@ int main(int argc, char **argv) {
 
         CheckNumberOfAllVertices(*client, number_of_expected_vertices);
 
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::EDGE),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::EDGE),
                                 kTriggerDeletedEdgeLabel, 1);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
                                 kTriggerDeletedObjectLabel, 1);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::VERTEX),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::VERTEX),
                                 kTriggerDeletedVertexLabel, 2);
-        ValidateVertexExistance(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
+        ValidateVertexExistence(*client, allowed_trigger_types.contains(AllowedTriggerType::OBJECT),
                                 kTriggerDeletedObjectLabel, 2);
 
         DropOnDeleteTriggers(*client, allowed_trigger_types);
