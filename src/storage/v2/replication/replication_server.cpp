@@ -176,7 +176,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
                                                        &storage_->edge_count_, storage_->config_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
-    // the recovery so we use the UUID we read from snasphost
+    // the recovery so we use the UUID we read from snapshot
     storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
     storage_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
     const auto &recovery_info = recovered_snapshot.recovery_info;
