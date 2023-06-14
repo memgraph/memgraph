@@ -873,7 +873,7 @@ struct ExpansionLambda {
 /// This class does not handle node/edge filtering based on
 /// properties, labels and edge types. However, it does handle
 /// filtering on existing node / edge. Additionally it handles's
-/// edge-uniquess (cyphermorphism) because it's not feasible to do
+/// edge-uniqueness (cyphermorphism) because it's not feasible to do
 /// later.
 ///
 /// Filtering on existing means that for a pattern that references
