@@ -1,5 +1,5 @@
 ;;;; This file contains definitions of types used to store meta information on
-;;;; C++ types.  Along with data defintions, you will find various functions
+;;;; C++ types.  Along with data definitions, you will find various functions
 ;;;; and methods for operating on that data.
 
 (in-package #:lcp)
