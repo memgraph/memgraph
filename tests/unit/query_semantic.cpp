@@ -1002,7 +1002,7 @@ TEST_F(TestSymbolGenerator, MatchUnionReturnSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
 
-TEST_F(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
+TEST_F(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticException) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 3 AS Z, 4 AS Y
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;
@@ -1011,7 +1011,7 @@ TEST_F(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
-TEST_F(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticExpcetion) {
+TEST_F(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticException) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 4 AS Y
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;

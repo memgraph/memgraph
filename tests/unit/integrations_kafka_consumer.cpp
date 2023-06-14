@@ -543,7 +543,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
 }
 
 TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
-  // We do not send any messages, we expect an exeption to be thrown.
+  // We do not send any messages, we expect an exception to be thrown.
   static constexpr auto kLimitBatches = 3;
 
   auto info = CreateDefaultConsumerInfo();
