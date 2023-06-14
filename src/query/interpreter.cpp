@@ -54,6 +54,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
@@ -511,7 +512,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, role = repl_query->role_,
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, role = repl_query->role_,
                      maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
@@ -524,7 +525,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -543,7 +544,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
 
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, name, socket_address, sync_mode,
                      replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -555,7 +556,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -568,7 +569,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()},
+                     replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -1158,9 +1160,19 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
+InterpreterContext::InterpreterContext(const storage::Config storage_config, const InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
+    : db(std::make_unique<storage::InMemoryStorage>(storage_config)),
+      trigger_store(data_directory / "triggers"),
+      config(interpreter_config),
+      streams{this, data_directory / "streams"} {}
+
+InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+                                       const std::filesystem::path &data_directory)
+    : db(std::move(db)),
+      trigger_store(data_directory / "triggers"),
+      config(interpreter_config),
+      streams{this, data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -2075,58 +2087,81 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
       RWType::NONE};
 }
 
+Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
+                            InterpreterContext *interpreter_context) {
+  Callback callback;
+  callback.fn = [current_mode, requested_mode, interpreter_context]() mutable {
+    if (current_mode == requested_mode) {
+      return std::vector<std::vector<TypedValue>>();
+    }
+    if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
+      throw utils::BasicException(
+          "You cannot switch from on-disk storage to in-memory storage while the database is running. "
+          "Please restart the database to switch to in-memory storage.");
+    }
+    if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
+      std::unique_lock main_guard{interpreter_context->db->main_lock_};
+
+      if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+        main_guard.unlock();
+        throw utils::BasicException(
+            "You cannot switch from in-memory storage to on-disk storage when the database "
+            "contains data. Please delete all entries from the database, run FREE MEMORY and then repeat this "
+            "query. ");
+      }
+
+      main_guard.unlock();
+      if (interpreter_context->interpreters->size() > 1) {
+        throw utils::BasicException(
+            fmt::format("You cannot switch from in-memory storage to on-disk storage when there are "
+                        "multiple sessions active. Please close all other sessions and try again. {}",
+                        interpreter_context->interpreters->size()));
+      }
+
+      auto db_config = interpreter_context->db->config_;
+      interpreter_context->db = std::make_unique<memgraph::storage::DiskStorage>(db_config);
+    }
+    return std::vector<std::vector<TypedValue>>();
+  };
+  return callback;
+}
+
+bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
+  bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+      return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
+    });
+  });
+  return exists_active_transaction;
+}
+
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       InterpreterContext *interpreter_context) {
-  /// TODO: andi Too big function, too many things going on, probably the best to split into changing storage mode for
-  /// fully in-memory and hyrbid changes
   if (in_explicit_transaction) {
     throw StorageModeModificationInMulticommandTxException();
   }
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
-  const auto storage_mode = ToStorageMode(storage_mode_query->storage_mode_);
+  const auto requested_mode = ToStorageMode(storage_mode_query->storage_mode_);
+  auto current_mode = interpreter_context->db->GetStorageMode();
 
-  auto exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
-      return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
-    });
-  });
-  if (exists_active_transaction) {
-    spdlog::info(
-        "Storage mode will be modified when there are no other active transactions. Check the status of the "
-        "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
+  std::function<void()> callback;
+
+  if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
+      requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    callback = SwitchMemoryDevice(current_mode, requested_mode, interpreter_context).fn;
+  } else {
+    if (ActiveTransactionsExist(interpreter_context)) {
+      spdlog::info(
+          "Storage mode will be modified when there are no other active transactions. Check the status of the "
+          "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
+    }
+
+    callback = [requested_mode, interpreter_context]() -> std::function<void()> {
+      return [interpreter_context, requested_mode] { interpreter_context->db->SetStorageMode(requested_mode); };
+    }();
   }
-
-  /// TODO: I think there is no need for ON_DISK_TRANSACTIONAL storage mode
-  /// TODO: LOCK the database when switching to ON_DISK_TRANSACTIONAL
-  auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
-    return [interpreter_context, storage_mode] {
-      std::unique_lock main_guard{interpreter_context->db->main_lock_};
-      auto current_mode = interpreter_context->db->GetStorageMode();
-      if (current_mode == storage_mode) {
-        return;
-      }
-      if (SwitchingFromDiskToInMemory(current_mode, storage_mode)) {
-        throw utils::BasicException(
-            "You cannot switch from on-disk storage to in-memory storage while the database is running. "
-            "Please restart the database to switch to in-memory storage.");
-      }
-      if (SwitchingFromInMemoryToDisk(current_mode, storage_mode)) {
-        if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
-          throw utils::BasicException(
-              "You cannot switch from in-memory storage to on-disk storage when the database  "
-              "contains data. Please delete all entries from the database, restart the database and then run this "
-              "command again.");
-        }
-        auto db_config = interpreter_context->db->config_;
-        /// TODO: this is wrong
-        interpreter_context->db = std::make_unique<memgraph::storage::DiskStorage>(db_config).get();
-      } else {
-        interpreter_context->db->SetStorageMode(storage_mode);
-      }
-    };
-  }();
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -2390,7 +2425,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
       handler = [interpreter_context] {
-        auto *db = interpreter_context->db;
+        auto *db = interpreter_context->db.get();
         auto info = db->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
@@ -2407,7 +2442,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::CONSTRAINT:
       header = {"constraint type", "label", "properties"};
       handler = [interpreter_context] {
-        auto *db = interpreter_context->db;
+        auto *db = interpreter_context->db.get();
         auto info = db->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.existence.size() + info.unique.size());
@@ -2508,7 +2543,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                                       properties_stringified);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                       throw ReplicationException(
-                          "At least one SYNC replica has not confirmed the creation of the EXISTS constraint on label "
+                          "At least one SYNC replica has not confirmed the creation of the EXISTS constraint on "
+                          "label "
                           "{} on properties {}.",
                           label_name, properties_stringified);
                     } else {
@@ -2558,9 +2594,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("Constraint UNIQUE on label {} and properties {} couldn't be created.",
                                       label_name, properties_stringified);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException(fmt::format(
-                          "At least one SYNC replica has not confirmed the creation of the UNIQUE constraint: {}({}).",
-                          label_name, properties_stringified));
+                      throw ReplicationException(
+                          fmt::format("At least one SYNC replica has not confirmed the creation of the UNIQUE "
+                                      "constraint: {}({}).",
+                                      label_name, properties_stringified));
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -2866,7 +2903,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                        interpreter_context_, interpreter_context_->db,
+                                        interpreter_context_, interpreter_context_->db.get(),
                                         &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
@@ -3126,11 +3163,11 @@ void Interpreter::Commit() {
         error);
   }
 
-  // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
-  // only one of the transactions can be commiting at the same time, so when the commit is finished, that transaction
-  // probably will schedule its after commit triggers, because the other transactions that want to commit are still
-  // waiting for commiting or one of them just started commiting its changes.
-  // This means the ordered execution of after commit triggers are not guaranteed.
+  // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
+  // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is
+  // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
+  // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
+  // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
     interpreter_context_->after_commit_trigger_pool.AddTask(
         [this, trigger_context = std::move(*trigger_context),

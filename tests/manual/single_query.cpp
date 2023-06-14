@@ -13,6 +13,7 @@
 #include "license/license.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -26,16 +27,15 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
   memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::query::InterpreterContext interpreter_context{db.get(), memgraph::query::InterpreterConfig{},
-                                                          data_directory};
+  memgraph::query::InterpreterContext interpreter_context{memgraph::storage::Config{},
+                                                          memgraph::query::InterpreterConfig{}, data_directory};
   memgraph::query::Interpreter interpreter{&interpreter_context};
 
-  ResultStreamFaker stream(db.get());
+  ResultStreamFaker stream(interpreter_context.db.get());
   auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);

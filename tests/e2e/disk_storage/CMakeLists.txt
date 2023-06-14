@@ -4,4 +4,4 @@ endfunction()
 
 copy_disk_storage_e2e_python_files(common.py)
 copy_disk_storage_e2e_python_files(data_import.py)
-copy_disk_storage_e2e_python_files(update_storage_mode.py)
+copy_disk_storage_e2e_python_files(update_storage_mode_db_not_empty.py)

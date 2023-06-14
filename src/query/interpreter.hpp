@@ -35,6 +35,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -210,11 +211,15 @@ class Interpreter;
  * running concurrently).
  *
  */
+/// TODO: andi decouple in a separate file why here?
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
+  explicit InterpreterContext(storage::Config storage_config, InterpreterConfig interpreter_config,
                               const std::filesystem::path &data_directory);
 
-  storage::Storage *db;
+  InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+                     const std::filesystem::path &data_directory);
+
+  std::unique_ptr<storage::Storage> db;
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected

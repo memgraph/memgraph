@@ -6,13 +6,8 @@ disk_storage: &disk_storage
       setup_queries: []
       validation_queries: []
 
-
 workloads:
-  # - name: "Test data import on a disk storage."
-  #   binary: "tests/e2e/pytest_runner.sh"
-  #   args: ["disk_storage/data_import.py"]
-  #   <<: *disk_storage
-  - name: "Test changing storage modes when using disk storage."
+  - name: "Tests when switching from in-memory storage to disk storage when the db isn't empty. "
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["disk_storage/update_storage_mode.py"]
+    args: ["disk_storage/update_storage_mode_db_not_empty.py"]
     <<: *disk_storage

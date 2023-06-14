@@ -52,15 +52,20 @@ template <typename StorageType>
 class InterpreterTest : public ::testing::Test {
  public:
   const std::string testSuite = "interpreter";
+  const std::string testSuiteCsv = "interpreter_csv";
 
-  memgraph::storage::Config config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config_)};
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
-  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
+  InterpreterTest()
+      : data_directory(std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"),
+        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {},
+                            data_directory) {}
+
+  std::filesystem::path data_directory;
+  memgraph::query::InterpreterContext interpreter_context;
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
+      disk_test_utils::RemoveRocksDbDirs(testSuiteCsv);
     }
   }
 
@@ -302,7 +307,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    auto storage_dba = this->db_->Access();
+    auto storage_dba = this->interpreter_context.db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
@@ -1081,7 +1086,9 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         "row"};
 
     memgraph::query::InterpreterContext csv_interpreter_context{
-        this->db_.get(), {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
+        std::make_unique<TypeParam>(disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv)),
+        {.query = {.allow_load_csv = allow_load_csv}},
+        directory_manager.Path()};
     InterpreterFaker interpreter_faker{&csv_interpreter_context};
     for (const auto &query : queries) {
       if (allow_load_csv) {

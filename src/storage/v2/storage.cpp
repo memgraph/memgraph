@@ -101,6 +101,7 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
 
 /// Main lock is taken by the caller.
 void Storage::SetStorageMode(StorageMode storage_mode) {
+  std::unique_lock main_guard{main_lock_};
   MG_ASSERT(storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL && storage_mode != StorageMode::ON_DISK_TRANSACTIONAL);
   storage_mode_ = storage_mode;
 }

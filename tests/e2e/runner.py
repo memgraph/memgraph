@@ -45,6 +45,7 @@ def load_workloads(root_directory):
 
 def run(args):
     workloads = load_workloads(args.workloads_root_directory)
+    print(f"Loaded workloads: {len(workloads)}")
     for workload in workloads:
         workload_name = workload["name"]
         if args.workload_name is not None and args.workload_name != workload_name:

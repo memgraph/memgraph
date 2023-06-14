@@ -20,13 +20,13 @@
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db;
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
   void SetUp(const benchmark::State &state) override {
-    db.reset(new memgraph::storage::InMemoryStorage());
+    interpreter_context.emplace(memgraph::storage::Config{}, memgraph::query::InterpreterConfig{}, data_directory);
+    auto *db = interpreter_context->db.get();
 
     auto label = db->NameToLabel("Starting");
 
@@ -47,14 +47,12 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(!db->CreateIndex(label).HasError());
 
-    interpreter_context.emplace(&*db, memgraph::query::InterpreterConfig{}, data_directory);
     interpreter.emplace(&*interpreter_context);
   }
 
   void TearDown(const benchmark::State &) override {
     interpreter = std::nullopt;
     interpreter_context = std::nullopt;
-    db.reset(nullptr);
     std::filesystem::remove_all(data_directory);
   }
 };
@@ -63,7 +61,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(&*db);
+    ResultStreamFaker results(interpreter_context->db.get());
     interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }
@@ -78,7 +76,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(&*db);
+    ResultStreamFaker results(interpreter_context->db.get());
     interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }
