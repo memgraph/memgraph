@@ -267,7 +267,7 @@ More details about the dataset in the [Interactive workload class](workloads/ldb
 
 DISCLAIMER: This is NOT an official implementation of an LDBC Benchmark.
 
-### LDBC Bussines Intelligence
+### LDBC Business Intelligence
 
 The LDBC business intelligence dataset is a social network dataset has support for multiple sizes, currently supported are sf1, sf3 and sf10. Keep in mind that bigger datasets will take longer to import and execute queries. The dataset is available in the following sizes:
 
