@@ -18,7 +18,7 @@ import requests
 
 from common import NAME, connect, execute_and_fetch_all, PULSAR_SERVICE_URL
 
-# To run these test locally a running Kafka sever is necessery. The test tries
+# To run these test locally a running Kafka sever is necessary. The test tries
 # to connect on localhost:9092.
 
 

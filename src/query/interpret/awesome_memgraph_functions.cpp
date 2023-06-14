@@ -355,7 +355,7 @@ void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos 
 
 // Scalar functions.
 // We don't have a way to implement id function since we don't store any. If it
-// is really neccessary we could probably map vlist* to id.
+// is really necessary we could probably map vlist* to id.
 // TODO: Implement length (it works on a path, but we didn't define path
 // structure yet).
 // TODO: Implement size(pattern), for example size((a)-[:X]-()) should return
