@@ -55,7 +55,7 @@
             :checker         (checker/compose
                                {:stats      (checker/stats)
                                 :exceptions (checker/unhandled-exceptions)
-                                ;:perf       (checker/perf) really exepnsive
+                                ;:perf       (checker/perf) really expensive
                                 :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
