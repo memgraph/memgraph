@@ -342,7 +342,7 @@ uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
 }
 
 /// This method tries to find the optimal path for recovering a single replica.
-/// Based on the last commit transfered to replica it tries to update the
+/// Based on the last commit transferred to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much
 /// smaller in size as they contain only the Deltas (changes) made during the
 /// transactions while Snapshots contain all the data. For that reason we prefer
