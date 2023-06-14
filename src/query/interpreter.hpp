@@ -388,7 +388,7 @@ class Interpreter final {
   // For example, we cannot delete the prepared query from the vector because
   // every prepared query after the deleted one will be moved by one place
   // making their qid not equal to the their index inside the vector.
-  // To avoid this, we use unique_ptr with which we manualy control construction
+  // To avoid this, we use unique_ptr with which we manually control construction
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
