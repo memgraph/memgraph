@@ -329,7 +329,7 @@ Feature: Aggregations
             | n                                 |
             | {a_key: 13, b_key: 11, c_key: 12} |
 
-        Scenario: Combined aggregations - some evauluates to null:
+        Scenario: Combined aggregations - some evaluates to null:
         Given an empty graph
         And having executed
             """
