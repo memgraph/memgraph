@@ -1063,7 +1063,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
-    auto py_res = py_initializer.Call(py_args);
+    auto py_res = py_initializer.Call(py_graph, py_args);
     return {};
   };
 
