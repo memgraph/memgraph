@@ -13,7 +13,7 @@
 
 #include "utils/skip_list.hpp"
 
-DEFINE_int32(max_element, 20000, "Maximum element in the intial list");
+DEFINE_int32(max_element, 20000, "Maximum element in the initial list");
 DEFINE_int32(max_range, 2000000, "Maximum range used for the test");
 
 int main(int argc, char **argv) {
