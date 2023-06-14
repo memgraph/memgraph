@@ -129,7 +129,7 @@ def test_superadmin_cannot_see_admin_can_see_admin():
     # Superadmin shouldn't see the execution of the admin
     show_transactions_test(superadmin_cursor, 1)
     show_results = show_transactions_test(admin_cursor_2, 2)
-    # Don't rely on the order of intepreters in Memgraph
+    # Don't rely on the order of interpreters in Memgraph
     if show_results[0][2] == ["SHOW TRANSACTIONS"]:
         executing_index = 0
     else:
@@ -162,7 +162,7 @@ def test_admin_sees_superadmin():
     admin_cursor = connect(username="admin", password="").cursor()
     show_results = show_transactions_test(admin_cursor, 2)
     # show_results_2 = show_transactions_test(admin_cursor, 2)
-    # Don't rely on the order of intepreters in Memgraph
+    # Don't rely on the order of interpreters in Memgraph
     if show_results[0][2] == ["SHOW TRANSACTIONS"]:
         executing_index = 0
     else:
@@ -196,7 +196,7 @@ def test_admin_can_see_user_transaction():
     time.sleep(0.5)
     # Admin should see the user's transaction.
     show_results = show_transactions_test(admin_cursor, 2)
-    # Don't rely on the order of intepreters in Memgraph
+    # Don't rely on the order of interpreters in Memgraph
     if show_results[0][2] == ["SHOW TRANSACTIONS"]:
         executing_index = 0
     else:
@@ -239,7 +239,7 @@ def test_user_cannot_see_admin_transaction():
     show_transactions_test(user_cursor, 1)
     # Second admin should see other admin's transactions
     show_results = show_transactions_test(admin_cursor_2, 2)
-    # Don't rely on the order of intepreters in Memgraph
+    # Don't rely on the order of interpreters in Memgraph
     if show_results[0][2] == ["SHOW TRANSACTIONS"]:
         executing_index = 0
     else:
