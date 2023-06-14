@@ -306,7 +306,7 @@ class SessionContextHandler {
 #if MG_ENTERPRISE
         return {*storage, *interp, auth_, audit_log_};
 #else
-        return {*new_storage, *new_interp, auth_};
+        return {*storage, *interp, auth_};
 #endif
       }
     }
