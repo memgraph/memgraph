@@ -359,7 +359,7 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Build only memgraph release binarie.
+          # Build only memgraph release binaries.
           cd build
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS memgraph
