@@ -3162,7 +3162,7 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit members_reseter(reset_necessary_members);
 
-  auto commit_confirmed_by_all_sync_repplicas = true;
+  auto commit_confirmed_by_all_sync_replicas = true;
 
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
@@ -3170,10 +3170,10 @@ void Interpreter::Commit() {
 
     std::visit(
         [&execution_db_accessor = execution_db_accessor_,
-         &commit_confirmed_by_all_sync_repplicas]<typename T>(T &&arg) {
+         &commit_confirmed_by_all_sync_replicas]<typename T>(T &&arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-            commit_confirmed_by_all_sync_repplicas = false;
+            commit_confirmed_by_all_sync_replicas = false;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -3218,7 +3218,7 @@ void Interpreter::Commit() {
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
-  if (!commit_confirmed_by_all_sync_repplicas) {
+  if (!commit_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
 }
