@@ -1790,7 +1790,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
       if (info.uuid != uuid) continue;
       old_snapshot_files.emplace_back(info.start_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Found a corrupt snapshot file {} becuase of: {}. Corrupted snapshot file will be deleted.",
+      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will be deleted.",
                    item.path(), e.what());
       file_retainer->DeleteFile(item.path());
     }

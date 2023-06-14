@@ -1175,7 +1175,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         SCOPED_TRACE(fmt::format("'{}' should not throw because LOAD CSV is allowed", query));
         ASSERT_NO_THROW(interpreter_faker.Interpret(query));
       } else {
-        SCOPED_TRACE(fmt::format("'{}' should throw becuase LOAD CSV is not allowed", query));
+        SCOPED_TRACE(fmt::format("'{}' should throw because LOAD CSV is not allowed", query));
         ASSERT_THROW(interpreter_faker.Interpret(query), memgraph::utils::BasicException);
       }
       SCOPED_TRACE(fmt::format("Normal query should not throw (allow_load_csv: {})", allow_load_csv));

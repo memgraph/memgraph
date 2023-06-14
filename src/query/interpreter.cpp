@@ -1695,7 +1695,7 @@ struct PullPlan {
 
   // To pull the results from a query we call the `Pull` method on
   // the cursor which saves the results in a Frame.
-  // Becuase we can't find out if there are some saved results in a frame,
+  // Because we can't find out if there are some saved results in a frame,
   // and the cursor cannot deduce if the next pull will have a result,
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.

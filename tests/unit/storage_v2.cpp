@@ -520,7 +520,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
 
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
     if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
-      // Beucase of pessimistic Serialization error happened on DeleteVertex() function
+      // Because of pessimistic Serialization error happened on DeleteVertex() function
       EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     } else {
       EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
