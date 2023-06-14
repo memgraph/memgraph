@@ -4,8 +4,7 @@ init_file_cluster: &init_file_cluster
       args: [
         "--bolt-port", "7687",
         "--log-level=TRACE",
-        "--also-log-to-stderr=true",
-        "--init-file=tests/e2e/init_file_flags/init_file.cypherl"
+        "--init-file=init_file_flags/init_file.cypherl"
       ]
       log_file: "init-file-flags-e2e.log"
       validation_queries: []
@@ -16,7 +15,7 @@ init_data_file_cluster: &init_data_file_cluster
       args: [
         "--bolt-port", "7687",
         "--log-level=TRACE",
-        "--init-data-file=tests/e2e/init_file_flags/init_file.cypherl"
+        "--init-data-file=init_file_flags/init_file.cypherl"
       ]
       log_file: "init-data-file-flags-e2e.log"
       validation_queries: []
