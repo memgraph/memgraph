@@ -1054,7 +1054,7 @@ pulled.")
     *    that get expanded (inclusive).
     * @param inner_edge_symbol Like `inner_node_symbol`
     * @param inner_node_symbol For each expansion the node expanded into is
-    *    assigned to this symbol so it can be evaulated by the 'where'
+    *    assigned to this symbol so it can be evaluated by the 'where'
     * expression.
     * @param filter_ The filter that must be satisfied for an expansion to
     * succeed. Can use inner(node/edge) symbols. If nullptr, it is ignored.

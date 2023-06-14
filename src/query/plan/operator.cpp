@@ -4046,7 +4046,7 @@ class UnwindCursor : public Cursor {
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
-        // Copy the evaluted input_value_list to our vector.
+        // Copy the evaluated input_value_list to our vector.
         input_value_ = input_value.ValueList();
         input_value_it_ = input_value_.begin();
       }

@@ -252,7 +252,7 @@ class IdFilter {
 
   /// Symbol whose id is looked up.
   Symbol symbol_;
-  /// Expression which when evaluted produces the value an ID must satisfy.
+  /// Expression which when evaluated produces the value an ID must satisfy.
   Expression *value_;
   /// True if the same symbol is used in expressions for value.
   bool is_symbol_in_value_{false};
