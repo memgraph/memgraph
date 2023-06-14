@@ -339,7 +339,7 @@ class Storage final {
     void AdvanceCommand();
 
     /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occures. Error can be:
+    /// Returns `StorageDataManipulationError` if an error occurs. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
     /// case the transaction is automatically aborted.
@@ -388,7 +388,7 @@ class Storage final {
 
   /// Create an index.
   /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// Returns `StorageIndexDefinitionError` if an error occurs. Error can be:
   /// * `IndexDefinitionError`: the index already exists.
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// @throw std::bad_alloc
@@ -397,7 +397,7 @@ class Storage final {
 
   /// Create an index.
   /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// Returns `StorageIndexDefinitionError` if an error occurs. Error can be:
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `IndexDefinitionError`: the index already exists.
   /// @throw std::bad_alloc
@@ -406,7 +406,7 @@ class Storage final {
 
   /// Drop an existing index.
   /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// Returns `StorageIndexDefinitionError` if an error occurs. Error can be:
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `IndexDefinitionError`: the index does not exist.
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
@@ -414,7 +414,7 @@ class Storage final {
 
   /// Drop an existing index.
   /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// Returns `StorageIndexDefinitionError` if an error occurs. Error can be:
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `IndexDefinitionError`: the index does not exist.
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
@@ -423,7 +423,7 @@ class Storage final {
   IndicesInfo ListAllIndices() const;
 
   /// Returns void if the existence constraint has been created.
-  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
+  /// Returns `StorageExistenceConstraintDefinitionError` if an error occurs. Error can be:
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
   /// * `ConstraintDefinitionError`: the constraint already exists.
@@ -434,14 +434,14 @@ class Storage final {
 
   /// Drop an existing existence constraint.
   /// Returns void if the existence constraint has been dropped.
-  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
+  /// Returns `StorageExistenceConstraintDroppingError` if an error occurs. Error can be:
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `ConstraintDefinitionError`: the constraint did not exists.
   utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Create an unique constraint.
-  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
+  /// Returns `StorageUniqueConstraintDefinitionError` if an error occurs. Error can be:
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `ConstraintViolation`: there are already vertices violating the constraint.
   /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
@@ -454,7 +454,7 @@ class Storage final {
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes an existing unique constraint.
-  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
+  /// Returns `StorageUniqueConstraintDroppingError` if an error occurs. Error can be:
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
   /// * `SUCCESS` if constraint was successfully removed,
