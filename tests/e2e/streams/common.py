@@ -205,7 +205,7 @@ def test_start_and_stop_during_check(
     OP_UNEXPECTED_EXCEPTION = 5
 
     def call_operation(counter):
-        # This porcess will call the query with the specified operation and
+        # This process will call the query with the specified operation and
         # increment the counter based on its progress and expected behavior
         connection = connect()
         cursor = connection.cursor()
