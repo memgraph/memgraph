@@ -209,7 +209,7 @@ def get_result_rows(context, ignore_order):
 
 def get_expected_rows(context, ignore_order):
     """
-    Fuction returns expected results as list from context table.
+    Function returns expected results as list from context table.
 
     @param context:
         behave.runner.Context, behave context.
