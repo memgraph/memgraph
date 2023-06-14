@@ -4594,7 +4594,7 @@ class CallProcedureCursor : public Cursor {
     auto &values = result_row_it_->values;
     // Check that the row has all fields as required by the result signature.
     // C API guarantees that it's impossible to set fields which are not part of
-    // the result record, but it does not gurantee that some may be missing. See
+    // the result record, but it does not guarantee that some may be missing. See
     // `mgp_result_record_insert`.
     if (values.size() != result_signature_size_) {
       throw QueryRuntimeException(

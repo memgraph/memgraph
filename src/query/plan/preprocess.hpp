@@ -448,8 +448,8 @@ struct SingleQueryPart {
   /// Since @c Merge is contained in `remaining_clauses`, this vector contains
   /// matching in the same order as @c Merge appears.
   //
-  /// Foreach @c does not violate this gurantee. However, update clauses are not stored
-  /// in the `remaining_clauses` but rather in the `Foreach` itself and are guranteed
+  /// Foreach @c does not violate this guarantee. However, update clauses are not stored
+  /// in the `remaining_clauses` but rather in the `Foreach` itself and are guaranteed
   /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
   /// @brief All the remaining clauses (without @c Match).
