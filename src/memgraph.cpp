@@ -729,7 +729,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Terminate, shutdown,
                                                             block_shutdown_signals),
             "Unable to register SIGTERM handler!");
-  MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Interupt, shutdown,
+  MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Interrupt, shutdown,
                                                             block_shutdown_signals),
             "Unable to register SIGINT handler!");
 }

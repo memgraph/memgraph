@@ -22,11 +22,11 @@
 namespace memgraph::utils {
 
 // TODO: align bits so signals can be combined
-//       Signal::Terminate | Signal::Interupt
+//       Signal::Terminate | Signal::Interrupt
 enum class Signal : int {
   Terminate = SIGTERM,
   SegmentationFault = SIGSEGV,
-  Interupt = SIGINT,
+  Interrupt = SIGINT,
   Quit = SIGQUIT,
   Abort = SIGABRT,
   Pipe = SIGPIPE,
