@@ -53,7 +53,7 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
 
   if (memcmp(kBoltV43Version, client_.GetData(), sizeof(kBoltV43Version)) != 0) {
     spdlog::error("Server negotiated unsupported protocol version!");
-    throw ClientFatalException("The server negotiated an usupported protocol version!");
+    throw ClientFatalException("The server negotiated an unsupported protocol version!");
   }
   client_.ShiftData(sizeof(kBoltV43Version));
 
