@@ -265,7 +265,7 @@ DEFINE_uint64(replication_replica_check_frequency_sec, 1,
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
     memory_limit, 0,
-    "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
+    "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the physical memory if the swap "
     "is enabled and 90\% of the physical memory otherwise.");
 
 namespace {
