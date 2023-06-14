@@ -227,7 +227,7 @@ def test_user_is_role(memgraph, tester_binary):
     memgraph.stop()
 
 
-def test_user_permissions_persistancy(memgraph, tester_binary):
+def test_user_permissions_persistence(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
     execute_tester(tester_binary,
                    ["CREATE USER alice", "GRANT MATCH TO alice"], "root")
@@ -235,7 +235,7 @@ def test_user_permissions_persistancy(memgraph, tester_binary):
     memgraph.stop()
 
 
-def test_role_permissions_persistancy(memgraph, tester_binary):
+def test_role_permissions_persistence(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
     execute_tester(tester_binary,
                    ["CREATE ROLE moderator", "GRANT MATCH TO moderator"],
@@ -320,7 +320,7 @@ def test_wrong_password(memgraph, tester_binary):
     memgraph.stop()
 
 
-def test_password_persistancy(memgraph, tester_binary):
+def test_password_persistence(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary, check_login=False)
     memgraph.restart(module_executable="")
     execute_tester(tester_binary, ["SHOW USERS"], "root", password="sudo")
