@@ -483,7 +483,7 @@ def test_async_replication_when_main_is_killed():
                 break
 
         # 3/
-        # short explaination:
+        # short explanation:
         # res_from_async_replica is an arithmetic sequence with:
         # -first term 0
         # -common difference 1

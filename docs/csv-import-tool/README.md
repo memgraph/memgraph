@@ -126,7 +126,7 @@ the importer loads your data.
 
 The two main flags that are used to specify the input CSV files are `--nodes`
 and `--relationships`. Basic description of these flags is provided in the table
-and more detailed explainion can be found further down bellow.
+and more detailed explanation can be found further down bellow.
 
 
 | Flag                  | Description  |
