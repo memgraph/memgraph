@@ -25,7 +25,7 @@ uint8_t data[SIZE];
  * This class provides a dummy Buffer used for testing the Decoder.
  * It's Read function is the necessary public interface for the Decoder.
  * It's Write and Clear methods are used for testing. Through the Write
- * method you can store data in the buffer, and throgh the Clear method
+ * method you can store data in the buffer, and through the Clear method
  * you can clear the buffer. The decoder uses the Read function to get
  * data from the buffer.
  */
