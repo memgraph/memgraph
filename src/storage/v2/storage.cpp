@@ -916,7 +916,7 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
       }
     }
 
-    // Result of validating the vertex against unqiue constraints. It has to be
+    // Result of validating the vertex against unique constraints. It has to be
     // declared outside of the critical section scope because its value is
     // tested for Abort call which has to be done out of the scope.
     std::optional<ConstraintViolation> unique_constraint_violation;
