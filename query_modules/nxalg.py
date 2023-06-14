@@ -195,7 +195,7 @@ def strongly_connected_components(
 
 # networkx.algorithms.connectivity.edge_kcomponents.k_edge_components
 #
-# NOTE: NetworkX 2.4, algorithms/connectivity/edge_kcompnents.py:367. We create
+# NOTE: NetworkX 2.4, algorithms/connectivity/edge_kcomponents.py:367. We create
 # a *copy* of the graph because the algorithm copies the graph using
 # __class__() and tries to modify it.
 @mgp.read_proc
