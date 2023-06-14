@@ -124,8 +124,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PostVisit(MapLiteral &map_literal) override {
     MG_ASSERT(map_literal.elements_.size() <= has_aggregation_.size(),
-              "Expected has_aggregation_ flags as much as there are map elements.");
+              "Expected as many has_aggregation_ flags as there are map elements.");
     PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
+    return true;
+  }
+
+  bool PostVisit(MapProjectionLiteral &map_projection_literal) override {
+    MG_ASSERT(map_projection_literal.elements_.size() <= has_aggregation_.size(),
+              "Expected as many has_aggregation_ flags as there are map elements.");
+    PostVisitCollectionLiteral(map_projection_literal, [](auto it) { return it->second; });
     return true;
   }
 
@@ -513,6 +520,22 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
     }
   }
   return filter_expr;
+}
+
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
+                                                   SymbolTable &symbol_table, AstStorage &storage) {
+  const auto &query = single_query_parts[0];
+
+  if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
+    return {};
+  }
+
+  if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
+    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage);
+    return bound_symbols;
+  }
+
+  return {};
 }
 
 std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,

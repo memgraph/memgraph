@@ -53,6 +53,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/deque.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -60,6 +61,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/typeinfo.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -80,7 +82,7 @@
     LOG_FATAL("Operator " #class_name " has no single input!");  \
   }
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event OnceOperator;
 extern const Event CreateNodeOperator;
 extern const Event CreateExpandOperator;
@@ -117,7 +119,8 @@ extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
-}  // namespace EventCounter
+extern const Event ApplyOperator;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
 
@@ -168,7 +171,7 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::OnceOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OnceOperator);
 
   return MakeUniqueCursorPtr<OnceCursor>(mem);
 }
@@ -230,7 +233,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 ACCEPT_WITH_INPUT(CreateNode)
 
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
 
   return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem);
 }
@@ -280,7 +283,7 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 ACCEPT_WITH_INPUT(CreateExpand)
 
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
 
   return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
 }
@@ -487,7 +490,7 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
 ACCEPT_WITH_INPUT(ScanAll)
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -510,7 +513,7 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -540,7 +543,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
 UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyRangeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyRangeOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
@@ -600,7 +603,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
 UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyValueOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, storage::PropertyValue()))> {
@@ -625,7 +628,7 @@ ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOper
 ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
 UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -644,7 +647,7 @@ ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol o
 ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByIdOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     auto *db = context.db_accessor;
@@ -699,7 +702,7 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 ACCEPT_WITH_INPUT(Expand)
 
 UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ExpandOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandOperator);
 
   return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem);
 }
@@ -2169,7 +2172,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 };
 
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ExpandVariableOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
@@ -2272,7 +2275,7 @@ class ConstructNamedPathCursor : public Cursor {
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
 UniqueCursorPtr ConstructNamedPath::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ConstructNamedPathOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ConstructNamedPathOperator);
 
   return MakeUniqueCursorPtr<ConstructNamedPathCursor>(mem, *this, mem);
 }
@@ -2298,7 +2301,7 @@ bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::FilterOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::FilterOperator);
 
   return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
 }
@@ -2330,12 +2333,11 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::OLD);
+                                storage::View::OLD, context.frame_change_collector);
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
-
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;
@@ -2351,7 +2353,7 @@ EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperat
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
 UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EvaluatePatternFilterOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::EvaluatePatternFilterOperator);
 
   return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem);
 }
@@ -2384,7 +2386,7 @@ Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vecto
 ACCEPT_WITH_INPUT(Produce)
 
 UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ProduceOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ProduceOperator);
 
   return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem);
 }
@@ -2408,9 +2410,13 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::NEW);
-    for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
-
+                                  storage::View::NEW, context.frame_change_collector);
+    for (auto *named_expr : self_.named_expressions_) {
+      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(named_expr->name_)) {
+        context.frame_change_collector->ResetTrackingValue(named_expr->name_);
+      }
+      named_expr->Accept(evaluator);
+    }
     return true;
   }
   return false;
@@ -2427,7 +2433,7 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector
 ACCEPT_WITH_INPUT(Delete)
 
 UniqueCursorPtr Delete::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::DeleteOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::DeleteOperator);
 
   return MakeUniqueCursorPtr<DeleteCursor>(mem, *this, mem);
 }
@@ -2579,7 +2585,7 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage:
 ACCEPT_WITH_INPUT(SetProperty)
 
 UniqueCursorPtr SetProperty::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SetPropertyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetPropertyOperator);
 
   return MakeUniqueCursorPtr<SetPropertyCursor>(mem, *this, mem);
 }
@@ -2662,7 +2668,7 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symb
 ACCEPT_WITH_INPUT(SetProperties)
 
 UniqueCursorPtr SetProperties::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SetPropertiesOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetPropertiesOperator);
 
   return MakeUniqueCursorPtr<SetPropertiesCursor>(mem, *this, mem);
 }
@@ -2859,7 +2865,7 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input
 ACCEPT_WITH_INPUT(SetLabels)
 
 UniqueCursorPtr SetLabels::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SetLabelsOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetLabelsOperator);
 
   return MakeUniqueCursorPtr<SetLabelsCursor>(mem, *this, mem);
 }
@@ -2931,7 +2937,7 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, st
 ACCEPT_WITH_INPUT(RemoveProperty)
 
 UniqueCursorPtr RemoveProperty::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::RemovePropertyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RemovePropertyOperator);
 
   return MakeUniqueCursorPtr<RemovePropertyCursor>(mem, *this, mem);
 }
@@ -3017,7 +3023,7 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol
 ACCEPT_WITH_INPUT(RemoveLabels)
 
 UniqueCursorPtr RemoveLabels::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::RemoveLabelsOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RemoveLabelsOperator);
 
   return MakeUniqueCursorPtr<RemoveLabelsCursor>(mem, *this, mem);
 }
@@ -3090,7 +3096,7 @@ EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
 UniqueCursorPtr EdgeUniquenessFilter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EdgeUniquenessFilterOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::EdgeUniquenessFilterOperator);
 
   return MakeUniqueCursorPtr<EdgeUniquenessFilterCursor>(mem, *this, mem);
 }
@@ -3192,7 +3198,7 @@ class EmptyResultCursor : public Cursor {
 };
 
 UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EmptyResultOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::EmptyResultOperator);
 
   return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
 }
@@ -3231,7 +3237,12 @@ class AccumulateCursor : public Cursor {
     if (MustAbort(context)) throw HintedAbortError();
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
-    for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
+    for (const Symbol &symbol : self_.symbols_) {
+      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+        context.frame_change_collector->ResetTrackingValue(symbol.name());
+      }
+      frame[symbol] = *row_it++;
+    }
     return true;
   }
 
@@ -3247,13 +3258,13 @@ class AccumulateCursor : public Cursor {
  private:
   const Accumulate &self_;
   const UniqueCursorPtr input_cursor_;
-  utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
+  utils::pmr::deque<utils::pmr::vector<TypedValue>> cache_;
   decltype(cache_.begin()) cache_it_ = cache_.begin();
   bool pulled_all_input_{false};
 };
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::AccumulateOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::AccumulateOperator);
 
   return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
 }
@@ -3313,10 +3324,20 @@ class AggregateCursor : public Cursor {
       if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
-        for (const auto &elem : self_.aggregations_)
+        for (const auto &elem : self_.aggregations_) {
           frame[elem.output_sym] = DefaultAggregationOpValue(elem, pull_memory);
+          if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(elem.output_sym.name())) {
+            context.frame_change_collector->ResetTrackingValue(elem.output_sym.name());
+          }
+        }
+
         // place null as remember values on the frame
-        for (const Symbol &remember_sym : self_.remember_) frame[remember_sym] = TypedValue(pull_memory);
+        for (const Symbol &remember_sym : self_.remember_) {
+          frame[remember_sym] = TypedValue(pull_memory);
+          if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(remember_sym.name())) {
+            context.frame_change_collector->ResetTrackingValue(remember_sym.name());
+          }
+        }
         return true;
       }
     }
@@ -3615,7 +3636,7 @@ class AggregateCursor : public Cursor {
 };
 
 UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::AggregateOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
 
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
 }
@@ -3626,7 +3647,7 @@ Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression
 ACCEPT_WITH_INPUT(Skip)
 
 UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SkipOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
 
   return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
 }
@@ -3679,7 +3700,7 @@ Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expressi
 ACCEPT_WITH_INPUT(Limit)
 
 UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::LimitOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
 
   return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
 }
@@ -3796,8 +3817,12 @@ class OrderByCursor : public Cursor {
                "Number of values does not match the number of output symbols "
                "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
-    for (const TypedValue &output : cache_it_->remember) frame[*output_sym_it++] = output;
-
+    for (const TypedValue &output : cache_it_->remember) {
+      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_sym_it->name())) {
+        context.frame_change_collector->ResetTrackingValue(output_sym_it->name());
+      }
+      frame[*output_sym_it++] = output;
+    }
     cache_it_++;
     return true;
   }
@@ -3827,7 +3852,7 @@ class OrderByCursor : public Cursor {
 };
 
 UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::OrderByOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
 
   return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem);
 }
@@ -3844,7 +3869,7 @@ bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Merge::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::MergeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::MergeOperator);
 
   return MakeUniqueCursorPtr<MergeCursor>(mem, *this, mem);
 }
@@ -3924,7 +3949,7 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Optional::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::OptionalOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OptionalOperator);
 
   return MakeUniqueCursorPtr<OptionalCursor>(mem, *this, mem);
 }
@@ -4030,6 +4055,9 @@ class UnwindCursor : public Cursor {
       if (input_value_it_ == input_value_.end()) continue;
 
       frame[self_.output_symbol_] = *input_value_it_++;
+      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_.output_symbol_.name_)) {
+        context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
+      }
       return true;
     }
   }
@@ -4052,7 +4080,7 @@ class UnwindCursor : public Cursor {
 };
 
 UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::UnwindOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::UnwindOperator);
 
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
 }
@@ -4070,8 +4098,14 @@ class DistinctCursor : public Cursor {
 
       utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
-      for (const auto &symbol : self_.value_symbols_) row.emplace_back(frame[symbol]);
-      if (seen_rows_.insert(std::move(row)).second) return true;
+
+      for (const auto &symbol : self_.value_symbols_) {
+        row.emplace_back(frame.at(symbol));
+      }
+
+      if (seen_rows_.insert(std::move(row)).second) {
+        return true;
+      }
     }
   }
 
@@ -4100,7 +4134,7 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vec
 ACCEPT_WITH_INPUT(Distinct)
 
 UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::DistinctOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::DistinctOperator);
 
   return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
 }
@@ -4122,7 +4156,7 @@ Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_
       right_symbols_(right_symbols) {}
 
 UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::UnionOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::UnionOperator);
 
   return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, mem);
 }
@@ -4153,11 +4187,17 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
+      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_symbol.name())) {
+        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
+      }
     }
   } else if (right_cursor_->Pull(frame, context)) {
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
+      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_symbol.name())) {
+        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
+      }
     }
   } else {
     return false;
@@ -4166,6 +4206,9 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   // put collected values on frame under union symbols
   for (const auto &symbol : self_.union_symbols_) {
     frame[symbol] = results[symbol.name()];
+    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+      context.frame_change_collector->ResetTrackingValue(symbol.name());
+    }
   }
   return true;
 }
@@ -4230,9 +4273,12 @@ class CartesianCursor : public Cursor {
       return false;
     }
 
-    auto restore_frame = [&frame](const auto &symbols, const auto &restore_from) {
+    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame[symbol] = restore_from[symbol.position()];
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
       }
     };
 
@@ -4281,7 +4327,7 @@ class CartesianCursor : public Cursor {
 }  // namespace
 
 UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CartesianOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CartesianOperator);
 
   return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem);
 }
@@ -4310,6 +4356,10 @@ class OutputTableCursor : public Cursor {
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
         frame[self_.output_symbols_[i]] = rows_[current_row_][i];
+        if (context.frame_change_collector &&
+            context.frame_change_collector->IsKeyTracked(self_.output_symbols_[i].name())) {
+          context.frame_change_collector->ResetTrackingValue(self_.output_symbols_[i].name());
+        }
       }
       current_row_++;
       return true;
@@ -4353,6 +4403,10 @@ class OutputTableStreamCursor : public Cursor {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame[self_->output_symbols_[i]] = row->at(i);
+        if (context.frame_change_collector &&
+            context.frame_change_collector->IsKeyTracked(self_->output_symbols_[i].name())) {
+          context.frame_change_collector->ResetTrackingValue(self_->output_symbols_[i].name());
+        }
       }
       return true;
     }
@@ -4537,7 +4591,7 @@ class CallProcedureCursor : public Cursor {
       result_row_it_ = result_.rows.begin();
     }
 
-    const auto &values = result_row_it_->values;
+    auto &values = result_row_it_->values;
     // Check that the row has all fields as required by the result signature.
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
@@ -4555,7 +4609,11 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
-      frame[self_->result_symbols_[i]] = result_it->second;
+      frame[self_->result_symbols_[i]] = std::move(result_it->second);
+      if (context.frame_change_collector &&
+          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
+        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
+      }
     }
     ++result_row_it_;
 
@@ -4572,7 +4630,7 @@ class CallProcedureCursor : public Cursor {
 };
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
@@ -4682,6 +4740,9 @@ class LoadCsvCursor : public Cursor {
       frame[self_->row_var_] =
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
     }
+    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
+      context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
+    }
     return true;
   }
 
@@ -4778,7 +4839,7 @@ Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<Logical
       loop_variable_symbol_(loop_variable_symbol) {}
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ForeachOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ForeachOperator);
   return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
 }
 
@@ -4794,6 +4855,74 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     update_clauses_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
+             bool subquery_has_return)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      subquery_has_return_(subquery_has_return) {}
+
+bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && subquery_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ApplyOperator);
+
+  return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem);
+}
+
+Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
+    : self_(self),
+      input_(self.input_->MakeCursor(mem)),
+      subquery_(self.subquery_->MakeCursor(mem)),
+      subquery_has_return_(self.subquery_has_return_) {}
+
+std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = input_->ModifiedSymbols(table);
+  auto subquery_symbols = subquery_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Apply");
+
+  while (true) {
+    if (pull_input_ && !input_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (subquery_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    subquery_->Reset();
+
+    // don't skip row if no rows are returned from subquery, return input_ rows
+    if (!subquery_has_return_) return true;
+  }
+}
+
+void Apply::ApplyCursor::Shutdown() {
+  input_->Shutdown();
+  subquery_->Shutdown();
+}
+
+void Apply::ApplyCursor::Reset() {
+  input_->Reset();
+  subquery_->Reset();
+  pull_input_ = true;
 }
 
 }  // namespace memgraph::query::plan

@@ -15,8 +15,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include <antlr4-runtime.h>
-
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
@@ -262,6 +260,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return IsolationLevelQuery*
    */
   antlrcpp::Any visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) override;
+
+  /**
+   * @return StorageModeQuery*
+   */
+  antlrcpp::Any visitStorageModeQuery(MemgraphCypher::StorageModeQueryContext *ctx) override;
 
   /**
    * @return CreateSnapshotQuery*
@@ -604,6 +607,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) override;
 
   /**
+   * @return MapProjectionData
+   */
+  antlrcpp::Any visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) override;
+
+  /**
    * @return vector<Expression*>
    */
   antlrcpp::Any visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) override;
@@ -921,6 +929,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowConfigQuery*
    */
   antlrcpp::Any visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) override;
+
+  /**
+   * @return CallSubquery*
+   */
+  antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
  public:
   Query *query() { return query_; }

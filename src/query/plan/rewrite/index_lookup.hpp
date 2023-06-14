@@ -465,6 +465,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Apply &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    RewriteBranch(&op.subquery_);
+    return false;
+  }
+
+  bool PostVisit(Apply & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
@@ -552,7 +564,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      */
     auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
                               int vertex_count) {
-      if (!new_stats.has_value() || vertex_count / 10.0 > found->vertex_count) {
+      if (!new_stats.has_value()) {
+        return 0;
+      }
+
+      if (vertex_count / 10.0 > found->vertex_count) {
         return 1;
       }
       int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
