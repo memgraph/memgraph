@@ -25,7 +25,7 @@
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
-// very well on Centos because OpenSSL version avaialable
+// very well on Centos because OpenSSL version available
 // on Centos 7 include  libkrb5 which has brilliant macros
 // called TRUE and FALSE. For more detailed explanation go
 // to memgraph.cpp.

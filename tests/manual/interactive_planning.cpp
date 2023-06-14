@@ -488,7 +488,7 @@ void RunInteractivePlanning(memgraph::query::DbAccessor *dba) {
       auto *query = dynamic_cast<memgraph::query::CypherQuery *>(MakeAst(*line, &ast));
       if (!query) {
         throw memgraph::utils::BasicException(
-            "Interactive planning is only avaialable for regular openCypher "
+            "Interactive planning is only available for regular openCypher "
             "queries.");
       }
       auto symbol_table = memgraph::query::MakeSymbolTable(query);
