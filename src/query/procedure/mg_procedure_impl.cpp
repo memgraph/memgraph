@@ -163,7 +163,7 @@ template <typename TFunc, typename... Args>
     spdlog::error("Immutable object error during mg API call: {}", ioe.what());
     return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT;
   } catch (const ValueConversionException &vce) {
-    spdlog::error("Value converion error during mg API call: {}", vce.what());
+    spdlog::error("Value conversion error during mg API call: {}", vce.what());
     return mgp_error::MGP_ERROR_VALUE_CONVERSION;
   } catch (const SerializationException &se) {
     spdlog::error("Serialization error during mg API call: {}", se.what());
