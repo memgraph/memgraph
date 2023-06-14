@@ -176,7 +176,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     ++it;
 
     // Now we need to parse cypherReturn production from opencypher grammar.
-    // Skip leading whitespaces and DISTINCT statemant if there is one.
+    // Skip leading whitespaces and DISTINCT statement if there is one.
     while (it != tokens.end() && it->first == Token::SPACE) {
       ++it;
     }
