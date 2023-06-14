@@ -742,7 +742,7 @@ enum class DecodeExpectedPropertyStatus {
 //                 loaded in this case
 // @return EQUAL when the property that was currently read has an ID equal to
 //               the expected property ID; the value is loaded in this case
-// @return GREATER when the property that was currenly read has a greater
+// @return GREATER when the property that was currently read has a greater
 //                 property ID than the expected property; the value isn't
 //                 loaded in this case
 //
