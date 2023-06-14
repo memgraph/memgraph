@@ -54,7 +54,7 @@ class Epoll {
     int status = epoll_ctl(epoll_fd_, (modify ? EPOLL_CTL_MOD : EPOLL_CTL_ADD), fd, &event);
     // epoll_ctl can return an error on our logical error or on irrecoverable
     // error. There is a third possibility that some system limit is reached. In
-    // that case we could return an erorr and close connection. Chances of
+    // that case we could return an error and close connection. Chances of
     // reaching system limit in normally working memgraph is extremely unlikely,
     // so it is correct to terminate even in that case.
     MG_ASSERT(!status, "Error on epoll {}: ({}) {}", (modify ? "modify" : "add"), errno, strerror(errno));
@@ -78,7 +78,7 @@ class Epoll {
     int status = epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, NULL);
     // epoll_ctl can return an error on our logical error or on irrecoverable
     // error. There is a third possibility that some system limit is reached. In
-    // that case we could return an erorr and close connection. Chances of
+    // that case we could return an error and close connection. Chances of
     // reaching system limit in normally working memgraph is extremely unlikely,
     // so it is correct to terminate even in that case.
     MG_ASSERT(!status, "Error on epoll delete: ({}) {}", errno, strerror(errno));
