@@ -1841,7 +1841,7 @@ static PyMethodDef PyVertexMethods[] = {
      "Return True if the vertex is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS, "Return vertex id."},
     {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount), METH_NOARGS,
-     "Return number of lables of a vertex."},
+     "Return number of labels of a vertex."},
     {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
      "Return label of a vertex on a given index."},
     {"add_label", reinterpret_cast<PyCFunction>(PyVertexAddLabel), METH_VARARGS, "Add the label to the vertex."},
