@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
         return 0;
       } else {
         LOG_FATAL(
-            "The query shoudn't have failed but it failed with an "
+            "The query shouldn't have failed but it failed with an "
             "error message '{}'",
             e.what());
       }

@@ -36,7 +36,7 @@ int ProcessException(const std::string &exception_message) {
     return 0;
   } else {
     LOG_FATAL(
-        "The query shoudn't have failed but it failed with an "
+        "The query shouldn't have failed but it failed with an "
         "error message '{}'",
         exception_message);
     return 1;
