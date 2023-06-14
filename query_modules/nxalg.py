@@ -325,7 +325,7 @@ def dominance_frontiers(ctx: mgp.ProcCtx, start: mgp.Vertex,
                     MemgraphMultiDiGraph(ctx=ctx), start).items()]
 
 
-# networkx.algorithms.dominance.immediate_dominatorss
+# networkx.algorithms.dominance.immediate_dominators
 @mgp.read_proc
 def immediate_dominators(ctx: mgp.ProcCtx, start: mgp.Vertex,
                          ) -> mgp.Record(node=mgp.Vertex,
