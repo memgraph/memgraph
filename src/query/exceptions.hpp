@@ -217,7 +217,7 @@ class IsolationLevelModificationInAnalyticsException : public QueryException {
       : QueryException(
             "Isolation level cannot be modified when storage mode is set to IN_MEMORY_ANALYTICAL."
             "IN_MEMORY_ANALYTICAL mode doesn't provide any isolation guarantees, "
-            "you can think about it as an equivalent to READ_UNCOMMITED.") {}
+            "you can think about it as an equivalent to READ_UNCOMMITTED.") {}
 };
 
 class StorageModeModificationInMulticommandTxException : public QueryException {
