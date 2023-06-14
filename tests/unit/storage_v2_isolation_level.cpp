@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,16 +28,6 @@ inline constexpr std::array isolation_levels{memgraph::storage::IsolationLevel::
                                              memgraph::storage::IsolationLevel::READ_COMMITTED,
                                              memgraph::storage::IsolationLevel::READ_UNCOMMITTED};
 
-std::string_view IsolationLevelToString(const memgraph::storage::IsolationLevel isolation_level) {
-  switch (isolation_level) {
-    case memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION:
-      return "SNAPSHOT_ISOLATION";
-    case memgraph::storage::IsolationLevel::READ_COMMITTED:
-      return "READ_COMMITTED";
-    case memgraph::storage::IsolationLevel::READ_UNCOMMITTED:
-      return "READ_UNCOMMITTED";
-  }
-}
 }  // namespace
 
 class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::storage::IsolationLevel> {

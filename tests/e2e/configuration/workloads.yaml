@@ -18,3 +18,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/configuration_check.py"]
     <<: *template_cluster
+
+  - name: "SHOW STORAGE INFO check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/storage_info.py"]
+    <<: *template_cluster

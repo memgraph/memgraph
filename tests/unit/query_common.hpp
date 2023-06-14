@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -153,17 +153,25 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
   return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
 }
 
+/// Create an AllPropertiesLookup from the given name.
+auto GetAllPropertiesLookup(AstStorage &storage, const std::string &name) {
+  return storage.Create<AllPropertiesLookup>(storage.Create<Identifier>(name));
+}
+
+/// Create an AllPropertiesLookup from the given expression.
+auto GetAllPropertiesLookup(AstStorage &storage, Expression *expr) { return storage.Create<AllPropertiesLookup>(expr); }
+
 /// Create an EdgeAtom with given name, direction and edge_type.
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<std::string> &edge_types = {}) {
+             const std::vector<std::string> &edge_types = {}, const bool user_declared = true) {
   std::vector<EdgeTypeIx> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name), EdgeAtom::Type::SINGLE, dir, types);
+  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
 }
 
 /// Create a variable length expansion EdgeAtom with given name, direction and
@@ -205,8 +213,9 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 /// Create a NodeAtom with given name and label.
 ///
 /// Name is used to create the Identifier which is assigned to the node.
-auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt) {
-  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
+auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
+             const bool user_declared = true) {
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
   if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
   return node;
 }
@@ -463,6 +472,24 @@ auto GetCallProcedure(AstStorage &storage, std::string procedure_name,
   return call_procedure;
 }
 
+auto GetCallSubquery(AstStorage &storage, SingleQuery *subquery) {
+  auto *call_subquery = storage.Create<memgraph::query::CallSubquery>();
+
+  auto *query = storage.Create<CypherQuery>();
+  query->single_query_ = std::move(subquery);
+
+  call_subquery->cypher_query_ = std::move(query);
+
+  return call_subquery;
+}
+
+auto GetCallSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *call_subquery = storage.Create<memgraph::query::CallSubquery>();
+  call_subquery->cypher_query_ = std::move(subquery);
+
+  return call_subquery;
+}
+
 /// Create the FOREACH clause with given named expression.
 auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vector<query::Clause *> &clauses) {
   return storage.Create<query::Foreach>(named_expr, clauses);
@@ -500,8 +527,13 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define MAP(...)                               \
   storage.Create<memgraph::query::MapLiteral>( \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
+#define MAP_PROJECTION(map_variable, elements)           \
+  storage.Create<memgraph::query::MapProjectionLiteral>( \
+      (memgraph::query::Expression *){map_variable},     \
+      std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
 #define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
+#define ALL_PROPERTIES_LOOKUP(expr) memgraph::query::test_common::GetAllPropertiesLookup(storage, expr)
 #define PARAMETER_LOOKUP(token_position) storage.Create<memgraph::query::ParameterLookup>((token_position))
 #define NEXPR(name, expr) storage.Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
@@ -586,8 +618,10 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COALESCE(...) storage.Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
   storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
+#define EXISTS(pattern) storage.Create<memgraph::query::Exists>(pattern)
 #define AUTH_QUERY(action, user, role, user_or_role, password, privileges, labels, edgeTypes)                  \
   storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), \
                                              (labels), (edgeTypes))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
+#define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(storage, __VA_ARGS__)

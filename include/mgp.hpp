@@ -51,6 +51,20 @@ class NotFoundException : public std::exception {
   std::string message_;
 };
 
+class NotEnoughMemoryException : public std::exception {
+ public:
+  const char *what() const throw() { return "Not enough memory!"; }
+};
+
+class MustAbortException : public std::exception {
+ public:
+  explicit MustAbortException(const std::string &message) : message_(message) {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
+};
+
 // Forward declarations
 class Nodes;
 using GraphNodes = Nodes;
@@ -136,6 +150,10 @@ class Graph {
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
+
+  bool MustAbort() const;
+
+  void CheckMustAbort() const;
 
  private:
   mgp_graph *graph_;
@@ -1567,6 +1585,14 @@ inline Id::Id(int64_t id) : id_(id) {}
 // Graph:
 
 inline Graph::Graph(mgp_graph *graph) : graph_(graph) {}
+
+inline bool Graph::MustAbort() const { return must_abort(graph_); }
+
+inline void Graph::CheckMustAbort() const {
+  if (MustAbort()) {
+    throw MustAbortException("Query was asked to abort.");
+  }
+}
 
 inline int64_t Graph::Order() const {
   int64_t i = 0;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <unordered_set>
 
 #include <gflags/gflags.h>
 
@@ -37,17 +39,19 @@
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event FailedQuery;
-}  // namespace EventCounter
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
+inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 class AuthQueryHandler {
  public:
@@ -169,6 +173,24 @@ class ReplicationQueryHandler {
   virtual std::vector<Replica> ShowReplicas() const = 0;
 };
 
+class AnalyzeGraphQueryHandler {
+ public:
+  AnalyzeGraphQueryHandler() = default;
+  virtual ~AnalyzeGraphQueryHandler() = default;
+
+  AnalyzeGraphQueryHandler(const AnalyzeGraphQueryHandler &) = default;
+  AnalyzeGraphQueryHandler &operator=(const AnalyzeGraphQueryHandler &) = default;
+
+  AnalyzeGraphQueryHandler(AnalyzeGraphQueryHandler &&) = default;
+  AnalyzeGraphQueryHandler &operator=(AnalyzeGraphQueryHandler &&) = default;
+
+  static std::vector<std::vector<TypedValue>> AnalyzeGraphCreateStatistics(const std::span<std::string> labels,
+                                                                           DbAccessor *execution_db_accessor);
+
+  static std::vector<std::vector<TypedValue>> AnalyzeGraphDeleteStatistics(const std::span<std::string> labels,
+                                                                           DbAccessor *execution_db_accessor);
+};
+
 /**
  * A container for data related to the preparation of a query.
  */
@@ -179,12 +201,12 @@ struct PreparedQuery {
   plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
+class Interpreter;
+
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
  *
- * Users should initialize the context but should not modify it after it has
- * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
@@ -214,6 +236,7 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::stream::Streams streams;
+  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -235,6 +258,11 @@ class Interpreter final {
     std::optional<int> qid;
   };
 
+  std::optional<std::string> username_;
+  bool in_explicit_transaction_{false};
+  bool expect_rollback_{false};
+  std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
+
   /**
    * Prepare a query for execution.
    *
@@ -244,7 +272,8 @@ class Interpreter final {
    * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username);
+                        const std::string *username,
+                        const std::map<std::string, storage::PropertyValue> &metadata = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -288,7 +317,12 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
-  void BeginTransaction();
+  void BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata = {});
+
+  /*
+  Returns transaction id or empty if the db_accessor is not initialized.
+  */
+  std::optional<uint64_t> GetTransactionId() const;
 
   void CommitTransaction();
 
@@ -297,21 +331,41 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
+  std::vector<TypedValue> GetQueries();
+
   /**
    * Abort the current multicommand transaction.
    */
   void Abort();
 
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
+
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
-    utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
+    std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
+    utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    explicit QueryExecution() = default;
+    explicit QueryExecution(utils::MonotonicBufferResource monotonic_memory)
+        : execution_memory(std::move(monotonic_memory)) {
+      std::visit(
+          [&](auto &memory_resource) {
+            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
+          },
+          execution_memory);
+    };
+
+    explicit QueryExecution(utils::PoolResource pool_resource) : execution_memory(std::move(pool_resource)) {
+      std::visit(
+          [&](auto &memory_resource) {
+            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
+          },
+          execution_memory);
+    };
+
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = default;
     QueryExecution &operator=(const QueryExecution &) = delete;
@@ -322,7 +376,7 @@ class Interpreter final {
       // destroy the prepared query which is using that instance
       // of execution memory.
       prepared_query.reset();
-      execution_memory.Release();
+      std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
     }
   };
 
@@ -338,6 +392,8 @@ class Interpreter final {
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+  // all queries that are run as part of the current transaction
+  utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
   InterpreterContext *interpreter_context_;
 
@@ -347,13 +403,13 @@ class Interpreter final {
   std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
-  bool in_explicit_transaction_{false};
-  bool expect_rollback_{false};
+  std::optional<FrameChangeCollector> frame_change_collector_;
 
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper,
+                                        const std::map<std::string, storage::PropertyValue> &metadata = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
@@ -365,12 +421,32 @@ class Interpreter final {
   }
 };
 
+class TransactionQueueQueryHandler {
+ public:
+  TransactionQueueQueryHandler() = default;
+  virtual ~TransactionQueueQueryHandler() = default;
+
+  TransactionQueueQueryHandler(const TransactionQueueQueryHandler &) = default;
+  TransactionQueueQueryHandler &operator=(const TransactionQueueQueryHandler &) = default;
+
+  TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
+  TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
+
+  static std::vector<std::vector<TypedValue>> ShowTransactions(const std::unordered_set<Interpreter *> &interpreters,
+                                                               const std::optional<std::string> &username,
+                                                               bool hasTransactionManagementPrivilege);
+
+  static std::vector<std::vector<TypedValue>> KillTransactions(
+      InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
+      const std::optional<std::string> &username, bool hasTransactionManagementPrivilege);
+};
+
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
-  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
 
+  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
   if (qid_value < 0 || qid_value >= query_executions_.size()) {
     throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
   }
@@ -390,7 +466,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, &query_execution->execution_memory};
+    AnyStream stream{result_stream,
+                     std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
+                                query_execution->execution_memory)};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
@@ -430,6 +508,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // methods as we will delete summary contained in them which we need
         // after our query finished executing.
         query_executions_.clear();
+        transaction_queries_->clear();
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
@@ -440,7 +519,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
-    EventCounter::IncrementCounter(EventCounter::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }

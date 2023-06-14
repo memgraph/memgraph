@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <climits>
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -64,7 +65,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
-  PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
@@ -79,6 +79,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Skip);
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
+  PRE_VISIT(EvaluatePatternFilter);
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -97,12 +98,29 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Filter &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
   bool Visit(Once &) override {
     // Ignore checking Once, it is implicitly at the end.
     return true;
   }
 
   bool PreVisit(Cartesian &op) override {
+    CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(Apply &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(Union &op) override {
     CheckOp(op);
     return false;
   }
@@ -141,7 +159,6 @@ using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
-using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
 using ExpectEmptyResult = OpChecker<EmptyResult>;
@@ -156,6 +173,23 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
+using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+class ExpectFilter : public OpChecker<Filter> {
+ public:
+  ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
+      : pattern_filters_(pattern_filters) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
+    for (auto i = 0; i < filter.pattern_filters_.size(); i++) {
+      PlanChecker check_updates(pattern_filters_[i], symbol_table);
+
+      filter.pattern_filters_[i]->Accept(check_updates);
+    }
+  }
+
+  std::vector<std::list<BaseOpChecker *>> pattern_filters_;
+};
 
 class ExpectForeach : public OpChecker<Foreach> {
  public:
@@ -174,6 +208,36 @@ class ExpectForeach : public OpChecker<Foreach> {
  private:
   std::list<BaseOpChecker *> input_;
   std::list<BaseOpChecker *> updates_;
+};
+
+class ExpectApply : public OpChecker<Apply> {
+ public:
+  ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+
+  void ExpectOp(Apply &apply, const SymbolTable &symbol_table) override {
+    PlanChecker check_subquery(subquery_, symbol_table);
+    apply.subquery_->Accept(check_subquery);
+  }
+
+ private:
+  std::list<BaseOpChecker *> subquery_;
+};
+
+class ExpectUnion : public OpChecker<Union> {
+ public:
+  ExpectUnion(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(Union &union_op, const SymbolTable &symbol_table) override {
+    PlanChecker check_left_op(left_, symbol_table);
+    union_op.left_op_->Accept(check_left_op);
+    PlanChecker check_right_op(left_, symbol_table);
+    union_op.right_op_->Accept(check_right_op);
+  }
+
+ private:
+  std::list<BaseOpChecker *> left_;
+  std::list<BaseOpChecker *> right_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
@@ -403,8 +467,7 @@ template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
-  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-  return TPlanner(single_query_parts, planning_context);
+  return TPlanner(query_parts, planning_context);
 }
 
 class FakeDbAccessor {
@@ -435,6 +498,11 @@ class FakeDbAccessor {
       }
     }
     return false;
+  }
+
+  memgraph::storage::IndexStats GetIndexStats(memgraph::storage::LabelId label,
+                                              memgraph::storage::PropertyId property) const {
+    return memgraph::storage::IndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }

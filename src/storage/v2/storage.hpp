@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <variant>
 
 #include "io/network/endpoint.hpp"
@@ -31,11 +33,13 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
@@ -198,7 +202,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    explicit Accessor(Storage *storage, IsolationLevel isolation_level);
+    explicit Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -264,6 +268,30 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
+    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                     const storage::PropertyId &property) const {
+      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
+      return storage_->indices_.label_property_index.ClearIndexStats();
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::span<std::string> labels) {
+      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
+        std::vector<std::pair<LabelId, PropertyId>> loc_results =
+            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
+                               std::make_move_iterator(loc_results.end()));
+      });
+      return deleted_indexes;
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {
+      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
+    }
+
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
@@ -324,6 +352,8 @@ class Storage final {
 
     void FinalizeTransaction();
 
+    std::optional<uint64_t> GetTransactionId() const;
+
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
@@ -340,7 +370,7 @@ class Storage final {
   };
 
   Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+    return Accessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_};
   }
 
   const std::string &LabelToName(LabelId label) const;
@@ -438,8 +468,9 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-  bool LockPath();
-  bool UnlockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
+  utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
 
@@ -481,14 +512,25 @@ class Storage final {
 
   void FreeMemory();
 
-  void SetIsolationLevel(IsolationLevel isolation_level);
+  enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  IsolationLevel GetIsolationLevel() const noexcept;
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+  void SetStorageMode(StorageMode storage_mode);
+
+  StorageMode GetStorageMode();
+
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForAnalyticsPeriodicCommit,
+    ReachedMaxNumTries
+  };
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -554,6 +596,7 @@ class Storage final {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
 
   Config config_;
   utils::Scheduler gc_runner_;

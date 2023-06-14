@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <atomic>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
@@ -30,7 +32,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
   // This allows the transaction to see its changes even though it's committed.
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
-                                    : transaction->transaction_id;
+                                    : transaction->transaction_id.load(std::memory_order_acquire);
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
@@ -80,7 +82,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
 
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  if (ts == transaction->transaction_id.load(std::memory_order_acquire) || ts < transaction->start_timestamp) {
     return true;
   }
 
@@ -94,6 +96,9 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// a `DELETE_OBJECT` delta).
 /// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    return nullptr;
+  }
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                            transaction->command_id);
@@ -104,6 +109,9 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// @throw std::bad_alloc
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    return;
+  }
   transaction->EnsureCommitTimestampExists();
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
                                                  transaction->command_id);

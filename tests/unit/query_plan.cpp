@@ -16,6 +16,7 @@
 #include <sstream>
 #include <tuple>
 #include <typeinfo>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -38,6 +39,7 @@ namespace memgraph::query {
 
 using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
+using memgraph::query::CypherUnion;
 using memgraph::query::SingleQuery;
 using memgraph::query::Symbol;
 using memgraph::query::SymbolGenerator;
@@ -51,10 +53,10 @@ namespace {
 class Planner {
  public:
   template <class TDbAccessor>
-  Planner(std::vector<SingleQueryPart> single_query_parts, PlanningContext<TDbAccessor> context) {
+  Planner(QueryParts query_parts, PlanningContext<TDbAccessor> context) {
     memgraph::query::Parameters parameters;
     PostProcessor post_processor(parameters);
-    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(single_query_parts, &context);
+    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &context);
     plan_ = post_processor.Rewrite(std::move(plan_), &context);
   }
 
@@ -957,6 +959,20 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MapProjectionLiteralAggregationReturn) {
+  // Test WITH {} as map RETURN map {sum: SUM(2)} AS result, 42 AS group_by
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto sum = SUM(LITERAL(2), false);
+  auto group_by_literal = LITERAL(42);
+  auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
+      {storage.GetPropertyIx("sum"), sum}};
+  auto *query = QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), elements), AS("result"),
+                                                                  group_by_literal, AS("group_by"))));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   // Test RETURN [][SUM(2)] AS result, 42 AS group_by
   AstStorage storage;
@@ -1008,7 +1024,7 @@ TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
 }
 
 TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
-  // Test RETURN {lit: 42, sum: sum(2)}
+  // Test RETURN {lit: 42, sum: sum(2)} AS result
   AstStorage storage;
   FakeDbAccessor dba;
   auto sum = SUM(LITERAL(2), false);
@@ -1017,6 +1033,20 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
       MAP({storage.GetPropertyIx("sum"), sum}, {storage.GetPropertyIx("lit"), group_by_literal}), AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MapProjectionWithAggregationAndGroupBy) {
+  // Test WITH {} as map RETURN map {lit: 42, sum: SUM(2)} AS result
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto sum = SUM(LITERAL(2), false);
+  auto group_by_literal = LITERAL(42);
+  auto projection = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
+      {storage.GetPropertyIx("lit"), group_by_literal}, {storage.GetPropertyIx("sum"), sum}};
+  auto *query =
+      QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), projection), AS("result"))));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
@@ -1733,6 +1763,209 @@ TYPED_TEST(TestPlanner, Foreach) {
 
     DeleteListContent(&on_match);
     DeleteListContent(&on_create);
+  }
+}
+
+TYPED_TEST(TestPlanner, Exists) {
+  AstStorage storage;
+  FakeDbAccessor dba;
+
+  // MATCH (n) WHERE exists((n)-[]-())
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                             NODE("node", std::nullopt, false)))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
+  // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two))
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                             NODE("node", "Two", false)))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                              new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
+  // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two)) AND exists((n)-[]-())
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                 NODE("node", "Two", false))),
+                  EXISTS(PATTERN(NODE("n"), EDGE("edge2", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                 NODE("node2", std::nullopt, false))))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter_with_types{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                                         new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectLimit(),
+                                                            new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(
+        planner.plan(), symbol_table, ExpectScanAll(),
+        ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter_without_types, pattern_filter_with_types}),
+        ExpectProduce());
+
+    DeleteListContent(&pattern_filter_with_types);
+    DeleteListContent(&pattern_filter_without_types);
+  }
+
+  // MATCH (n) WHERE n.prop = 1 AND exists((n)-[:TYPE]-(:Two))
+  {
+    auto property = dba.Property("prop");
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                 NODE("node", "Two", false))),
+                  PROPERTY_LOOKUP("n", property))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                              new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
+  // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two)) OR exists((n)-[]-())
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(OR(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                NODE("node", "Two", false))),
+                 EXISTS(PATTERN(NODE("n"), EDGE("edge2", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                NODE("node2", std::nullopt, false))))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter_with_types{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                                         new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectLimit(),
+                                                            new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(
+        planner.plan(), symbol_table, ExpectScanAll(),
+        ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter_with_types, pattern_filter_without_types}),
+        ExpectProduce());
+
+    DeleteListContent(&pattern_filter_with_types);
+    DeleteListContent(&pattern_filter_without_types);
+  }
+}
+
+TYPED_TEST(TestPlanner, Subqueries) {
+  AstStorage storage;
+  FakeDbAccessor dba;
+
+  // MATCH (n) CALL { MATCH (m) RETURN (m) } RETURN n, m
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectProduce()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
+
+    DeleteListContent(&subquery_plan);
+  }
+
+  // MATCH (n) CALL { MATCH (m)-[r]->(n) RETURN (m) } RETURN n, m
+  {
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("n"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectExpand(), new ExpectProduce()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
+
+    DeleteListContent(&subquery_plan);
+  }
+
+  // MATCH (n) CALL { MATCH (p)-[r]->(s) WHERE s.prop = 2 RETURN (p) } RETURN n, p
+  {
+    auto property = dba.Property("prop");
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r", Direction::OUT), NODE("s"))),
+                                  WHERE(EQ(PROPERTY_LOOKUP("s", property), LITERAL(2))), RETURN("p"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "p")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter(),
+                                             new ExpectProduce()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
+
+    DeleteListContent(&subquery_plan);
+  }
+
+  // MATCH (m) CALL { MATCH (n) CALL { MATCH (o) RETURN o } RETURN n, o } RETURN m, n, o
+  {
+    auto *subquery_inside_subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("o"))), RETURN("o"));
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery_inside_subquery), RETURN("n", "o"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n", "o")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> subquery_inside_subquery_plan{new ExpectScanAll(), new ExpectProduce()};
+    std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectApply(subquery_inside_subquery_plan),
+                                             new ExpectProduce()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
+
+    DeleteListContent(&subquery_plan);
+    DeleteListContent(&subquery_inside_subquery_plan);
+  }
+
+  // MATCH (m) CALL { MATCH (n) RETURN n UNION MATCH (n) RETURN n } RETURN m, n
+  {
+    auto *subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")),
+                           UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n"))));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+
+    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAll(), new ExpectProduce()};
+    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAll(), new ExpectProduce()};
+    std::list<BaseOpChecker *> subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
+
+    DeleteListContent(&subquery_plan);
+    DeleteListContent(&left_subquery_part);
+    DeleteListContent(&right_subquery_part);
   }
 }
 }  // namespace
