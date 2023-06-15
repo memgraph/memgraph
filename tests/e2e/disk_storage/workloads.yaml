@@ -16,3 +16,13 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["disk_storage/update_storage_mode_db_not_empty.py"]
     <<: *disk_storage
+
+  - name: "Tests when switching from disk storage to in-memory storage is forbidden. "
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/update_storage_mode_disk_to_memory.py"]
+    <<: *disk_storage
+
+  - name: "Tests when switching from in-memory to disk is allowed. "
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/update_storage_mode_memory_to_disk.py"]
+    <<: *disk_storage
