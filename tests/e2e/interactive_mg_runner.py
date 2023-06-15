@@ -33,17 +33,15 @@
 import atexit
 import logging
 import os
-import subprocess
-from argparse import ArgumentParser
-from pathlib import Path
+import sys
 import tempfile
 import time
-import sys
+from argparse import ArgumentParser
 from inspect import signature
 
 import yaml
-from memgraph import MemgraphInstanceRunner
-from memgraph import extract_bolt_port
+
+from memgraph import MemgraphInstanceRunner, extract_bolt_port
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -77,9 +75,9 @@ ACTIONS = {
     "info": lambda context: info(context),
     "stop": lambda context, name: stop(context, name),
     "start": lambda context, name: start(context, name),
-    "sleep": lambda context, delta: time.sleep(float(delta)),
-    "exit": lambda context: sys.exit(1),
-    "quit": lambda context: sys.exit(1),
+    "sleep": lambda _, delta: time.sleep(float(delta)),
+    "exit": lambda _: sys.exit(1),
+    "quit": lambda _: sys.exit(1),
 }
 
 log = logging.getLogger("memgraph.tests.e2e")
