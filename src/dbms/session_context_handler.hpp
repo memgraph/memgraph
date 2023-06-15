@@ -11,8 +11,10 @@
 // TODO: Check if comment above is ok
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 #include "constants.hpp"
@@ -23,6 +25,7 @@
 #include "session_context.hpp"
 #include "storage_handler.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -91,7 +94,7 @@ class SessionContextHandler {
 #if MG_ENTERPRISE
     audit_log_ = audit_log;
 #endif
-    MG_ASSERT(!New_(kDefaultDB).HasError(), "Failed while creating the default DB.");
+    MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
     initialized_ = true;
   }
 
@@ -238,6 +241,17 @@ class SessionContextHandler {
   SessionContextHandler() : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()} {}
   ~SessionContextHandler() {}
 
+  std::optional<std::filesystem::path> StorageDir(const std::string &name) const {
+    try {
+      const auto conf = storage_handler_.GetConfig(name);
+      if (conf) {
+        return conf->durability.storage_directory;
+      }
+    } catch (std::out_of_range &) {
+    }
+    return {};
+  }
+
   /**
    * @brief Create a new SessionContext associated with the "name" database
    *
@@ -289,6 +303,40 @@ class SessionContextHandler {
       return new_interp.GetError();
     }
     return new_storage.GetError();
+  }
+
+  /**
+   * @brief Create a new SessionContext associated with the default database
+   *
+   * @return NewResultT context on success, error on failure
+   */
+  NewResultT NewDefault_() {
+    auto res = New_(kDefaultDB);
+    if (res.HasValue()) {
+      // Symlink to support back-compatibility
+      const auto dir = StorageDir(kDefaultDB);
+      MG_ASSERT(dir, "Failed to find storage path.");
+      const auto main_dir = dir->parent_path();
+      for (auto const &item : std::filesystem::directory_iterator{*dir}) {
+        const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
+        const auto link = main_dir / dir_name;
+        const auto to = std::filesystem::relative(item.path(), main_dir);
+        if (!std::filesystem::exists(link)) {
+          std::filesystem::create_directory_symlink(to, link);
+        } else {  // Check existing link
+          std::error_code ec;
+          const auto test_link = std::filesystem::read_symlink(link, ec);
+          if (ec || test_link != to) {
+            MG_ASSERT(
+                false,
+                "Memgraph storage directory incompatible with new version.\n"
+                "Please use a clean directory or move directory \"{}\" under a new directory called \"memgraph\".",
+                dir_name.string());
+          }
+        }
+      }
+    }
+    return res;
   }
 
   /**

@@ -104,7 +104,7 @@ class StorageHandler {
    * @param name name of the database
    * @return std::optional<TConfig>
    */
-  std::optional<TConfig> GetConfig(std::string_view name) {
+  std::optional<TConfig> GetConfig(const std::string &name) const {
     if (auto search = storage_.find(name); search != storage_.end()) {
       return search->second.second;
     }
