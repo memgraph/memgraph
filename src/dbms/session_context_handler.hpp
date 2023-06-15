@@ -311,14 +311,20 @@ class SessionContextHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT NewDefault_() {
-    auto res = New_(kDefaultDB);
+    // Create the default DB in the root (this is how it was done pre multi-tenancy)
+    auto res = New_(kDefaultDB, ".");
     if (res.HasValue()) {
       // Symlink to support back-compatibility
       const auto dir = StorageDir(kDefaultDB);
       MG_ASSERT(dir, "Failed to find storage path.");
-      const auto main_dir = dir->parent_path();
+      const auto main_dir = *dir / kDefaultDB;
+      if (!std::filesystem::exists(main_dir)) {
+        std::filesystem::create_directory(main_dir);
+      }
+      const std::vector<std::string> skip{"auth", "audit_log", "internal_modules", "settings", kDefaultDB};
       for (auto const &item : std::filesystem::directory_iterator{*dir}) {
         const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
+        if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
         const auto link = main_dir / dir_name;
         const auto to = std::filesystem::relative(item.path(), main_dir);
         if (!std::filesystem::exists(link)) {
