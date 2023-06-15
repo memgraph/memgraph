@@ -62,15 +62,18 @@ class MemgraphInstanceRunner:
         self.binary_path = binary_path
         self.args = None
         self.proc_mg = None
-        self.conn = None
         self.ssl = use_ssl
 
-    def query(self, query):
-        cursor = self.conn.cursor()
-        cursor.execute(query)
-        return cursor.fetchall()
+    def execute_setup_queries(self, setup_queries):
+        conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
+        conn.autocommit = True
+        cursor = conn.cursor()
+        for query in setup_queries:
+            cursor.execute(query)
+        cursor.close()
+        conn.close()
 
-    def start(self, restart=False, args=[]):
+    def start(self, restart=False, args=[], setup_queries=[]):
         if not restart and self.is_running():
             return
         self.stop()
@@ -86,8 +89,7 @@ class MemgraphInstanceRunner:
         self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
-        self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
-        self.conn.autocommit = True
+        self.execute_setup_queries(setup_queries)
         assert self.is_running(), "The Memgraph process died!"
 
     def is_running(self):
