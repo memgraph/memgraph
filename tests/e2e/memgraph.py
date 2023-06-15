@@ -65,12 +65,7 @@ class MemgraphInstanceRunner:
         self.conn = None
         self.ssl = use_ssl
 
-    def query(self, query):
-        cursor = self.conn.cursor()
-        cursor.execute(query)
-        return cursor.fetchall()
-
-    def start(self, restart=False, args=[]):
+    def start(self, restart=False, setup_queries=[], args=[]):
         if not restart and self.is_running():
             return
         self.stop()
@@ -88,6 +83,12 @@ class MemgraphInstanceRunner:
         wait_for_server(self.bolt_port)
         self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
         self.conn.autocommit = True
+        cursor = self.conn.cursor()
+        for query in setup_queries:
+            cursor.execute(query)
+        cursor.close()
+        self.conn.close()
+
         assert self.is_running(), "The Memgraph process died!"
 
     def is_running(self):
