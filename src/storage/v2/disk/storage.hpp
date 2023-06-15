@@ -18,7 +18,6 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/storage.hpp"
 
-/// ROCKSDB
 #include <rocksdb/db.h>
 
 namespace memgraph::storage {

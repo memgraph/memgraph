@@ -510,6 +510,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         HasVertexEqualPropertyValue(vertex, property, value, &transaction_, view)) {
+      spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
@@ -525,6 +526,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && properties.IsPropertyEqual(property, value)) {
+      spdlog::debug("Loaded vertex with key {} from disk index to index cache", key_str);
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
   }
@@ -556,6 +558,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     auto prop_value = GetVertexProperty(vertex, property, &transaction_, view);
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
+      if (prop_value.IsInt()) {
+        spdlog::debug("Added to prop index value from main storage: {}", prop_value.ValueInt());
+      } else if (prop_value.IsDouble()) {
+        spdlog::debug("Added to prop index value from main storage: {}", prop_value.ValueDouble());
+      }
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
@@ -572,6 +579,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     auto prop_value = properties.GetProperty(property);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
+      if (prop_value.IsInt()) {
+        spdlog::debug("Added to prop index value from label-property storage: {}", prop_value.ValueInt());
+      } else if (prop_value.IsDouble()) {
+        spdlog::debug("Added to prop index value from label-property storage: {}", prop_value.ValueDouble());
+      }
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
   }

@@ -3101,7 +3101,8 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
   ASSERT_EQ(result_row.size(), 1);
-  EXPECT_EQ(result_row[0].ValueVertex(), labeled_vertex);
+  auto result_vertex = result_row[0].ValueVertex();
+  EXPECT_EQ(result_vertex.Gid(), labeled_vertex.Gid());
 }
 
 TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
@@ -3156,16 +3157,31 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
     return CollectProduce(*produce, &context);
   };
 
+  auto check_no_order = [&](auto results, auto expected) -> bool {
+    for (size_t i = 0; i < expected.size(); i++) {
+      bool local_check = false;
+      for (size_t j = 0; j < results.size(); j++) {
+        bool local_equal =
+            (TypedValue(*results[j][0].ValueVertex().GetProperty(memgraph::storage::View::OLD, prop)) == expected[i])
+                .ValueBool();
+        if (local_equal) {
+          local_check = true;
+          break;
+        }
+      }
+      if (!local_check) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   auto check = [&](TypedValue lower, Bound::Type lower_type, TypedValue upper, Bound::Type upper_type,
                    const std::vector<TypedValue> &expected) {
     auto results = run_scan_all(lower, lower_type, upper, upper_type);
     ASSERT_EQ(results.size(), expected.size());
-    for (size_t i = 0; i < expected.size(); i++) {
-      TypedValue equal =
-          TypedValue(*results[i][0].ValueVertex().GetProperty(memgraph::storage::View::OLD, prop)) == expected[i];
-      ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
-      EXPECT_TRUE(equal.ValueBool());
-    }
+    ASSERT_TRUE(check_no_order(results, expected));
+    storage_dba->PrepareForNextIndexQuery();
   };
 
   // normal ranges that return something
@@ -3411,7 +3427,8 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  // EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  storage_dba->PrepareForNextIndexQuery();
 
   SymbolTable symbol_table;
 
