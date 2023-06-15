@@ -65,6 +65,8 @@ class MemgraphInstanceRunner:
         self.ssl = use_ssl
 
     def execute_setup_queries(self, setup_queries):
+        if setup_queries is None:
+            return
         conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
         conn.autocommit = True
         cursor = conn.cursor()
@@ -73,11 +75,12 @@ class MemgraphInstanceRunner:
         cursor.close()
         conn.close()
 
-    def start(self, restart=False, args=[], setup_queries=[]):
+    def start(self, restart=False, args=None, setup_queries=None):
         if not restart and self.is_running():
             return
         self.stop()
-        self.args = copy.deepcopy(args)
+        if args is not None:
+            self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
         args_mg = [
             self.binary_path,
