@@ -29,6 +29,7 @@
 #include <variant>
 
 #include "auth/models.hpp"
+#include "dbms/global.hpp"
 #include "dbms/session_context_handler.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
@@ -2803,10 +2804,20 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                            }
                            case MultiDatabaseQuery::Action::USE: {
                              try {
-                               const auto success = sd_handler.SetFor(session_uuid, db_name);
-                               res = success ? "Using " + db_name : "Failed to use " + db_name;
+                               const auto set = sd_handler.SetFor(session_uuid, db_name);
+                               switch (set) {
+                                 case dbms::SetForResult::SUCCESS:
+                                   res = "Using " + db_name;
+                                   break;
+                                 case dbms::SetForResult::ALREADY_SET:
+                                   res = "Already using " + db_name;
+                                   break;
+                                 case dbms::SetForResult::FAIL:
+                                   res = "Failed to start using " + db_name;
+                                   break;
+                               }
                              } catch (...) {
-                               res = db_name + " doesn't exist.";
+                               res = db_name + " does not exist.";
                              }
                              break;
                            }

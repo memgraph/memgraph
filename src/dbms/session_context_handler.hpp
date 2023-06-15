@@ -126,7 +126,7 @@ class SessionContextHandler {
    * @return true on success
    * @throws if uuid unknown or OnChange throws
    */
-  bool SetFor(const std::string &uuid, const std::string &db_name) {
+  SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
     auto &s = sessions_.at(uuid);
     return s.OnChange(db_name);

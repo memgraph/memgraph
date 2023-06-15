@@ -255,12 +255,12 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   bool IsConnected() const { return ws_.is_open() && execution_active_; }
 
-  bool OnChange(const std::string &db_name) override {
+  dbms::SetForResult OnChange(const std::string &db_name) override {
     if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
       return session_.SetImpl(db_name, session_context_->Get(db_name), endpoint_);
     }
-    return false;
+    return dbms::SetForResult::FAIL;
   }
 
   bool OnDelete(const std::string &db_name) override { return session_.DelImpl(db_name); }
@@ -573,12 +573,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::visit(utils::Overloaded{std::forward<F>(fun)}, socket_);
   }
 
-  bool OnChange(const std::string &db_name) override {
+  dbms::SetForResult OnChange(const std::string &db_name) override {
     if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
       return session_.SetImpl(db_name, session_context_->Get(db_name), endpoint_);
     }
-    return false;
+    return dbms::SetForResult::FAIL;
   }
 
   bool OnDelete(const std::string &db_name) override { return session_.DelImpl(db_name); }
