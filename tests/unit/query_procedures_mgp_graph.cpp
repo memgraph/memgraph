@@ -96,6 +96,18 @@ size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable) {
 ;
 
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
+  if (auto dbAccessor = std::get_if<memgraph::query::DbAccessor *>(&from->graph->impl)) {
+    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
+    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
+    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
+    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
+  } else if (auto dbAccessor = std::get<memgraph::query::SubgraphDbAccessor *>(from->graph->impl)) {
+    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
+    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
+    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
+    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
+  }
+
   EXPECT_EQ(
       CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl)),
       0);
@@ -370,6 +382,10 @@ TYPED_TEST(MgpGraphTest, VertexSetProperty) {
 }
 
 TYPED_TEST(MgpGraphTest, VertexAddLabel) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
