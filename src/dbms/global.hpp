@@ -17,6 +17,25 @@
 
 namespace memgraph::dbms {
 
+enum class DeleteError : uint8_t {
+  DEFAULT_DB,
+  USING,
+  NON_EXISTENT,
+  FAIL,
+};
+
+enum class NewError : uint8_t {
+  NO_CONFIGS,
+  EXISTS,
+  GENERIC,
+};
+
+enum class SetForResult : uint8_t {
+  SUCCESS,
+  ALREADY_SET,
+  FAIL,
+};
+
 /**
  * @brief Session interface used by the DBMS to handle the the active sessions.
  */
@@ -49,7 +68,7 @@ class SessionInterface {
    *
    * @return true on success
    */
-  virtual bool OnChange(const std::string &) = 0;
+  virtual dbms::SetForResult OnChange(const std::string &) = 0;
 
   /**
    * @brief Gets called on database delete (drop).
@@ -57,19 +76,6 @@ class SessionInterface {
    * @return true on success
    */
   virtual bool OnDelete(const std::string &) = 0;
-};
-
-enum class DeleteError : uint8_t {
-  DEFAULT_DB,
-  USING,
-  NON_EXISTENT,
-  FAIL,
-};
-
-enum class NewError : uint8_t {
-  NO_CONFIGS,
-  EXISTS,
-  GENERIC,
 };
 
 }  // namespace memgraph::dbms

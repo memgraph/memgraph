@@ -11,8 +11,10 @@
 // TODO: Check if comment above is ok
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 #include "constants.hpp"
@@ -23,6 +25,7 @@
 #include "session_context.hpp"
 #include "storage_handler.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -91,8 +94,20 @@ class SessionContextHandler {
 #if MG_ENTERPRISE
     audit_log_ = audit_log;
 #endif
-    MG_ASSERT(!New_(kDefaultDB).HasError(), "Failed while creating the default DB.");
+    MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
     initialized_ = true;
+  }
+
+  /**
+   * @brief
+   *
+   * TODO Check how this should be handled.
+   *
+   * @param auth_checker
+   * @param auth_handler
+   */
+  void LinkQueryAuth(query::AuthChecker *auth_checker, query::AuthQueryHandler *auth_handler) {
+    interp_handler_.LinkQueryAuth(auth_checker, auth_handler);
   }
 
   /**
@@ -126,7 +141,7 @@ class SessionContextHandler {
    * @return true on success
    * @throws if uuid unknown or OnChange throws
    */
-  bool SetFor(const std::string &uuid, const std::string &db_name) {
+  SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
     auto &s = sessions_.at(uuid);
     return s.OnChange(db_name);
@@ -238,6 +253,17 @@ class SessionContextHandler {
   SessionContextHandler() : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()} {}
   ~SessionContextHandler() {}
 
+  std::optional<std::filesystem::path> StorageDir(const std::string &name) const {
+    try {
+      const auto conf = storage_handler_.GetConfig(name);
+      if (conf) {
+        return conf->durability.storage_directory;
+      }
+    } catch (std::out_of_range &) {
+    }
+    return {};
+  }
+
   /**
    * @brief Create a new SessionContext associated with the "name" database
    *
@@ -277,18 +303,58 @@ class SessionContextHandler {
       auto new_interp = interp_handler_.New(name, new_storage.GetValue().get(), inter_config,
                                             storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
+        return SessionContext {
+          new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_
 #if MG_ENTERPRISE
-        SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_, audit_log_};
-#else
-        SessionContext sd{new_storage.GetValue(), new_interp.GetValue(), auth_};
+              ,
+              audit_log_
 #endif
-        sd.run_id = run_id_;
-        return sd;
+        };
       }
       // TODO: Storage succeeded, but interpreter failed... How to handle?
       return new_interp.GetError();
     }
     return new_storage.GetError();
+  }
+
+  /**
+   * @brief Create a new SessionContext associated with the default database
+   *
+   * @return NewResultT context on success, error on failure
+   */
+  NewResultT NewDefault_() {
+    // Create the default DB in the root (this is how it was done pre multi-tenancy)
+    auto res = New_(kDefaultDB, ".");
+    if (res.HasValue()) {
+      // Symlink to support back-compatibility
+      const auto dir = StorageDir(kDefaultDB);
+      MG_ASSERT(dir, "Failed to find storage path.");
+      const auto main_dir = *dir / kDefaultDB;
+      if (!std::filesystem::exists(main_dir)) {
+        std::filesystem::create_directory(main_dir);
+      }
+      const std::vector<std::string> skip{"auth", "audit_log", "internal_modules", "settings", kDefaultDB};
+      for (auto const &item : std::filesystem::directory_iterator{*dir}) {
+        const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
+        if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
+        const auto link = main_dir / dir_name;
+        const auto to = std::filesystem::relative(item.path(), main_dir);
+        if (!std::filesystem::exists(link)) {
+          std::filesystem::create_directory_symlink(to, link);
+        } else {  // Check existing link
+          std::error_code ec;
+          const auto test_link = std::filesystem::read_symlink(link, ec);
+          if (ec || test_link != to) {
+            MG_ASSERT(
+                false,
+                "Memgraph storage directory incompatible with new version.\n"
+                "Please use a clean directory or move directory \"{}\" under a new directory called \"memgraph\".",
+                dir_name.string());
+          }
+        }
+      }
+    }
+    return res;
   }
 
   /**
@@ -303,13 +369,13 @@ class SessionContextHandler {
     if (storage) {
       auto interp = interp_handler_.Get(name);
       if (interp) {
+        return SessionContext {
+          *storage, *interp, run_id_, auth_
 #if MG_ENTERPRISE
-        SessionContext sd{*storage, *interp, auth_, audit_log_};
-#else
-        SessionContext sd{*storage, *interp, auth_};
+              ,
+              audit_log_
 #endif
-        sd.run_id = run_id_;
-        return sd;
+        };
       }
     }
     throw SessionContextException("Tried to retrieve an unknown database.");

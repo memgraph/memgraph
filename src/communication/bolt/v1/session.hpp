@@ -89,12 +89,14 @@ class MultiSessionHandler {
    * @param id unique identifier of the instance (usually the database name)
    * @param args arguments forwarded to the high-level implementation constructor
    * @return true on success
-   * @return false if already set to the id
    */
   template <typename... TArgs>
-  bool SetImpl(std::string id, TArgs &&...args) {
-    if (id.empty() || id == id_) {
-      return false;
+  dbms::SetForResult SetImpl(std::string id, TArgs &&...args) {
+    if (id.empty()) {
+      return dbms::SetForResult::FAIL;
+    }
+    if (id == id_) {
+      return dbms::SetForResult::ALREADY_SET;
     }
     auto &ptr = all_[id];
     if (ptr == nullptr) {
@@ -102,7 +104,7 @@ class MultiSessionHandler {
     }
     current_ = ptr;
     id_ = id;
-    return true;
+    return dbms::SetForResult::SUCCESS;
   }
 
   /**
@@ -255,6 +257,9 @@ class Session : public MultiSessionHandler<TSession> {
         return;
       }
       handshake_done_ = true;
+      // Update the decoder's Bolt version (v5 has changed the undelying structure)
+      decoder_.UpdateVersion(version_.major);
+      encoder_.UpdateVersion(version_.major);
     }
 
     ChunkState chunk_state;
