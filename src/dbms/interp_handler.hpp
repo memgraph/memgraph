@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include "global.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
@@ -53,7 +54,12 @@ class InterpContextHandler {
     // Create storage
     auto [itr, success] =
         interp_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory), config));
-    if (success) return itr->second.first;
+    if (success) {
+      auto &ref = itr->second.first;
+      if (ah_) ref->auth = ah_;
+      if (ac_) ref->auth_checker = ac_;
+      return ref;
+    }
     return NewError::EXISTS;
   }
 
@@ -92,10 +98,23 @@ class InterpContextHandler {
    */
   std::optional<TConfig> GetDefaultConfig() { return default_config_; }
 
+  /**
+   * @brief Handling AuthHandler and AuthChecker
+   *
+   * TODO: Check if we want a single global Auth* or local to each interpreter?
+   *
+   */
+  void LinkQueryAuth(query::AuthChecker *ac, query::AuthQueryHandler *ah) {
+    ac_ = ac;
+    ah_ = ah;
+  }
+
  private:
   std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>>
       interp_;                             //!< map to all active interpreters
   std::optional<TConfig> default_config_;  //!< default configuration to use
+  query::AuthChecker *ac_{nullptr};
+  query::AuthQueryHandler *ah_{nullptr};
 };
 
 }  // namespace memgraph::dbms

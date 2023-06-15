@@ -99,6 +99,18 @@ class SessionContextHandler {
   }
 
   /**
+   * @brief
+   *
+   * TODO Check how this should be handled.
+   *
+   * @param auth_checker
+   * @param auth_handler
+   */
+  void LinkQueryAuth(query::AuthChecker *auth_checker, query::AuthQueryHandler *auth_handler) {
+    interp_handler_.LinkQueryAuth(auth_checker, auth_handler);
+  }
+
+  /**
    * @brief Create a new SessionContext associated with the "name" database
    *
    * @param name name of the database

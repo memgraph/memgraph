@@ -842,6 +842,12 @@ int main(int argc, char **argv) {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{data_directory /
                                                                                                     "auth"};
 
+  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
+  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+
+  memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
+  memgraph::glue::AuthChecker auth_checker{&auth};
+
 #ifdef MG_ENTERPRISE
   // Audit log
   memgraph::audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
@@ -906,23 +912,17 @@ int main(int argc, char **argv) {
 
   // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
+  sc_handler.LinkQueryAuth(&auth_checker, &auth_handler);
 #ifdef MG_ENTERPRISE
   sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
 #else
   sc_handler.Init(&auth, {db_config, interp_config});
 #endif
+
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
   auto &interpreter_context = *session_context.interpreter_context;
   auto &db = *session_context.db;
-
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  memgraph::glue::AuthChecker auth_checker{&auth};
-  interpreter_context.auth = &auth_handler;
-  interpreter_context.auth_checker = &auth_checker;
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
