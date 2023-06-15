@@ -4,9 +4,10 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 print_help() {
   echo -e "$0             => run all under tests/integration"
   echo -e "$0 folder_name => run single test under tests/integration"
+  exit 1
 }
 
-run_single_test() {
+test_one() {
   cd "$DIR"
   integration_test_folder_name="$1"
   pushd "$integration_test_folder_name" >/dev/null
@@ -27,7 +28,7 @@ test_all() {
   cd "$DIR"
   for name in *; do
     if [ ! -d "$name" ]; then continue; fi
-    run_single_test "$name"
+    test_one "$name"
   done
 }
 
@@ -38,7 +39,7 @@ else
     print_help
   else
     if [ -d "$DIR/$1" ]; then
-      run_single_test "$1"
+      test_one "$1"
     else
       print_help
     fi
