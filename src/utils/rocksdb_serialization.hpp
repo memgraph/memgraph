@@ -227,7 +227,7 @@ inline storage::PropertyStore DeserializePropertiesFromLabelPropertyIndexStorage
 
 /// Serialize edge as two KV entries
 /// vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
-inline std::pair<std::string, std::string> SerializeEdge(storage::EdgeAccessor *edge_acc) {
+inline std::string SerializeEdge(storage::EdgeAccessor *edge_acc) {
   // Serialized objects
   auto from_gid = utils::SerializeIdType(edge_acc->FromVertex().Gid());
   auto to_gid = utils::SerializeIdType(edge_acc->ToVertex().Gid());
@@ -239,13 +239,7 @@ inline std::pair<std::string, std::string> SerializeEdge(storage::EdgeAccessor *
   src_dest_key += outEdgeDirection;
   src_dest_key += "|" + edge_type + "|";
   src_dest_key += edge_gid;
-  // destination->source key
-  std::string dest_src_key = to_gid + "|";
-  dest_src_key += from_gid + "|";
-  dest_src_key += inEdgeDirection;
-  dest_src_key += "|" + edge_type + "|";
-  dest_src_key += edge_gid;
-  return {src_dest_key, dest_src_key};
+  return src_dest_key;
 }
 
 /// Serialize edge as two KV entries
@@ -253,9 +247,9 @@ inline std::pair<std::string, std::string> SerializeEdge(storage::EdgeAccessor *
 /// @tparam src_vertex_gid, dest_vertex_gid: Gid of the source and destination vertices
 /// @tparam edge: Edge to be serialized
 /// @tparam edge_type_id: EdgeTypeId of the edge
-inline std::pair<std::string, std::string> SerializeEdge(storage::Gid src_vertex_gid, storage::Gid dest_vertex_gid,
-                                                         storage::EdgeTypeId edge_type_id,
-                                                         const storage::EdgeRef edge_ref, bool properties_on_edges) {
+inline std::string SerializeEdge(storage::Gid src_vertex_gid, storage::Gid dest_vertex_gid,
+                                 storage::EdgeTypeId edge_type_id, const storage::EdgeRef edge_ref,
+                                 bool properties_on_edges) {
   // Serialized objects
   auto from_gid = utils::SerializeIdType(src_vertex_gid);
   auto to_gid = utils::SerializeIdType(dest_vertex_gid);
@@ -274,13 +268,7 @@ inline std::pair<std::string, std::string> SerializeEdge(storage::Gid src_vertex
   src_dest_key += outEdgeDirection;
   src_dest_key += "|" + edge_type + "|";
   src_dest_key += edge_gid;
-  // destination->source key
-  std::string dest_src_key = to_gid + "|";
-  dest_src_key += from_gid + "|";
-  dest_src_key += inEdgeDirection;
-  dest_src_key += "|" + edge_type + "|";
-  dest_src_key += edge_gid;
-  return {src_dest_key, dest_src_key};
+  return src_dest_key;
 }
 
 /// TODO: (andi): This can potentially be a problem on big-endian machines.

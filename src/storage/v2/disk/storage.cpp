@@ -786,23 +786,23 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const rocksdb::Slice &key = it->key();
     const auto edge_parts = utils::Split(key.ToStringView(), "|");
-    if (prefetch_edge_filter(edge_parts[0], edge_parts[2])) {
+    if (prefetch_edge_filter(edge_parts)) {
       DeserializeEdge(key, it->value());
     }
   }
 }
 
 void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges([&vertex_acc](const std::string_view disk_edge_gid,
-                              const std::string_view disk_edge_direction) -> bool {
-    return disk_edge_gid == utils::SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == utils::inEdgeDirection;
+  PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
+    auto disk_vertex_in_edge_gid = disk_edge_parts[1];
+    return disk_vertex_in_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
   });
 }
 
 void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges([&vertex_acc](const std::string_view disk_edge_gid,
-                              const std::string_view disk_edge_direction) -> bool {
-    return disk_edge_gid == utils::SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == utils::outEdgeDirection;
+  PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
+    auto disk_vertex_out_edge_gid = disk_edge_parts[0];
+    return disk_vertex_out_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
   });
 }
 
@@ -1060,10 +1060,9 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
   auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
-  auto [src_dest_del_key, dest_src_del_key] =
+  auto src_dest_del_key =
       utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges);
   edges_to_delete_.emplace_back(src_dest_del_key);
-  edges_to_delete_.emplace_back(dest_src_del_key);
 
   if (config_.properties_on_edges) {
     MG_ASSERT((op1 && op2), "Invalid database state!");
@@ -1203,14 +1202,10 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
     for (auto &edge_entry : vertex.out_edges) {
       EdgeRef edge = std::get<2>(edge_entry);
-      auto [src_dest_key, dest_src_key] = utils::SerializeEdge(
-          vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge, config_.properties_on_edges);
+      auto src_dest_key = utils::SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
+                                               config_.properties_on_edges);
 
       if (!WriteEdgeToDisk(edge, src_dest_key)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
-
-      if (!WriteEdgeToDisk(edge, dest_src_key)) {
         return StorageDataManipulationError{SerializationError{}};
       }
 
