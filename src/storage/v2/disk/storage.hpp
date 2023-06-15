@@ -178,11 +178,6 @@ class DiskStorage final : public Storage {
 
    private:
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
-    /// Used for deserialization of vertices and edges from KV store.
-    /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
-
-    /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                 const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
 
@@ -362,25 +357,6 @@ class DiskStorage final : public Storage {
   /// TODO: andi Why not on abstract storage
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-
-  // class ReplicationServer;
-  // std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
-  // class ReplicationClient;
-  // We create ReplicationClient using unique_ptr so we can move
-  // newly created client into the vector.
-  // We cannot move the client directly because it contains ThreadPool
-  // which cannot be moved. Also, the move is necessary because
-  // we don't want to create the client directly inside the vector
-  // because that would require the lock on the list putting all
-  // commits (they iterate list of clients) to halt.
-  // This way we can initialize client in main thread which means
-  // that we can immediately notify the user if the initialization
-  // failed.
-  // using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
-  // utils::SpinLock>; ReplicationClientList replication_clients_;
-
-  // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
   std::unique_ptr<RocksDBStorage> kvstore_;
 };

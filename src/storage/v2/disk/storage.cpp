@@ -168,12 +168,8 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-/// TODO: remove constraints from Storage
 DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL) {
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED
-      /// TODO(andi): When replication support will be added, uncomment this.
-      // && replication_role_ == ReplicationRole::MAIN) {
-  ) {
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED) {
     spdlog::warn(
         "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
@@ -265,23 +261,6 @@ DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_T
       }
     });
   }
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    // We remove data on each tx commit. Now we don't need GC.
-    // gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
-  }
-
-  /// TODO(andi): Return capabilities for restoring replicas
-  // if (config_.durability.restore_replicas_on_startup) {
-  //   spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
-  //   utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
-  //   storage_ =
-  //       std::make_unique<kvstore_::kvstore_>(config_.durability.storage_directory /
-  //       durability::kReplicationDirectory);
-  //   RestoreReplicas();
-  // } else {
-  //   spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be
-  //   forgotten.");
-  // }
 
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
@@ -323,9 +302,6 @@ DiskStorage::~DiskStorage() {
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
   rocksdb::WriteOptions write_options;
-  // auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
-  // rocksdb::Slice ts(strTs);
-  // write_options.timestamp = &ts;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
   disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
@@ -333,7 +309,6 @@ DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel iso
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {
-  // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
 }
@@ -400,10 +375,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   auto edge_acc = edges_.access();
   auto res = edge_acc.find(edge_gid);
   if (res != edge_acc.end()) {
-    // spdlog::debug("Edge with gid {} already exists in the cache!", edge_parts[4]);
     return std::nullopt;
   }
-  // spdlog::debug("Edge with gid {} doesn't exist in the cache!", edge_parts[4]);
 
   auto [from_gid, to_gid] = std::invoke(
       [&](const auto &edge_parts) {
@@ -415,7 +388,6 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
       },
       edge_parts);
 
-  // load vertex accessors
   auto from_acc = FindVertex(Gid::FromUint(std::stoull(from_gid)), View::OLD);
   auto to_acc = FindVertex(Gid::FromUint(std::stoull(to_gid)), View::OLD);
   if (!from_acc || !to_acc) {
@@ -453,7 +425,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
@@ -465,14 +436,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     }
   }
 
-  spdlog::debug("Reading from label index");
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
-    // TODO: andi this will be optimized bla bla
+    /// TODO: optimize
     if (key.starts_with(utils::SerializeIdType(label)) && !utils::Contains(gids, curr_gid)) {
-      spdlog::debug("Loaded vertex with gid {} from disk label index", utils::ExtractGidFromLabelIndexStorage(key));
-      /// TODO: against every law of programming
       LoadVertexToLabelIndexCache(index_it->key(), index_it->value());
     }
   }
@@ -493,33 +461,24 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
-    /// TODO: refactor in one method
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         HasVertexProperty(vertex, property, &transaction_, view)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to label-property index cache",
-                    utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
     }
   }
 
-  spdlog::debug("Reading from label-property index");
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
-    // TODO: andi this will be optimized bla bla
-    /// TODO: couple in one method
+    /// TODO: optimize
     if (key.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid)) {
-      spdlog::debug("Loaded vertex with gid {} from disk label index",
-                    utils::ExtractGidFromLabelPropertyIndexStorage(key));
-      /// TODO: against every law of programming
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
   }
@@ -541,35 +500,27 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
-    /// TODO: refactor in one method
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         HasVertexEqualPropertyValue(vertex, property, value, &transaction_, view)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to label-property index cache",
-                    utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
     }
   }
 
-  spdlog::debug("Reading from label-property index");
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key_str = index_it->key().ToString();
     std::string it_value_str = index_it->value().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key_str)));
-    // TODO: andi this will be optimized bla bla
+    /// TODO: optimize
     /// TODO: couple this condition
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && properties.IsPropertyEqual(property, value)) {
-      spdlog::debug("Loaded vertex with gid {} from disk label index",
-                    utils::ExtractGidFromLabelPropertyIndexStorage(key_str));
-      /// TODO: against every law of programming
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
   }
@@ -593,7 +544,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  spdlog::debug("Reading from main disk transaction");
   auto main_cache_acc = vertices_.access();
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
@@ -602,15 +552,12 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     auto prop_value = GetVertexProperty(vertex, property, &transaction_, view);
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to label-property index cache",
-                    utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
     }
   }
 
-  spdlog::debug("Reading from label-property index");
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key_str = index_it->key().ToString();
     std::string it_value_str = index_it->value().ToString();
@@ -621,9 +568,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     auto prop_value = properties.GetProperty(property);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      spdlog::debug("Loaded vertex with gid {} from disk label index",
-                    utils::ExtractGidFromLabelPropertyIndexStorage(key_str));
-      /// TODO: against every law of programming
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
   }
@@ -641,6 +585,18 @@ uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   return estimatedCount;
 }
 
+StorageInfo DiskStorage::GetInfo() const {
+  auto vertex_count = kvstore_->ApproximateVertexCount();
+  auto edge_count = edge_count_.load(std::memory_order_acquire);
+  double average_degree = 0.0;
+  if (vertex_count) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+  }
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
+          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+}
+
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
@@ -655,43 +611,6 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
     delta->prev.Set(&*it);
   }
 
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
-}
-
-StorageInfo DiskStorage::GetInfo() const {
-  auto vertex_count = kvstore_->ApproximateVertexCount();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
-  double average_degree = 0.0;
-  if (vertex_count) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
-  }
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
-}
-
-VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  // NOTE: When we update the next `vertex_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  // spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = vertices_.access();
-  disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                                 std::memory_order_release);
-
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  if (delta) {
-    delta->prev.Set(&*it);
-  }
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -723,7 +642,6 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
-  /// Check if the vertex is in the cache.
   auto acc = vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
@@ -935,7 +853,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-  // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
@@ -1004,7 +921,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-  // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
@@ -1234,11 +1150,9 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
 /// TODO: add the comment about the storage lock you should take for correctly operating on this method
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
 DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
-  /// Flush vertex cache.
   auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
 
-  /// TODO: andi process currently in the function to avoid iterating twice over changed vertices but needs refactoring
   std::vector<std::vector<PropertyValue>> unique_storage;
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
@@ -1266,22 +1180,10 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       return StorageDataManipulationError{SerializationError{}};
     }
 
-    std::stringstream ss;
-    ss << "{";
-    for (const auto &[property_id, property_value] : vertex.properties.Properties()) {
-      ss << property_id.AsUint() << ": " << property_value;
-    }
-    ss << "}";
-
-    spdlog::debug("Written vertex to main storage with key: {} and properties: {} in transaction: {}",
-                  utils::SerializeVertex(vertex), ss.str(), transaction_.start_timestamp);
-
     /// TODO: andi don't ignore the return value
     disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
     disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_);
     disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_);
-
-    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
 
     for (auto &edge_entry : vertex.out_edges) {
       EdgeRef edge = std::get<2>(edge_entry);
@@ -1373,7 +1275,6 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
   return vertices_for_constraints;
 }
 
-// this will be modified here for a disk-based storage
 /// TODO: andi solve default argument warning
 utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
@@ -1386,9 +1287,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   if (transaction_.deltas.empty() ||
       std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
-    // We don't have to update the commit timestamp here because no one reads
-    // it.
-    // If there are no deltas, then we don't have to serialize anything on the disk.
   } else {
     // Result of validating the vertex against unqiue constraints. It has to be
     // declared outside of the critical section scope because its value is
@@ -1683,7 +1581,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1895,14 +1792,6 @@ bool DiskStorage::AppendToWalDataManipulation(const Transaction &transaction, ui
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  // if (replication_role_.load() == ReplicationRole::MAIN) {
-  //   replication_clients_.WithLock([&](auto &clients) {
-  //     for (auto &client : clients) {
-  //       client->StartTransactionReplication(wal_file_->SequenceNumber());
-  //     }
-  //   });
-  // }
-
   // Helper lambda that traverses the delta chain on order to find the first
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
@@ -1914,12 +1803,6 @@ bool DiskStorage::AppendToWalDataManipulation(const Transaction &transaction, ui
     while (true) {
       if (filter(delta->action)) {
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-        // replication_clients_.WithLock([&](auto &clients) {
-        //   for (auto &client : clients) {
-        //     client->IfStreamingTransaction(
-        //         [&](auto &stream) { stream.AppendDelta(*delta, parent, final_commit_timestamp); });
-        //   }
-        // });
       }
       auto prev = delta->prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
@@ -2083,22 +1966,6 @@ bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation o
 
   auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-  // {
-  //   if (replication_role_.load() == ReplicationRole::MAIN) {
-  //     replication_clients_.WithLock([&](auto &clients) {
-  //       for (auto &client : clients) {
-  //         client->StartTransactionReplication(wal_file_->SequenceNumber());
-  //         client->IfStreamingTransaction(
-  //             [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-
-  //         const auto finalized = client->FinalizeTransactionReplication();
-  //         if (client->Mode() == replication::ReplicationMode::SYNC) {
-  //           finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-  //         }
-  //       }
-  //     });
-  //   }
-  // }
   FinalizeWalFile();
   return finalized_on_all_replicas;
 }
@@ -2136,8 +2003,6 @@ std::optional<replication::ReplicaState> DiskStorage::GetReplicaState(const std:
 }
 
 ReplicationRole DiskStorage::GetReplicationRole() const {
-  /// TODO(andi): Since we won't support replication for the beginning don't crash with this, rather just log a
-  /// message
   spdlog::debug("GetReplicationRole called, but we don't support replication yet");
   return {};
 }
