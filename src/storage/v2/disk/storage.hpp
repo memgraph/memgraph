@@ -223,6 +223,8 @@ class DiskStorage final : public Storage {
     return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
   }
 
+  RocksDBStorage *GetRocksDBStorage() { return kvstore_.get(); }
+
   /// Create an index.
   /// Returns void if the index has been created.
   /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:

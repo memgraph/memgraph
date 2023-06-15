@@ -12,6 +12,7 @@
 #include <limits>
 #include <stdexcept>
 
+#include <rocksdb/comparator.h>
 #include <rocksdb/slice.h>
 
 #include <rocksdb/options.h>
@@ -19,6 +20,7 @@
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/disk/compaction_filter.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -265,6 +267,8 @@ DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_T
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  kvstore_->options_.compression = rocksdb::kNoCompression;
+  kvstore_->options_.compaction_filter = new TimestampCompactionFilter();
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {
