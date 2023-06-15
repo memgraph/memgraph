@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 namespace {
@@ -417,6 +418,10 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   } else {
     return get_properties(value.ValueEdge());
   }
+}
+
+TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  return TypedValue(utils::GenerateUUID(), ctx.memory);
 }
 
 TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1254,6 +1259,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == kId) return Id;
   if (function_name == "LAST") return Last;
   if (function_name == "PROPERTIES") return Properties;
+  if (function_name == "RANDOMUUID") return RandomUuid;
   if (function_name == "SIZE") return Size;
   if (function_name == "STARTNODE") return StartNode;
   if (function_name == "TIMESTAMP") return Timestamp;
