@@ -2201,7 +2201,14 @@ inline bool Map::Empty() const { return Size() == 0; }
 
 inline const Value Map::operator[](std::string_view key) const { return Value(mgp::map_at(ptr_, key.data())); }
 
-inline const Value Map::At(std::string_view key) const { return Value(mgp::map_at(ptr_, key.data())); }
+inline const Value Map::At(std::string_view key) const {
+  auto *ptr = mgp::map_at(ptr_, key.data());
+  if (ptr) {
+    return Value(ptr);
+  }
+
+  return Value();
+}
 
 inline Map::Iterator::Iterator(mgp_map_items_iterator *map_items_iterator) : map_items_iterator_(map_items_iterator) {
   if (map_items_iterator_ == nullptr) return;
