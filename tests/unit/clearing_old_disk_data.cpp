@@ -23,27 +23,22 @@
 namespace {
 
 uint64_t GetRealNumberOfEntriesInRocksDB(memgraph::storage::DiskStorage *disk_storage) {
-  auto status = disk_storage->GetRocksDBStorage()->db_->CompactRange(rocksdb::CompactRangeOptions{}, nullptr, nullptr);
-  if (!status.ok()) {
-    spdlog::debug("Compaction failed: {}", status.getState());
-    return -1;
-  }
   uint64_t num_keys = 0;
   disk_storage->GetRocksDBStorage()->db_->GetAggregatedIntProperty("rocksdb.estimate-num-keys", &num_keys);
   return num_keys;
 }
 }  // namespace
 
-class TimestampCompactionFilter : public ::testing::Test {
+class ClearingOldDiskDataTest : public ::testing::Test {
  public:
-  const std::string testSuite = "timestamp_compaction_filter";
+  const std::string testSuite = "clearing_old_disk_data";
   std::unique_ptr<memgraph::storage::DiskStorage> disk_storage =
       std::make_unique<memgraph::storage::DiskStorage>(disk_test_utils::GenerateOnDiskConfig(testSuite));
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
 
-TEST_F(TimestampCompactionFilter, TestNumOfEntriesWithTimestampUpdate) {
+TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithTimestampUpdate) {
   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
 
   auto acc1 = disk_storage->Access(std::nullopt);
@@ -67,7 +62,7 @@ TEST_F(TimestampCompactionFilter, TestNumOfEntriesWithTimestampUpdate) {
   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
 }
 
-// TEST_F(TimestampCompactionFilter, TestNumOfEntriesWithKeyUpdate) {
+// TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithKeyUpdate) {
 //   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
 
 //   auto acc1 = disk_storage->Access(std::nullopt);
