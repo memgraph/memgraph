@@ -945,6 +945,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     }
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::debug("Commit done");
   }
   {
     auto acc = this->store->Access();
@@ -973,6 +974,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     ASSERT_FALSE(vertex->HasLabel(other_label, memgraph::storage::View::NEW).GetValue());
 
     acc->Abort();
+    spdlog::debug("Abort done");
   }
   {
     auto acc = this->store->Access();
@@ -1004,6 +1006,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     }
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::debug("Commit done");
   }
   {
     auto acc = this->store->Access();
@@ -1023,6 +1026,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     ASSERT_FALSE(vertex->HasLabel(other_label, memgraph::storage::View::NEW).GetValue());
 
     acc->Abort();
+    spdlog::debug("Abort done");
   }
 }
 

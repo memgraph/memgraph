@@ -1149,14 +1149,13 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       return StorageDataManipulationError{unique_constraint_validation_result.value()};
     }
 
+    /// TODO: what if something is changed and then deleted
+
     if (vertex.deleted) {
       continue;
     }
 
-    if (!WriteVertexToDisk(vertex)) {
-      return StorageDataManipulationError{SerializationError{}};
-    }
-
+    /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
       spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
                     utils::SerializeIdType(vertex.gid));
@@ -1165,6 +1164,10 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       }
     } else {
       spdlog::debug("No old disk key found for vertex {}", utils::SerializeIdType(vertex.gid));
+    }
+
+    if (!WriteVertexToDisk(vertex)) {
+      return StorageDataManipulationError{SerializationError{}};
     }
 
     /// TODO: andi don't ignore the return value

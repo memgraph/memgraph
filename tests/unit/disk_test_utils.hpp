@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include "storage/v2/config.hpp"
+#include "storage/v2/disk/storage.hpp"
 
 namespace disk_test_utils {
 
@@ -28,6 +29,12 @@ void RemoveRocksDbDirs(const std::string &testName) {
   std::filesystem::remove_all("rocksdb_" + testName + "_label_index");
   std::filesystem::remove_all("rocksdb_" + testName + "_label_property_index");
   std::filesystem::remove_all("rocksdb_" + testName + "_unique_constraints");
+}
+
+uint64_t GetRealNumberOfEntriesInRocksDB(memgraph::storage::DiskStorage *disk_storage) {
+  uint64_t num_keys = 0;
+  disk_storage->GetRocksDBStorage()->db_->GetAggregatedIntProperty("rocksdb.estimate-num-keys", &num_keys);
+  return num_keys;
 }
 
 }  // namespace disk_test_utils
