@@ -794,6 +794,16 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
 void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
   PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
     auto disk_vertex_in_edge_gid = disk_edge_parts[1];
+    auto edge_gid = disk_edge_parts[4];
+    auto in_edges_res = vertex_acc.InEdges(storage::View::NEW);
+    if (in_edges_res.HasValue()) {
+      for (const auto &edge_acc : in_edges_res.GetValue()) {
+        if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
+          // We already inserted this edge into the vertex's in_edges list.
+          return false;
+        }
+      }
+    }
     return disk_vertex_in_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
   });
 }
@@ -801,6 +811,16 @@ void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc
 void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
   PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
     auto disk_vertex_out_edge_gid = disk_edge_parts[0];
+    auto edge_gid = disk_edge_parts[4];
+    auto out_edges_res = vertex_acc.OutEdges(storage::View::NEW);
+    if (out_edges_res.HasValue()) {
+      for (const auto &edge_acc : out_edges_res.GetValue()) {
+        if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
+          // We already inserted this edge into the vertex's out_edges list.
+          return false;
+        }
+      }
+    }
     return disk_vertex_out_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
   });
 }
