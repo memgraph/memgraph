@@ -19,8 +19,8 @@
 
 #include "global.hpp"
 #include "storage/v2/storage.hpp"
-#include "utils.hpp"
 #include "utils/result.hpp"
+#include "utils/sync_ptr.hpp"
 
 namespace memgraph::dbms {
 
@@ -156,8 +156,8 @@ class StorageHandler {
   }
 
  private:
-  std::unordered_map<std::string, SyncPtr<TStorage, TConfig>> storage_;  //!< map to all active storages
-  std::optional<TConfig> default_config_;                                //!< default configuration
+  std::unordered_map<std::string, utils::SyncPtr<TStorage, TConfig>> storage_;  //!< map to all active storages
+  std::optional<TConfig> default_config_;                                       //!< default configuration
 };
 
 }  // namespace memgraph::dbms

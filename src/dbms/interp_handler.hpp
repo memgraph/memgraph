@@ -22,7 +22,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
-#include "utils.hpp"
+#include "utils/sync_ptr.hpp"
 
 namespace memgraph::dbms {
 
@@ -111,8 +111,8 @@ class InterpContextHandler {
   }
 
  private:
-  std::unordered_map<std::string, SyncPtr<TContext, TConfig>> interp_;  //!< map to all active interpreters
-  std::optional<TConfig> default_config_;                               //!< default configuration to use
+  std::unordered_map<std::string, utils::SyncPtr<TContext, TConfig>> interp_;  //!< map to all active interpreters
+  std::optional<TConfig> default_config_;                                      //!< default configuration to use
   query::AuthChecker *ac_{nullptr};
   query::AuthQueryHandler *ah_{nullptr};
 };
