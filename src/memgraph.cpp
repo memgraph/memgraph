@@ -39,6 +39,7 @@
 #include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "dbms/constants.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
@@ -462,7 +463,8 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
 
 #ifdef MG_ENTERPRISE
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          audit_log->Record("", "", line, {});
+          // TODO: Support all DBs
+          audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
         }
 #endif
       }
@@ -533,9 +535,9 @@ class SessionHL final {
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    if (true || memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv));
+                         memgraph::storage::PropertyValue(params_pv), session_context_.db_name);
     }
 #endif
     try {

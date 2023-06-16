@@ -116,7 +116,7 @@ class SessionContextHandler {
    * @param name name of the database
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New(std::string_view name) {
+  NewResultT New(const std::string &name) {
     std::lock_guard<LockT> wr(lock_);
     return New_(name, name);
   }
@@ -270,7 +270,7 @@ class SessionContextHandler {
    * @param name name of the database
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name) { return New_(name, name); }
+  NewResultT New_(const std::string &name) { return New_(name, name); }
 
   /**
    * @brief Create a new SessionContext associated with the "name" database
@@ -279,7 +279,7 @@ class SessionContextHandler {
    * @param storage_subdir undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name, std::filesystem::path storage_subdir) {
+  NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
       auto storage = default_configs_->first;
       storage.durability.storage_directory /= storage_subdir;
@@ -296,7 +296,7 @@ class SessionContextHandler {
    * @param inter_config interpreter configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name, StorageConfigT &storage_config, InterpConfigT &inter_config) {
+  NewResultT New_(const std::string &name, StorageConfigT &storage_config, InterpConfigT &inter_config) {
     auto new_storage = storage_handler_.New(name, storage_config);
     if (new_storage.HasValue()) {
       // storage config can be something else if storage already exists, or return false or reread config
@@ -304,7 +304,7 @@ class SessionContextHandler {
                                             storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
         return SessionContext {
-          new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_
+          new_storage.GetValue(), new_interp.GetValue(), run_id_, name, auth_
 #if MG_ENTERPRISE
               ,
               audit_log_
@@ -370,7 +370,7 @@ class SessionContextHandler {
       auto interp = interp_handler_.Get(name);
       if (interp) {
         return SessionContext {
-          *storage, *interp, run_id_, auth_
+          *storage, *interp, run_id_, name, auth_
 #if MG_ENTERPRISE
               ,
               audit_log_

@@ -224,7 +224,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetID(), query.ValueString());
 
   try {
     // Interpret can throw.
@@ -282,7 +282,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetID(), query.ValueString());
 
   try {
     // Interpret can throw.
