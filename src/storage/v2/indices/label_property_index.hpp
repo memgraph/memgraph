@@ -68,8 +68,6 @@ class LabelPropertyIndex {
 
   virtual void Clear() = 0;
 
-  virtual void RunGC() = 0;
-
  protected:
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;

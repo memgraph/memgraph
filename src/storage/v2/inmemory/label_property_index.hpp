@@ -125,7 +125,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void Clear() override;
 
-  void RunGC() override;
+  void RunGC();
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction);

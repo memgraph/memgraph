@@ -46,9 +46,6 @@ class LabelIndex {
 
   virtual void Clear() = 0;
 
-  /// TODO: (andi) Maybe not needed for disk version so remove from abstract class
-  virtual void RunGC() = 0;
-
  protected:
   /// TODO: andi maybe no need for have those in abstract class if disk storage isn't using it
   Indices *indices_;

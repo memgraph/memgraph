@@ -94,7 +94,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   void Clear() override;
 
-  void RunGC() override;
+  void RunGC();
 
   Iterable Vertices(LabelId label, View view, Transaction *transaction);
 

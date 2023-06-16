@@ -43,6 +43,7 @@ struct Indices {
 
   /// This function should be called from garbage collection to clean-up the
   /// index.
+  /// TODO: unused in disk indices
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) const;
 
   // Indices are updated whenever an update occurs, instead of only on commit or

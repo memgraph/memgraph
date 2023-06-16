@@ -253,8 +253,6 @@ uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyI
 /// TODO: clear whole RocksDB instance
 void DiskLabelPropertyIndex::Clear() { index_.clear(); }
 
-void DiskLabelPropertyIndex::RunGC() { throw utils::NotYetImplemented("DiskLabelPropertyIndex::RunGC"); }
-
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   deleted_indexes.reserve(stats_.size());

@@ -71,8 +71,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void Clear() override;
 
-  void RunGC() override;
-
   RocksDBStorage *GetRocksDBStorage() const;
 
  private:

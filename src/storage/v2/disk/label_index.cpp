@@ -256,11 +256,6 @@ void DiskLabelIndex::Clear() {
   }
 }
 
-/// TODO: disable this
-void DiskLabelIndex::RunGC() {
-  // throw utils::NotYetImplemented("DiskLabelIndex::RunGC");
-}
-
 RocksDBStorage *DiskLabelIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
 }  // namespace memgraph::storage

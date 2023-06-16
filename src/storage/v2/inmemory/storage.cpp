@@ -1666,8 +1666,9 @@ void InMemoryStorage::FreeMemory() {
   // SkipList is already threadsafe
   vertices_.run_gc();
   edges_.run_gc();
-  indices_.label_index_->RunGC();
-  indices_.label_property_index_->RunGC();
+
+  static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
+  static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
 }
 
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
