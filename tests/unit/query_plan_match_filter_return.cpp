@@ -3427,7 +3427,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  // EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   storage_dba->PrepareForNextIndexQuery();
 
   SymbolTable symbol_table;

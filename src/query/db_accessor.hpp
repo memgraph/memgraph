@@ -429,6 +429,8 @@ class DbAccessor final {
 
   void Abort() { accessor_->Abort(); }
 
+  void PrepareForNextIndexQuery() { accessor_->PrepareForNextIndexQuery(); }
+
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
   bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {

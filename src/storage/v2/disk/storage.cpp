@@ -19,6 +19,7 @@
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/compaction_filter.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -510,7 +511,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         HasVertexEqualPropertyValue(vertex, property, value, &transaction_, view)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
@@ -526,7 +526,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && properties.IsPropertyEqual(property, value)) {
-      spdlog::debug("Loaded vertex with key {} from disk index to index cache", key_str);
       LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
     }
   }

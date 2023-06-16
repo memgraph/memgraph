@@ -83,7 +83,10 @@ int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
   auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
-  while (cursor->Pull(frame, *context)) count++;
+  while (cursor->Pull(frame, *context)) {
+    count++;
+    context->db_accessor->PrepareForNextIndexQuery();
+  }
   return count;
 }
 
