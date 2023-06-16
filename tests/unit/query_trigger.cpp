@@ -55,11 +55,7 @@ const std::string testSuite = "query_trigger";
 template <typename StorageType>
 class TriggerContextTest : public ::testing::Test {
  public:
-  void SetUp() override {
-    config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    std::unique_ptr<memgraph::storage::Storage> db_{new StorageType(config)};
-    db.reset(new StorageType(config));
-  }
+  void SetUp() override { db = std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)); }
 
   void TearDown() override {
     accessors.clear();
@@ -76,7 +72,6 @@ class TriggerContextTest : public ::testing::Test {
   }
 
  protected:
-  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db;
   std::list<std::unique_ptr<memgraph::storage::Storage::Accessor>> accessors;
 };
