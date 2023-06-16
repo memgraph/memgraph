@@ -66,7 +66,8 @@ def test_multitenant_transactions():
     )
     tx_process.start()
     time.sleep(0.5)
-    show_transactions_test(test_cursor, 2)
+    show_transactions_test(test_cursor, 1)
+    # TODO Add SHOW TRANSACTIONS ON * that should return all transactions
 
 
 def test_admin_has_one_transaction():
