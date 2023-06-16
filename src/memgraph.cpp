@@ -535,7 +535,7 @@ class SessionHL final {
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (true || memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
                          memgraph::storage::PropertyValue(params_pv), session_context_.db_name);
     }
