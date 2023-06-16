@@ -4,6 +4,14 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 cd $DIR/../../build
 
 
+query_list=(
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+)
+
 # Start the first process
 echo "Starting memgraph..."
 ./memgraph --log-level=TRACE --storage-recover-on-startup=true --storage-snapshot-interval-sec=600 --log-file=$DIR/memgraph.logs --bolt-port 7687 &
@@ -43,20 +51,22 @@ while true; do
 
     if ((current_time - previous_time >= 5)); then
         echo "Five seconds have passe running create query."
-        execute_query "Create (:Node)-[:CONNECTED]->(:Node);" &
+        for query in "${query_list[@]}"; do
+            execute_query "$query" &
+        done
         previous_time=$current_time
     fi
 
     if [[ $current_minute != $previous_minute ]]; then
         echo "One minute has passed running match query."
 
-        execute_query "MATCH (n)-[r]->[m] RETURN DISTINCT n;" &
+        execute_query "MATCH (n)-[r]->(m) RETURN DISTINCT n;" &
         previous_minute=$current_minute
     fi
 
     if [[ $current_hour != $previous_hour ]]; then
         echo "One hour has passed running delete query."
-        execute_query "MATCH (node) DETACH DELETE node;" &
+        execute_query "MATCH (n) DETACH DELETE n;" &
         previous_hour=$current_hour
     fi
 
