@@ -219,99 +219,33 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() { return kvstore_.get(); }
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `IndexDefinitionError`: the index already exists.
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// @throw std::bad_alloc
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index already exists.
-  /// @throw std::bad_alloc
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
+  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
+  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Returns void if the existence constraint has been created.
-  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
-  /// * `ConstraintDefinitionError`: the constraint already exists.
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
   utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Drop an existing existence constraint.
-  /// Returns void if the existence constraint has been dropped.
-  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintDefinitionError`: the constraint did not exists.
+  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Create an unique constraint.
-  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there are already vertices violating the constraint.
-  /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
-  /// * `SUCCESS` if the constraint was successfully created,
-  /// * `ALREADY_EXISTS` if the constraint already existed,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-  /// @throw std::bad_alloc
   utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// Removes an existing unique constraint.
-  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
-  /// * `SUCCESS` if constraint was successfully removed,
-  /// * `NOT_FOUND` if the specified constraint was not found,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
-
-  bool SetMainReplicationRole() override;
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
-      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) override;
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) override;
-
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) override;
-
-  ReplicationRole GetReplicationRole() const override;
-
-  std::vector<ReplicaInfo> ReplicasInfo() override;
 
   void FreeMemory() override;
 
@@ -345,10 +279,6 @@ class DiskStorage final : public Storage {
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  void RestoreReplicas();
-
-  bool ShouldStoreAndRestoreReplicas() const;
 
   /// TODO: andi Why not on abstract storage
   std::atomic<uint64_t> vertex_id_{0};

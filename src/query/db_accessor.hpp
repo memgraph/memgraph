@@ -21,6 +21,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -428,6 +429,8 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageDataManipulationError, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
+
+  storage::StorageMode GetStorageMode() const { return accessor_->GetCreationStorageMode(); }
 
   void PrepareForNextIndexQuery() { accessor_->PrepareForNextIndexQuery(); }
 

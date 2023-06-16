@@ -1722,7 +1722,7 @@ bool InMemoryStorage::SetMainReplicationRole() {
   return true;
 }
 
-utils::BasicResult<Storage::RegisterReplicaError> InMemoryStorage::RegisterReplica(
+utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
@@ -1768,7 +1768,7 @@ utils::BasicResult<Storage::RegisterReplicaError> InMemoryStorage::RegisterRepli
     spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
-  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
+  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<InMemoryStorage::RegisterReplicaError> {
     // Another thread could have added a client with same name while
     // we were connecting to this client.
     if (std::any_of(clients.begin(), clients.end(),
@@ -1813,9 +1813,9 @@ std::optional<replication::ReplicaState> InMemoryStorage::GetReplicaState(const 
 
 ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
 
-std::vector<Storage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
+std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
-    std::vector<Storage::ReplicaInfo> replica_info;
+    std::vector<InMemoryStorage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
     std::transform(
         clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {

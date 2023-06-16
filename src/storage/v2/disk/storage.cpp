@@ -1980,31 +1980,6 @@ uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_comm
   return *desired_commit_timestamp;
 }
 
-bool DiskStorage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-  throw utils::NotYetImplemented("SetReplicaRole");
-}
-
-bool DiskStorage::SetMainReplicationRole() { throw utils::NotYetImplemented("SetMainReplicationRole"); }
-
-utils::BasicResult<DiskStorage::RegisterReplicaError> DiskStorage::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-  throw utils::NotYetImplemented("RegisterReplica");
-}
-
-bool DiskStorage::UnregisterReplica(const std::string &name) { throw utils::NotYetImplemented("UnregisterReplica"); }
-
-std::optional<replication::ReplicaState> DiskStorage::GetReplicaState(const std::string_view name) {
-  throw utils::NotYetImplemented("GetReplicaState");
-}
-
-ReplicationRole DiskStorage::GetReplicationRole() const {
-  spdlog::debug("GetReplicationRole called, but we don't support replication yet");
-  return {};
-}
-
-std::vector<DiskStorage::ReplicaInfo> DiskStorage::ReplicasInfo() { throw utils::NotYetImplemented("ReplicasInfo"); }
-
 utils::BasicResult<DiskStorage::SetIsolationLevelError> DiskStorage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
@@ -2013,12 +1988,6 @@ utils::BasicResult<DiskStorage::SetIsolationLevelError> DiskStorage::SetIsolatio
 
   isolation_level_ = isolation_level;
   return {};
-}
-
-void DiskStorage::RestoreReplicas() { throw utils::NotYetImplemented("RestoreReplicas"); }
-
-bool DiskStorage::ShouldStoreAndRestoreReplicas() const {
-  throw utils::NotYetImplemented("ShouldStoreAndRestoreReplicas");
 }
 
 }  // namespace memgraph::storage

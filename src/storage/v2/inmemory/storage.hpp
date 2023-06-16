@@ -24,6 +24,26 @@ namespace memgraph::storage {
 
 class InMemoryStorage final : public Storage {
  public:
+  enum class RegisterReplicaError : uint8_t {
+    NAME_EXISTS,
+    END_POINT_EXISTS,
+    CONNECTION_FAILED,
+    COULD_NOT_BE_PERSISTED
+  };
+
+  struct TimestampInfo {
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+  };
+
+  struct ReplicaInfo {
+    std::string name;
+    replication::ReplicationMode mode;
+    io::network::Endpoint endpoint;
+    replication::ReplicaState state;
+    TimestampInfo timestamp_info;
+  };
+
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config());
@@ -284,23 +304,24 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config);
 
-  bool SetMainReplicationRole() override;
+  bool SetMainReplicationRole();
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
-  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
-      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) override;
+  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                                                                 replication::ReplicationMode replication_mode,
+                                                                 replication::RegistrationMode registration_mode,
+                                                                 const replication::ReplicationClientConfig &config);
   /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) override;
+  bool UnregisterReplica(const std::string &name);
 
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) override;
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
-  ReplicationRole GetReplicationRole() const override;
+  ReplicationRole GetReplicationRole() const;
 
-  std::vector<ReplicaInfo> ReplicasInfo() override;
+  std::vector<ReplicaInfo> ReplicasInfo();
 
   void FreeMemory() override;
 

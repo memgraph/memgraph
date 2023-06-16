@@ -24,8 +24,6 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertices_iterable.hpp"
@@ -84,13 +82,10 @@ class Storage {
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
 
-    // NOTE: After the accessor is moved, all objects derived from it (accessors
-    // and iterators) are *invalid*. You have to get all derived objects again.
     Accessor(Accessor &&other) noexcept;
 
     virtual ~Accessor() {}
 
-    /// @throw std::bad_alloc
     virtual VertexAccessor CreateVertex() = 0;
 
     virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
@@ -107,26 +102,14 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
-    /// Return approximate number of all vertices in the database.
-    /// Note that this is always an over-estimate and never an under-estimate.
     virtual uint64_t ApproximateVertexCount() const = 0;
 
-    /// Return approximate number of vertices with the given label.
-    /// Note that this is always an over-estimate and never an under-estimate.
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-    /// Return approximate number of vertices with the given label and property.
-    /// Note that this is always an over-estimate and never an under-estimate.
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
 
-    /// Return approximate number of vertices with the given label and the given
-    /// value for the given property. Note that this is always an over-estimate
-    /// and never an under-estimate.
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
 
-    /// Return approximate number of vertices with the given label and value for
-    /// the given property in the range defined by provided upper and lower
-    /// bounds.
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
@@ -136,18 +119,13 @@ class Storage {
 
     virtual std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
-        const std::span<std::string> labels) = 0;
+    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(std::span<std::string> labels) = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                                const IndexStats &stats) = 0;
 
-    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) = 0;
 
-    /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
     virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
         VertexAccessor *vertex) = 0;
 
@@ -155,11 +133,8 @@ class Storage {
 
     virtual void PrefetchOutEdges(const VertexAccessor &vertex_acc) = 0;
 
-    /// @throw std::bad_alloc
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
-    /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
@@ -170,16 +145,9 @@ class Storage {
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
-    /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
-    /// case the transaction is automatically aborted.
-    /// @throw std::bad_alloc
     virtual utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
 
-    /// @throw std::bad_alloc
     virtual void Abort() = 0;
 
     virtual void FinalizeTransaction() = 0;
@@ -196,13 +164,10 @@ class Storage {
 
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
-    /// @throw std::bad_alloc if unable to insert a new mapping
     LabelId NameToLabel(std::string_view name);
 
-    /// @throw std::bad_alloc if unable to insert a new mapping
     PropertyId NameToProperty(std::string_view name);
 
-    /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name);
 
     StorageMode GetCreationStorageMode() const;
@@ -228,13 +193,10 @@ class Storage {
 
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
-  /// @throw std::bad_alloc if unable to insert a new mapping
   LabelId NameToLabel(std::string_view name);
 
-  /// @throw std::bad_alloc if unable to insert a new mapping
   PropertyId NameToProperty(std::string_view name);
 
-  /// @throw std::bad_alloc if unable to insert a new mapping
   EdgeTypeId NameToEdgeType(std::string_view name);
 
   void SetStorageMode(StorageMode storage_mode);
@@ -244,12 +206,6 @@ class Storage {
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `IndexDefinitionError`: the index already exists.
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// @throw std::bad_alloc
   virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;
 
@@ -257,12 +213,6 @@ class Storage {
     return CreateIndex(label, std::optional<uint64_t>{});
   }
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index already exists.
-  /// @throw std::bad_alloc
   virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
 
@@ -270,11 +220,6 @@ class Storage {
     return CreateIndex(label, property, std::optional<uint64_t>{});
   }
 
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
   virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;
 
@@ -282,11 +227,6 @@ class Storage {
     return DropIndex(label, std::optional<uint64_t>{});
   }
 
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
   virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
 
@@ -296,13 +236,6 @@ class Storage {
 
   IndicesInfo ListAllIndices() const;
 
-  /// Returns void if the existence constraint has been created.
-  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
-  /// * `ConstraintDefinitionError`: the constraint already exists.
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
   virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
 
@@ -311,11 +244,6 @@ class Storage {
     return CreateExistenceConstraint(label, property, std::optional<uint64_t>{});
   }
 
-  /// Drop an existing existence constraint.
-  /// Returns void if the existence constraint has been dropped.
-  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintDefinitionError`: the constraint did not exists.
   virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
 
@@ -324,16 +252,6 @@ class Storage {
     return DropExistenceConstraint(label, property, std::optional<uint64_t>{});
   }
 
-  /// Create an unique constraint.
-  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there are already vertices violating the constraint.
-  /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
-  /// * `SUCCESS` if the constraint was successfully created,
-  /// * `ALREADY_EXISTS` if the constraint already existed,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-  /// @throw std::bad_alloc
   virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
   CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                          std::optional<uint64_t> desired_commit_timestamp) = 0;
@@ -343,14 +261,6 @@ class Storage {
     return CreateUniqueConstraint(label, properties, std::optional<uint64_t>{});
   }
 
-  /// Removes an existing unique constraint.
-  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
-  /// * `SUCCESS` if constraint was successfully removed,
-  /// * `NOT_FOUND` if the specified constraint was not found,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
   virtual utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
   DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                        std::optional<uint64_t> desired_commit_timestamp) = 0;
@@ -361,55 +271,6 @@ class Storage {
   }
 
   ConstraintsInfo ListAllConstraints() const;
-
-  virtual bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) = 0;
-
-  bool SetReplicaRole(io::network::Endpoint endpoint) {
-    return SetReplicaRole(endpoint, replication::ReplicationServerConfig{});
-  }
-
-  virtual bool SetMainReplicationRole() = 0;
-
-  enum class RegisterReplicaError : uint8_t {
-    NAME_EXISTS,
-    END_POINT_EXISTS,
-    CONNECTION_FAILED,
-    COULD_NOT_BE_PERSISTED
-  };
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  virtual utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
-      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) = 0;
-
-  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                                                                 replication::ReplicationMode replication_mode,
-                                                                 replication::RegistrationMode registration_mode) {
-    return RegisterReplica(name, endpoint, replication_mode, registration_mode, replication::ReplicationClientConfig{});
-  }
-
-  /// @pre The instance should have a MAIN role
-  virtual bool UnregisterReplica(const std::string &name) = 0;
-
-  virtual std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) = 0;
-
-  virtual ReplicationRole GetReplicationRole() const = 0;
-
-  struct TimestampInfo {
-    uint64_t current_timestamp_of_replica;
-    uint64_t current_number_of_timestamp_behind_master;
-  };
-
-  struct ReplicaInfo {
-    std::string name;
-    replication::ReplicationMode mode;
-    io::network::Endpoint endpoint;
-    replication::ReplicaState state;
-    TimestampInfo timestamp_info;
-  };
-
-  virtual std::vector<ReplicaInfo> ReplicasInfo() = 0;
 
   virtual void FreeMemory() = 0;
 

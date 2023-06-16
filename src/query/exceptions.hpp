@@ -175,6 +175,11 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
       : QueryException("Replication clause not allowed in multicommand transactions.") {}
 };
 
+class ReplicationDisabledOnDiskStorage : public QueryException {
+ public:
+  ReplicationDisabledOnDiskStorage() : QueryException("Replication clause not allowed with disk storage. ") {}
+};
+
 class LockPathModificationInMulticommandTxException : public QueryException {
  public:
   LockPathModificationInMulticommandTxException()
