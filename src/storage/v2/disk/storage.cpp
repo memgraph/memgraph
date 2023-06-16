@@ -1155,6 +1155,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       continue;
     }
 
+    /// TODO: expose temporal coupling
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
       spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
@@ -1180,13 +1181,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       auto src_dest_key = utils::SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
                                                config_.properties_on_edges);
 
-      if (!WriteEdgeToDisk(edge, src_dest_key)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
-
-      /// TODO: what if edge has already been deleted
-      /// TODO: if properties on edges are disabled, we won't have access delta, hence it will be impossible
-
+      /// TODO: expose temporal coupling
+      /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
       if (config_.properties_on_edges) {
         if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
           spdlog::debug("Found old disk key {} for edge {}", maybe_old_disk_key.value(),
@@ -1198,6 +1194,13 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
           spdlog::debug("No old disk key found for edge {}", utils::SerializeIdType(edge.gid));
         }
       }
+
+      if (!WriteEdgeToDisk(edge, src_dest_key)) {
+        return StorageDataManipulationError{SerializationError{}};
+      }
+
+      /// TODO: what if edge has already been deleted
+      /// TODO: if properties on edges are disabled, we won't have access delta, hence it will be impossible
 
       num_ser_edges++;
     }
