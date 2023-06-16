@@ -30,7 +30,7 @@ class PyModule : public testing::Test {
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::GenerateOnDiskConfig(testSuite);
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
 };
