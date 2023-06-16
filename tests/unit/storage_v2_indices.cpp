@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
+#include <gtest/internal/gtest-type-util.h>
 
 #include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -512,6 +513,37 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     acc3->PrepareForNextIndexQuery();
+  }
+}
+
+TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    auto *disk_label_index =
+        static_cast<memgraph::storage::DiskLabelIndex *>(this->storage->indices_.label_index_.get());
+
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    auto acc1 = this->storage->Access();
+    auto vertex = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
+    ASSERT_NO_ERROR(acc1->Commit());
+
+    auto *tx_db = disk_label_index->GetRocksDBStorage()->db_;
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+    auto acc2 = this->storage->Access(std::nullopt);
+    auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
+    ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
+    ASSERT_FALSE(acc2->Commit().HasError());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+    auto acc3 = this->storage->Access(std::nullopt);
+    auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
+    ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
+    ASSERT_FALSE(acc3->Commit().HasError());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
 }
 
@@ -1135,10 +1167,36 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     auto add_res = target_vertex->AddLabel(this->label1);
     ASSERT_FALSE(add_res.HasError());
     ASSERT_NO_ERROR(acc2->Commit());
+  }
+}
 
-    auto acc3 = this->storage->Access();
-    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
-                UnorderedElementsAre(0, 1));
-    acc3->PrepareForNextIndexQuery();
+TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    auto *disk_label_property_index =
+        static_cast<memgraph::storage::DiskLabelPropertyIndex *>(this->storage->indices_.label_property_index_.get());
+
+    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    auto acc1 = this->storage->Access();
+    auto vertex = this->CreateVertex(acc1.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
+    ASSERT_NO_ERROR(acc1->Commit());
+
+    auto *tx_db = disk_label_property_index->GetRocksDBStorage()->db_;
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+    auto acc2 = this->storage->Access(std::nullopt);
+    auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
+    ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
+    ASSERT_FALSE(acc2->Commit().HasError());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+    auto acc3 = this->storage->Access(std::nullopt);
+    auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
+    ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
+    ASSERT_FALSE(acc3->Commit().HasError());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
 }

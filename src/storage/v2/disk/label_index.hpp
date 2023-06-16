@@ -53,6 +53,8 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   void RunGC() override;
 
+  RocksDBStorage *GetRocksDBStorage() const;
+
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<LabelId>>>> entries_for_deletion;
   std::unordered_set<LabelId> index_;

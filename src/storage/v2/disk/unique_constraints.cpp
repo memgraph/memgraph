@@ -20,6 +20,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
 namespace memgraph::storage {
 
@@ -209,6 +210,15 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
   /// TODO: create method for writing transaction
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
+                  utils::SerializeIdType(vertex.gid));
+    if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
+      return false;
+    }
+  }
+
   for (const auto &[constraint_label, constraint_properties] : constraints_) {
     if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
       auto key = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
@@ -319,5 +329,7 @@ void DiskUniqueConstraints::Clear() {
     spdlog::error("rocksdb: {}", status.getState());
   }
 }
+
+RocksDBStorage *DiskUniqueConstraints::GetRocksDBStorage() const { return kvstore_.get(); }
 
 }  // namespace memgraph::storage

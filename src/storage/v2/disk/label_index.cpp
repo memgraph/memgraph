@@ -17,8 +17,10 @@
 #include <utility>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
+#include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
@@ -77,6 +79,15 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateRocksDBTransaction()
 bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
+                  utils::SerializeIdType(vertex.gid));
+    if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
+      return false;
+    }
+  }
+
   for (const LabelId index_label : index_) {
     if (utils::Contains(vertex.labels, index_label)) {
       if (!disk_transaction
@@ -245,8 +256,11 @@ void DiskLabelIndex::Clear() {
   }
 }
 
+/// TODO: disable this
 void DiskLabelIndex::RunGC() {
   // throw utils::NotYetImplemented("DiskLabelIndex::RunGC");
 }
+
+RocksDBStorage *DiskLabelIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
 }  // namespace memgraph::storage

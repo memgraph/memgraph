@@ -15,6 +15,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/skip_list.hpp"
@@ -85,6 +86,14 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
                                                                    uint64_t commit_timestamp) const {
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
+                  utils::SerializeIdType(vertex.gid));
+    if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
+      return false;
+    }
+  }
   for (const auto &[index_label, index_property] : index_) {
     if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
       if (!disk_transaction
@@ -281,5 +290,7 @@ std::optional<IndexStats> DiskLabelPropertyIndex::GetIndexStats(const storage::L
   }
   return {};
 }
+
+RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
 }  // namespace memgraph::storage

@@ -16,6 +16,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include "disk_test_utils.hpp"
@@ -1030,5 +1031,44 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop2, PropertyValue(0)));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(3)));
     ASSERT_NO_ERROR(acc->Commit());
+  }
+}
+
+TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
+  // Purpose of this test is to make sure that extracted property values
+  // are correctly compared.
+
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    auto *disk_constraints =
+        static_cast<memgraph::storage::DiskUniqueConstraints *>(this->storage->constraints_.unique_constraints_.get());
+    auto *tx_db = disk_constraints->GetRocksDBStorage()->db_;
+
+    {
+      auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1});
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    }
+
+    auto acc = this->storage->Access();
+    auto vertex = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(acc->Commit());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+    auto acc2 = this->storage->Access(std::nullopt);
+    auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
+    ASSERT_TRUE(vertex2.SetProperty(this->prop1, memgraph::storage::PropertyValue(2)).HasValue());
+    ASSERT_FALSE(acc2->Commit().HasError());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+    auto acc3 = this->storage->Access(std::nullopt);
+    auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
+    ASSERT_TRUE(vertex3.SetProperty(this->prop1, memgraph::storage::PropertyValue(10)).HasValue());
+    ASSERT_FALSE(acc3->Commit().HasError());
+
+    ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
 }

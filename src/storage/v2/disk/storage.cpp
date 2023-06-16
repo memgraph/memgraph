@@ -39,6 +39,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/memory_tracker.hpp"
@@ -167,16 +168,6 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
     return false;
   }
   return true;
-}
-
-std::optional<std::string> GetOldDiskKeyOrNull(Delta *head) {
-  while (head->next != nullptr) {
-    head = head->next;
-  }
-  if (head->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-    return head->old_disk_key;
-  }
-  return std::nullopt;
 }
 
 }  // namespace
@@ -352,7 +343,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
-    const rocksdb::Slice &key, const rocksdb::Slice &value) {
+    const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta) {
   auto index_accessor = indexed_vertices_.access();
 
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key.ToString())));
@@ -363,7 +354,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   const std::string value_str = value.ToString();
   std::vector<LabelId> labels = utils::DeserializeLabelsFromLabelIndexStorage(value_str);
   return CreateVertex(index_accessor, gid, labels, utils::DeserializePropertiesFromLabelIndexStorage(value_str),
-                      CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_));
+                      index_delta);
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
@@ -379,7 +370,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   std::vector<LabelId> labels = utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str);
   return CreateVertex(index_accessor, gid, labels,
                       utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()),
-                      CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_));
+                      CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, std::nullopt));
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -447,7 +438,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     if (VertexHasLabel(vertex, label, &transaction_, view)) {
       spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelIndexCache(utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
-                                  utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties));
+                                  utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
+                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, std::nullopt));
     }
   }
 
@@ -456,7 +448,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
     /// TODO: optimize
     if (key.starts_with(utils::SerializeIdType(label)) && !utils::Contains(gids, curr_gid)) {
-      LoadVertexToLabelIndexCache(index_it->key(), index_it->value());
+      LoadVertexToLabelIndexCache(index_it->key(), index_it->value(),
+                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, key));
     }
   }
 
@@ -1157,7 +1150,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
     /// TODO: expose temporal coupling
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
       spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
                     utils::SerializeIdType(vertex.gid));
       if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
@@ -1184,7 +1177,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       /// TODO: expose temporal coupling
       /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
       if (config_.properties_on_edges) {
-        if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
+        if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
           spdlog::debug("Found old disk key {} for edge {}", maybe_old_disk_key.value(),
                         utils::SerializeIdType(edge.gid));
           if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
@@ -1200,7 +1193,6 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       }
 
       /// TODO: what if edge has already been deleted
-      /// TODO: if properties on edges are disabled, we won't have access delta, hence it will be impossible
 
       num_ser_edges++;
     }

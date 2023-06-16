@@ -162,7 +162,7 @@ class DiskStorage final : public Storage {
     }
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(const rocksdb::Slice &key,
-                                                                       const rocksdb::Slice &value);
+                                                                       const rocksdb::Slice &value, Delta *index_delta);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const rocksdb::Slice &key,
                                                                        const rocksdb::Slice &value);

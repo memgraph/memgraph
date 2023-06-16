@@ -73,6 +73,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RunGC() override;
 
+  RocksDBStorage *GetRocksDBStorage() const;
+
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
       entries_for_deletion;

@@ -112,9 +112,10 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std:
                                            old_disk_key);
 }
 
-inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas) {
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
+                                                       std::optional<std::string> old_disk_key) {
   transaction->EnsureCommitTimestampExists();
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), std::nullopt);
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
 }
 
 /// This function creates a delta in the transaction for the object and links
