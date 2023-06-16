@@ -3945,8 +3945,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     ASSERT_FALSE(vertex1);
     ASSERT_TRUE(vertex2);
     // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex1);
-    acc->PrefetchInEdges(*vertex1);
     acc->PrefetchOutEdges(*vertex2);
     acc->PrefetchInEdges(*vertex2);
 
@@ -4880,8 +4878,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     ASSERT_FALSE(vertex1);
     ASSERT_TRUE(vertex2);
     // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex1);
-    acc->PrefetchInEdges(*vertex1);
     acc->PrefetchOutEdges(*vertex2);
     acc->PrefetchInEdges(*vertex2);
 
