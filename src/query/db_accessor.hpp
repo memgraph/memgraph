@@ -501,6 +501,10 @@ class SubgraphDbAccessor final {
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
 
+  void PrefetchOutEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchOutEdges(vertex.impl_); }
+
+  void PrefetchInEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchOutEdges(vertex.impl_); }
+
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge);
 
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
