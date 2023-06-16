@@ -351,7 +351,7 @@ class DbAccessor final {
 
   void PrefetchOutEdges(const VertexAccessor &vertex) const { accessor_->PrefetchOutEdges(vertex.impl_); }
 
-  void PrefetchInEdges(const VertexAccessor &vertex) const { accessor_->PrefetchOutEdges(vertex.impl_); }
+  void PrefetchInEdges(const VertexAccessor &vertex) const { accessor_->PrefetchInEdges(vertex.impl_); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
@@ -378,6 +378,8 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
+    accessor_->PrefetchOutEdges(vertex_accessor->impl_);
+    accessor_->PrefetchInEdges(vertex_accessor->impl_);
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
