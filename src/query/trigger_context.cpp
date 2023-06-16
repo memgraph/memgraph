@@ -324,6 +324,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     auto it = values->begin();
     for (const auto &value : *values) {
       if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::View::OLD); maybe_vertex) {
+        accessor->PrefetchOutEdges(*maybe_vertex);
         auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
         MG_ASSERT(maybe_out_edges.HasValue());
         for (const auto &edge : *maybe_out_edges) {
