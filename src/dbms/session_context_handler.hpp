@@ -33,6 +33,8 @@
 
 namespace memgraph::dbms {
 
+#ifdef MG_ENTERPRISE
+
 /**
  * SessionContext Exception
  *
@@ -80,20 +82,13 @@ class SessionContextHandler {
    * @param audit_log pointer to the audit logger
    * @param configs storage and interpreter configurations
    */
-#if MG_ENTERPRISE
   void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
             memgraph::audit::Log *audit_log, ConfigT configs) {
-#else
-  void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-            ConfigT configs) {
-#endif
     std::lock_guard<LockT> wr(lock_);
     MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
     default_configs_ = configs;
     auth_ = auth;
-#if MG_ENTERPRISE
     audit_log_ = audit_log;
-#endif
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
     initialized_ = true;
   }
@@ -303,13 +298,7 @@ class SessionContextHandler {
       auto new_interp = interp_handler_.New(name, new_storage.GetValue().get(), inter_config,
                                             storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
-        return SessionContext {
-          new_storage.GetValue(), new_interp.GetValue(), run_id_, name, auth_
-#if MG_ENTERPRISE
-              ,
-              audit_log_
-#endif
-        };
+        return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, name, auth_, audit_log_};
       }
       // TODO: Storage succeeded, but interpreter failed... How to handle?
       return new_interp.GetError();
@@ -369,13 +358,7 @@ class SessionContextHandler {
     if (storage) {
       auto interp = interp_handler_.Get(name);
       if (interp) {
-        return SessionContext {
-          *storage, *interp, run_id_, name, auth_
-#if MG_ENTERPRISE
-              ,
-              audit_log_
-#endif
-        };
+        return SessionContext{*storage, *interp, run_id_, name, auth_, audit_log_};
       }
     }
     throw SessionContextException("Tried to retrieve an unknown database.");
@@ -389,11 +372,28 @@ class SessionContextHandler {
   std::optional<ConfigT> default_configs_;                       //!< default storage and interpreter configurations
   const std::string run_id_;                                     //!< run's unique identifier (auto generated)
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>
-      *auth_;  //!< pointer to the authorizer
-#if MG_ENTERPRISE
-  memgraph::audit::Log *audit_log_;  //!< pointer to the audit logger
-#endif
+      *auth_;                                                     //!< pointer to the authorizer
+  memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
   std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
 };
+
+#else
+/**
+ * @brief Initialize the handler.
+ *
+ * @param auth pointer to the authenticator
+ * @param configs storage and interpreter configurations
+ */
+static inline SessionContext Init(
+    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+    storage::Config &storage_config, query::InterpreterConfig &interp_config) {
+  auto storage = std::make_shared<storage::Storage>(storage_config);
+  MG_ASSERT(storage, "Failed to allocate main storage.");
+  auto interp_context = std::make_shared<query::InterpreterContext>(storage.get(), interp_config,
+                                                                    storage_config.durability.storage_directory);
+  MG_ASSERT(interp_context, "Failed to construct main interpret context.");
+  return SessionContext{storage, interp_context, utils::GenerateUUID(), kDefaultDB, auth};
+}
+#endif
 
 }  // namespace memgraph::dbms

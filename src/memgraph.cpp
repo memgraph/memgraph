@@ -485,7 +485,7 @@ class SessionHL final {
         interpreter_context_(session_context_.interpreter_context.get()),
         interpreter_(session_context_.interpreter_context.get()),
         auth_(session_context_.auth),
-#if MG_ENTERPRISE
+#ifdef MG_ENTERPRISE
         audit_log_(session_context_.audit_log),
 #endif
         endpoint_(endpoint),
@@ -674,7 +674,11 @@ class SessionHL final {
 
 using SessionT = memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                         memgraph::communication::v2::OutputStream, SessionHL>;
+#ifdef MG_ENTERPRISE
 using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionContextHandler>;
+#else
+using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionContext>;
+#endif
 using MonitoringServerT =
     memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
                                           memgraph::dbms::SessionContext>;
@@ -912,19 +916,22 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
+#ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
   sc_handler.LinkQueryAuth(&auth_checker, &auth_handler);
-#ifdef MG_ENTERPRISE
   sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
-#else
-  sc_handler.Init(&auth, {db_config, interp_config});
-#endif
-
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
-  auto &interpreter_context = *session_context.interpreter_context;
   auto &db = *session_context.db;
+  auto &interpreter_context = *session_context.interpreter_context;
+#else
+  auto session_context = memgraph::dbms::Init(&auth, db_config, interp_config);
+  auto &db = *session_context.db;
+  auto &interpreter_context = *session_context.interpreter_context;
+  interpreter_context.auth = &auth_handler;
+  interpreter_context.auth_checker = &auth_checker;
+#endif
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
@@ -973,8 +980,13 @@ int main(int argc, char **argv) {
   }
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+#ifdef MG_ENTERPRISE
   ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
+#else
+  ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+                 FLAGS_bolt_num_workers);
+#endif
 
   const auto machine_id = memgraph::utils::GetMachineId();
   const auto run_id = session_context.run_id;  // For current compatibility

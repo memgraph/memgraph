@@ -2767,9 +2767,12 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                         const std::string &session_uuid) {
-  // TODO Pass session instead of just the UUID?
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
   if (in_explicit_transaction) {
-    throw MutilDatabaseQueryInMulticommandTxException();
+    throw MultiDatabaseQueryInMulticommandTxException();
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
@@ -2853,9 +2856,16 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                          return std::nullopt;
                        },
                        RWType::NONE};
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, const std::string &session_uuid) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
   return PreparedQuery{{"Name", "Current"},
                        std::move(parsed_query.required_privileges),
                        [session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
@@ -2877,6 +2887,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, const std::str
                          return std::nullopt;
                        },
                        RWType::NONE};
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const {

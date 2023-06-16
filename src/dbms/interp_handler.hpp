@@ -11,6 +11,8 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -118,3 +120,5 @@ class InterpContextHandler {
 };
 
 }  // namespace memgraph::dbms
+
+#endif
