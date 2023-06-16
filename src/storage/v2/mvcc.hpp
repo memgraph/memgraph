@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <optional>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
@@ -105,14 +106,15 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
                                            transaction->command_id);
 }
 
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction) {
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get());
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
+                                           old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas) {
   transaction->EnsureCommitTimestampExists();
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get());
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), std::nullopt);
 }
 
 /// This function creates a delta in the transaction for the object and links

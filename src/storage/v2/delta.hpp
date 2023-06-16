@@ -152,8 +152,8 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteDeserializedObjectTag, std::atomic<uint64_t> *timestamp)
-      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(timestamp), command_id(0) {}
+  Delta(DeleteDeserializedObjectTag, std::atomic<uint64_t> *timestamp, const std::optional<std::string> old_disk_key)
+      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(timestamp), command_id(0), old_disk_key(old_disk_key) {}
 
   Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
@@ -231,6 +231,7 @@ struct Delta {
   std::atomic<Delta *> next{nullptr};
 
   union {
+    std::optional<std::string> old_disk_key;
     LabelId label;
     struct {
       PropertyId key;

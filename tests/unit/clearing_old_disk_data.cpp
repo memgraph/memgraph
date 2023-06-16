@@ -22,6 +22,7 @@
 
 namespace {
 
+/// TODO: move this to disk_test_utils.hpp
 uint64_t GetRealNumberOfEntriesInRocksDB(memgraph::storage::DiskStorage *disk_storage) {
   uint64_t num_keys = 0;
   disk_storage->GetRocksDBStorage()->db_->GetAggregatedIntProperty("rocksdb.estimate-num-keys", &num_keys);
@@ -38,7 +39,7 @@ class ClearingOldDiskDataTest : public ::testing::Test {
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
 
-TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithTimestampUpdate) {
+TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithVertexTimestampUpdate) {
   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
 
   auto acc1 = disk_storage->Access(std::nullopt);
@@ -62,24 +63,126 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithTimestampUpdate) {
   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
 }
 
-// TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithKeyUpdate) {
-//   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
+TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithVertexValueUpdate) {
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
 
-//   auto acc1 = disk_storage->Access(std::nullopt);
-//   auto vertex1 = acc1->CreateVertex();
-//   auto label1 = acc1->NameToLabel("DiskLabel");
-//   auto property1 = acc1->NameToProperty("DiskProperty");
-//   ASSERT_TRUE(vertex1.AddLabel(label1).HasValue());
-//   ASSERT_TRUE(vertex1.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
-//   ASSERT_FALSE(acc1->Commit().HasError());
+  auto acc1 = disk_storage->Access(std::nullopt);
+  auto vertex1 = acc1->CreateVertex();
+  auto label1 = acc1->NameToLabel("DiskLabel");
+  auto property1 = acc1->NameToProperty("DiskProperty");
+  ASSERT_TRUE(vertex1.AddLabel(label1).HasValue());
+  ASSERT_TRUE(vertex1.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc1->Commit().HasError());
 
-//   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
 
-//   auto acc2 = disk_storage->Access(std::nullopt);
-//   auto vertex2 = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW).value();
-//   auto label2 = acc2->NameToLabel("DiskLabel2");
-//   ASSERT_TRUE(vertex2.AddLabel(label2).HasValue());
-//   ASSERT_FALSE(acc2->Commit().HasError());
+  auto acc2 = disk_storage->Access(std::nullopt);
+  auto vertex2 = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW).value();
+  /// This is the same property as in the first transaction, we just want to test
+  /// the number of entries inside RocksDB when the timestamp changes
+  auto property2 = acc2->NameToProperty("DiskProperty");
+  ASSERT_TRUE(vertex2.SetProperty(property2, memgraph::storage::PropertyValue(15)).HasValue());
+  ASSERT_FALSE(acc2->Commit().HasError());
 
-//   ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 2);
-// }
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
+}
+
+TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithVertexKeyUpdate) {
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
+
+  auto acc1 = disk_storage->Access(std::nullopt);
+  auto vertex1 = acc1->CreateVertex();
+  auto label1 = acc1->NameToLabel("DiskLabel");
+  auto property1 = acc1->NameToProperty("DiskProperty");
+  ASSERT_TRUE(vertex1.AddLabel(label1).HasValue());
+  ASSERT_TRUE(vertex1.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc1->Commit().HasError());
+
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
+
+  auto acc2 = disk_storage->Access(std::nullopt);
+  auto vertex2 = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW).value();
+  auto label2 = acc2->NameToLabel("DiskLabel2");
+  ASSERT_TRUE(vertex2.AddLabel(label2).HasValue());
+  ASSERT_FALSE(acc2->Commit().HasError());
+
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 1);
+}
+
+TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
+
+  auto acc1 = disk_storage->Access(std::nullopt);
+
+  auto label1 = acc1->NameToLabel("DiskLabel");
+  auto property1 = acc1->NameToProperty("DiskProperty");
+  auto edge_type = acc1->NameToEdgeType("test");
+
+  auto from = acc1->CreateVertex();
+  auto to = acc1->CreateVertex();
+  auto edge = acc1->CreateEdge(&from, &to, edge_type);
+  MG_ASSERT(edge.HasValue());
+  auto edgeAcc = std::move(edge.GetValue());
+
+  ASSERT_TRUE(from.AddLabel(label1).HasValue());
+  ASSERT_TRUE(to.AddLabel(label1).HasValue());
+  ASSERT_TRUE(from.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(to.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(edge->SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc1->Commit().HasError());
+
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 3);
+
+  auto acc2 = disk_storage->Access(std::nullopt);
+  auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
+
+  acc2->PrefetchOutEdges(from_vertex);
+  auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
+  auto fetched_edge = ret.GetValue()[0];
+
+  /// This is the same property as in the first transaction, we just want to test
+  /// the number of entries inside RocksDB when the timestamp changes
+  auto property2 = acc2->NameToProperty("DiskProperty");
+  ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc2->Commit().HasError());
+
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 3);
+}
+
+TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 0);
+
+  auto acc1 = disk_storage->Access(std::nullopt);
+
+  auto label1 = acc1->NameToLabel("DiskLabel");
+  auto property1 = acc1->NameToProperty("DiskProperty");
+  auto edge_type = acc1->NameToEdgeType("test");
+
+  auto from = acc1->CreateVertex();
+  auto to = acc1->CreateVertex();
+  auto edge = acc1->CreateEdge(&from, &to, edge_type);
+  MG_ASSERT(edge.HasValue());
+  auto edgeAcc = std::move(edge.GetValue());
+
+  ASSERT_TRUE(from.AddLabel(label1).HasValue());
+  ASSERT_TRUE(to.AddLabel(label1).HasValue());
+  ASSERT_TRUE(from.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(to.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_TRUE(edge->SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc1->Commit().HasError());
+
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 3);
+
+  auto acc2 = disk_storage->Access(std::nullopt);
+  auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
+
+  acc2->PrefetchOutEdges(from_vertex);
+  auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
+  auto fetched_edge = ret.GetValue()[0];
+
+  auto property2 = acc2->NameToProperty("DiskProperty");
+  ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(15)).HasValue());
+  ASSERT_FALSE(acc2->Commit().HasError());
+
+  ASSERT_EQ(GetRealNumberOfEntriesInRocksDB(disk_storage.get()), 3);
+}

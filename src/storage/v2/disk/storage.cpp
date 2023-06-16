@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <limits>
+#include <optional>
 #include <stdexcept>
 
 #include <rocksdb/comparator.h>
@@ -168,6 +169,16 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
   return true;
 }
 
+std::optional<std::string> GetOldDiskKeyOrNull(Delta *head) {
+  while (head->next != nullptr) {
+    head = head->next;
+  }
+  if (head->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
+    return head->old_disk_key;
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -324,6 +335,7 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
+/// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
     const rocksdb::Slice &key, const rocksdb::Slice &value) {
   auto main_storage_accessor = vertices_.access();
@@ -336,7 +348,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key_str);
   return CreateVertex(main_storage_accessor, gid, labels_id,
                       utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()),
-                      CreateDeleteDeserializedObjectDelta(&transaction_));
+                      CreateDeleteDeserializedObjectDelta(&transaction_, key.ToString()));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -397,7 +409,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
-  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView());
+  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView(), key.ToString());
   MG_ASSERT(maybe_edge.HasValue());
 
   return *maybe_edge;
@@ -825,7 +837,8 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type, storage::Gid gid,
-                                                           std::string_view properties) {
+                                                           std::string_view properties,
+                                                           const std::string &old_disk_key) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
@@ -872,7 +885,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = edges_.access();
-    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_);
+    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -884,74 +897,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-
-  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
-}
-
-Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                           EdgeTypeId edge_type, storage::Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
-
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
-
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
-
-  // NOTE: When we update the next `edge_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                               std::memory_order_release);
-
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    auto acc = edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
-  }
-
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-  from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1212,6 +1157,16 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       return StorageDataManipulationError{SerializationError{}};
     }
 
+    if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+      spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
+                    utils::SerializeIdType(vertex.gid));
+      if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
+        return StorageDataManipulationError{SerializationError{}};
+      }
+    } else {
+      spdlog::debug("No old disk key found for vertex {}", utils::SerializeIdType(vertex.gid));
+    }
+
     /// TODO: andi don't ignore the return value
     disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
     disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_);
@@ -1224,6 +1179,21 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
       if (!WriteEdgeToDisk(edge, src_dest_key)) {
         return StorageDataManipulationError{SerializationError{}};
+      }
+
+      /// TODO: what if edge has already been deleted
+      /// TODO: if properties on edges are disabled, we won't have access delta, hence it will be impossible
+
+      if (config_.properties_on_edges) {
+        if (auto maybe_old_disk_key = GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
+          spdlog::debug("Found old disk key {} for edge {}", maybe_old_disk_key.value(),
+                        utils::SerializeIdType(edge.gid));
+          if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
+            return StorageDataManipulationError{SerializationError{}};
+          }
+        } else {
+          spdlog::debug("No old disk key found for edge {}", utils::SerializeIdType(edge.gid));
+        }
       }
 
       num_ser_edges++;
