@@ -1075,12 +1075,12 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       if (config_.properties_on_edges) {
         if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
           spdlog::debug("Found old disk key {} for edge {}", maybe_old_disk_key.value(),
-                        utils::SerializeIdType(edge.gid));
+                        utils::SerializeIdType(edge.ptr->gid));
           if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
             return StorageDataManipulationError{SerializationError{}};
           }
         } else {
-          spdlog::debug("No old disk key found for edge {}", utils::SerializeIdType(edge.gid));
+          spdlog::debug("No old disk key found for edge {}", utils::SerializeIdType(edge.ptr->gid));
         }
       }
 
