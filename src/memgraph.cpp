@@ -842,9 +842,6 @@ int main(int argc, char **argv) {
 
   // Begin enterprise features initialization
 
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
 #ifdef MG_ENTERPRISE
   // Audit log
   memgraph::audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
@@ -921,6 +918,9 @@ int main(int argc, char **argv) {
   auto &db = *session_context.db;
   auto *auth = &session_context.auth_context->auth;
   auto &auth_handler = session_context.auth_context->auth_handler;
+
+  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
+  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
