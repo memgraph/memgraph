@@ -15,7 +15,7 @@ fi
 INPUT="$1"
 OUTPUT="$2"
 if [ ! -f "$INPUT" ]; then
-    echo -e "${COLOR_RED}ERROR:${COLOR_NULL} input_file_path is not a file!"
+    echo -e "${COLOR_RED}ERROR:${COLOR_NULL} memgraph_logs_file_path is not a file!"
     print_help
 fi
 
