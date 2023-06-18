@@ -14,6 +14,7 @@
 #include <stdexcept>
 
 #include <rocksdb/comparator.h>
+#include <rocksdb/db.h>
 #include <rocksdb/slice.h>
 
 #include <rocksdb/options.h>
@@ -22,6 +23,7 @@
 
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
@@ -172,6 +174,10 @@ DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_T
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
+  // kvstore_->options_.wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+  // kvstore_->options_.wal_dir = wal_directory_ / "rocksdb";
+  // kvstore_->options_.WAL_ttl_seconds = 10;
+  // kvstore_->options_.wal_compression = rocksdb::kNoCompression;
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {
@@ -519,8 +525,7 @@ StorageInfo DiskStorage::GetInfo() const {
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -539,7 +544,9 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
                                                        const std::vector<LabelId> &label_ids,
                                                        PropertyStore &&properties, Delta *delta) {
   OOMExceptionEnabler oom_exception;
-
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                                 std::memory_order_release);
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -759,6 +766,10 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
+
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                               std::memory_order_release);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -1191,6 +1202,16 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageDataManipulationError{SerializationError{}};
   }
+  // if (auto status = disk_storage->kvstore_->db_->Flush(rocksdb::FlushOptions{},
+  // disk_storage->kvstore_->vertex_chandle); !status.ok()) {
+  //   spdlog::error("rocksdb: Flush failed with status {}", status.ToString());
+  //   return StorageDataManipulationError{SerializationError{}};
+  // }
+  // if (auto status = disk_storage->kvstore_->db_->SyncWAL(); !status.ok()) {
+  //   spdlog::error("rocksdb: SyncWAL failed with status {}", status.ToString());
+  //   return StorageDataManipulationError{SerializationError{}};
+  // }
+  spdlog::debug("rocksdb: Commit successful");
 
   is_transaction_active_ = false;
 

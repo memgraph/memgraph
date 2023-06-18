@@ -1181,7 +1181,7 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
 
 InterpreterContext::InterpreterContext(const storage::Config storage_config, const InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory)
-    : db(std::make_unique<storage::InMemoryStorage>(storage_config)),
+    : db(std::make_unique<storage::DiskStorage>(storage_config)),
       trigger_store(data_directory / "triggers"),
       config(interpreter_config),
       streams{this, data_directory / "streams"} {}
@@ -1846,8 +1846,8 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
-  if (dba->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw ReplicationDisabledOnDiskStorage();
+  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw FreeMemoryDisabledOnDiskStorage();
   }
 
   return PreparedQuery{

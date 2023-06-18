@@ -26,7 +26,8 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(&constraints_, config, storage_mode),
-      constraints_(config, storage_mode) {}
+      constraints_(config, storage_mode),
+      wal_directory_(config.durability.storage_directory / durability::kWalDirectory) {}
 
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),

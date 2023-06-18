@@ -48,7 +48,6 @@ std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError e
 InMemoryStorage::InMemoryStorage(Config config)
     : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
-      wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),

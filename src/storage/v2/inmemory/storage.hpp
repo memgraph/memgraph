@@ -379,7 +379,6 @@ class InMemoryStorage final : public Storage {
 
   // Durability
   std::filesystem::path snapshot_directory_;
-  std::filesystem::path wal_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
   std::unique_ptr<kvstore::KVStore> storage_;
