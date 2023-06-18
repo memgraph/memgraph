@@ -2558,7 +2558,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
+            auto maybe_constraint_error = interpreter_context->db->CreateExistenceConstraint(label, properties[0], {});
 
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
@@ -2607,7 +2607,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->CreateUniqueConstraint(label, property_set);
+            auto maybe_constraint_error = interpreter_context->db->CreateUniqueConstraint(label, property_set, {});
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
@@ -2681,7 +2681,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->DropExistenceConstraint(label, properties[0]);
+            auto maybe_constraint_error = interpreter_context->db->DropExistenceConstraint(label, properties[0], {});
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
@@ -2720,7 +2720,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->DropUniqueConstraint(label, property_set);
+            auto maybe_constraint_error = interpreter_context->db->DropUniqueConstraint(label, property_set, {});
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(

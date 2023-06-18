@@ -573,7 +573,7 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
   }
   {
     auto res = this->context.db->CreateExistenceConstraint(this->context.db->NameToLabel("L`abel 1"),
-                                                           this->context.db->NameToProperty("prop"));
+                                                           this->context.db->NameToProperty("prop"), {});
     ASSERT_FALSE(res.HasError());
   }
 
@@ -605,7 +605,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
   {
     auto res = this->context.db->CreateUniqueConstraint(
         this->context.db->NameToLabel("Label"),
-        {this->context.db->NameToProperty("prop"), this->context.db->NameToProperty("prop2")});
+        {this->context.db->NameToProperty("prop"), this->context.db->NameToProperty("prop2")}, {});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
@@ -711,12 +711,12 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   }
   {
     auto ret = this->context.db->CreateExistenceConstraint(this->context.db->NameToLabel("Person"),
-                                                           this->context.db->NameToProperty("name"));
+                                                           this->context.db->NameToProperty("name"), {});
     ASSERT_FALSE(ret.HasError());
   }
   {
     auto ret = this->context.db->CreateUniqueConstraint(this->context.db->NameToLabel("Person"),
-                                                        {this->context.db->NameToProperty("name")});
+                                                        {this->context.db->NameToProperty("name")}, {});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
@@ -884,25 +884,25 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     // Create existence constraints
     {
       auto res = this->context.db->CreateExistenceConstraint(this->context.db->NameToLabel("PERSON"),
-                                                             this->context.db->NameToProperty("name"));
+                                                             this->context.db->NameToProperty("name"), {});
       ASSERT_FALSE(res.HasError());
     }
     {
       auto res = this->context.db->CreateExistenceConstraint(this->context.db->NameToLabel("PERSON"),
-                                                             this->context.db->NameToProperty("surname"));
+                                                             this->context.db->NameToProperty("surname"), {});
       ASSERT_FALSE(res.HasError());
     }
 
     // Create unique constraints
     {
       auto res = this->context.db->CreateUniqueConstraint(this->context.db->NameToLabel("PERSON"),
-                                                          {this->context.db->NameToProperty("name")});
+                                                          {this->context.db->NameToProperty("name")}, {});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
     }
     {
       auto res = this->context.db->CreateUniqueConstraint(this->context.db->NameToLabel("PERSON"),
-                                                          {this->context.db->NameToProperty("surname")});
+                                                          {this->context.db->NameToProperty("surname")}, {});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
     }
