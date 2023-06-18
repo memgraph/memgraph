@@ -842,15 +842,8 @@ int main(int argc, char **argv) {
 
   // Begin enterprise features initialization
 
-  // Auth
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{data_directory /
-                                                                                                    "auth"};
-
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  memgraph::glue::AuthChecker auth_checker{&auth};
 
 #ifdef MG_ENTERPRISE
   // Audit log
@@ -916,17 +909,18 @@ int main(int argc, char **argv) {
 
   // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
-  sc_handler.LinkQueryAuth(&auth_checker, &auth_handler);
 #ifdef MG_ENTERPRISE
-  sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
+  sc_handler.Init(&audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex});
 #else
-  sc_handler.Init(&auth, {db_config, interp_config});
+  sc_handler.Init({db_config, interp_config, FLAGS_auth_user_or_role_name_regex});
 #endif
 
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
   auto &interpreter_context = *session_context.interpreter_context;
   auto &db = *session_context.db;
+  auto *auth = &session_context.auth_context->auth;
+  auto &auth_handler = session_context.auth_context->auth_handler;
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
@@ -1005,7 +999,7 @@ int main(int argc, char **argv) {
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
+  memgraph::communication::websocket::SafeAuth websocket_auth{auth};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());

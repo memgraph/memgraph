@@ -12,6 +12,7 @@
 #pragma once
 
 #include "auth/auth.hpp"
+#include "auth_handler.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/synchronized.hpp"
@@ -33,7 +34,7 @@ struct SessionContext {
 
   SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
                  std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
-                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
+                 std::shared_ptr<AuthHandler::AuthContext> auth_context
 #if MG_ENTERPRISE
                  ,
                  memgraph::audit::Log *audit_log
@@ -42,7 +43,8 @@ struct SessionContext {
       : db(db),
         interpreter_context(interpreter_context),
         run_id(run),
-        auth(auth)
+        auth_context(auth_context),
+        auth(&auth_context->auth)
 #if MG_ENTERPRISE
         ,
         audit_log(audit_log)
@@ -54,10 +56,11 @@ struct SessionContext {
   std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
   const std::string run_id;
 
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
+  std::shared_ptr<AuthHandler::AuthContext> auth_context;
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *const auth;
 
 #if MG_ENTERPRISE
-  memgraph::audit::Log *audit_log;
+  memgraph::audit::Log *const audit_log;
 #endif
 };
 

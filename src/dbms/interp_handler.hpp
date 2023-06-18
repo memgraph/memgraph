@@ -18,6 +18,8 @@
 #include <unordered_map>
 
 #include "global.hpp"
+#include "glue/auth_checker.hpp"
+#include "glue/auth_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -45,20 +47,16 @@ class InterpContextHandler {
    * @param db database storage pointer
    * @param config interpreter configuration
    * @param data_directory underlying RocksDB directory
+   * @param ah associated auth handler (@note: glue)
+   * @param ac associated auth checker (@note: glue)
    * @return NewResult pointer to context on success, error on failure
    */
   NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
-                const std::filesystem::path &data_directory) {
-    // Control that the new configuration does not conflict with the previous ones
-    // TODO: Is there anything that can conflict
-    // Create storage
+                const std::filesystem::path &data_directory, glue::AuthQueryHandler &ah, glue::AuthChecker &ac) {
     auto [itr, success] =
-        interp_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory), config));
+        interp_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory, &ah, &ac), config));
     if (success) {
-      auto &ref = itr->second.first;
-      if (ah_) ref->auth = ah_;
-      if (ac_) ref->auth_checker = ac_;
-      return ref;
+      return itr->second.first;
     }
     return NewError::EXISTS;
   }
@@ -84,37 +82,9 @@ class InterpContextHandler {
     return false;
   }
 
-  /**
-   * @brief Set the default configuration
-   *
-   * @param config
-   */
-  void SetDefaultConfig(TConfig config) { default_config_ = config; }
-
-  /**
-   * @brief Get the default configuration
-   *
-   * @return std::optional<TConfig>
-   */
-  std::optional<TConfig> GetDefaultConfig() { return default_config_; }
-
-  /**
-   * @brief Handling AuthHandler and AuthChecker
-   *
-   * TODO: Check if we want a single global Auth* or local to each interpreter?
-   *
-   */
-  void LinkQueryAuth(query::AuthChecker *ac, query::AuthQueryHandler *ah) {
-    ac_ = ac;
-    ah_ = ah;
-  }
-
  private:
   std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>>
-      interp_;                             //!< map to all active interpreters
-  std::optional<TConfig> default_config_;  //!< default configuration to use
-  query::AuthChecker *ac_{nullptr};
-  query::AuthQueryHandler *ah_{nullptr};
+      interp_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms
