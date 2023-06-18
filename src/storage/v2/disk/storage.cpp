@@ -539,15 +539,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
                                                        const std::vector<LabelId> &label_ids,
                                                        PropertyStore &&properties, Delta *delta) {
   OOMExceptionEnabler oom_exception;
-  // NOTE: When we update the next `vertex_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                                 std::memory_order_release);
+
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -767,16 +759,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
-
-  // NOTE: When we update the next `edge_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                               std::memory_order_release);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -1428,7 +1410,6 @@ void DiskStorage::DiskAccessor::Abort() {
   is_transaction_active_ = false;
 }
 
-// maybe will need some usages here
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     commit_timestamp_.reset();
@@ -1579,16 +1560,6 @@ uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_comm
   }
   timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
   return *desired_commit_timestamp;
-}
-
-utils::BasicResult<DiskStorage::SetIsolationLevelError> DiskStorage::SetIsolationLevel(IsolationLevel isolation_level) {
-  std::unique_lock main_guard{main_lock_};
-  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
-  }
-
-  isolation_level_ = isolation_level;
-  return {};
 }
 
 }  // namespace memgraph::storage

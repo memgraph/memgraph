@@ -120,7 +120,6 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    // TODO: andi This thing depends on the concrete storage type
     auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
     if (!mem_label_index->CreateIndex(item, vertices->access(), paralell_exec_info))
       throw RecoveryFailure("The label index must be created here!");
@@ -132,7 +131,6 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover label+property indices.
   spdlog::info("Recreating {} label+property indices from metadata.",
                indices_constraints.indices.label_property.size());
-  /// TODO: andi fix this so that it creates correct index corresponding to storage mode
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_constraints.indices.label_property) {
     if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), std::nullopt))
@@ -164,7 +162,6 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover unique constraints.
   spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
-    /// TODO: andi cast to support correct storage type
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)

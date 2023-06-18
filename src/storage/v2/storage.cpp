@@ -26,10 +26,7 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(&constraints_, config, storage_mode),
-      constraints_(config, storage_mode),
-      uuid_(utils::GenerateUUID()),
-      epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()) {}
+      constraints_(config, storage_mode) {}
 
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),
@@ -94,6 +91,16 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
 }
 
 StorageMode Storage::GetStorageMode() const { return storage_mode_; }
+
+utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+  std::unique_lock main_guard{main_lock_};
+  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
+  }
+
+  isolation_level_ = isolation_level;
+  return {};
+}
 
 const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 

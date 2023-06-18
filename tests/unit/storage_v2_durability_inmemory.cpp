@@ -84,10 +84,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_FALSE(store->CreateIndex(label_indexed, property_id).HasError());
 
     // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id).HasError());
+    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id, {}).HasError());
 
     // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
+    ASSERT_FALSE(store->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}, {}).HasError());
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
@@ -149,10 +149,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_FALSE(store->CreateIndex(label_indexed, property_count).HasError());
 
     // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count).HasError());
+    ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count, {}).HasError());
 
     // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count}).HasError());
+    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count}, {}).HasError());
 
     // Storage accessor.
     std::unique_ptr<memgraph::storage::Storage::Accessor> acc;
@@ -1447,10 +1447,10 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }
     auto constraints = store->ListAllConstraints();
     for (const auto &constraint : constraints.existence) {
-      ASSERT_FALSE(store->DropExistenceConstraint(constraint.first, constraint.second).HasError());
+      ASSERT_FALSE(store->DropExistenceConstraint(constraint.first, constraint.second, {}).HasError());
     }
     for (const auto &constraint : constraints.unique) {
-      ASSERT_EQ(store->DropUniqueConstraint(constraint.first, constraint.second).GetValue(),
+      ASSERT_EQ(store->DropUniqueConstraint(constraint.first, constraint.second, {}).GetValue(),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     }
     auto acc = store->Access();

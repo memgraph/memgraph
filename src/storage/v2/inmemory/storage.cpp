@@ -49,7 +49,10 @@ InMemoryStorage::InMemoryStorage(Config config)
     : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
-      lock_file_path_(config.durability.storage_directory / durability::kLockFile) {
+      lock_file_path_(config.durability.storage_directory / durability::kLockFile),
+      uuid_(utils::GenerateUUID()),
+      epoch_id_(utils::GenerateUUID()),
+      global_locker_(file_retainer_.AddLocker()) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -1828,16 +1831,6 @@ std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
         });
     return replica_info;
   });
-}
-
-utils::BasicResult<Storage::SetIsolationLevelError> InMemoryStorage::SetIsolationLevel(IsolationLevel isolation_level) {
-  std::unique_lock main_guard{main_lock_};
-  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
-  }
-
-  isolation_level_ = isolation_level;
-  return {};
 }
 
 void InMemoryStorage::RestoreReplicas() {

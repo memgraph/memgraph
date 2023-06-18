@@ -84,7 +84,7 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
-    auto res = storage->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    auto res = storage->CreateUniqueConstraint(label, {prop1, prop2, prop3}, {});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
@@ -166,7 +166,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
 
 TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
-    auto res = storage->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    auto res = storage->CreateUniqueConstraint(label, {prop1, prop2, prop3}, {});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }

@@ -225,13 +225,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(
         main_store->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
     ASSERT_FALSE(
-        main_store->CreateExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property))
+        main_store->CreateExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})
             .HasError());
-    ASSERT_FALSE(
-        main_store
-            ->CreateUniqueConstraint(main_store->NameToLabel(label),
-                                     {main_store->NameToProperty(property), main_store->NameToProperty(property_extra)})
-            .HasError());
+    ASSERT_FALSE(main_store
+                     ->CreateUniqueConstraint(
+                         main_store->NameToLabel(label),
+                         {main_store->NameToProperty(property), main_store->NameToProperty(property_extra)}, {})
+                     .HasError());
   }
 
   {
@@ -258,11 +258,12 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(
         main_store->DropIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
     ASSERT_FALSE(
-        main_store->DropExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property))
+        main_store->DropExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})
             .HasError());
     ASSERT_EQ(main_store
-                  ->DropUniqueConstraint(main_store->NameToLabel(label), {main_store->NameToProperty(property),
-                                                                          main_store->NameToProperty(property_extra)})
+                  ->DropUniqueConstraint(
+                      main_store->NameToLabel(label),
+                      {main_store->NameToProperty(property), main_store->NameToProperty(property_extra)}, {})
                   .GetValue(),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
   }

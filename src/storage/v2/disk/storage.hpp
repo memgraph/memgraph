@@ -24,8 +24,6 @@ namespace memgraph::storage {
 
 class DiskStorage final : public Storage {
  public:
-  /// @throw std::system_error
-  /// @throw std::bad_alloc
   explicit DiskStorage(Config config = Config());
 
   DiskStorage(const DiskStorage &) = delete;
@@ -46,25 +44,16 @@ class DiskStorage final : public Storage {
     DiskAccessor &operator=(const DiskAccessor &) = delete;
     DiskAccessor &operator=(DiskAccessor &&other) = delete;
 
-    // NOTE: After the accessor is moved, all objects derived from it (accessors
-    // and iterators) are *invalid*. You have to get all derived objects again.
     DiskAccessor(DiskAccessor &&other) noexcept;
 
     ~DiskAccessor() override;
 
     VertexAccessor CreateVertex() override;
 
-    /// Checks whether the vertex with the given `gid` exists in the vertices_. If it does, it returns a
-    /// VertexAccessor to it. If it doesn't, it fetches vertex from the RocksDB. If it doesn't exist in the RocksDB
-    /// either, it returns nullptr. If the vertex is fetched from the RocksDB, it is inserted into the vertices_ and
-    /// lru_vertices_. Check whether the vertex is in the memory cache (vertices_) is done in O(logK) where K is the
-    /// size of the cache.
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
-    /// Utility method to load all vertices from the underlying KV storage.
     VerticesIterable Vertices(View view) override;
 
-    /// Utility method to load all vertices from the underlying KV storage with label `label`.
     VerticesIterable Vertices(LabelId label, View view) override;
 
     VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
@@ -110,9 +99,7 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
-    /// Deletes vertex only from the cache if it was created in the same transaction.
-    /// If the vertex was fetched from the RocksDB, it is deleted from the RocksDB.
-    /// It is impossible that the object isn't in the cache because of generated query plan.
+    /// TODO: It is just marked as deleted but the memory isn't reclaimed because of the in-memory storage
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
 
     Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
@@ -149,11 +136,9 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
-    /// @throw std::bad_alloc
-    /// Currently, it does everything the same as in-memory version.
+    /// TODO: change and see what needs to be done
     void Abort() override;
 
-    /// Currently, it does everything the same as in-memory version.
     void FinalizeTransaction() override;
 
     void PrepareForNextIndexQuery() override {
@@ -170,13 +155,9 @@ class DiskStorage final : public Storage {
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(const rocksdb::Slice &key,
                                                                                const rocksdb::Slice &value);
 
-    /// Deserializes edge from the string key and stores it into the edges_ cache.
-    /// Properties are deserialized from the value.
-    /// The method should be called only when the edge is not in the cache.
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
    private:
-    /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                 const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
 
@@ -191,11 +172,11 @@ class DiskStorage final : public Storage {
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckConstraintsAndFlushMainMemoryCache();
 
     bool WriteVertexToDisk(const Vertex &vertex);
-    bool WriteEdgeToDisk(const EdgeRef edge, const std::string &serializedEdgeKey);
+    bool WriteEdgeToDisk(EdgeRef edge, const std::string &serializedEdgeKey);
     bool DeleteVertexFromDisk(const std::string &vertex);
     bool DeleteEdgeFromDisk(const std::string &edge);
 
-    // Main object storage
+    /// Main storage
     utils::SkipList<storage::Vertex> vertices_;
     utils::SkipList<storage::Vertex> indexed_vertices_;
 
@@ -225,29 +206,23 @@ class DiskStorage final : public Storage {
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  /// TODO: andi Abstract if possible
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -266,10 +241,6 @@ class DiskStorage final : public Storage {
   StorageInfo GetInfo() const override;
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  /// TODO: andi Why not on abstract storage
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
 
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
