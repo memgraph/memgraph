@@ -247,11 +247,7 @@ class DiskStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  void FreeMemory() override;
-
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
-
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -267,16 +263,7 @@ class DiskStorage final : public Storage {
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelPropertyIndex(LabelId label,
                                                                                           PropertyId property);
 
-  bool InitializeWalFile();
-  void FinalizeWalFile();
-
   StorageInfo GetInfo() const override;
-
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
-                                               const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

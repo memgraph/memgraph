@@ -23,9 +23,6 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 Storage::Storage(Config config, StorageMode storage_mode)
     : config_(config),
-      snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
-      wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
-      lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(&constraints_, config, storage_mode),
@@ -51,25 +48,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
-}
-
-bool Storage::LockPath() {
-  auto locker_accessor = global_locker_.Access();
-  return locker_accessor.AddPath(config_.durability.storage_directory);
-}
-
-bool Storage::UnlockPath() {
-  {
-    auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
-    }
-  }
-
-  // We use locker accessor in seperate scope so we don't produce deadlock
-  // after we call clean queue.
-  file_retainer_.CleanQueue();
-  return true;
 }
 
 // this should be handled on an above level of abstraction

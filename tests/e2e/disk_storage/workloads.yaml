@@ -7,6 +7,27 @@ disk_storage: &disk_storage
       validation_queries: []
 
 workloads:
+  # - name: "Test that free memory query is disabled with on-disk storage."
+  #   binary: "tests/e2e/pytest_runner.sh"
+  #   args: ["disk_storage/free_memory_disabled.py"]
+  #   <<: *disk_storage
+
+  # - name: "Test that replication queries are disabled with on-disk storage."
+  #   binary: "tests/e2e/pytest_runner.sh"
+  #   args: ["disk_storage/replication_disabled.py"]
+  #   <<: *disk_storage
+
+  # - name: "Test that create snapshot queries are disabled with on-disk storage."
+  #   binary: "tests/e2e/pytest_runner.sh"
+  #   args: ["disk_storage/snapshot_disabled.py"]
+  #   <<: *disk_storage
+
+  - name: "Test that lock data directory query is disabled with on-disk storage."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/lock_data_dir_disabled.py"]
+    <<: *disk_storage
+
+
   - name: "Tests importing data on disk "
     binary: "tests/e2e/pytest_runner.sh"
     args: ["disk_storage/data_import.py"]

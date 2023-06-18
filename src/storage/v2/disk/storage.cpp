@@ -24,11 +24,6 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
-#include "storage/v2/durability/durability.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -173,99 +168,6 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 }  // namespace
 
 DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL) {
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
-      config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
-    // Create the directory initially to crash the database in case of
-    // permission errors. This is done early to crash the database on startup
-    // instead of crashing the database for the first time during runtime (which
-    // could be an unpleasant surprise).
-    utils::EnsureDirOrDie(snapshot_directory_);
-    // Same reasoning as above.
-    utils::EnsureDirOrDie(wal_directory_);
-
-    // Verify that the user that started the process is the same user that is
-    // the owner of the storage directory.
-    durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(config_.durability.storage_directory);
-
-    // Create the lock file and open a handle to it. This will crash the
-    // database if it can't open the file for writing or if any other process is
-    // holding the file opened.
-    lock_file_handle_.Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    MG_ASSERT(lock_file_handle_.AcquireLock(),
-              "Couldn't acquire lock on the storage directory {}"
-              "!\nAnother Memgraph process is currently running with the same "
-              "storage directory, please stop it first before starting this "
-              "process!",
-              config_.durability.storage_directory);
-  }
-  /// TODO(andi): Return capabilities for recovering data
-  // if (config_.durability.recover_on_startup) {
-  //   auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
-  //                                       & vertices_, &edges_, &edge_count_, &name_id_mapper_, &indices_,
-  //                                       &constraints_, config_.items, &wal_seq_num_);
-  //   if (info) {
-  //     vertex_id_ = info->next_vertex_id;
-  //     edge_id_ = info->next_edge_id;
-  //     timestamp_ = std::max(timestamp_, info->next_timestamp);
-  //     if (info->last_commit_timestamp) {
-  //       last_commit_timestamp_ = *info->last_commit_timestamp;
-  //     }
-  //   }
-  // } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
-  //            config_.durability.snapshot_on_exit) {
-  //   bool files_moved = false;
-  //   auto backup_root = config_.durability.storage_directory / durability::kBackupDirectory;
-  //   for (const auto &[path, dirname, what] :
-  //        {std::make_tuple(snapshot_directory_, durability::kSnapshotDirectory, "snapshot"),
-  //         std::make_tuple(wal_directory_, durability::kWalDirectory, "WAL")}) {
-  //     if (!utils::DirExists(path)) continue;
-  //     auto backup_curr = backup_root / dirname;
-  //     std::error_code error_code;
-  //     for (const auto &item : std::filesystem::directory_iterator(path, error_code)) {
-  //       utils::EnsureDirOrDie(backup_root);
-  //       utils::EnsureDirOrDie(backup_curr);
-  //       std::error_code item_error_code;
-  //       std::filesystem::rename(item.path(), backup_curr / item.path().filename(), item_error_code);
-  //       MG_ASSERT(!item_error_code, "Couldn't move {} file {} because of: {}", what, item.path(),
-  //                 item_error_code.message());
-  //       files_moved = true;
-  //     }
-  //     MG_ASSERT(!error_code, "Couldn't backup {} files because of: {}", what, error_code.message());
-  //   }
-  //   if (files_moved) {
-  //     spdlog::warn(
-  //         "Since Memgraph was not supposed to recover on startup and "
-  //         "durability is enabled, your current durability files will likely "
-  //         "be overridden. To prevent important data loss, Memgraph has stored "
-  //         "those files into a .backup directory inside the storage directory.");
-  //   }
-  // }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot({true}); maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case CreateSnapshotError::DisabledForReplica:
-            spdlog::warn(
-                utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-            break;
-          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                "https://memgr.ph/durability"));
-            break;
-          case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
-            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-            break;
-        }
-      }
-    });
-  }
-
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
@@ -611,6 +513,7 @@ StorageInfo DiskStorage::GetInfo() const {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
   }
+  /// TODO: change this to the RocksDB disk usage.
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
@@ -1278,37 +1181,15 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto could_replicate_all_sync_replicas = true;
 
   if (transaction_.deltas.empty() ||
       std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
   } else {
-    // Result of validating the vertex against unqiue constraints. It has to be
-    // declared outside of the critical section scope because its value is
-    // tested for Abort call which has to be done out of the scope.
-    std::optional<ConstraintViolation> unique_constraint_violation;
-
+    /// TODO: I think no need for lock here
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
-
-      if (!unique_constraint_violation) {
-        // Write transaction to WAL while holding the engine lock to make sure
-        // that committed transactions are sorted by the commit timestamp in the
-        // WAL files. We supply the new commit timestamp to the function so that
-        // it knows what will be the final commit timestamp. The WAL must be
-        // written before actually committing the transaction (before setting
-        // the commit timestamp) so that no other transaction can see the
-        // commits before they are written to disk.
-        // Replica can log only the write transaction received from Main
-        // so the Wal files are consistent
-        // if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-        if (desired_commit_timestamp.has_value()) {
-          could_replicate_all_sync_replicas =
-              disk_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
-        }
-      }
     }
 
     if (auto res = CheckConstraintsAndFlushMainMemoryCache(); res.HasError()) {
@@ -1330,10 +1211,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   }
 
   is_transaction_active_ = false;
-
-  if (!could_replicate_all_sync_replicas) {
-    return StorageDataManipulationError{ReplicationError{}};
-  }
 
   return {};
 }
@@ -1390,6 +1267,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   return vertices_to_be_indexed;
 }
 
+/// TODO: what to do with all that?
 void DiskStorage::DiskAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   auto scope_exit = utils::OnScopeExit([&]() {
@@ -1565,16 +1443,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   if (!disk_label_index->CreateIndex(label, SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  const auto success =
-      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  if (success) {
-    return {};
-  }
-
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
@@ -1587,53 +1458,34 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
-                                           {property}, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  if (success) {
-    return {};
-  }
-
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
-/// TODO: extract at the higher level
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+
   if (!indices_.label_index_->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success =
-      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  if (success) {
-    return {};
-  }
-
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+
   if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success =
-      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
 
-  if (success) {
-    return {};
-  }
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
@@ -1650,36 +1502,20 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
 
   constraints_.existence_constraints_->InsertConstraint(label, property);
 
-  /// TODO: andi extract this behavior into some private method
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
-                                           {property}, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  if (success) {
-    return {};
-  }
-
-  return StorageExistenceConstraintDefinitionError{ReplicationError{}};
+  return {};
 }
 
-/// TODO: andi Possible to move on abstract level
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
-                                           {property}, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
 
-  if (success) {
-    return {};
-  }
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  /// TODO: andi We don't support but return replication error. Refactor everything related to replication.
-  return StorageExistenceConstraintDroppingError{ReplicationError{}};
+  return {};
 }
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
@@ -1703,19 +1539,11 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
     return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
   }
 
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
-                                           properties, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  if (success) {
-    return UniqueConstraints::CreationStatus::SUCCESS;
-  }
-  /// TODO: andi Remove replication error.
-  return StorageUniqueConstraintDefinitionError{ReplicationError{}};
+  return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
-/// TODO: andi Possible to move on abstract level
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                   const std::optional<uint64_t> desired_commit_timestamp) {
@@ -1724,24 +1552,18 @@ DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &pro
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
-                                           properties, commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
 
-  if (success) {
-    return UniqueConstraints::DeletionStatus::SUCCESS;
-  }
+  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
-  return StorageUniqueConstraintDroppingError{ReplicationError{}};
+  return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
-  uint64_t transaction_id;
-  uint64_t start_timestamp;
+  uint64_t transaction_id = 0;
+  uint64_t start_timestamp = 0;
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
@@ -1750,227 +1572,6 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode};
 }
-
-bool DiskStorage::InitializeWalFile() {
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
-    return false;
-  if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items, &name_id_mapper_, wal_seq_num_++,
-                      &file_retainer_);
-  }
-  return true;
-}
-
-void DiskStorage::FinalizeWalFile() {
-  ++wal_unsynced_transactions_;
-  if (wal_unsynced_transactions_ >= config_.durability.wal_file_flush_every_n_tx) {
-    wal_file_->Sync();
-    wal_unsynced_transactions_ = 0;
-  }
-  if (wal_file_->GetSize() / 1024 >= config_.durability.wal_file_size_kibibytes) {
-    wal_file_->FinalizeWal();
-    wal_file_ = std::nullopt;
-    wal_unsynced_transactions_ = 0;
-  } else {
-    // Try writing the internal buffer if possible, if not
-    // the data should be written as soon as it's possible
-    // (triggered by the new transaction commit, or some
-    // reading thread EnabledFlushing)
-    wal_file_->TryFlushing();
-  }
-}
-
-bool DiskStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) {
-    return true;
-  }
-  // Traverse deltas and append them to the WAL file.
-  // A single transaction will always be contained in a single WAL file.
-  auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
-
-  // Helper lambda that traverses the delta chain on order to find the first
-  // delta that should be processed and then appends all discovered deltas.
-  auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
-    while (true) {
-      auto *older = delta->next.load(std::memory_order_acquire);
-      if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
-      delta = older;
-    }
-    while (true) {
-      if (filter(delta->action)) {
-        wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-      }
-      auto prev = delta->prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::DELTA) break;
-      delta = prev.delta;
-    }
-  };
-
-  // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
-  // don't traverse them in that order. That is because for each delta we need
-  // information about the vertex or edge they belong to and that information
-  // isn't stored in the deltas themselves. In order to find out information
-  // about the corresponding vertex or edge it is necessary to traverse the
-  // delta chain for each delta until a vertex or edge is encountered. This
-  // operation is very expensive as the chain grows.
-  // Instead, we traverse the edges until we find a vertex or edge and traverse
-  // their delta chains. This approach has a drawback because we lose the
-  // correct order of the operations. Because of that, we need to traverse the
-  // deltas several times and we have to manually ensure that the stored deltas
-  // will be ordered correctly.
-
-  // 1. Process all Vertex deltas and store all operations that create vertices
-  // and modify vertex data.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-          return true;
-
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 2. Process all Vertex deltas and store all operations that create edges.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-          return false;
-      }
-    });
-  }
-  // 3. Process all Edge deltas and store all operations that modify edge data.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::EDGE) continue;
-    find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
-      switch (action) {
-        case Delta::Action::SET_PROPERTY:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 4. Process all Vertex deltas and store all operations that delete edges.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::ADD_OUT_EDGE:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 5. Process all Vertex deltas and store all operations that delete vertices.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::RECREATE_OBJECT:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  // file.
-  wal_file_->AppendTransactionEnd(final_commit_timestamp);
-
-  FinalizeWalFile();
-
-  auto finalized_on_all_replicas = true;
-  // replication_clients_.WithLock([&](auto &clients) {
-  //   for (auto &client : clients) {
-  //     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
-  //     const auto finalized = client->FinalizeTransactionReplication();
-
-  //     if (client->Mode() == replication::ReplicationMode::SYNC) {
-  //       finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-  //     }
-  //   }
-  // });
-
-  return finalized_on_all_replicas;
-}
-
-bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
-                                            const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) {
-    return true;
-  }
-
-  auto finalized_on_all_replicas = true;
-  wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-  FinalizeWalFile();
-  return finalized_on_all_replicas;
-}
-
-utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot(std::optional<bool> is_periodic) {
-  return {};
-}
-
-void DiskStorage::FreeMemory() { throw utils::NotYetImplemented("FreeMemory"); }
 
 uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {

@@ -172,9 +172,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
     switch (static_cast<storage::InMemoryStorage *>(db_)->GetReplicationRole()) {
-      case storage::ReplicationRole::MAIN:
+      case storage::InMemoryStorage::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::ReplicationRole::REPLICA:
+      case storage::InMemoryStorage::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -185,7 +185,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-    if (mem_storage->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
@@ -221,7 +221,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void DropReplica(const std::string &replica_name) override {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
 
-    if (mem_storage->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
@@ -233,7 +233,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-    if (mem_storage->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -1167,11 +1167,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
 
-bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage, DbAccessor *db_accessor,
+bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
                                      const query::plan::ReadWriteTypeChecker::RWType query_type) {
-  if (db_accessor->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (storage->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-    return (mem_storage->GetReplicationRole() == storage::ReplicationRole::REPLICA) &&
+    return (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) &&
            (query_type == RWType::W || query_type == RWType::RW);
   }
   return false;
@@ -1781,7 +1781,7 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit
     throw ReplicationModificationInMulticommandTxException();
   }
 
-  if (dba->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ReplicationDisabledOnDiskStorage();
   }
 
@@ -1807,9 +1807,13 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit
 }
 
 PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                   InterpreterContext *interpreter_context, DbAccessor *dba) {
+                                   InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw LockPathModificationInMulticommandTxException();
+  }
+
+  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw LockPathDisabledOnDiskStorage();
   }
 
   auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
@@ -1818,14 +1822,15 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
                        std::move(parsed_query.required_privileges),
                        [interpreter_context, action = lock_path_query->action_](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
                          switch (action) {
                            case LockPathQuery::Action::LOCK_PATH:
-                             if (!interpreter_context->db->LockPath()) {
+                             if (!mem_storage->LockPath()) {
                                throw QueryRuntimeException("Failed to lock the data directory");
                              }
                              break;
                            case LockPathQuery::Action::UNLOCK_PATH:
-                             if (!interpreter_context->db->UnlockPath()) {
+                             if (!mem_storage->UnlockPath()) {
                                throw QueryRuntimeException("Failed to unlock the data directory");
                              }
                              break;
@@ -1836,16 +1841,21 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     InterpreterContext *interpreter_context) {
+                                     InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
+  }
+
+  if (dba->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ReplicationDisabledOnDiskStorage();
   }
 
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        interpreter_context->db->FreeMemory();
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
+        mem_storage->FreeMemory();
         memory::PurgeUnusedMemory();
         return QueryHandlerResult::COMMIT;
       },
@@ -2197,25 +2207,30 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 }
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                         InterpreterContext *interpreter_context) {
+                                         InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
+  }
+
+  if (dba->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw CreateSnapshotDisabledOnDiskStorage();
   }
 
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (auto maybe_error = interpreter_context->db->CreateSnapshot({}); maybe_error.HasError()) {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
+        if (auto maybe_error = mem_storage->CreateSnapshot({}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
-            case storage::Storage::CreateSnapshotError::DisabledForReplica:
+            case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
-            case storage::Storage::CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+            case storage::InMemoryStorage::CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
               spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
                                                   "https://memgr.ph/replication"));
               break;
-            case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+            case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
               spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
               break;
           }
@@ -2936,10 +2951,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
-      prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                            &*execution_db_accessor_);
+      prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
-      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                              &*execution_db_accessor_);
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
       prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
@@ -2954,8 +2969,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                  interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
@@ -2977,7 +2992,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (IsWriteQueryOnMainMemoryReplica(interpreter_context_->db.get(), &*execution_db_accessor_, rw_type)) {
+    if (IsWriteQueryOnMainMemoryReplica(interpreter_context_->db.get(), rw_type)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }

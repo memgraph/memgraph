@@ -35,27 +35,16 @@ namespace memgraph::storage {
 struct Transaction;
 class EdgeAccessor;
 
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-
-/// Generic access to different kinds of vertex iterations.
-///
-/// This class should be the primary type used by the client code to iterate
-/// over vertices inside a Storage instance.
-
-/// Structure used to return information about existing indices in the storage.
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, PropertyId>> label_property;
 };
 
-/// Structure used to return information about existing constraints in the
-/// storage.
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
   std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
 };
 
-/// Structure used to return information about the storage.
 struct StorageInfo {
   uint64_t vertex_count;
   uint64_t edge_count;
@@ -184,9 +173,6 @@ class Storage {
     StorageMode creation_storage_mode_;
   };
 
-  bool LockPath();
-  bool UnlockPath();
-
   const std::string &LabelToName(LabelId label) const;
 
   const std::string &PropertyToName(PropertyId property) const;
@@ -272,21 +258,11 @@ class Storage {
 
   ConstraintsInfo ListAllConstraints() const;
 
-  virtual void FreeMemory() = 0;
-
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   virtual utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) = 0;
 
   virtual StorageInfo GetInfo() const = 0;
-
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    DisabledForAnalyticsPeriodicCommit,
-    ReachedMaxNumTries
-  };
-
-  virtual utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) = 0;
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
@@ -309,13 +285,6 @@ class Storage {
   utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
-
-  // Durability
-  std::filesystem::path snapshot_directory_;
-  std::filesystem::path wal_directory_;
-  std::filesystem::path lock_file_path_;
-  utils::OutputFile lock_file_handle_;
-  std::unique_ptr<kvstore::KVStore> storage_;
 
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;

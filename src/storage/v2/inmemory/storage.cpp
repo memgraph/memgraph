@@ -45,7 +45,11 @@ std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError e
 }
 }  // namespace
 
-InMemoryStorage::InMemoryStorage(Config config) : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {
+InMemoryStorage::InMemoryStorage(Config config)
+    : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL),
+      snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
+      wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
+      lock_file_path_(config.durability.storage_directory / durability::kLockFile) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -131,7 +135,7 @@ InMemoryStorage::InMemoryStorage(Config config) : Storage(config, StorageMode::I
             spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
                                                 "https://memgr.ph/durability"));
             break;
-          case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+          case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
             spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
             break;
         }
@@ -185,7 +189,7 @@ InMemoryStorage::~InMemoryStorage() {
           spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
                                               "https://memgr.ph/replication"));
           break;
-        case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+        case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
           break;
       }
@@ -1617,7 +1621,8 @@ bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperati
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<Storage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(std::optional<bool> is_periodic) {
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
+    std::optional<bool> is_periodic) {
   if (replication_role_.load() != ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
@@ -1811,7 +1816,7 @@ std::optional<replication::ReplicaState> InMemoryStorage::GetReplicaState(const 
   });
 }
 
-ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
+InMemoryStorage::ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
 
 std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
@@ -1836,7 +1841,7 @@ utils::BasicResult<Storage::SetIsolationLevelError> InMemoryStorage::SetIsolatio
 }
 
 void InMemoryStorage::RestoreReplicas() {
-  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
+  MG_ASSERT(memgraph::storage::InMemoryStorage::ReplicationRole::MAIN == GetReplicationRole());
   if (!ShouldStoreAndRestoreReplicas()) {
     return;
   }
@@ -1871,5 +1876,24 @@ void InMemoryStorage::RestoreReplicas() {
 }
 
 bool InMemoryStorage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
+
+bool InMemoryStorage::LockPath() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.AddPath(config_.durability.storage_directory);
+}
+
+bool InMemoryStorage::UnlockPath() {
+  {
+    auto locker_accessor = global_locker_.Access();
+    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
+      return false;
+    }
+  }
+
+  // We use locker accessor in seperate scope so we don't produce deadlock
+  // after we call clean queue.
+  file_retainer_.CleanQueue();
+  return true;
+}
 
 }  // namespace memgraph::storage

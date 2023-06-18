@@ -177,7 +177,7 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
 
 class ReplicationDisabledOnDiskStorage : public QueryException {
  public:
-  ReplicationDisabledOnDiskStorage() : QueryException("Replication clause not allowed with disk storage. ") {}
+  ReplicationDisabledOnDiskStorage() : QueryException("Replication not support with disk storage. ") {}
 };
 
 class LockPathModificationInMulticommandTxException : public QueryException {
@@ -186,10 +186,21 @@ class LockPathModificationInMulticommandTxException : public QueryException {
       : QueryException("Lock path query not allowed in multicommand transactions.") {}
 };
 
+class LockPathDisabledOnDiskStorage : public QueryException {
+ public:
+  LockPathDisabledOnDiskStorage()
+      : QueryException("Lock path disabled on disk storage since all data is already persisted. ") {}
+};
+
 class FreeMemoryModificationInMulticommandTxException : public QueryException {
  public:
   FreeMemoryModificationInMulticommandTxException()
       : QueryException("Free memory query not allowed in multicommand transactions.") {}
+};
+
+class FreeMemoryDisabledOnDiskStorage : public QueryException {
+ public:
+  FreeMemoryDisabledOnDiskStorage() : QueryException("Free memory does nothing when using disk storage. ") {}
 };
 
 class ShowConfigModificationInMulticommandTxException : public QueryException {
@@ -235,6 +246,11 @@ class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()
       : QueryException("Snapshot cannot be created in multicommand transactions.") {}
+};
+
+class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
+ public:
+  CreateSnapshotDisabledOnDiskStorage() : QueryException("Data is already persisted when using disk storage. ") {}
 };
 
 class SettingConfigInMulticommandTxException final : public QueryException {

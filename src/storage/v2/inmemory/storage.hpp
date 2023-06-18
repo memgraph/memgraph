@@ -36,12 +36,20 @@ class InMemoryStorage final : public Storage {
     uint64_t current_number_of_timestamp_behind_master;
   };
 
+  enum class ReplicationRole : uint8_t { MAIN, REPLICA };
+
   struct ReplicaInfo {
     std::string name;
     replication::ReplicationMode mode;
     io::network::Endpoint endpoint;
     replication::ReplicaState state;
     TimestampInfo timestamp_info;
+  };
+
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForAnalyticsPeriodicCommit,
+    ReachedMaxNumTries
   };
 
   /// @throw std::system_error
@@ -323,11 +331,15 @@ class InMemoryStorage final : public Storage {
 
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  void FreeMemory() override;
+  void FreeMemory();
+
+  bool LockPath();
+
+  bool UnlockPath();
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -368,6 +380,13 @@ class InMemoryStorage final : public Storage {
   utils::SkipList<storage::Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
+
+  // Durability
+  std::filesystem::path snapshot_directory_;
+  std::filesystem::path wal_directory_;
+  std::filesystem::path lock_file_path_;
+  utils::OutputFile lock_file_handle_;
+  std::unique_ptr<kvstore::KVStore> storage_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with
