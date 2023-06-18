@@ -287,6 +287,7 @@ privilege : CREATE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
           | STORAGE_MODE
+          | MULTI_TENANT
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;

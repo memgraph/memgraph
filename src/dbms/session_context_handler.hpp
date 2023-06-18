@@ -304,7 +304,7 @@ class SessionContextHandler {
                                             storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
         return SessionContext {
-          new_storage.GetValue(), new_interp.GetValue(), run_id_, name, auth_
+          new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_
 #if MG_ENTERPRISE
               ,
               audit_log_
@@ -370,7 +370,7 @@ class SessionContextHandler {
       auto interp = interp_handler_.Get(name);
       if (interp) {
         return SessionContext {
-          *storage, *interp, run_id_, name, auth_
+          *storage, *interp, run_id_, auth_
 #if MG_ENTERPRISE
               ,
               audit_log_

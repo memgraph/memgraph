@@ -2802,7 +2802,8 @@ class AuthQuery : public memgraph::query::Query {
     MODULE_WRITE,
     WEBSOCKET,
     STORAGE_MODE,
-    TRANSACTION_MANAGEMENT
+    TRANSACTION_MANAGEMENT,
+    MULTI_TENANT,
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -2855,18 +2856,18 @@ class AuthQuery : public memgraph::query::Query {
 
 /// Constant that holds all available privileges.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
-    AuthQuery::Privilege::CREATE,      AuthQuery::Privilege::DELETE,
-    AuthQuery::Privilege::MATCH,       AuthQuery::Privilege::MERGE,
-    AuthQuery::Privilege::SET,         AuthQuery::Privilege::REMOVE,
-    AuthQuery::Privilege::INDEX,       AuthQuery::Privilege::STATS,
-    AuthQuery::Privilege::AUTH,        AuthQuery::Privilege::CONSTRAINT,
-    AuthQuery::Privilege::DUMP,        AuthQuery::Privilege::REPLICATION,
-    AuthQuery::Privilege::READ_FILE,   AuthQuery::Privilege::DURABILITY,
-    AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
-    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
-    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
-    AuthQuery::Privilege::STORAGE_MODE};
+    AuthQuery::Privilege::CREATE,       AuthQuery::Privilege::DELETE,
+    AuthQuery::Privilege::MATCH,        AuthQuery::Privilege::MERGE,
+    AuthQuery::Privilege::SET,          AuthQuery::Privilege::REMOVE,
+    AuthQuery::Privilege::INDEX,        AuthQuery::Privilege::STATS,
+    AuthQuery::Privilege::AUTH,         AuthQuery::Privilege::CONSTRAINT,
+    AuthQuery::Privilege::DUMP,         AuthQuery::Privilege::REPLICATION,
+    AuthQuery::Privilege::READ_FILE,    AuthQuery::Privilege::DURABILITY,
+    AuthQuery::Privilege::FREE_MEMORY,  AuthQuery::Privilege::TRIGGER,
+    AuthQuery::Privilege::CONFIG,       AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::MODULE_READ,  AuthQuery::Privilege::MODULE_WRITE,
+    AuthQuery::Privilege::WEBSOCKET,    AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
+    AuthQuery::Privilege::STORAGE_MODE, AuthQuery::Privilege::MULTI_TENANT};
 
 class InfoQuery : public memgraph::query::Query {
  public:

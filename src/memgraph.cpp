@@ -537,7 +537,7 @@ class SessionHL final {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv), session_context_.db_name);
+                         memgraph::storage::PropertyValue(params_pv), db_->id());
     }
 #endif
     try {
@@ -572,6 +572,8 @@ class SessionHL final {
 
   void Abort() { interpreter_.Abort(); }
 
+  // Called during Init
+  // TODO: Handle multi-db once the user cen set which DB to use at login (also a todo)
   bool Authenticate(const std::string &username, const std::string &password) {
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {

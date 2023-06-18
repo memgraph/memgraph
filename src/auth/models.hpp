@@ -41,7 +41,8 @@ enum class Permission : uint64_t {
   MODULE_WRITE = 1U << 19U,
   WEBSOCKET    = 1U << 20U,
   TRANSACTION_MANAGEMENT = 1U << 21U,
-  STORAGE_MODE    = 1U << 22U
+  STORAGE_MODE    = 1U << 22U,
+  MULTI_TENANT    = 1U << 23U,
 };
 // clang-format on
 

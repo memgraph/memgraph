@@ -324,7 +324,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Storage::Storage(Config config)
+Storage::Storage(Config config, const std::string &id)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
@@ -334,7 +334,8 @@ Storage::Storage(Config config)
       lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()) {
+      global_locker_(file_retainer_.AddLocker()),
+      id_(id) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
