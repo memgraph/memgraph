@@ -63,6 +63,7 @@
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -1181,10 +1182,15 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
 
 InterpreterContext::InterpreterContext(const storage::Config storage_config, const InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory)
-    : db(std::make_unique<storage::DiskStorage>(storage_config)),
-      trigger_store(data_directory / "triggers"),
+    : trigger_store(data_directory / "triggers"),
       config(interpreter_config),
-      streams{this, data_directory / "streams"} {}
+      streams{this, data_directory / "streams"} {
+  if (utils::DirExists(storage_config.disk.main_storage_directory)) {
+    db = std::make_unique<storage::DiskStorage>(storage_config);
+  } else {
+    db = std::make_unique<storage::InMemoryStorage>(storage_config);
+  }
+}
 
 InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory)
