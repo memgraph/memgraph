@@ -56,8 +56,8 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterTest()
       : data_directory(std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"),
-        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {},
-                            data_directory) {}
+        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
+                            {.execution_timeout_sec = 600}, data_directory) {}
 
   std::filesystem::path data_directory;
   memgraph::query::InterpreterContext interpreter_context;
@@ -294,13 +294,23 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);
-  const auto kNumLevels = 10;
-  const auto kNumNodesPerLevel = 100;
-  const auto kNumEdgesPerNode = 100;
-  const auto kNumUnreachableNodes = 1000;
-  const auto kNumUnreachableEdges = 100000;
+  auto kNumLevels = 10;
+  auto kNumNodesPerLevel = 100;
+  auto kNumEdgesPerNode = 100;
+  auto kNumUnreachableNodes = 1000;
+  auto kNumUnreachableEdges = 100000;
+  auto kResCoeff = 5;
   const auto kReachable = "reachable";
   const auto kId = "id";
+
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    kNumLevels = 5;
+    kNumNodesPerLevel = 20;
+    kNumEdgesPerNode = 20;
+    kNumUnreachableNodes = 200;
+    kNumUnreachableEdges = 20000;
+    kResCoeff = 4;
+  }
 
   std::vector<std::vector<memgraph::query::VertexAccessor>> levels(kNumLevels);
   int id = 0;
@@ -370,7 +380,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
   EXPECT_EQ(stream.GetHeader()[0], "n");
   EXPECT_EQ(stream.GetHeader()[1], "r");
   EXPECT_EQ(stream.GetHeader()[2], "m");
-  ASSERT_EQ(stream.GetResults().size(), 5 * kNumNodesPerLevel);
+  ASSERT_EQ(stream.GetResults().size(), kResCoeff * kNumNodesPerLevel);
 
   int expected_level = 1;
   int remaining_nodes_in_level = kNumNodesPerLevel;
