@@ -12,7 +12,6 @@
 
 import multiprocessing
 import sys
-import threading
 import time
 from typing import List
 
@@ -54,6 +53,21 @@ def test_self_transaction():
     cursor = connect().cursor()
     results = execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")
     assert len(results) == 1
+
+
+def test_multitenant_transactions():
+    """Tests that show transactions work on another database"""
+    test_cursor = connect().cursor()
+    execute_and_fetch_all(test_cursor, "CREATE DATABASE testing")
+    tx_connection = connect()
+    tx_cursor = tx_connection.cursor()
+    tx_process = multiprocessing.Process(
+        target=process_function, args=(tx_cursor, ["USE DATABASE testing", "MATCH (n) RETURN n"])
+    )
+    tx_process.start()
+    time.sleep(0.5)
+    show_transactions_test(test_cursor, 1)
+    # TODO Add SHOW TRANSACTIONS ON * that should return all transactions
 
 
 def test_admin_has_one_transaction():

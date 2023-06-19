@@ -35,18 +35,18 @@ namespace memgraph::auth {
 namespace {
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {Permission::MATCH,       Permission::CREATE,
-                                                 Permission::MERGE,       Permission::DELETE,
-                                                 Permission::SET,         Permission::REMOVE,
-                                                 Permission::INDEX,       Permission::STATS,
-                                                 Permission::CONSTRAINT,  Permission::DUMP,
-                                                 Permission::AUTH,        Permission::REPLICATION,
-                                                 Permission::DURABILITY,  Permission::READ_FILE,
-                                                 Permission::FREE_MEMORY, Permission::TRIGGER,
-                                                 Permission::CONFIG,      Permission::STREAM,
-                                                 Permission::MODULE_READ, Permission::MODULE_WRITE,
-                                                 Permission::WEBSOCKET,   Permission::TRANSACTION_MANAGEMENT,
-                                                 Permission::STORAGE_MODE};
+const std::vector<Permission> kPermissionsAll = {Permission::MATCH,        Permission::CREATE,
+                                                 Permission::MERGE,        Permission::DELETE,
+                                                 Permission::SET,          Permission::REMOVE,
+                                                 Permission::INDEX,        Permission::STATS,
+                                                 Permission::CONSTRAINT,   Permission::DUMP,
+                                                 Permission::AUTH,         Permission::REPLICATION,
+                                                 Permission::DURABILITY,   Permission::READ_FILE,
+                                                 Permission::FREE_MEMORY,  Permission::TRIGGER,
+                                                 Permission::CONFIG,       Permission::STREAM,
+                                                 Permission::MODULE_READ,  Permission::MODULE_WRITE,
+                                                 Permission::WEBSOCKET,    Permission::TRANSACTION_MANAGEMENT,
+                                                 Permission::STORAGE_MODE, Permission::MULTI_TENANT};
 
 }  // namespace
 
@@ -98,6 +98,8 @@ std::string PermissionToString(Permission permission) {
       return "TRANSACTION_MANAGEMENT";
     case Permission::STORAGE_MODE:
       return "STORAGE_MODE";
+    case Permission::MULTI_TENANT:
+      return "MULTI_TENANT";
   }
 }
 

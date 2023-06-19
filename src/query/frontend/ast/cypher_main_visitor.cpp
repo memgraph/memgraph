@@ -1531,6 +1531,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
   if (ctx->TRANSACTION_MANAGEMENT()) return AuthQuery::Privilege::TRANSACTION_MANAGEMENT;
   if (ctx->STORAGE_MODE()) return AuthQuery::Privilege::STORAGE_MODE;
+  if (ctx->MULTI_TENANT()) return AuthQuery::Privilege::MULTI_TENANT;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -2673,7 +2674,7 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   return mdb_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext * /*ctx*/) {
   query_ = storage_->Create<ShowDatabasesQuery>();
   return query_;
 }

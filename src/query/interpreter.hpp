@@ -210,7 +210,8 @@ class Interpreter;
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
+                              query::AuthChecker *ac = nullptr);
 
   storage::Storage *db;
 
@@ -224,8 +225,8 @@ struct InterpreterContext {
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
 
-  AuthQueryHandler *auth{nullptr};
-  AuthChecker *auth_checker{nullptr};
+  AuthQueryHandler *auth;
+  AuthChecker *auth_checker;
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
@@ -273,7 +274,7 @@ class Interpreter final {
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
                         const std::string *username, const std::map<std::string, storage::PropertyValue> &metadata = {},
-                        const std::string &sd_handler = {});
+                        const std::string &session_uuid = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the

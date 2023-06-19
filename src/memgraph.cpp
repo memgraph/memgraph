@@ -39,6 +39,7 @@
 #include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "dbms/constants.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
@@ -462,7 +463,8 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
 
 #ifdef MG_ENTERPRISE
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          audit_log->Record("", "", line, {});
+          // TODO: Support all DBs
+          audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
         }
 #endif
       }
@@ -483,7 +485,7 @@ class SessionHL final {
         interpreter_context_(session_context_.interpreter_context.get()),
         interpreter_(session_context_.interpreter_context.get()),
         auth_(session_context_.auth),
-#if MG_ENTERPRISE
+#ifdef MG_ENTERPRISE
         audit_log_(session_context_.audit_log),
 #endif
         endpoint_(endpoint),
@@ -535,7 +537,7 @@ class SessionHL final {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv));
+                         memgraph::storage::PropertyValue(params_pv), db_->id());
     }
 #endif
     try {
@@ -570,6 +572,8 @@ class SessionHL final {
 
   void Abort() { interpreter_.Abort(); }
 
+  // Called during Init
+  // TODO: Handle multi-db once the user cen set which DB to use at login (also a todo)
   bool Authenticate(const std::string &username, const std::string &password) {
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
@@ -672,7 +676,11 @@ class SessionHL final {
 
 using SessionT = memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                         memgraph::communication::v2::OutputStream, SessionHL>;
+#ifdef MG_ENTERPRISE
 using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionContextHandler>;
+#else
+using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionContext>;
+#endif
 using MonitoringServerT =
     memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
                                           memgraph::dbms::SessionContext>;
@@ -838,16 +846,6 @@ int main(int argc, char **argv) {
 
   // Begin enterprise features initialization
 
-  // Auth
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{data_directory /
-                                                                                                    "auth"};
-
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  memgraph::glue::AuthChecker auth_checker{&auth};
-
 #ifdef MG_ENTERPRISE
   // Audit log
   memgraph::audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
@@ -910,19 +908,23 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
+#ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
-  sc_handler.LinkQueryAuth(&auth_checker, &auth_handler);
-#ifdef MG_ENTERPRISE
-  sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
-#else
-  sc_handler.Init(&auth, {db_config, interp_config});
-#endif
-
+  sc_handler.Init(&audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex});
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
-  auto &interpreter_context = *session_context.interpreter_context;
+#else
+  auto session_context = memgraph::dbms::Init(db_config, interp_config, FLAGS_auth_user_or_role_name_regex);
+#endif
+
   auto &db = *session_context.db;
+  auto &interpreter_context = *session_context.interpreter_context;
+  auto *auth = &session_context.auth_context->auth;
+  auto &auth_handler = session_context.auth_context->auth_handler;
+
+  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
+  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
@@ -971,8 +973,13 @@ int main(int argc, char **argv) {
   }
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+#ifdef MG_ENTERPRISE
   ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
+#else
+  ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+                 FLAGS_bolt_num_workers);
+#endif
 
   const auto machine_id = memgraph::utils::GetMachineId();
   const auto run_id = session_context.run_id;  // For current compatibility
@@ -1001,7 +1008,7 @@ int main(int argc, char **argv) {
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
+  memgraph::communication::websocket::SafeAuth websocket_auth{auth};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());

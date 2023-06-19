@@ -194,7 +194,7 @@ class Storage final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Storage(Config config = Config());
+  explicit Storage(Config config = Config(), const std::string &id = "");
 
   ~Storage();
 
@@ -354,6 +354,8 @@ class Storage final {
 
     std::optional<uint64_t> GetTransactionId() const;
 
+    const std::string &id() const { return storage_->id(); }
+
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
@@ -372,6 +374,8 @@ class Storage final {
   Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
     return Accessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_};
   }
+
+  const std::string &id() const { return id_; }
 
   const std::string &LabelToName(LabelId label) const;
   const std::string &PropertyToName(PropertyId property) const;
@@ -681,6 +685,7 @@ class Storage final {
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  const std::string id_;  //!< High-level assigned ID
 };
 
 }  // namespace memgraph::storage

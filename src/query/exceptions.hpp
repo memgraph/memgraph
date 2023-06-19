@@ -264,9 +264,9 @@ class TransactionQueueInMulticommandTxException : public QueryException {
       : QueryException("Transaction queue queries not allowed in multicommand transactions.") {}
 };
 
-class MutilDatabaseQueryInMulticommandTxException : public QueryException {
+class MultiDatabaseQueryInMulticommandTxException : public QueryException {
  public:
-  MutilDatabaseQueryInMulticommandTxException()
+  MultiDatabaseQueryInMulticommandTxException()
       : QueryException("Multi-database queries are not allowed in multicommand transactions.") {}
 };
 

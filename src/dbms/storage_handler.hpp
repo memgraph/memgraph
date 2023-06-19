@@ -11,6 +11,8 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -44,7 +46,7 @@ class StorageHandler {
    * @param config storage configuration
    * @return NewResult pointer to storage on success, error on failure
    */
-  NewResult New(std::string_view name, const TConfig &config) {
+  NewResult New(const std::string &name, const TConfig &config) {
     // Control that no one is using the same data directory
     if (storage_.find(std::string(name)) != storage_.end()) {
       return NewError::EXISTS;
@@ -57,8 +59,8 @@ class StorageHandler {
       return NewError::EXISTS;
     }
     // Create storage
-    auto [itr, success] =
-        storage_.emplace(std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(config, config));
+    auto [itr, success] = storage_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                           std::forward_as_tuple(config, config, name));
     if (success) return itr->second.ptr_;
     return NewError::EXISTS;
   }
@@ -70,7 +72,7 @@ class StorageHandler {
    * @param storage_subdir undelying RocksDB directory
    * @return NewResult pointer to storage on success, error on failure
    */
-  NewResult New(std::string_view name, std::filesystem::path storage_subdir) {
+  NewResult New(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_config_) {
       auto config = default_config_;
       config->durability.storage_directory /= storage_subdir;
@@ -85,7 +87,7 @@ class StorageHandler {
    * @param name name of the database
    * @return NewResult pointer to storage on success, error on failure
    */
-  NewResult New(std::string_view name) { return New(name, name); }
+  NewResult New(const std::string &name) { return New(name, name); }
 
   /**
    * @brief Get storage associated with "name" database
@@ -161,3 +163,5 @@ class StorageHandler {
 };
 
 }  // namespace memgraph::dbms
+
+#endif

@@ -471,6 +471,8 @@ class DbAccessor final {
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+
+  const std::string &id() const { return accessor_->id(); }
 };
 
 class SubgraphDbAccessor final {
