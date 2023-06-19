@@ -537,7 +537,7 @@ class SessionHL final {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv), session_context_.db_name);
+                         memgraph::storage::PropertyValue(params_pv), db_->id());
     }
 #endif
     try {
@@ -572,6 +572,8 @@ class SessionHL final {
 
   void Abort() { interpreter_.Abort(); }
 
+  // Called during Init
+  // TODO: Handle multi-db once the user cen set which DB to use at login (also a todo)
   bool Authenticate(const std::string &username, const std::string &password) {
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
@@ -844,16 +846,6 @@ int main(int argc, char **argv) {
 
   // Begin enterprise features initialization
 
-  // Auth
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{data_directory /
-                                                                                                    "auth"};
-
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  memgraph::glue::AuthChecker auth_checker{&auth};
-
 #ifdef MG_ENTERPRISE
   // Audit log
   memgraph::audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
@@ -919,19 +911,20 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
-  sc_handler.LinkQueryAuth(&auth_checker, &auth_handler);
-  sc_handler.Init(&auth, &audit_log, {db_config, interp_config});
+  sc_handler.Init(&audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex});
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
-  auto &db = *session_context.db;
-  auto &interpreter_context = *session_context.interpreter_context;
 #else
-  auto session_context = memgraph::dbms::Init(&auth, db_config, interp_config);
+  auto session_context = memgraph::dbms::Init(db_config, interp_config, FLAGS_auth_user_or_role_name_regex);
+#endif
+
   auto &db = *session_context.db;
   auto &interpreter_context = *session_context.interpreter_context;
-  interpreter_context.auth = &auth_handler;
-  interpreter_context.auth_checker = &auth_checker;
-#endif
+  auto *auth = &session_context.auth_context->auth;
+  auto &auth_handler = session_context.auth_context->auth_handler;
+
+  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
+  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
@@ -1015,7 +1008,7 @@ int main(int argc, char **argv) {
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
+  memgraph::communication::websocket::SafeAuth websocket_auth{auth};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());

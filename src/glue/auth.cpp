@@ -62,6 +62,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::STORAGE_MODE;
     case query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT:
       return auth::Permission::TRANSACTION_MANAGEMENT;
+    case query::AuthQuery::Privilege::MULTI_TENANT:
+      return auth::Permission::MULTI_TENANT;
   }
 }
 

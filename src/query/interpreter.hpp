@@ -210,7 +210,8 @@ class Interpreter;
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
+                              query::AuthChecker *ac = nullptr);
 
   storage::Storage *db;
 
@@ -224,8 +225,8 @@ struct InterpreterContext {
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
 
-  AuthQueryHandler *auth{nullptr};
-  AuthChecker *auth_checker{nullptr};
+  AuthQueryHandler *auth;
+  AuthChecker *auth_checker;
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;

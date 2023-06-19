@@ -52,6 +52,7 @@ else()
     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
 endif()
 target_link_libraries(mg-query Python3::Python)
+target_link_libraries(mg-query mg-dbms)
 
 # Generate Antlr openCypher parser
 
