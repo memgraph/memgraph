@@ -19,7 +19,7 @@ def dummy_read(
 def dummy_write(
     context: mgp.ProcCtx,
 ) -> mgp.Record(vertex=mgp.Vertex):
-    for i in range(0, 10):
+    for i in range(0, 5):
         node = context.graph.create_vertex()
         node.add_label("Procedure_node")
         node.properties.set("id", random.randint(0, 100000))

@@ -70,7 +70,7 @@ while true; do
     if [[ $current_minute != $previous_minute ]]; then
         echo "One minute has passed running match query."
 
-        execute_query "MATCH (n)-[r]->(m) RETURN DISTINCT n;" &
+        execute_query "MATCH (n)-[r]->(m) RETURN DISTINCT COUNT(n);" &
         previous_minute=$current_minute
     fi
 
