@@ -37,11 +37,9 @@ set(mg_query_sources
     graph.cpp
     db_accessor.cpp)
 
-find_package(Boost REQUIRED)
-
 add_library(mg-query STATIC ${mg_query_sources})
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-query dl cppitertools Boost::headers)
+target_link_libraries(mg-query dl cppitertools)
 target_link_libraries(mg-query mg-integrations-pulsar mg-integrations-kafka mg-storage-v2 mg-license mg-utils mg-kvstore mg-memory)
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
