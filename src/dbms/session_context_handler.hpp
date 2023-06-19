@@ -35,6 +35,8 @@
 
 namespace memgraph::dbms {
 
+#ifdef MG_ENTERPRISE
+
 /**
  * SessionContext Exception
  *
@@ -86,17 +88,11 @@ class SessionContextHandler {
    * @param audit_log pointer to the audit logger (ENTERPRISE only)
    * @param configs storage and interpreter configurations
    */
-#if MG_ENTERPRISE
   void Init(memgraph::audit::Log *audit_log, Config configs) {
-#else
-  void Init(Config configs) {
-#endif
     std::lock_guard<LockT> wr(lock_);
     MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
     default_configs_ = configs;
-#if MG_ENTERPRISE
     audit_log_ = audit_log;
-#endif
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
     initialized_ = true;
   }
@@ -298,13 +294,7 @@ class SessionContextHandler {
                                               storage_config.durability.storage_directory, auth_context->auth_handler,
                                               auth_context->auth_checker);
         if (new_interp.HasValue()) {
-          return SessionContext {
-            new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_context
-#if MG_ENTERPRISE
-                ,
-                audit_log_
-#endif
-          };
+          return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_context, audit_log_};
         }
         // TODO: Handler partial success
         return new_interp.GetError();
@@ -368,13 +358,7 @@ class SessionContextHandler {
       if (auth) {
         auto interp = interp_handler_.Get(name);
         if (interp) {
-          return SessionContext {
-            *storage, *interp, run_id_, *auth
-#if MG_ENTERPRISE
-                ,
-                audit_log_
-#endif
-          };
+          return SessionContext{*storage, *interp, run_id_, *auth, audit_log_};
         }
       }
     }
@@ -384,15 +368,37 @@ class SessionContextHandler {
   // Should storage objects ever be deleted?
   mutable LockT lock_;            //!< protective lock
   std::atomic_bool initialized_;  //!< initialized flag (safeguard against multiple init calls)
-  StorageHandler<StorageT, StorageConfigT> storage_handler_;     //!< multi-tenancy storage handler
-  InterpContextHandler<InterpT, InterpConfigT> interp_handler_;  //!< multi-tenancy interpreter handler
-  AuthHandler auth_handler_;                                     //!< multi-tenancy authorization handler
-  std::optional<Config> default_configs_;                        //!< default storage and interpreter configurations
-  const std::string run_id_;                                     //!< run's unique identifier (auto generated)
-#if MG_ENTERPRISE
-  memgraph::audit::Log *audit_log_;  //!< pointer to the audit logger
-#endif
+  StorageHandler<StorageT, StorageConfigT> storage_handler_;      //!< multi-tenancy storage handler
+  InterpContextHandler<InterpT, InterpConfigT> interp_handler_;   //!< multi-tenancy interpreter handler
+  AuthHandler auth_handler_;                                      //!< multi-tenancy authorization handler
+  std::optional<Config> default_configs_;                         //!< default storage and interpreter configurations
+  const std::string run_id_;                                      //!< run's unique identifier (auto generated)
+  memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
   std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
 };
+
+#else
+/**
+ * @brief Initialize the handler.
+ *
+ * @param auth pointer to the authenticator
+ * @param configs storage and interpreter configurations
+ */
+static inline SessionContext Init(storage::Config &storage_config, query::InterpreterConfig &interp_config,
+                                  const std::string &ah_flags) {
+  auto storage = std::make_shared<storage::Storage>(storage_config);
+  MG_ASSERT(storage, "Failed to allocate main storage.");
+
+  auto auth = std::make_shared<AuthHandler::AuthContext>(storage_config.durability.storage_directory, ah_flags);
+  MG_ASSERT(auth, "Failed to generate authentication.");
+
+  auto interp_context = std::make_shared<query::InterpreterContext>(storage.get(), interp_config,
+                                                                    storage_config.durability.storage_directory,
+                                                                    &auth->auth_handler, &auth->auth_checker);
+  MG_ASSERT(interp_context, "Failed to construct main interpret context.");
+
+  return SessionContext{storage, interp_context, utils::GenerateUUID(), auth};
+}
+#endif
 
 }  // namespace memgraph::dbms

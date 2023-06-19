@@ -36,6 +36,7 @@ enum class SetForResult : uint8_t {
   FAIL,
 };
 
+#ifdef MG_ENTERPRISE
 /**
  * @brief Session interface used by the DBMS to handle the the active sessions.
  */
@@ -77,5 +78,6 @@ class SessionInterface {
    */
   virtual bool OnDelete(const std::string &) = 0;
 };
+#endif
 
 }  // namespace memgraph::dbms

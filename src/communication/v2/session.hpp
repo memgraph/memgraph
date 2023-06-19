@@ -98,8 +98,13 @@ class OutputStream final {
  * wrapping.
  */
 template <typename TSession, typename TSessionContext>
+#ifdef MG_ENTERPRISE
 class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>,
-                         dbms::SessionInterface {
+                         dbms::SessionInterface
+#else
+class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>
+#endif
+{
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
   using std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>::shared_from_this;
 
@@ -109,12 +114,14 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     return std::shared_ptr<WebsocketSession>(new WebsocketSession(std::forward<Args>(args)...));
   }
 
+#ifdef MG_ENTERPRISE
   ~WebsocketSession() override { session_context_->Delete(*this); }
 
   WebsocketSession(const WebsocketSession &) = delete;
   WebsocketSession &operator=(const WebsocketSession &) = delete;
   WebsocketSession(WebsocketSession &&) noexcept = delete;
   WebsocketSession &operator=(WebsocketSession &&) noexcept = delete;
+#endif
 
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
@@ -164,8 +171,13 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   explicit WebsocketSession(tcp::socket &&socket, TSessionContext *session_context, tcp::endpoint endpoint,
                             std::string_view service_name)
       : WebsocketSession(
+#ifdef MG_ENTERPRISE
             std::make_unique<typename TSession::HLImplT>(session_context->Get(memgraph::dbms::kDefaultDB), endpoint),
-            std::forward<tcp::socket>(socket), session_context, endpoint, service_name) {}
+#else
+            std::make_unique<typename TSession::HLImplT>(*session_context, endpoint),
+#endif
+            std::forward<tcp::socket>(socket), session_context, endpoint, service_name) {
+  }
 
   explicit WebsocketSession(std::unique_ptr<typename TSession::HLImplT> &&pimpl, tcp::socket &&socket,
                             TSessionContext *session_context, tcp::endpoint endpoint, std::string_view service_name)
@@ -177,7 +189,9 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
         service_name_{service_name} {
+#ifdef MG_ENTERPRISE
     session_context_->Register(*this);
+#endif
   }
 
   void OnAccept(boost::beast::error_code ec) {
@@ -255,6 +269,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   bool IsConnected() const { return ws_.is_open() && execution_active_; }
 
+#ifdef MG_ENTERPRISE
   dbms::SetForResult OnChange(const std::string &db_name) override {
     if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
@@ -267,6 +282,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   std::string GetDB() const override { return session_.GetID(); }
   std::string UUID() const override { return session_.UUID(); }
+#endif
 
   WebSocket ws_;
   boost::asio::strand<WebSocket::executor_type> strand_;
@@ -287,7 +303,13 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
  * wrapping.
  */
 template <typename TSession, typename TSessionContext>
-class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>>, dbms::SessionInterface {
+#ifdef MG_ENTERPRISE
+class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>>,
+                      dbms::SessionInterface
+#else
+class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>>
+#endif
+{
   using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
   using std::enable_shared_from_this<Session<TSession, TSessionContext>>::shared_from_this;
@@ -298,12 +320,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::shared_ptr<Session>(new Session(std::forward<Args>(args)...));
   }
 
+#ifdef MG_ENTERPRISE
+  ~Session() override { session_context_->Delete(*this); }
+
   Session(const Session &) = delete;
   Session(Session &&) = delete;
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
-
-  ~Session() override { session_context_->Delete(*this); }
+#endif
 
   bool Start() {
     if (execution_active_) {
@@ -372,9 +396,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                    tcp::endpoint endpoint, const std::chrono::seconds inactivity_timeout_sec,
                    std::string_view service_name)
       : Session(
+#ifdef MG_ENTERPRISE
             std::make_unique<typename TSession::HLImplT>(session_context->Get(memgraph::dbms::kDefaultDB), endpoint),
+#else
+            std::make_unique<typename TSession::HLImplT>(*session_context, endpoint),
+#endif
             std::forward<tcp::socket>(socket), session_context, server_context, endpoint, inactivity_timeout_sec,
-            service_name) {}
+            service_name) {
+  }
 
   explicit Session(std::unique_ptr<typename TSession::HLImplT> &&pimpl, tcp::socket &&socket,
                    TSessionContext *session_context, ServerContext &server_context, tcp::endpoint endpoint,
@@ -389,7 +418,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
+#ifdef MG_ENTERPRISE
     session_context_->Register(*this);
+#endif
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
       socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
@@ -573,6 +604,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::visit(utils::Overloaded{std::forward<F>(fun)}, socket_);
   }
 
+#ifdef MG_ENTERPRISE
   dbms::SetForResult OnChange(const std::string &db_name) override {
     if (session_.state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       // TODO a 1000 checks
@@ -585,6 +617,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   std::string GetDB() const override { return session_.GetID(); }
   std::string UUID() const override { return session_.UUID(); }
+#endif
 
   std::variant<TCPSocket, SSLSocket> socket_;
   std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;

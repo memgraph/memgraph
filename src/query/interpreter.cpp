@@ -2772,96 +2772,144 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 }
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                        const std::string &session_uuid) {
-  // TODO Pass session instead of just the UUID?
+                                        InterpreterContext *interpreter_context, const std::string &session_uuid) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+  // TODO: Remove once replicas support multi-tenant replication
+  if (interpreter_context->db->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    throw QueryException("Query forbidden on the replica!");
+  }
   if (in_explicit_transaction) {
-    throw MutilDatabaseQueryInMulticommandTxException();
+    throw MultiDatabaseQueryInMulticommandTxException();
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
 
-  return PreparedQuery{{"STATUS"},
-                       std::move(parsed_query.required_privileges),
-                       [db_name = query->db_name_, action = query->action_, session_uuid,
-                        &sd_handler = memgraph::dbms::SessionContextHandler::get()](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         std::vector<std::vector<TypedValue>> status;
-                         std::string res;
+  switch (query->action_) {
+    case MultiDatabaseQuery::Action::CREATE:
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
 
-                         switch (action) {
-                           case MultiDatabaseQuery::Action::CREATE: {
-                             const auto success = sd_handler.New(db_name);
-                             if (success.HasError()) {
-                               switch (success.GetError()) {
-                                 case dbms::NewError::EXISTS:
-                                   res = db_name + " already exists.";
-                                   break;
-                                 case dbms::NewError::GENERIC:
-                                   res = "Failed while creating " + db_name;
-                                   break;
-                                 case dbms::NewError::NO_CONFIGS:
-                                   res = "No configuration found while trying to create " + db_name;
-                                   break;
-                               }
-                             } else {
-                               res = "Successfully created database " + db_name;
-                             }
-                             break;
-                           }
-                           case MultiDatabaseQuery::Action::USE: {
-                             try {
-                               const auto set = sd_handler.SetFor(session_uuid, db_name);
-                               switch (set) {
-                                 case dbms::SetForResult::SUCCESS:
-                                   res = "Using " + db_name;
-                                   break;
-                                 case dbms::SetForResult::ALREADY_SET:
-                                   res = "Already using " + db_name;
-                                   break;
-                                 case dbms::SetForResult::FAIL:
-                                   res = "Failed to start using " + db_name;
-                                   break;
-                               }
-                             } catch (...) {
-                               res = db_name + " does not exist.";
-                             }
-                             break;
-                           }
-                           case MultiDatabaseQuery::Action::DROP: {
-                             const auto success = sd_handler.Delete(db_name);
-                             if (success.HasError()) {
-                               switch (success.GetError()) {
-                                 case dbms::DeleteError::DEFAULT_DB:
-                                   res = "Cannot delete the default database.";
-                                   break;
-                                 case dbms::DeleteError::NON_EXISTENT:
-                                   res = db_name + " does not exist.";
-                                   break;
-                                 case dbms::DeleteError::USING:
-                                   res = "Cannot delete " + db_name + ", it is currently being used.";
-                                   break;
-                                 case dbms::DeleteError::FAIL:
-                                   res = "Failed while deleting " + db_name;
-                                   break;
-                               }
-                             } else {
-                               res = "Successfully deleted " + db_name;
-                             }
-                             break;
-                           }
-                         }
+            const auto success = sd_handler.New(db_name);
+            if (success.HasError()) {
+              switch (success.GetError()) {
+                case dbms::NewError::EXISTS:
+                  res = db_name + " already exists.";
+                  break;
+                case dbms::NewError::GENERIC:
+                  res = "Failed while creating " + db_name;
+                  break;
+                case dbms::NewError::NO_CONFIGS:
+                  res = "No configuration found while trying to create " + db_name;
+                  break;
+              }
+            } else {
+              res = "Successfully created database " + db_name;
+            }
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W};
 
-                         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+    case MultiDatabaseQuery::Action::USE:
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
+
+            try {
+              const auto set = sd_handler.SetFor(session_uuid, db_name);
+              switch (set) {
+                case dbms::SetForResult::SUCCESS:
+                  res = "Using " + db_name;
+                  break;
+                case dbms::SetForResult::ALREADY_SET:
+                  res = "Already using " + db_name;
+                  break;
+                case dbms::SetForResult::FAIL:
+                  res = "Failed to start using " + db_name;
+                  break;
+              }
+            } catch (...) {
+              res = db_name + " does not exist.";
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::NONE};
+
+    case MultiDatabaseQuery::Action::DROP:
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
+
+            const auto success = sd_handler.Delete(db_name);
+            if (success.HasError()) {
+              switch (success.GetError()) {
+                case dbms::DeleteError::DEFAULT_DB:
+                  res = "Cannot delete the default database.";
+                  break;
+                case dbms::DeleteError::NON_EXISTENT:
+                  res = db_name + " does not exist.";
+                  break;
+                case dbms::DeleteError::USING:
+                  res = "Cannot delete " + db_name + ", it is currently being used.";
+                  break;
+                case dbms::DeleteError::FAIL:
+                  res = "Failed while deleting " + db_name;
+                  break;
+              }
+            } else {
+              res = "Successfully deleted " + db_name;
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W};
+  }
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
-PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, const std::string &session_uuid) {
+PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                        const std::string &session_uuid) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+  // TODO: Remove once replicas support multi-tenant replication
+  if (interpreter_context->db->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    throw QueryException("SHOW DATABASES forbidden on the replica!");
+  }
   return PreparedQuery{{"Name", "Current"},
                        std::move(parsed_query.required_privileges),
                        [session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
@@ -2883,6 +2931,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, const std::str
                          return std::nullopt;
                        },
                        RWType::NONE};
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const {
@@ -3093,9 +3144,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, session_uuid);
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                 interpreter_context_, session_uuid);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), session_uuid);
+      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

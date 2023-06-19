@@ -50,6 +50,7 @@ concept HLImpl = requires(T v) {
   { v.GetServerNameForInit() } -> std::same_as<std::optional<std::string>>;
 };
 
+#ifdef MG_ENTERPRISE
 /**
  * @brief Handles multiple high-level session instances.
  *
@@ -144,6 +145,7 @@ class MultiSessionHandler {
              //!< are ready for fast switching in case of a query spanning multiple databases
   std::shared_ptr<T> current_;  //!< currently used hl implementation
 };
+#endif
 
 /**
  * Bolt Session Exception
@@ -164,12 +166,15 @@ class SessionException : public utils::BasicException {
  * @tparam TOutputStream type of output stream that will be used
  */
 template <typename TInputStream, typename TOutputStream, HLImpl TSession>
-class Session : public MultiSessionHandler<TSession> {
+#ifdef MG_ENTERPRISE
+class Session : public MultiSessionHandler<TSession>
+#else
+class Session
+#endif
+{
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
   using HLImplT = TSession;
-  using MultiSessionHandler<TSession>::GetImpl;
-
   /**
    * @brief Construct a new Session object
    *
@@ -178,10 +183,16 @@ class Session : public MultiSessionHandler<TSession> {
    * @param impl a default high-level implementation to use (has to be defined)
    */
   Session(TInputStream *input_stream, TOutputStream *output_stream, std::unique_ptr<TSession> &&impl)
-      : MultiSessionHandler<TSession>(dbms::kDefaultDB, std::move(impl)),
+      :
+#ifdef MG_ENTERPRISE
+        MultiSessionHandler<TSession>(dbms::kDefaultDB, std::move(impl)),
+#else
+        pimpl_(std::move(impl)),
+#endif
         input_stream_(*input_stream),
         output_stream_(*output_stream),
-        session_uuid_(utils::GenerateUUID()) {}
+        session_uuid_(utils::GenerateUUID()) {
+  }
 
   /**
    * Process the given `query` with `params`.
@@ -299,6 +310,16 @@ class Session : public MultiSessionHandler<TSession> {
 
   std::string UUID() const { return session_uuid_; }
 
+ private:
+#ifdef MG_ENTERPRISE
+  using MultiSessionHandler<TSession>::GetImpl;
+#else
+  std::unique_ptr<HLImplT> &GetImpl() { return pimpl_; }
+
+  std::unique_ptr<HLImplT> pimpl_;  //!< pointer to the high-level implementation
+#endif
+
+ public:
   // TODO: Rethink if there is a way to hide some members. At the momement all of them are public.
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
