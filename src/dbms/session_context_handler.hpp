@@ -92,10 +92,14 @@ class SessionContextHandler {
     std::lock_guard<LockT> wr(lock_);
     MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
     default_configs_ = configs;
+    auto &data_dir = default_configs_->storage_config.durability.storage_directory;
+    data_dir /= "databases";  // Add an additional level
     audit_log_ = audit_log;
     // Space to save list of active dbs
-    utils::EnsureDirOrDie(configs.storage_config.durability.storage_directory / "databases");
-    durability_ = std::make_unique<kvstore::KVStore>(configs.storage_config.durability.storage_directory / "databases");
+    utils::EnsureDirOrDie(data_dir);
+    utils::EnsureDirOrDie(data_dir / ".durability");
+    durability_ = std::make_unique<kvstore::KVStore>(data_dir / ".durability");
+    // Create default db
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
     if (tenant_recovery) {
       for (const auto &[name, sts] : *durability_) {
@@ -281,7 +285,7 @@ class SessionContextHandler {
    */
   NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
-      auto &storage = default_configs_->storage_config;
+      auto storage = default_configs_->storage_config;
       storage.durability.storage_directory /= storage_subdir;
       return New_(name, storage, default_configs_->interp_config, default_configs_->ah_flags);
     }
@@ -326,17 +330,18 @@ class SessionContextHandler {
    */
   NewResultT NewDefault_() {
     // Create the default DB in the root (this is how it was done pre multi-tenancy)
-    auto res = New_(kDefaultDB, ".");
+    auto res = New_(kDefaultDB, "..");
     if (res.HasValue()) {
       // Symlink to support back-compatibility
       const auto dir = StorageDir_(kDefaultDB);
       MG_ASSERT(dir, "Failed to find storage path.");
-      const auto main_dir = *dir / kDefaultDB;
+      const auto main_dir = *dir / "databases" / kDefaultDB;
       if (!std::filesystem::exists(main_dir)) {
         std::filesystem::create_directory(main_dir);
       }
       // Some directories are redundant (skip those)
-      const std::vector<std::string> skip{"audit_log", "internal_modules", "settings", kDefaultDB};
+      const std::vector<std::string> skip{".lock",    "audit_log", "databases", "internal_modules",
+                                          "settings", kDefaultDB};
       for (auto const &item : std::filesystem::directory_iterator{*dir}) {
         const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
         if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
