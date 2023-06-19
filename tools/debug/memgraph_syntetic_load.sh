@@ -10,11 +10,21 @@ query_list=(
     "CREATE (:Node)-[:CONNECTED]->(:Node);"
     "CREATE (:Node)-[:CONNECTED]->(:Node);"
     "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CALL dummy_query.dummy_read() YIELD *;"
+    "CALL dummy_query.dummy_write() YIELD *;"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+    "CREATE (:Node)-[:CONNECTED]->(:Node);"
+
 )
 
 # Start the first process
 echo "Starting memgraph..."
-./memgraph --log-level=TRACE --storage-recover-on-startup=true --storage-snapshot-interval-sec=600 --log-file=$DIR/memgraph.logs --bolt-port 7687 &
+./memgraph --log-level=TRACE --storage-recover-on-startup=true --storage-snapshot-interval-sec=600 --log-file=$DIR/memgraph.logs --bolt-port 7687 --query-modules-directory=$DIR/query_modules &
 
 sleep 5
 # Capture the process ID (PID)
