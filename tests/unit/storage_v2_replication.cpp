@@ -730,6 +730,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
   auto main_config = configuration;
+  main_config.durability.restore_replication_state_on_startup = true;
   auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
 
   memgraph::storage::Storage replica_store1(configuration);
@@ -772,6 +773,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto main_config = configuration;
+  main_config.durability.restore_replication_state_on_startup = true;
   auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
   memgraph::storage::Storage replica_store1(configuration);
   replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[0]});
