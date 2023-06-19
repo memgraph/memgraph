@@ -2767,13 +2767,16 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                         InterpreterContext *interpreter_context, const std::string &session_uuid) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }                              
   // TODO: Remove once replicas support multi-tenant replication
   if (interpreter_context->db->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
     throw QueryException("Query forbidden on the replica!");
   }
-
   if (in_explicit_transaction) {
-    throw MutilDatabaseQueryInMulticommandTxException();
+    throw MultiDatabaseQueryInMulticommandTxException();
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
@@ -2804,7 +2807,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             } else {
               res = "Successfully created database " + db_name;
             }
-
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
             if (pull_plan->Pull(stream, n)) {
@@ -2887,15 +2889,21 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
           },
           RWType::W};
   }
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         const std::string &session_uuid) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
   // TODO: Remove once replicas support multi-tenant replication
   if (interpreter_context->db->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
-
   return PreparedQuery{{"Name", "Current"},
                        std::move(parsed_query.required_privileges),
                        [session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
@@ -2917,6 +2925,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
                          return std::nullopt;
                        },
                        RWType::NONE};
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const {

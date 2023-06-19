@@ -19,7 +19,6 @@
 #if MG_ENTERPRISE
 #include "audit/log.hpp"
 #endif
-
 namespace memgraph::dbms {
 
 /**
@@ -35,7 +34,7 @@ struct SessionContext {
                  std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
                  std::string db_name,
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
-#if MG_ENTERPRISE
+#ifdef MG_ENTERPRISE
                  ,
                  memgraph::audit::Log *audit_log
 #endif
@@ -45,7 +44,8 @@ struct SessionContext {
         run_id(run),
         db_name(db_name),
         auth(auth)
-#if MG_ENTERPRISE
+
+#ifdef MG_ENTERPRISE
         ,
         audit_log(audit_log)
 #endif
@@ -56,10 +56,9 @@ struct SessionContext {
   std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
   const std::string run_id;
   const std::string db_name;
-
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
-#if MG_ENTERPRISE
+#ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log;
 #endif
 };

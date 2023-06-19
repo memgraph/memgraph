@@ -11,6 +11,8 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -160,3 +162,5 @@ class StorageHandler {
 };
 
 }  // namespace memgraph::dbms
+
+#endif
