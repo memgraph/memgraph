@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8,22 +8,21 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
-
 import sys
-import typing
 
-import mgclient
 import pytest
 from common import execute_and_fetch_all, has_n_result_row, has_one_result_row
 from conftest import get_connection
+from mgclient import DatabaseError
 
 
 def test_graph_mutability(connection):
     cursor = connection.cursor()
-    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
-    print("here")
 
     def test_mutability(is_write: bool):
+        execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+        assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+
         module = "write" if is_write else "read"
 
         result = list(
@@ -31,7 +30,7 @@ def test_graph_mutability(connection):
                 cursor, f"CALL {module}.graph_is_mutable() " "YIELD mutable, init_called RETURN mutable, init_called"
             )
         )
-        assert result == [(False, True)]
+        assert result == [(is_write, True)]
 
         execute_and_fetch_all(cursor, "CREATE ()")
         result = list(
@@ -42,7 +41,7 @@ def test_graph_mutability(connection):
                 "YIELD mutable, init_called RETURN mutable, init_called",
             )
         )
-        assert result == [(False, True)]
+        assert result == [(is_write, True)]
 
         execute_and_fetch_all(cursor, "CREATE ()-[:TYPE]->()")
         result = list(
@@ -53,12 +52,52 @@ def test_graph_mutability(connection):
                 "YIELD mutable, init_called RETURN mutable, init_called",
             )
         )
-
-        assert result == [(False, True)]
+        assert result == [(is_write, True)]
 
     test_mutability(False)
+    test_mutability(True)
+
+
+def test_batching_nums(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+
+    result = list(
+        execute_and_fetch_all(
+            cursor, f"CALL read.batch_nums() " "YIELD num, init_called, is_valid RETURN num, init_called, is_valid"
+        )
+    )
+    assert result == [(i, True, True) for i in range(1, 11)]
+
+    execute_and_fetch_all(cursor, "CREATE () CREATE ()")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 2)
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            "MATCH (n) "
+            "CALL read.batch_nums() "
+            "YIELD num, init_called, is_valid RETURN num, init_called, is_valid ",
+        )
+    )
+    assert result == [(i, True, True) for i in range(1, 11)] * 2
+
+
+def test_batching_vertices(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+
+    execute_and_fetch_all(cursor, f"CREATE () CREATE ()")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 2)
+
+    with pytest.raises(DatabaseError):
+        result = list(
+            execute_and_fetch_all(
+                cursor, f"CALL read.batch_vertices() " "YIELD vertex, init_called RETURN vertex, init_called"
+            )
+        )
 
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
-    # test_graph_mutability(connection=get_connection())

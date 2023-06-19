@@ -4586,6 +4586,8 @@ class CallProcedureCursor : public Cursor {
           stream_exhausted = false;
           if (proc->initializer) {
             call_initializer = true;
+            MG_ASSERT(proc->cleanup);
+            proc->cleanup.value()();
           }
         }
       }

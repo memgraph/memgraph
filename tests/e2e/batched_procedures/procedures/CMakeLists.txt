@@ -1,1 +1,3 @@
+copy_batched_procedures_e2e_python_files(__init__.py)
 copy_batched_procedures_e2e_python_files(read.py)
+copy_batched_procedures_e2e_python_files(write.py)
