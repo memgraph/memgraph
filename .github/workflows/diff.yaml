@@ -196,22 +196,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          cd tests/integration
-          for name in *; do
-            if [ ! -d $name ]; then continue; fi
-            pushd $name >/dev/null
-            echo "Running: $name"
-            if [ -x prepare.sh ]; then
-              ./prepare.sh
-            fi
-            if [ -x runner.py ]; then
-              ./runner.py
-            elif [ -x runner.sh ]; then
-              ./runner.sh
-            fi
-            echo
-            popd >/dev/null
-          done
+          tests/integration/run.sh
 
       - name: Run cppcheck and clang-format
         run: |
