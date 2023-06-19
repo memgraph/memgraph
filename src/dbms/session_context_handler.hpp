@@ -88,12 +88,23 @@ class SessionContextHandler {
    * @param audit_log pointer to the audit logger (ENTERPRISE only)
    * @param configs storage and interpreter configurations
    */
-  void Init(memgraph::audit::Log *audit_log, Config configs) {
+  void Init(memgraph::audit::Log *audit_log, Config configs, bool tenant_recovery) {
     std::lock_guard<LockT> wr(lock_);
     MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
     default_configs_ = configs;
     audit_log_ = audit_log;
+    // Space to save list of active dbs
+    utils::EnsureDirOrDie(configs.storage_config.durability.storage_directory / "databases");
+    durability_ = std::make_unique<kvstore::KVStore>(configs.storage_config.durability.storage_directory / "databases");
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
+    if (tenant_recovery) {
+      for (const auto &[name, sts] : *durability_) {
+        if (name == kDefaultDB) continue;  // Already set
+        spdlog::info("Restoring database {}.", name);
+        MG_ASSERT(!New_(name).HasError(), "Failed while creating database {}.", name);
+        spdlog::info("Database {} restored.", name);
+      }
+    }
     initialized_ = true;
   }
 
@@ -191,6 +202,8 @@ class SessionContextHandler {
     if (!interp_handler_.Delete(db_name) || !auth_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
       return DeleteError::FAIL;
     }
+    // Remove from durability list
+    if (durability_) durability_->Delete(db_name);
     return {};  // Success
   }
 
@@ -294,6 +307,8 @@ class SessionContextHandler {
                                               storage_config.durability.storage_directory, auth_context->auth_handler,
                                               auth_context->auth_checker);
         if (new_interp.HasValue()) {
+          // Success
+          if (durability_) durability_->Put(name, "ok");
           return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_context, audit_log_};
         }
         // TODO: Handler partial success
@@ -375,6 +390,7 @@ class SessionContextHandler {
   const std::string run_id_;                                      //!< run's unique identifier (auto generated)
   memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
   std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
+  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
 };
 
 #else

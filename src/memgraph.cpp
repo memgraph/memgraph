@@ -223,6 +223,15 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// Multi-tenant flags
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(tenant_recover_on_startup, false,
+            "Controls whether the previous tenants get created on startup."
+            "Note: storage configuration dictates whether individual tenants recover their data (see "
+            "--storage-recover-on-startup).");
+#endif
+
 // Streams flags
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(
@@ -911,7 +920,8 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
   auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
-  sc_handler.Init(&audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex});
+  sc_handler.Init(&audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex},
+                  FLAGS_tenant_recover_on_startup);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
