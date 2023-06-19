@@ -24,7 +24,7 @@ namespace memgraph::utils {
  * @tparam TContext
  * @tparam TConfig
  */
-template <typename TContext, typename TConfig>
+template <typename TContext, typename TConfig = void>
 struct SyncPtr {
   /**
    * @brief Construct a new synched pointer.
@@ -60,6 +60,68 @@ struct SyncPtr {
 
  public:
   TConfig config_;                 //!< Additional metadata associated with the context
+  std::shared_ptr<TContext> ptr_;  //!< Pointer being synced
+
+ private:
+  /**
+   * @brief Block until OnDelete gets called.
+   *
+   */
+  void SyncOnDelete() {
+    std::unique_lock<std::mutex> lock(in_use_mtx_);
+    in_use_cv_.wait(lock, [this] { return !in_use_; });
+  }
+
+  /**
+   * @brief Custom destructor used to sync the shared_ptr release.
+   *
+   * @param p Pointer to the undelying object.
+   */
+  void OnDelete(TContext *p) {
+    delete p;
+    {
+      std::lock_guard<std::mutex> lock(in_use_mtx_);
+      in_use_ = false;
+    }
+    in_use_cv_.notify_one();
+  }
+};
+
+template <typename TContext>
+class SyncPtr<TContext, void> {
+ public:
+  /**
+   * @brief Construct a new synched pointer.
+   *
+   * @tparam TArgs variable templates used by the TContext constructor
+   * @param config Additional metadata associated with context
+   * @param args Arguments to pass to TContext constructor
+   */
+  template <typename... TArgs>
+  explicit SyncPtr(TArgs &&...args)
+      : in_use_(true),
+        ptr_{new TContext(std::forward<TArgs>(args)...), std::bind(&SyncPtr::OnDelete, this, std::placeholders::_1)} {}
+
+  /**
+   * @brief Destroy the synched pointer and wait for all copies to get destroyed.
+   *
+   */
+  ~SyncPtr() {
+    ptr_.~shared_ptr<TContext>();
+    SyncOnDelete();
+  }
+
+  SyncPtr(const SyncPtr &) = delete;
+  SyncPtr &operator=(const SyncPtr &) = delete;
+  SyncPtr(SyncPtr &&) noexcept = delete;
+  SyncPtr &operator=(SyncPtr &&) noexcept = delete;
+
+ private:
+  bool in_use_;                                //!< Flag used to signal sync
+  mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
+  mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
+
+ public:
   std::shared_ptr<TContext> ptr_;  //!< Pointer being synced
 
  private:

@@ -57,7 +57,7 @@ class AuthHandler {
    */
   NewResult New(std::string_view name, const std::filesystem::path &data_directory, const std::string &ah_flags) {
     auto [itr, success] = auth_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                        std::forward_as_tuple(0, data_directory, ah_flags));
+                                        std::forward_as_tuple(data_directory, ah_flags));
     if (success) {
       return itr->second.ptr_;
     }
@@ -92,7 +92,7 @@ class AuthHandler {
   }
 
  private:
-  std::unordered_map<std::string, utils::SyncPtr<AuthContext, int>> auth_;  //!< map to all active interpreters
+  std::unordered_map<std::string, utils::SyncPtr<AuthContext>> auth_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms
