@@ -13,6 +13,7 @@ import sys
 
 import pytest
 from common import connect, execute_and_fetch_all
+from gqlalchemy import Memgraph
 
 # E2E tests for checking query semantic
 # ------------------------------------
@@ -276,6 +277,59 @@ def test_same_avg_group_size_diff_distribution(connect):
     assert len(execute_and_fetch_all(cursor, "ANALYZE GRAPH DELETE STATISTICS")) == 2
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
+
+
+def test_given_supernode_when_expanding_then_expand_other_way_around():
+    memgraph = Memgraph()
+
+    memgraph.execute("FOREACH (i in range(1, 20000) | CREATE (:Node {id: i}));")
+    memgraph.execute("CREATE (:SuperNode {id: 1});")
+    memgraph.execute("CREATE INDEX ON :SuperNode(id);")
+    memgraph.execute("CREATE INDEX ON :SuperNode;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+
+    result_without_analysis = list(
+        memgraph.execute_and_fetch("explain match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+    )
+    result_without_analysis = [x["QUERY PLAN"] for x in result_without_analysis]
+    expected_explain_before_analysis = [
+        f" * EmptyResult",
+        f" * Merge",
+        f" |\\ On Match",
+        f" | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
+        f" | * Once",
+        f" |\\ On Create",
+        f" | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * Once",
+    ]
+
+    memgraph.execute("analyze graph;")
+
+    result_with_analysis = list(
+        memgraph.execute_and_fetch("explain match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+    )
+    result_with_analysis = [x["QUERY PLAN"] for x in result_with_analysis]
+    expected_explain_after_analysis = [
+        f" * EmptyResult",
+        f" * Merge",
+        f" |\\ On Match",
+        f" | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | * Once",
+        f" |\\ On Create",
+        f" | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * Once",
+    ]
+
+    assert expected_explain_before_analysis == result_without_analysis
+    assert expected_explain_after_analysis == result_with_analysis
 
 
 if __name__ == "__main__":

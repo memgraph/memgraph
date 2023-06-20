@@ -750,7 +750,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;
-    if (max_vertex_count && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
+    if (max_vertex_count && *max_vertex_count >= 1 && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
       // Don't create an indexed lookup, since we have more labeled vertices
       // than the allowed count.
       return nullptr;
