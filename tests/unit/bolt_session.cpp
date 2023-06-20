@@ -91,7 +91,9 @@ class TestImpl {
     }
   }
 
-  std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) { return {}; }
+  static std::map<std::string, Value> Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) {
+    return {};
+  }
 
   void BeginTransaction(const std::map<std::string, Value> &metadata) { md_ = metadata; }
   void CommitTransaction() { md_.clear(); }
@@ -99,9 +101,9 @@ class TestImpl {
 
   void Abort() { md_.clear(); }
 
-  bool Authenticate(const std::string &username, const std::string &password) { return true; }
+  static bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
 
-  std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
+  static std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
 
  private:
   std::string query_;
