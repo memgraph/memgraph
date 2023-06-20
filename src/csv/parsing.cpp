@@ -9,14 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/csv_parsing.hpp"
+#include "csv/parsing.hpp"
 
 #include <string_view>
 
 #include <boost/iostreams/filter/bzip2.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
+#include <ctre/ctre.hpp>
 
+#include "requests/requests.hpp"
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
@@ -28,7 +30,7 @@ namespace memgraph::csv {
 using ParseError = Reader::ParseError;
 
 struct Reader::impl {
-  impl(CSVSource source, Reader::Config cfg, utils::MemoryResource *mem);
+  impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem);
 
   [[nodiscard]] bool HasHeader() const { return read_config_.with_header; }
   [[nodiscard]] auto Header() const -> Header const & { return header_; }
@@ -48,7 +50,7 @@ struct Reader::impl {
 
   utils::MemoryResource *memory_;
   std::filesystem::path path_;
-  CSVSource source_;
+  CsvSource source_;
   PlainStream csv_stream_;
   Config read_config_;
   uint64_t line_count_{1};
@@ -56,7 +58,7 @@ struct Reader::impl {
   Reader::Header header_{memory_};
 };
 
-Reader::impl::impl(CSVSource source, Reader::Config cfg, utils::MemoryResource *mem)
+Reader::impl::impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem)
     : memory_(mem), source_(std::move(source)) {
   read_config_.with_header = cfg.with_header;
   read_config_.ignore_bad = cfg.ignore_bad;
@@ -79,7 +81,7 @@ auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
 
   // Note we must use bytes for comparison, not char
   //
-  std::byte c;  // this gets reused
+  std::byte c{};  // this gets reused
   auto const next_byte = [&](std::byte &b) { return bool(is.get(reinterpret_cast<char &>(b))); };
   if (!next_byte(c)) return CompressionMethod::NONE;
 
@@ -104,7 +106,7 @@ auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
   return CompressionMethod::NONE;
 }
 
-Reader::Reader(CSVSource source, Reader::Config cfg, utils::MemoryResource *mem)
+Reader::Reader(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem)
     : pimpl{new impl{std::move(source), std::move(cfg), mem}, [](impl *p) { delete p; }} {}
 
 void Reader::impl::InitializeStream() {
@@ -344,7 +346,7 @@ std::optional<Reader::Row> Reader::impl::GetNextRow(utils::MemoryResource *mem) 
 // to 'true' in the Reader::Config.
 std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) { return pimpl->GetNextRow(mem); }
 
-FileCSVSource::FileCSVSource(std::filesystem::path path) : path_(std::move(path)) {
+FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)) {
   if (!std::filesystem::exists(path_)) {
     throw CsvReadException("CSV file not found: {}", path_.string());
   }
@@ -353,10 +355,28 @@ FileCSVSource::FileCSVSource(std::filesystem::path path) : path_(std::move(path)
     throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
   }
 }
-std::istream &FileCSVSource::GetStream() { return stream_; }
+std::istream &FileCsvSource::GetStream() { return stream_; }
 
-std::istream &CSVSource::GetStream() {
+std::istream &CsvSource::GetStream() {
   return *std::visit([](auto &&source) { return std::addressof(source.GetStream()); }, source_);
 }
 
+auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
+  constexpr auto protocol_matcher = ctre::starts_with<"(https?|t?ftp|telnet)://">;
+  if (protocol_matcher(csv_location)) {
+    return csv::UrlCsvSource{csv_location.c_str()};
+  }
+  return csv::FileCsvSource{csv_location};
+}
+
+// Helper for UrlCsvSource
+auto urlToStringStream(const char *url) -> std::stringstream {
+  auto ss = std::stringstream{};
+  if (!requests::DownloadToStream(url, ss)) {
+    throw CsvReadException("CSV was unable to be fetched from {}", url);
+  }
+  return ss;
+};
+
+UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{urlToStringStream(url)} {}
 }  // namespace memgraph::csv

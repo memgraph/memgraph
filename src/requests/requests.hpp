@@ -51,18 +51,15 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
 bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds = 10);
 
 /**
- *  This class does a request and writes the response via an std::istream
+ * Downloads content into a stream
+ *
+ * This function sends a GET request an put the response within a stream.
+ * Using c-string because internals interop with a C API
+ *
+ * @param url url of the contents
+ * @param os an output stream
+ * @return bool true if the request was successful, false otherwise.
  */
-struct [[nodiscard]] UrlStream {
-  explicit UrlStream(std::string const &url);
-
-  std::istream &getStream() { return stream_; }
-
-  ~UrlStream();
-
- private:
-  CURL *curlHan_;
-  std::stringstream stream_;
-};
+auto DownloadToStream(char const *url, std::ostream &os) -> bool;
 
 }  // namespace memgraph::requests

@@ -122,6 +122,7 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
+  ["ctre"]="http://$local_cache_host/file/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -147,6 +148,7 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
+  ["ctre"]="https://raw.githubusercontent.com/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
 )
 
 # antlr
@@ -238,3 +240,9 @@ repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" 
 pushd librdtsc
 git apply ../librdtsc.patch
 popd
+
+#ctre
+mkdir -p ctre
+cd ctre
+file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
+cd ..

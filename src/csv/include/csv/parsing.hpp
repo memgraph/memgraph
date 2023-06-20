@@ -37,9 +37,9 @@ class CsvReadException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-class FileCSVSource {
+class FileCsvSource {
  public:
-  explicit FileCSVSource(std::filesystem::path path);
+  explicit FileCsvSource(std::filesystem::path path);
   std::istream &GetStream();
 
  private:
@@ -47,14 +47,30 @@ class FileCSVSource {
   std::ifstream stream_;
 };
 
-class CSVSource {
+class StreamCsvSource {
  public:
-  CSVSource(FileCSVSource source) : source_{std::move(source)} {}
+  StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+  std::istream &GetStream() { return stream_; }
 
+ private:
+  std::stringstream stream_;
+};
+
+class UrlCsvSource : public StreamCsvSource {
+ public:
+  UrlCsvSource(char const *url);
+};
+
+class CsvSource {
+ public:
+  static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
+  CsvSource(FileCsvSource source) : source_{std::move(source)} {}
+  CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
+  CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
   std::istream &GetStream();
 
  private:
-  std::variant<FileCSVSource> source_;
+  std::variant<FileCsvSource, UrlCsvSource, StreamCsvSource> source_;
 };
 
 class Reader {
@@ -74,8 +90,7 @@ class Reader {
   using Row = utils::pmr::vector<utils::pmr::string>;
   using Header = utils::pmr::vector<utils::pmr::string>;
 
-  Reader() = default;
-  explicit Reader(CSVSource source, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource());
+  explicit Reader(CsvSource source, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource());
 
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
@@ -103,8 +118,9 @@ class Reader {
   // Some implementation issues that need clearing up, but this is mainly because
   // I don't want `boost/iostreams/filtering_stream.hpp` included in this header file
   // Because it causes issues when combined with antlr headers
+  // When we have C++20 modules this can be fixed
   struct impl;
-  std::unique_ptr<impl, void (*)(impl *)> pimpl{nullptr, [](impl *) {}};
+  std::unique_ptr<impl, void (*)(impl *)> pimpl;
 };
 
 }  // namespace memgraph::csv

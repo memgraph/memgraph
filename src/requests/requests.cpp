@@ -113,24 +113,21 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, int 
   return true;
 }
 
-size_t WriteCallback(char *ptr, size_t size, size_t nmemb, std::stringstream *stream) {
-  size_t totalSize = size * nmemb;
-  stream->write(ptr, totalSize);
-  return totalSize;
+auto DownloadToStream(char const *url, std::ostream &os) -> bool {
+  constexpr auto WriteCallback = [](char *ptr, size_t size, size_t nmemb, std::ostream *os) -> size_t {
+    auto const totalSize = static_cast<std::streamsize>(size * nmemb);
+    os->write(ptr, totalSize);
+    return totalSize;
+  };
+
+  auto *curl_handle{curl_easy_init()};
+  curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+  curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, +WriteCallback);
+  curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &os);
+
+  auto const res = curl_easy_perform(curl_handle);
+  curl_easy_cleanup(curl_handle);
+  return res == CURLE_OK;
 }
-
-UrlStream::UrlStream(std::string const &url) : curlHan_{curl_easy_init()} {
-  curl_easy_setopt(curlHan_, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curlHan_, CURLOPT_WRITEFUNCTION, WriteCallback);
-  curl_easy_setopt(curlHan_, CURLOPT_WRITEDATA, &stream_);
-
-  auto const res = curl_easy_perform(curlHan_);
-  if (res != CURLE_OK) {
-    curl_easy_cleanup(curlHan_);
-    throw 1;
-  }
-}
-
-UrlStream::~UrlStream() { curl_easy_cleanup(curlHan_); }
 
 }  // namespace memgraph::requests

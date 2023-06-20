@@ -1,6 +1,7 @@
 # MemGraph CMake configuration
 
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.12)
+cmake_policy(SET CMP0076 NEW)
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
@@ -39,7 +40,14 @@ endif()
 
 # -----------------------------------------------------------------------------
 
-project(memgraph)
+project(memgraph LANGUAGES C CXX)
+
+#TODO: upgrade to cmake 3.24 + CheckIPOSupported
+#cmake_policy(SET CMP0138 NEW)
+#include(CheckIPOSupported)
+#check_ipo_supported()
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/

@@ -28,6 +28,7 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "csv/parsing.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
@@ -46,7 +47,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -4776,7 +4776,7 @@ class LoadCsvCursor : public Cursor {
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
     return csv::Reader(
-        csv::FileCSVSource{std::move(*maybe_file)},
+        csv::CsvSource::Create(*maybe_file),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         utils::NewDeleteResource());
   }

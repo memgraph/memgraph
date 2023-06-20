@@ -29,6 +29,7 @@
 #include <variant>
 
 #include "auth/models.hpp"
+#include "csv/parsing.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -62,7 +63,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
-#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
