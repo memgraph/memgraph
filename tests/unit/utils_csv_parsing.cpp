@@ -18,6 +18,8 @@
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
 
+using namespace memgraph::csv;
+
 enum class CompressionMethod : uint8_t {
   NONE,
   GZip,
@@ -135,8 +137,8 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
   memgraph::utils::pmr::string delimiter{",", mem};
   memgraph::utils::pmr::string quote{"\"", mem};
 
-  memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+  Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCSVSource{filepath}, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -158,8 +160,8 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCSVSource{filepath}, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -191,8 +193,8 @@ TEST_P(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+    const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    auto reader = Reader(FileCSVSource{filepath}, cfg, mem);
 
     auto parsed_row = reader.GetNextRow(mem);
     ASSERT_EQ(*parsed_row, ToPmrColumns(columns_good));
@@ -203,10 +205,10 @@ TEST_P(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+    const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    auto reader = Reader(FileCSVSource{filepath}, cfg, mem);
 
-    EXPECT_THROW(reader.GetNextRow(mem), memgraph::csv::CsvReadException);
+    EXPECT_THROW(reader.GetNextRow(mem), CsvReadException);
   }
 }
 
@@ -230,8 +232,8 @@ TEST_P(CsvReaderTest, AllRowsValid) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCSVSource{filepath}, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow(mem)) {
@@ -259,8 +261,8 @@ TEST_P(CsvReaderTest, SkipAllRows) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCSVSource{filepath}, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, std::nullopt);
@@ -286,8 +288,8 @@ TEST_P(CsvReaderTest, WithHeader) {
 
   const bool with_header = true;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
+  auto reader = Reader(FileCSVSource{filepath}, cfg);
 
   const auto pmr_header = ToPmrColumns(header);
   ASSERT_EQ(reader.GetHeader(), pmr_header);
@@ -322,8 +324,8 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCSVSource{filepath}, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(first_row));
@@ -354,8 +356,8 @@ TEST_P(CsvReaderTest, EmptyColumns) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCSVSource{filepath}, cfg);
 
   for (const auto &expected_row : expected_rows) {
     const auto pmr_expected_row = ToPmrColumns(expected_row);

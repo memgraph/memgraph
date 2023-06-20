@@ -23,6 +23,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -34,6 +35,26 @@ namespace memgraph::csv {
 
 class CsvReadException : public utils::BasicException {
   using utils::BasicException::BasicException;
+};
+
+class FileCSVSource {
+ public:
+  explicit FileCSVSource(std::filesystem::path path);
+  std::istream &GetStream();
+
+ private:
+  std::filesystem::path path_;
+  std::ifstream stream_;
+};
+
+class CSVSource {
+ public:
+  CSVSource(FileCSVSource source) : source_{std::move(source)} {}
+
+  std::istream &GetStream();
+
+ private:
+  std::variant<FileCSVSource> source_;
 };
 
 class Reader {
@@ -54,7 +75,7 @@ class Reader {
   using Header = utils::pmr::vector<utils::pmr::string>;
 
   Reader() = default;
-  explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource());
+  explicit Reader(CSVSource source, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource());
 
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
@@ -73,9 +94,10 @@ class Reader {
   };
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
-  [[nodiscard]] bool HasHeader() const;
-  const Header &GetHeader() const;
-  std::optional<Row> GetNextRow(utils::MemoryResource *mem);
+
+  bool HasHeader() const;
+  auto GetHeader() const -> Header const &;
+  auto GetNextRow(utils::MemoryResource *mem) -> std::optional<Row>;
 
  private:
   // Some implementation issues that need clearing up, but this is mainly because

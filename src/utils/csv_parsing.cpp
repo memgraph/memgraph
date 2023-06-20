@@ -28,7 +28,7 @@ namespace memgraph::csv {
 using ParseError = Reader::ParseError;
 
 struct Reader::impl {
-  impl(std::filesystem::path path, Reader::Config cfg, utils::MemoryResource *mem);
+  impl(CSVSource source, Reader::Config cfg, utils::MemoryResource *mem);
 
   [[nodiscard]] bool HasHeader() const { return read_config_.with_header; }
   [[nodiscard]] auto Header() const -> Header const & { return header_; }
@@ -48,7 +48,7 @@ struct Reader::impl {
 
   utils::MemoryResource *memory_;
   std::filesystem::path path_;
-  std::ifstream file_stream_;
+  CSVSource source_;
   PlainStream csv_stream_;
   Config read_config_;
   uint64_t line_count_{1};
@@ -56,8 +56,8 @@ struct Reader::impl {
   Reader::Header header_{memory_};
 };
 
-Reader::impl::impl(std::filesystem::path path, Reader::Config cfg, utils::MemoryResource *mem)
-    : memory_(mem), path_(std::move(path)) {
+Reader::impl::impl(CSVSource source, Reader::Config cfg, utils::MemoryResource *mem)
+    : memory_(mem), source_(std::move(source)) {
   read_config_.with_header = cfg.with_header;
   read_config_.ignore_bad = cfg.ignore_bad;
   read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
@@ -104,19 +104,13 @@ auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
   return CompressionMethod::NONE;
 }
 
-Reader::Reader(std::filesystem::path path, Reader::Config cfg, utils::MemoryResource *mem)
-    : pimpl{new impl{std::move(path), std::move(cfg), mem}, [](impl *p) { delete p; }} {}
+Reader::Reader(CSVSource source, Reader::Config cfg, utils::MemoryResource *mem)
+    : pimpl{new impl{std::move(source), std::move(cfg), mem}, [](impl *p) { delete p; }} {}
 
 void Reader::impl::InitializeStream() {
-  if (!std::filesystem::exists(path_)) {
-    throw CsvReadException("CSV file not found: {}", path_.string());
-  }
-  file_stream_.open(path_);
-  if (!file_stream_.good()) {
-    throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
-  }
+  auto &source = source_.GetStream();
 
-  auto const method = DetectCompressionMethod(file_stream_);
+  auto const method = DetectCompressionMethod(source);
   switch (method) {
     case CompressionMethod::GZip:
       csv_stream_.push(boost::iostreams::gzip_decompressor{});
@@ -128,7 +122,7 @@ void Reader::impl::InitializeStream() {
       break;
   }
 
-  csv_stream_.push(file_stream_);
+  csv_stream_.push(source);
   MG_ASSERT(csv_stream_.auto_close(), "Should be 'auto close' for correct operation");
   MG_ASSERT(csv_stream_.is_complete(), "Should be 'complete' for correct operation");
 }
@@ -349,5 +343,20 @@ std::optional<Reader::Row> Reader::impl::GetNextRow(utils::MemoryResource *mem) 
 // @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
 // to 'true' in the Reader::Config.
 std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) { return pimpl->GetNextRow(mem); }
+
+FileCSVSource::FileCSVSource(std::filesystem::path path) : path_(std::move(path)) {
+  if (!std::filesystem::exists(path_)) {
+    throw CsvReadException("CSV file not found: {}", path_.string());
+  }
+  stream_.open(path_);
+  if (!stream_.good()) {
+    throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
+  }
+}
+std::istream &FileCSVSource::GetStream() { return stream_; }
+
+std::istream &CSVSource::GetStream() {
+  return *std::visit([](auto &&source) { return std::addressof(source.GetStream()); }, source_);
+}
 
 }  // namespace memgraph::csv
