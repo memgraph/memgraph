@@ -279,10 +279,8 @@ def test_same_avg_group_size_diff_distribution(connect):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-def test_given_supernode_when_expanding_then_expand_other_way_around():
-    memgraph = Memgraph()
-
-    memgraph.execute("FOREACH (i in range(1, 20000) | CREATE (:Node {id: i}));")
+def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
+    memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node {id: i}));")
     memgraph.execute("CREATE (:SuperNode {id: 1});")
     memgraph.execute("CREATE INDEX ON :SuperNode(id);")
     memgraph.execute("CREATE INDEX ON :SuperNode;")
@@ -330,6 +328,11 @@ def test_given_supernode_when_expanding_then_expand_other_way_around():
 
     assert expected_explain_before_analysis == result_without_analysis
     assert expected_explain_after_analysis == result_with_analysis
+
+    memgraph.execute("DROP INDEX ON :SuperNode")
+    memgraph.execute("DROP INDEX ON :Node")
+    memgraph.execute("DROP INDEX ON :SuperNode(id)")
+    memgraph.execute("DROP INDEX ON :Node(id)")
 
 
 if __name__ == "__main__":
