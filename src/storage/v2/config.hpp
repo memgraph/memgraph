@@ -67,6 +67,7 @@ struct Config {
     std::filesystem::path label_property_index_directory{"rocksdb_label_property_index"};
     std::filesystem::path unique_constraints_directory{"rocksdb_unique_constraints"};
     std::filesystem::path name_id_mapper_directory{"rocksdb_name_id_mapper"};
+    std::filesystem::path durability_directory{"rocksdb_durability"};
   } disk;
 };
 

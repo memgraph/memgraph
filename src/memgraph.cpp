@@ -872,7 +872,8 @@ int main(int argc, char **argv) {
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
                .label_property_index_directory = FLAGS_data_directory + "/rocksdb_label_property_index",
                .unique_constraints_directory = FLAGS_data_directory + "/rocksdb_unique_constraints",
-               .name_id_mapper_directory = FLAGS_data_directory + "/name_id_mapper"}};
+               .name_id_mapper_directory = FLAGS_data_directory + "/name_id_mapper",
+               .durability_directory = FLAGS_data_directory + "/durability"}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(

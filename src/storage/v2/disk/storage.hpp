@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "kvstore/kvstore.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
@@ -243,6 +244,7 @@ class DiskStorage final : public Storage {
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   std::unique_ptr<RocksDBStorage> kvstore_;
+  std::unique_ptr<kvstore::KVStore> durability_kvstore_;
 };
 
 }  // namespace memgraph::storage

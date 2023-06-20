@@ -21,6 +21,7 @@
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "kvstore/kvstore.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
@@ -57,6 +58,7 @@ namespace {
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
+constexpr const char *lastTransactionStartTimeStamp = "last_transaction_start_timestamp";
 
 bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
   return accessor.find(gid) != accessor.end();
@@ -169,8 +171,10 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL) {
-  kvstore_ = std::make_unique<RocksDBStorage>();
+DiskStorage::DiskStorage(Config config)
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
+      kvstore_(std::make_unique<RocksDBStorage>()),
+      durability_kvstore_(std::make_unique<kvstore::KVStore>(config.disk.durability_directory)) {
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
@@ -181,6 +185,9 @@ DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_T
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {
+    if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
+      timestamp_ = std::stoull(last_timestamp_.value());
+    }
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
     column_families.emplace_back(defaultHandle, kvstore_->options_);
@@ -201,6 +208,7 @@ DiskStorage::DiskStorage(Config config) : Storage(config, StorageMode::ON_DISK_T
 }
 
 DiskStorage::~DiskStorage() {
+  durability_kvstore_->Put(lastTransactionStartTimeStamp, std::to_string(timestamp_));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
   if (kvstore_->default_chandle) {
