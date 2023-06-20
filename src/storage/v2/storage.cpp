@@ -9,8 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/storage.hpp"
 #include "spdlog/spdlog.h"
+
+#include "storage/v2/disk/name_id_mapper.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -22,7 +24,13 @@ namespace memgraph::storage {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 Storage::Storage(Config config, StorageMode storage_mode)
-    : config_(config),
+    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+        if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
+          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory);
+        }
+        return std::make_unique<NameIdMapper>();
+      })),
+      config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(&constraints_, config, storage_mode),
@@ -46,32 +54,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
-}
-
-// this should be handled on an above level of abstraction
-const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
-
-// this should be handled on an above level of abstraction
-const std::string &Storage::PropertyToName(PropertyId property) const {
-  return name_id_mapper_.IdToName(property.AsUint());
-}
-
-// this should be handled on an above level of abstraction
-const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
-  return name_id_mapper_.IdToName(edge_type.AsUint());
-}
-
-// this should be handled on an above level of abstraction
-LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
-
-// this should be handled on an above level of abstraction
-PropertyId Storage::NameToProperty(const std::string_view name) {
-  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
-}
-
-// this should be handled on an above level of abstraction
-EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
-  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 IndicesInfo Storage::ListAllIndices() const {
@@ -102,22 +84,6 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   isolation_level_ = isolation_level;
   return {};
 }
-
-const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
-
-const std::string &Storage::Accessor::PropertyToName(PropertyId property) const {
-  return storage_->PropertyToName(property);
-}
-
-const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
-  return storage_->EdgeTypeToName(edge_type);
-}
-
-LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
-
-PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
-
-EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
 
 StorageMode Storage::Accessor::GetCreationStorageMode() const { return creation_storage_mode_; }
 

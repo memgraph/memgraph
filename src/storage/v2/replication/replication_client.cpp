@@ -545,14 +545,14 @@ InMemoryStorage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClie
 void InMemoryStorage::ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex,
                                                                     uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_, self_->storage_->config_.items, delta, vertex,
+  EncodeDelta(&encoder, self_->storage_->name_id_mapper_.get(), self_->storage_->config_.items, delta, vertex,
               final_commit_timestamp);
 }
 
 void InMemoryStorage::ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge,
                                                                     uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_, delta, edge, final_commit_timestamp);
+  EncodeDelta(&encoder, self_->storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
 void InMemoryStorage::ReplicationClient::ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
@@ -565,7 +565,7 @@ void InMemoryStorage::ReplicationClient::ReplicaStream::AppendOperation(durabili
                                                                         const std::set<PropertyId> &properties,
                                                                         uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, label, properties, timestamp);
+  EncodeOperation(&encoder, self_->storage_->name_id_mapper_.get(), operation, label, properties, timestamp);
 }
 
 replication::AppendDeltasRes InMemoryStorage::ReplicationClient::ReplicaStream::Finalize() {

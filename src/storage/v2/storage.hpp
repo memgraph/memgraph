@@ -147,17 +147,17 @@ class Storage {
 
     void AdvanceCommand();
 
-    const std::string &LabelToName(LabelId label) const;
+    const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 
-    const std::string &PropertyToName(PropertyId property) const;
+    const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }
 
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const { return storage_->EdgeTypeToName(edge_type); }
 
-    LabelId NameToLabel(std::string_view name);
+    LabelId NameToLabel(std::string_view name) { return storage_->NameToLabel(name); }
 
-    PropertyId NameToProperty(std::string_view name);
+    PropertyId NameToProperty(std::string_view name) { return storage_->NameToProperty(name); }
 
-    EdgeTypeId NameToEdgeType(std::string_view name);
+    EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
     StorageMode GetCreationStorageMode() const;
 
@@ -166,24 +166,29 @@ class Storage {
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
-    /// TODO: andi how can we remove usage of this?
     bool is_transaction_active_;
 
    private:
     StorageMode creation_storage_mode_;
   };
 
-  const std::string &LabelToName(LabelId label) const;
+  const std::string &LabelToName(LabelId label) const { return name_id_mapper_->IdToName(label.AsUint()); }
 
-  const std::string &PropertyToName(PropertyId property) const;
+  const std::string &PropertyToName(PropertyId property) const { return name_id_mapper_->IdToName(property.AsUint()); }
 
-  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
+  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const {
+    return name_id_mapper_->IdToName(edge_type.AsUint());
+  }
 
-  LabelId NameToLabel(std::string_view name);
+  LabelId NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_->NameToId(name)); }
 
-  PropertyId NameToProperty(std::string_view name);
+  PropertyId NameToProperty(const std::string_view name) {
+    return PropertyId::FromUint(name_id_mapper_->NameToId(name));
+  }
 
-  EdgeTypeId NameToEdgeType(std::string_view name);
+  EdgeTypeId NameToEdgeType(const std::string_view name) {
+    return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
+  }
 
   void SetStorageMode(StorageMode storage_mode);
 
@@ -258,7 +263,7 @@ class Storage {
   // keep a separate count of edges that is always updated.
   std::atomic<uint64_t> edge_count_{0};
 
-  NameIdMapper name_id_mapper_;
+  std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
 
   // Transaction engine
@@ -272,6 +277,7 @@ class Storage {
   Indices indices_;
   Constraints constraints_;
 
+  /// TODO: andi This can be moved to the in-memory storage
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
   std::atomic<uint64_t> vertex_id_{0};

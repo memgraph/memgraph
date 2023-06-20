@@ -177,7 +177,7 @@ void InMemoryStorage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
-                                                       &storage_->epoch_history_, &storage_->name_id_mapper_,
+                                                       &storage_->epoch_history_, storage_->name_id_mapper_.get(),
                                                        &storage_->edge_count_, storage_->config_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of

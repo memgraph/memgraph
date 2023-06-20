@@ -86,8 +86,8 @@ InMemoryStorage::InMemoryStorage(Config config)
   }
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
-                                        &vertices_, &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_,
-                                        config_, &wal_seq_num_);
+                                        &vertices_, &edges_, &edge_count_, name_id_mapper_.get(), &indices_,
+                                        &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -1381,7 +1381,7 @@ bool InMemoryStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items, &name_id_mapper_, wal_seq_num_++,
+    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items, name_id_mapper_.get(), wal_seq_num_++,
                       &file_retainer_);
   }
   return true;
@@ -1633,7 +1633,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                               config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
+                               config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
                                &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
