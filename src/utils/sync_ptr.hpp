@@ -44,7 +44,7 @@ struct SyncPtr {
    *
    */
   ~SyncPtr() {
-    ptr_.~shared_ptr<TContext>();
+    ptr_.reset();
     SyncOnDelete();
   }
 
@@ -107,7 +107,7 @@ class SyncPtr<TContext, void> {
    *
    */
   ~SyncPtr() {
-    ptr_.~shared_ptr<TContext>();
+    ptr_.reset();
     SyncOnDelete();
   }
 
