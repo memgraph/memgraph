@@ -116,6 +116,7 @@ TEST(DBMS_Storage, Delete) {
     db1.GetValue().reset();
     // Delete from handler
     ASSERT_TRUE(sh.Delete("db1"));
+    ASSERT_FALSE(sh.Get("db1"));
     auto all = sh.All();
     std::sort(all.begin(), all.end());
     ASSERT_EQ(all.size(), 2);

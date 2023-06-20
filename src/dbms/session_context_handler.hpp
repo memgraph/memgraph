@@ -290,7 +290,7 @@ class SessionContextHandler {
       auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
       if (new_auth.HasValue()) {
         auto &auth_context = new_auth.GetValue();
-        auto new_interp = interp_handler_.New(name, new_storage.GetValue().get(), inter_config,
+        auto new_interp = interp_handler_.New(name, *new_storage.GetValue(), inter_config,
                                               storage_config.durability.storage_directory, auth_context->auth_handler,
                                               auth_context->auth_checker);
         if (new_interp.HasValue()) {

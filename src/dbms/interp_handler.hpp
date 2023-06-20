@@ -20,8 +20,6 @@
 #include <unordered_map>
 
 #include "global.hpp"
-#include "glue/auth_checker.hpp"
-#include "glue/auth_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -54,10 +52,18 @@ class InterpContextHandler {
    * @param ac associated auth checker (@note: glue)
    * @return NewResult pointer to context on success, error on failure
    */
-  NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
-                const std::filesystem::path &data_directory, glue::AuthQueryHandler &ah, glue::AuthChecker &ac) {
-    auto [itr, success] = interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                          std::forward_as_tuple(config, db, config, data_directory, &ah, &ac));
+  NewResult New(std::string_view name, storage::Storage &db, const TConfig &config,
+                const std::filesystem::path &data_directory, query::AuthQueryHandler &ah, query::AuthChecker &ac) {
+    // Control that no one is using the same data directory or Storage
+    if (std::any_of(interp_.begin(), interp_.end(), [&](const auto &elem) {
+          return elem.second.config_.storage_dir == data_directory || elem.second.ptr_->db == &db;
+        })) {
+      // LOG
+      return NewError::EXISTS;
+    }
+    auto [itr, success] =
+        interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                        std::forward_as_tuple(Config{config, data_directory}, &db, config, data_directory, &ah, &ac));
     if (success) {
       return itr->second.ptr_;
     }
@@ -86,7 +92,11 @@ class InterpContextHandler {
   }
 
  private:
-  std::unordered_map<std::string, utils::SyncPtr<TContext, TConfig>> interp_;  //!< map to all active interpreters
+  struct Config {
+    TConfig interp_config;
+    std::filesystem::path storage_dir;
+  };
+  std::unordered_map<std::string, utils::SyncPtr<TContext, Config>> interp_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms
