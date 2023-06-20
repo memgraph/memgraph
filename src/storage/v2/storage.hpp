@@ -39,6 +39,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
@@ -477,8 +478,9 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-  bool LockPath();
-  bool UnlockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
+  utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
 
@@ -523,6 +525,7 @@ class Storage final {
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  IsolationLevel GetIsolationLevel() const noexcept;
 
   void SetStorageMode(StorageMode storage_mode);
 
