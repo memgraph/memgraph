@@ -1287,161 +1287,15 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 /// TODO: what to do with all that?
 void DiskStorage::DiskAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  auto scope_exit = utils::OnScopeExit([&]() {
-    // On abort we need to delete disk transaction because after storage remove we couldn't remove
-    // disk_transaction correctly in destructor.
-    // This happens in tests when we create and remove storage in one test. For example, in
-    // query_plan_accumulate_aggregate.cpp
-    disk_transaction_->ClearSnapshot();
-    delete disk_transaction_;
-    disk_transaction_ = nullptr;
-  });
-
-  // We collect vertices and edges we've created here and then splice them into
-  // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
-  // by one and acquiring lock every time.
-  std::list<Gid> my_deleted_vertices;
-  std::list<Gid> my_deleted_edges;
-
-  for (const auto &delta : transaction_.deltas) {
-    auto prev = delta.prev.Get();
-    switch (prev.type) {
-      case PreviousPtr::Type::VERTEX: {
-        auto *vertex = prev.vertex;
-        std::lock_guard<utils::SpinLock> guard(vertex->lock);
-        Delta *current = vertex->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
-          switch (current->action) {
-            case Delta::Action::REMOVE_LABEL: {
-              auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
-              MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
-              std::swap(*it, *vertex->labels.rbegin());
-              vertex->labels.pop_back();
-              break;
-            }
-            case Delta::Action::ADD_LABEL: {
-              auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
-              MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
-              vertex->labels.push_back(current->label);
-              break;
-            }
-            case Delta::Action::SET_PROPERTY: {
-              vertex->properties.SetProperty(current->property.key, current->property.value);
-              break;
-            }
-            case Delta::Action::ADD_IN_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
-              auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-              MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
-              vertex->in_edges.push_back(link);
-              break;
-            }
-            case Delta::Action::ADD_OUT_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
-              auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-              MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
-              vertex->out_edges.push_back(link);
-              // Increment edge count. We only increment the count here because
-              // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
-              // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
-              // edge properties are disabled.
-              storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-              break;
-            }
-            case Delta::Action::REMOVE_IN_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
-              auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-              MG_ASSERT(it != vertex->in_edges.end(), "Invalid database state!");
-              std::swap(*it, *vertex->in_edges.rbegin());
-              vertex->in_edges.pop_back();
-              break;
-            }
-            case Delta::Action::REMOVE_OUT_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
-              auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-              MG_ASSERT(it != vertex->out_edges.end(), "Invalid database state!");
-              std::swap(*it, *vertex->out_edges.rbegin());
-              vertex->out_edges.pop_back();
-              // Decrement edge count. We only decrement the count here because
-              // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-              // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-              // properties are disabled.
-              storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
-              break;
-            }
-            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-            case Delta::Action::DELETE_OBJECT: {
-              vertex->deleted = true;
-              my_deleted_vertices.push_back(vertex->gid);
-              break;
-            }
-            case Delta::Action::RECREATE_OBJECT: {
-              vertex->deleted = false;
-              break;
-            }
-          }
-          current = current->next.load(std::memory_order_acquire);
-        }
-        vertex->delta = current;
-        if (current != nullptr) {
-          current->prev.Set(vertex);
-        }
-
-        break;
-      }
-      case PreviousPtr::Type::EDGE: {
-        auto edge = prev.edge;
-        std::lock_guard<utils::SpinLock> guard(edge->lock);
-        Delta *current = edge->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
-          switch (current->action) {
-            case Delta::Action::SET_PROPERTY: {
-              edge->properties.SetProperty(current->property.key, current->property.value);
-              break;
-            }
-            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-            case Delta::Action::DELETE_OBJECT: {
-              edge->deleted = true;
-              my_deleted_edges.push_back(edge->gid);
-              break;
-            }
-            case Delta::Action::RECREATE_OBJECT: {
-              edge->deleted = false;
-              break;
-            }
-            case Delta::Action::REMOVE_LABEL:
-            case Delta::Action::ADD_LABEL:
-            case Delta::Action::ADD_IN_EDGE:
-            case Delta::Action::ADD_OUT_EDGE:
-            case Delta::Action::REMOVE_IN_EDGE:
-            case Delta::Action::REMOVE_OUT_EDGE: {
-              LOG_FATAL("Invalid database state!");
-              break;
-            }
-          }
-          current = current->next.load(std::memory_order_acquire);
-        }
-        edge->delta = current;
-        if (current != nullptr) {
-          current->prev.Set(edge);
-        }
-
-        break;
-      }
-      case PreviousPtr::Type::DELTA:
-      // pointer probably couldn't be set because allocation failed
-      case PreviousPtr::Type::NULLPTR:
-        break;
-    }
-  }
-
+  // NOTE: On abort we need to delete disk transaction because after storage remove we couldn't remove
+  // disk_transaction correctly in destructor.
+  // This happens in tests when we create and remove storage in one test. For example, in
+  // query_plan_accumulate_aggregate.cpp
   disk_transaction_->Rollback();
+  disk_transaction_->ClearSnapshot();
+  delete disk_transaction_;
+  disk_transaction_ = nullptr;
+
   is_transaction_active_ = false;
 }
 
@@ -1452,7 +1306,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
-    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
@@ -1464,7 +1318,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
@@ -1477,7 +1331,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
-    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   if (!indices_.label_index_->DropIndex(label)) {
@@ -1488,7 +1342,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   if (!indices_.label_property_index_->DropIndex(label, property)) {
@@ -1499,7 +1353,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
@@ -1516,7 +1370,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
 }
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DropExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
@@ -1526,7 +1380,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                    const std::optional<uint64_t> desired_commit_timestamp) {
+                                    const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
@@ -1550,7 +1404,7 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
 
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                  const std::optional<uint64_t> desired_commit_timestamp) {
+                                  const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
