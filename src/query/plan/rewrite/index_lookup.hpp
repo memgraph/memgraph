@@ -525,7 +525,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
-    std::optional<storage::IndexStats> index_stats;
+    std::optional<storage::LabelPropertyIndexStats> index_stats;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -592,8 +592,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      * @param vertex_count: New index's number of vertices.
      * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
      */
-    auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
-                              int vertex_count) {
+    auto compare_indices = [](std::optional<LabelPropertyIndex> &found,
+                              std::optional<storage::LabelPropertyIndexStats> &new_stats, int vertex_count) {
       if (!new_stats.has_value()) {
         return 0;
       }
@@ -630,7 +630,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         };
 
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-        std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+        std::optional<storage::LabelPropertyIndexStats> new_stats =
+            db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         // Conditions, from more to less important:
         // the index with 10x less vertices is better.
@@ -769,7 +770,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<Expression *> removed_expressions;
     filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    auto index_stats = db_->GetLabelIndexStats(GetLabel(label));
+    auto index_stats = db_->GetIndexStats(GetLabel(label));
     if (index_stats.has_value()) {
       scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
                                                                  .cardinality = index_stats.value().count,

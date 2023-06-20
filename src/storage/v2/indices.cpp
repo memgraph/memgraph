@@ -478,13 +478,24 @@ void LabelIndex::RunGC() {
   }
 }
 
-void LabelIndex::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) { stats_[label] = stats; }
+void LabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
+  stats_[label] = stats;
+}
 
 std::optional<LabelIndexStats> LabelIndex::GetIndexStats(const storage::LabelId &label) const {
   if (auto it = stats_.find(label); it != stats_.end()) {
     return it->second;
   }
   return {};
+}
+
+std::vector<LabelId> LabelIndex::ClearIndexStats() {
+  std::vector<LabelId> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
+  return deleted_indexes;
 }
 
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
@@ -837,15 +848,6 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStats
   return deleted_indexes;
 }
 
-std::vector<LabelId> LabelIndex::ClearIndexStats() {
-  std::vector<LabelId> deleted_indexes;
-  deleted_indexes.reserve(stats_.size());
-  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
-                 [](const auto &elem) { return elem.first; });
-  stats_.clear();
-  return deleted_indexes;
-}
-
 std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   deleted_indexes.reserve(stats_.size());
@@ -856,12 +858,12 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats(
 }
 
 void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                                       const IndexStats &stats) {
+                                       const storage::LabelPropertyIndexStats &stats) {
   stats_[{label, property}] = stats;
 }
 
-std::optional<IndexStats> LabelPropertyIndex::GetIndexStats(const storage::LabelId &label,
-                                                            const storage::PropertyId &property) const {
+std::optional<storage::LabelPropertyIndexStats> LabelPropertyIndex::GetIndexStats(
+    const storage::LabelId &label, const storage::PropertyId &property) const {
   if (auto it = stats_.find({label, property}); it != stats_.end()) {
     return it->second;
   }

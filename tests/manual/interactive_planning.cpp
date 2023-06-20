@@ -27,6 +27,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
@@ -213,13 +214,13 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  std::optional<memgraph::storage::IndexStats> GetIndexStats(memgraph::storage::LabelId label,
-                                                             memgraph::storage::PropertyId property) const {
-    return dba_->GetIndexStats(label, property);
+  std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
+    return dba_->GetIndexStats(label);
   }
 
-  std::optional<memgraph::storage::LabelIndexStats> GetLabelIndexStats(memgraph::storage::LabelId label) const {
-    return dba_->GetLabelIndexStats(label);
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
+    return dba_->GetIndexStats(label, property);
   }
 
   // Save the cached vertex counts to a stream.

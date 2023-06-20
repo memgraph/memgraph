@@ -1558,7 +1558,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                   });
 
                   auto average_degree = (double)total_degree / no_vertices;
-                  execution_db_accessor->SetLabelIndexStats(
+                  execution_db_accessor->SetIndexStats(
                       index_info, storage::LabelIndexStats{.count = no_vertices, .avg_degree = average_degree});
                 });
 
@@ -1594,10 +1594,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
             });
         double average_degree = (double)vertex_degree_counter[label_property] / count_property_value;
         execution_db_accessor->SetIndexStats(label_property.first, label_property.second,
-                                             storage::IndexStats{.count = count_property_value,
-                                                                 .statistic = chi_squared_stat,
-                                                                 .avg_group_size = avg_group_size,
-                                                                 .avg_degree = average_degree});
+                                             storage::LabelPropertyIndexStats{.count = count_property_value,
+                                                                              .statistic = chi_squared_stat,
+                                                                              .avg_group_size = avg_group_size,
+                                                                              .avg_degree = average_degree});
         // Save result
         result.emplace_back(execution_db_accessor->LabelToName(label_property.first));
         result.emplace_back(execution_db_accessor->PropertyToName(label_property.second));

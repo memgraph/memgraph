@@ -147,7 +147,7 @@ class LabelIndex {
   Config::Items config_;
 };
 
-struct IndexStats {
+struct LabelPropertyIndexStats {
   int64_t count;
   double statistic, avg_group_size, avg_degree;
 };
@@ -264,10 +264,10 @@ class LabelPropertyIndex {
   std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label);
 
   void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::IndexStats &stats);
+                     const storage::LabelPropertyIndexStats &stats);
 
-  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                   const storage::PropertyId &property) const;
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                const storage::PropertyId &property) const;
 
   void Clear() { index_.clear(); }
 
@@ -275,7 +275,7 @@ class LabelPropertyIndex {
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
+  std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;

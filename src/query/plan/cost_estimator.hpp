@@ -106,7 +106,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
-    auto index_stats = db_accessor_->GetLabelIndexStats(scan_all_by_label.label_);
+    auto index_stats = db_accessor_->GetIndexStats(scan_all_by_label.label_);
     if (index_stats) {
       scope_.symbol_stats[scan_all_by_label.output_symbol_.name()] = SymbolStatistics{
           .name = scan_all_by_label.output_symbol_.name(),

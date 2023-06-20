@@ -430,12 +430,12 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
-  std::optional<storage::LabelIndexStats> GetLabelIndexStats(const storage::LabelId &label) const {
-    return accessor_->GetLabelIndexStats(label);
+  std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
+    return accessor_->GetIndexStats(label);
   }
 
-  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                   const storage::PropertyId &property) const {
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                const storage::PropertyId &property) const {
     return accessor_->GetIndexStats(label, property);
   }
 
@@ -451,12 +451,12 @@ class DbAccessor final {
     return accessor_->DeleteIndexStatsForLabels(labels);
   }
 
-  void SetLabelIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
-    accessor_->SetLabelIndexStats(label, stats);
+  void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
+    accessor_->SetIndexStats(label, stats);
   }
 
   void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::IndexStats &stats) {
+                     const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, property, stats);
   }
 
