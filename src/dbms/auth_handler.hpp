@@ -22,6 +22,7 @@
 #include "glue/auth_handler.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/sync_ptr.hpp"
 
 namespace memgraph::dbms {
 
@@ -55,9 +56,10 @@ class AuthHandler {
    * @return NewResult pointer to context on success, error on failure
    */
   NewResult New(std::string_view name, const std::filesystem::path &data_directory, const std::string &ah_flags) {
-    auto [itr, success] = auth_.emplace(name, std::make_shared<AuthContext>(data_directory, ah_flags));
+    auto [itr, success] = auth_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                        std::forward_as_tuple(data_directory, ah_flags));
     if (success) {
-      return itr->second;
+      return itr->second.ptr_;
     }
     return NewError::EXISTS;
   }
@@ -70,7 +72,7 @@ class AuthHandler {
    */
   std::optional<std::shared_ptr<AuthContext>> Get(const std::string &name) {
     if (auto search = auth_.find(name); search != auth_.end()) {
-      return search->second;
+      return search->second.ptr_;
     }
     return {};
   }
@@ -90,7 +92,7 @@ class AuthHandler {
   }
 
  private:
-  std::unordered_map<std::string, std::shared_ptr<AuthContext>> auth_;  //!< map to all active interpreters
+  std::unordered_map<std::string, utils::SyncPtr<AuthContext>> auth_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms
