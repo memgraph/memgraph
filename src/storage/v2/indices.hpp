@@ -148,7 +148,7 @@ class LabelIndex {
 };
 
 struct LabelPropertyIndexStats {
-  int64_t count;
+  int64_t count, distinct_values_count;
   double statistic, avg_group_size, avg_degree;
 };
 

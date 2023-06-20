@@ -570,7 +570,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
   // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
   // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
-  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
+  // the user has run `ANALYZE GRAPH` query before. If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
                                                                const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -630,8 +630,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         };
 
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-        std::optional<storage::LabelPropertyIndexStats> new_stats =
-            db_->GetIndexStats(GetLabel(label), GetProperty(property));
+        auto new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         // Conditions, from more to less important:
         // the index with 10x less vertices is better.

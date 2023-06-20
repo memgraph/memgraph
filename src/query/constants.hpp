@@ -17,5 +17,5 @@ namespace memgraph::query {
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 inline const std::string kAsterisk = "*";
-inline constexpr uint16_t kDeleteStatisticsNumResults = 7;
+inline constexpr uint16_t kComputeStatisticsNumResults = 7;
 }  // namespace memgraph::query

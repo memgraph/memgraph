@@ -1518,9 +1518,9 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
   using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
 
-  std::vector<std::vector<TypedValue>> results;
-  std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> counter;
+  std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> label_property_counter;
   std::map<LPIndex, uint64_t> vertex_degree_counter;
+  auto view = storage::View::OLD;
 
   // Preprocess labels in label indexes to avoid later checks
   std::vector<storage::LabelId> label_indices_info = execution_db_accessor->ListAllIndices().label;
@@ -1534,54 +1534,54 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     }
   }
 
-  // Preprocess labels to avoid later checks
-  std::vector<LPIndex> indices_info = execution_db_accessor->ListAllIndices().label_property;
+  // Preprocess labels in label property indexes to avoid later checks
+  std::vector<LPIndex> label_property_indices_info = execution_db_accessor->ListAllIndices().label_property;
   if (labels[0] != kAsterisk) {
-    for (auto it = indices_info.cbegin(); it != indices_info.cend();) {
+    for (auto it = label_property_indices_info.cbegin(); it != label_property_indices_info.cend();) {
       if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
-        it = indices_info.erase(it);
+        it = label_property_indices_info.erase(it);
       } else {
         ++it;
       }
     }
   }
 
-  // Iterate over all indexed vertices
+  std::vector<std::pair<storage::LabelId, storage::LabelIndexStats>> label_stats;
+  // Iterate over all label indexed vertices
   std::for_each(label_indices_info.begin(), label_indices_info.end(),
-                [execution_db_accessor](const storage::LabelId &index_info) {
+                [execution_db_accessor, view, &label_stats](const storage::LabelId &index_info) {
                   auto vertices = execution_db_accessor->Vertices(storage::View::OLD, index_info);
                   int64_t no_vertices = 0;
                   auto total_degree = 0;
-                  std::for_each(vertices.begin(), vertices.end(), [&total_degree, &no_vertices](const auto &vertex) {
-                    no_vertices++;
-                    total_degree += *vertex.OutDegree(storage::View::OLD) + *vertex.InDegree(storage::View::OLD);
-                  });
+                  std::for_each(vertices.begin(), vertices.end(),
+                                [&total_degree, &no_vertices, &view](const auto &vertex) {
+                                  no_vertices++;
+                                  total_degree += *vertex.OutDegree(view) + *vertex.InDegree(view);
+                                });
 
                   auto average_degree = (double)total_degree / no_vertices;
-                  execution_db_accessor->SetIndexStats(
-                      index_info, storage::LabelIndexStats{.count = no_vertices, .avg_degree = average_degree});
+                  auto index_stats = storage::LabelIndexStats{.count = no_vertices, .avg_degree = average_degree};
+                  execution_db_accessor->SetIndexStats(index_info, index_stats);
+                  label_stats.push_back(std::make_pair(index_info, index_stats));
                 });
 
-  // Iterate over all indexed vertices
-  std::for_each(indices_info.begin(), indices_info.end(),
-                [execution_db_accessor, &counter, &vertex_degree_counter](const LPIndex &index_info) {
-                  auto vertices =
-                      execution_db_accessor->Vertices(storage::View::OLD, index_info.first, index_info.second);
-                  std::for_each(vertices.begin(), vertices.end(),
-                                [&index_info, &counter, &vertex_degree_counter](const auto &vertex) {
-                                  counter[index_info][*vertex.GetProperty(storage::View::OLD, index_info.second)]++;
-                                  vertex_degree_counter[index_info] +=
-                                      *vertex.OutDegree(storage::View::OLD) + *vertex.InDegree(storage::View::OLD);
-                                });
-                });
-
-  results.reserve(counter.size());
+  // Iterate over all label property indexed vertices
   std::for_each(
-      counter.begin(), counter.end(),
-      [&results, execution_db_accessor, &vertex_degree_counter](const auto &counter_entry) {
+      label_property_indices_info.begin(), label_property_indices_info.end(),
+      [execution_db_accessor, &label_property_counter, &vertex_degree_counter, view](const LPIndex &index_info) {
+        auto vertices = execution_db_accessor->Vertices(view, index_info.first, index_info.second);
+        std::for_each(vertices.begin(), vertices.end(),
+                      [&index_info, &label_property_counter, &vertex_degree_counter, &view](const auto &vertex) {
+                        label_property_counter[index_info][*vertex.GetProperty(view, index_info.second)]++;
+                        vertex_degree_counter[index_info] += *vertex.OutDegree(view) + *vertex.InDegree(view);
+                      });
+      });
+
+  std::vector<std::pair<LPIndex, storage::LabelPropertyIndexStats>> label_property_stats;
+  std::for_each(
+      label_property_counter.begin(), label_property_counter.end(),
+      [execution_db_accessor, &vertex_degree_counter, &label_property_stats](const auto &counter_entry) {
         const auto &[label_property, values_map] = counter_entry;
-        std::vector<TypedValue> result;
-        result.reserve(kDeleteStatisticsNumResults);
         // Extract info
         int64_t count_property_value = std::accumulate(
             values_map.begin(), values_map.end(), 0,
@@ -1593,21 +1593,49 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
               return prev_result + utils::ChiSquaredValue(value_entry.second, avg_group_size);
             });
         double average_degree = (double)vertex_degree_counter[label_property] / count_property_value;
-        execution_db_accessor->SetIndexStats(label_property.first, label_property.second,
-                                             storage::LabelPropertyIndexStats{.count = count_property_value,
-                                                                              .statistic = chi_squared_stat,
-                                                                              .avg_group_size = avg_group_size,
-                                                                              .avg_degree = average_degree});
-        // Save result
-        result.emplace_back(execution_db_accessor->LabelToName(label_property.first));
-        result.emplace_back(execution_db_accessor->PropertyToName(label_property.second));
-        result.emplace_back(count_property_value);
-        result.emplace_back(static_cast<int64_t>(values_map.size()));
-        result.emplace_back(avg_group_size);
-        result.emplace_back(chi_squared_stat);
-        result.emplace_back(average_degree);
-        results.push_back(std::move(result));
+
+        auto index_stats =
+            storage::LabelPropertyIndexStats{.count = count_property_value,
+                                             .distinct_values_count = static_cast<int64_t>(values_map.size()),
+                                             .statistic = chi_squared_stat,
+                                             .avg_group_size = avg_group_size,
+                                             .avg_degree = average_degree};
+        execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
+        label_property_stats.push_back(std::make_pair(label_property, index_stats));
       });
+
+  std::vector<std::vector<TypedValue>> results;
+  results.reserve(label_stats.size() + label_property_stats.size());
+
+  std::for_each(label_stats.begin(), label_stats.end(), [execution_db_accessor, &results](const auto &stat_entry) {
+    std::vector<TypedValue> result;
+    result.reserve(kComputeStatisticsNumResults);
+
+    result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first));
+    result.emplace_back(TypedValue());
+    result.emplace_back(stat_entry.second.count);
+    result.emplace_back(TypedValue());
+    result.emplace_back(TypedValue());
+    result.emplace_back(TypedValue());
+    result.emplace_back(stat_entry.second.avg_degree);
+    results.push_back(std::move(result));
+  });
+
+  std::for_each(label_property_stats.begin(), label_property_stats.end(),
+                [execution_db_accessor, &results](const auto &stat_entry) {
+                  std::vector<TypedValue> result;
+                  result.reserve(kComputeStatisticsNumResults);
+
+                  result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
+                  result.emplace_back(execution_db_accessor->PropertyToName(stat_entry.first.second));
+                  result.emplace_back(stat_entry.second.count);
+                  result.emplace_back(stat_entry.second.distinct_values_count);
+                  result.emplace_back(stat_entry.second.avg_group_size);
+                  result.emplace_back(stat_entry.second.statistic);
+                  result.emplace_back(stat_entry.second.avg_degree);
+                  results.push_back(std::move(result));
+                });
+
   return results;
 }
 
