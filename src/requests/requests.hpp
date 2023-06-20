@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,11 @@
 
 #pragma once
 
+#include <istream>
+#include <sstream>
 #include <string>
 
+#include <curl/curl.h>
 #include <json/json.hpp>
 
 namespace memgraph::requests {
@@ -46,5 +49,20 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * @return bool true if the request was successful, false otherwise.
  */
 bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds = 10);
+
+/**
+ *  This class does a request and writes the response via an std::istream
+ */
+struct [[nodiscard]] UrlStream {
+  explicit UrlStream(std::string const &url);
+
+  std::istream &getStream() { return stream_; }
+
+  ~UrlStream();
+
+ private:
+  CURL *curlHan_;
+  std::stringstream stream_;
+};
 
 }  // namespace memgraph::requests

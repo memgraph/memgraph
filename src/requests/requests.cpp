@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -112,5 +112,25 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, int 
 
   return true;
 }
+
+size_t WriteCallback(char *ptr, size_t size, size_t nmemb, std::stringstream *stream) {
+  size_t totalSize = size * nmemb;
+  stream->write(ptr, totalSize);
+  return totalSize;
+}
+
+UrlStream::UrlStream(std::string const &url) : curlHan_{curl_easy_init()} {
+  curl_easy_setopt(curlHan_, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curlHan_, CURLOPT_WRITEFUNCTION, WriteCallback);
+  curl_easy_setopt(curlHan_, CURLOPT_WRITEDATA, &stream_);
+
+  auto const res = curl_easy_perform(curlHan_);
+  if (res != CURLE_OK) {
+    curl_easy_cleanup(curlHan_);
+    throw 1;
+  }
+}
+
+UrlStream::~UrlStream() { curl_easy_cleanup(curlHan_); }
 
 }  // namespace memgraph::requests
