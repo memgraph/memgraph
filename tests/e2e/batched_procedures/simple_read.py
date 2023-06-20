@@ -27,7 +27,8 @@ def test_graph_mutability(connection):
 
         result = list(
             execute_and_fetch_all(
-                cursor, f"CALL {module}.graph_is_mutable() " "YIELD mutable, init_called RETURN mutable, init_called"
+                cursor,
+                f"CALL batch_py_{module}.graph_is_mutable() " "YIELD mutable, init_called RETURN mutable, init_called",
             )
         )
         assert result == [(is_write, True)]
@@ -37,7 +38,7 @@ def test_graph_mutability(connection):
             execute_and_fetch_all(
                 cursor,
                 "MATCH (n) "
-                f"CALL {module}.underlying_graph_is_mutable(n) "
+                f"CALL batch_py_{module}.underlying_graph_is_mutable(n) "
                 "YIELD mutable, init_called RETURN mutable, init_called",
             )
         )
@@ -48,7 +49,7 @@ def test_graph_mutability(connection):
             execute_and_fetch_all(
                 cursor,
                 "MATCH (n)-[e]->(m) "
-                f"CALL {module}.underlying_graph_is_mutable(e) "
+                f"CALL batch_py_{module}.underlying_graph_is_mutable(e) "
                 "YIELD mutable, init_called RETURN mutable, init_called",
             )
         )
@@ -65,7 +66,8 @@ def test_batching_nums(connection):
 
     result = list(
         execute_and_fetch_all(
-            cursor, f"CALL read.batch_nums() " "YIELD num, init_called, is_valid RETURN num, init_called, is_valid"
+            cursor,
+            f"CALL batch_py_read.batch_nums() " "YIELD num, init_called, is_valid RETURN num, init_called, is_valid",
         )
     )
     assert result == [(i, True, True) for i in range(1, 11)]
@@ -76,7 +78,7 @@ def test_batching_nums(connection):
         execute_and_fetch_all(
             cursor,
             "MATCH (n) "
-            "CALL read.batch_nums() "
+            "CALL batch_py_read.batch_nums() "
             "YIELD num, init_called, is_valid RETURN num, init_called, is_valid ",
         )
     )
@@ -94,7 +96,7 @@ def test_batching_vertices(connection):
     with pytest.raises(DatabaseError):
         result = list(
             execute_and_fetch_all(
-                cursor, f"CALL read.batch_vertices() " "YIELD vertex, init_called RETURN vertex, init_called"
+                cursor, f"CALL batch_py_read.batch_vertices() " "YIELD vertex, init_called RETURN vertex, init_called"
             )
         )
 
