@@ -26,7 +26,8 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 Storage::Storage(Config config, StorageMode storage_mode)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
-          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory);
+          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
+                                                    config.disk.id_name_mapper_directory);
         }
         return std::make_unique<NameIdMapper>();
       })),

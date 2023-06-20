@@ -137,7 +137,6 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
-    /// TODO: change and see what needs to be done
     void Abort() override;
 
     void FinalizeTransaction() override;
@@ -228,6 +227,8 @@ class DiskStorage final : public Storage {
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
  private:
+  void LoadTimestampIfExists();
+
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 

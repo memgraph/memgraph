@@ -171,10 +171,19 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
+void DiskStorage::LoadTimestampIfExists() {
+  if (utils::DirExists(config_.disk.durability_directory)) {
+    if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
+      timestamp_ = std::stoull(last_timestamp_.value());
+    }
+  }
+}
+
 DiskStorage::DiskStorage(Config config)
     : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durability_kvstore_(std::make_unique<kvstore::KVStore>(config.disk.durability_directory)) {
+  LoadTimestampIfExists();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
@@ -185,9 +194,6 @@ DiskStorage::DiskStorage(Config config)
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {
-    if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
-      timestamp_ = std::stoull(last_timestamp_.value());
-    }
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
     column_families.emplace_back(defaultHandle, kvstore_->options_);
