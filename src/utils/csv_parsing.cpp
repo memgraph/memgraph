@@ -13,29 +13,132 @@
 
 #include <string_view>
 
+#include <boost/iostreams/filter/bzip2.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
+
 #include "utils/file.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
+
+using PlainStream = boost::iostreams::filtering_istream;
 
 namespace memgraph::csv {
 
 using ParseError = Reader::ParseError;
 
-void Reader::InitializeStream() {
+struct Reader::impl {
+  impl(std::filesystem::path path, Reader::Config cfg, utils::MemoryResource *mem);
+
+  [[nodiscard]] bool HasHeader() const { return read_config_.with_header; }
+  [[nodiscard]] auto Header() const -> Header const & { return header_; }
+
+  auto GetNextRow(utils::MemoryResource *mem) -> std::optional<Reader::Row>;
+
+ private:
+  void InitializeStream();
+
+  void TryInitializeHeader();
+
+  std::optional<utils::pmr::string> GetNextLine(utils::MemoryResource *mem);
+
+  ParsingResult ParseHeader();
+
+  ParsingResult ParseRow(utils::MemoryResource *mem);
+
+  utils::MemoryResource *memory_;
+  std::filesystem::path path_;
+  std::ifstream file_stream_;
+  PlainStream csv_stream_;
+  Config read_config_;
+  uint64_t line_count_{1};
+  uint16_t number_of_columns_{0};
+  Reader::Header header_{memory_};
+};
+
+Reader::impl::impl(std::filesystem::path path, Reader::Config cfg, utils::MemoryResource *mem)
+    : memory_(mem), path_(std::move(path)) {
+  read_config_.with_header = cfg.with_header;
+  read_config_.ignore_bad = cfg.ignore_bad;
+  read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
+  read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
+  InitializeStream();
+  TryInitializeHeader();
+}
+
+enum class CompressionMethod : uint8_t {
+  NONE,
+  GZip,
+  BZip2,
+};
+
+/// Detect compression based on magic sequences
+auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
+  // Ensure stream is reset
+  auto const on_exit = utils::OnScopeExit{[&]() { is.seekg(std::ios::beg); }};
+
+  // Note we must use bytes for comparison, not char
+  //
+  std::byte c;  // this gets reused
+  auto const next_byte = [&](std::byte &b) { return bool(is.get(reinterpret_cast<char &>(b))); };
+  if (!next_byte(c)) return CompressionMethod::NONE;
+
+  auto const as_bytes = []<typename... Args>(Args... args) {
+    return std::array<std::byte, sizeof...(Args)>{std::byte(args)...};
+  };
+
+  // Gzip - 0x1F8B
+  constexpr static auto gzip_seq = as_bytes(0x1F, 0x8B);
+  if (c == gzip_seq[0]) {
+    if (!next_byte(c) || c != gzip_seq[1]) return CompressionMethod::NONE;
+    return CompressionMethod::GZip;
+  }
+
+  // BZip2 - 0x425A68
+  constexpr static auto bzip_seq = as_bytes(0x42, 0x5A, 0x68);
+  if (c == bzip_seq[0]) {
+    if (!next_byte(c) || c != bzip_seq[1]) return CompressionMethod::NONE;
+    if (!next_byte(c) || c != bzip_seq[2]) return CompressionMethod::NONE;
+    return CompressionMethod::BZip2;
+  }
+  return CompressionMethod::NONE;
+}
+
+Reader::Reader(std::filesystem::path path, Reader::Config cfg, utils::MemoryResource *mem)
+    : pimpl{new impl{std::move(path), std::move(cfg), mem}, [](impl *p) { delete p; }} {}
+
+void Reader::impl::InitializeStream() {
   if (!std::filesystem::exists(path_)) {
     throw CsvReadException("CSV file not found: {}", path_.string());
   }
-  csv_stream_.open(path_);
-  if (!csv_stream_.good()) {
+  file_stream_.open(path_);
+  if (!file_stream_.good()) {
     throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
   }
+
+  auto const method = DetectCompressionMethod(file_stream_);
+  switch (method) {
+    case CompressionMethod::GZip:
+      csv_stream_.push(boost::iostreams::gzip_decompressor{});
+      break;
+    case CompressionMethod::BZip2:
+      csv_stream_.push(boost::iostreams::bzip2_decompressor{});
+      break;
+    default:
+      break;
+  }
+
+  csv_stream_.push(file_stream_);
+  MG_ASSERT(csv_stream_.auto_close(), "Should be 'auto close' for correct operation");
+  MG_ASSERT(csv_stream_.is_complete(), "Should be 'complete' for correct operation");
 }
 
-std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem) {
+std::optional<utils::pmr::string> Reader::impl::GetNextLine(utils::MemoryResource *mem) {
   utils::pmr::string line(mem);
   if (!std::getline(csv_stream_, line)) {
     // reached end of file or an I/0 error occurred
     if (!csv_stream_.good()) {
-      csv_stream_.close();
+      csv_stream_.reset();  // this will close the file_stream_ and clear the chain
     }
     return std::nullopt;
   }
@@ -43,13 +146,13 @@ std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem
   return std::move(line);
 }
 
-Reader::ParsingResult Reader::ParseHeader() {
+Reader::ParsingResult Reader::impl::ParseHeader() {
   // header must be the very first line in the file
   MG_ASSERT(line_count_ == 1, "Invalid use of {}", __func__);
   return ParseRow(memory_);
 }
 
-void Reader::TryInitializeHeader() {
+void Reader::impl::TryInitializeHeader() {
   if (!HasHeader()) {
     return;
   }
@@ -67,16 +170,16 @@ void Reader::TryInitializeHeader() {
   header_ = std::move(*header);
 }
 
-[[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
+[[nodiscard]] bool Reader::HasHeader() const { return pimpl->HasHeader(); }
 
-const Reader::Header &Reader::GetHeader() const { return header_; }
+const Reader::Header &Reader::GetHeader() const { return pimpl->Header(); }
 
 namespace {
 enum class CsvParserState : uint8_t { INITIAL_FIELD, NEXT_FIELD, QUOTING, EXPECT_DELIMITER, DONE };
 
 }  // namespace
 
-Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
+Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
   utils::pmr::vector<utils::pmr::string> row(mem);
   if (number_of_columns_ != 0) {
     row.reserve(number_of_columns_);
@@ -216,12 +319,7 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
   return std::move(row);
 }
 
-// Returns Reader::Row if the read row if valid;
-// Returns std::nullopt if end of file is reached or an error occurred
-// making it unreadable;
-// @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
-// to 'true' in the Reader::Config.
-std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
+std::optional<Reader::Row> Reader::impl::GetNextRow(utils::MemoryResource *mem) {
   auto row = ParseRow(mem);
 
   if (row.HasError()) {
@@ -244,5 +342,12 @@ std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
   }
   return std::move(*row);
 }
+
+// Returns Reader::Row if the read row if valid;
+// Returns std::nullopt if end of file is reached or an error occurred
+// making it unreadable;
+// @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
+// to 'true' in the Reader::Config.
+std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) { return pimpl->GetNextRow(mem); }
 
 }  // namespace memgraph::csv

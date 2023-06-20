@@ -12,10 +12,24 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "utils/csv_parsing.hpp"
-
 #include "utils/string.hpp"
 
-class CsvReaderTest : public ::testing::TestWithParam<const char *> {
+#include <boost/iostreams/filter/bzip2.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
+
+enum class CompressionMethod : uint8_t {
+  NONE,
+  GZip,
+  BZip2,
+};
+
+struct TestParam {
+  const char *newline;
+  CompressionMethod compressionMethod;
+};
+
+class CsvReaderTest : public ::testing::TestWithParam<TestParam> {
  protected:
   const std::filesystem::path csv_directory{std::filesystem::temp_directory_path() / "csv_testing"};
 
@@ -41,8 +55,9 @@ class CsvReaderTest : public ::testing::TestWithParam<const char *> {
 namespace {
 class FileWriter {
  public:
-  explicit FileWriter(const std::filesystem::path path, std::string newline = "\n") : newline_{std::move(newline)} {
-    stream_.open(path);
+  explicit FileWriter(std::filesystem::path path, std::string newline, CompressionMethod compressionMethod)
+      : newline_{std::move(newline)}, compressionMethod_{compressionMethod}, path_{std::move(path)} {
+    stream_.open(path_);
   }
 
   FileWriter(const FileWriter &) = delete;
@@ -51,7 +66,25 @@ class FileWriter {
   FileWriter(FileWriter &&) = delete;
   FileWriter &operator=(FileWriter &&) = delete;
 
-  void Close() { stream_.close(); }
+  void Close() {
+    stream_.close();
+    if (compressionMethod_ == CompressionMethod::NONE) return;
+
+    auto input = std::ifstream{path_, std::ios::binary};
+    auto tmp_path = std::filesystem::path{path_.string() + ".gz"};
+    auto output = std::ofstream{tmp_path, std::ios::binary | std::ios::trunc};
+
+    boost::iostreams::filtering_ostream stream;
+    if (compressionMethod_ == CompressionMethod::GZip) stream.push(boost::iostreams::gzip_compressor());
+    if (compressionMethod_ == CompressionMethod::BZip2) stream.push(boost::iostreams::bzip2_compressor());
+    stream.push(output);
+    stream << input.rdbuf();
+    input.close();
+    stream.reset();
+    output.close();
+    std::filesystem::remove(path_);
+    std::filesystem::rename(tmp_path, path_);
+  }
 
   size_t WriteLine(const std::string_view line) {
     if (!stream_.is_open()) {
@@ -67,6 +100,8 @@ class FileWriter {
  private:
   std::ofstream stream_;
   std::string newline_;
+  CompressionMethod compressionMethod_;
+  std::filesystem::path path_;
 };
 
 std::string CreateRow(const std::vector<std::string> &columns, const std::string_view delim) {
@@ -86,7 +121,7 @@ auto ToPmrColumns(const std::vector<std::string> &columns) {
 TEST_P(CsvReaderTest, CommaDelimiter) {
   // create a file with a single valid row;
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   const std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, ","));
@@ -109,7 +144,7 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
 
 TEST_P(CsvReaderTest, SemicolonDelimiter) {
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -135,7 +170,7 @@ TEST_P(CsvReaderTest, SkipBad) {
   // missing closing quote);
   // the last row is valid;
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -179,7 +214,7 @@ TEST_P(CsvReaderTest, AllRowsValid) {
   // create a file with all rows valid;
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -208,7 +243,7 @@ TEST_P(CsvReaderTest, SkipAllRows) {
   // create a file with all rows invalid (containing a string with a missing closing quote);
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -233,7 +268,7 @@ TEST_P(CsvReaderTest, SkipAllRows) {
 
 TEST_P(CsvReaderTest, WithHeader) {
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -268,7 +303,7 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
   // string spanning two lines;
   // parser should return two valid rows
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -302,7 +337,7 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   // create a file with all rows valid;
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -330,4 +365,8 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(NewlineParameterizedTest, CsvReaderTest, ::testing::Values("\n", "\r\n"));
+INSTANTIATE_TEST_CASE_P(NewlineParameterizedTest, CsvReaderTest,
+                        ::testing::Values(TestParam{"\n", CompressionMethod::NONE},
+                                          TestParam{"\r\n", CompressionMethod::NONE},
+                                          TestParam{"\n", CompressionMethod::GZip},
+                                          TestParam{"\n", CompressionMethod::BZip2}));

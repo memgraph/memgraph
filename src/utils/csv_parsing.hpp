@@ -54,15 +54,7 @@ class Reader {
   using Header = utils::pmr::vector<utils::pmr::string>;
 
   Reader() = default;
-  explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource())
-      : memory_(mem), path_(std::move(path)) {
-    read_config_.with_header = cfg.with_header;
-    read_config_.ignore_bad = cfg.ignore_bad;
-    read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
-    read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
-    InitializeStream();
-    TryInitializeHeader();
-  }
+  explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource());
 
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
@@ -86,23 +78,11 @@ class Reader {
   std::optional<Row> GetNextRow(utils::MemoryResource *mem);
 
  private:
-  utils::MemoryResource *memory_;
-  std::filesystem::path path_;
-  std::ifstream csv_stream_;
-  Config read_config_;
-  uint64_t line_count_{1};
-  uint16_t number_of_columns_{0};
-  Header header_{memory_};
-
-  void InitializeStream();
-
-  void TryInitializeHeader();
-
-  std::optional<utils::pmr::string> GetNextLine(utils::MemoryResource *mem);
-
-  ParsingResult ParseHeader();
-
-  ParsingResult ParseRow(utils::MemoryResource *mem);
+  // Some implementation issues that need clearing up, but this is mainly because
+  // I don't want `boost/iostreams/filtering_stream.hpp` included in this header file
+  // Because it causes issues when combined with antlr headers
+  struct impl;
+  std::unique_ptr<impl, void (*)(impl *)> pimpl{nullptr, [](impl *) {}};
 };
 
 }  // namespace memgraph::csv
