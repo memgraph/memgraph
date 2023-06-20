@@ -2881,6 +2881,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                 case dbms::DeleteError::FAIL:
                   res = "Failed while deleting " + db_name;
                   break;
+                case dbms::DeleteError::DISK_FAIL:
+                  res = "Failed to clean storage of " + db_name;
+                  break;
               }
             } else {
               res = "Successfully deleted " + db_name;

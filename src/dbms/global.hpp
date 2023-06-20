@@ -22,6 +22,7 @@ enum class DeleteError : uint8_t {
   USING,
   NON_EXISTENT,
   FAIL,
+  DISK_FAIL,
 };
 
 enum class NewError : uint8_t {

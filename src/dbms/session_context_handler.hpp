@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <system_error>
 #include <unordered_map>
 
 #include "constants.hpp"
@@ -90,17 +91,22 @@ class SessionContextHandler {
    */
   void Init(memgraph::audit::Log *audit_log, Config configs, bool tenant_recovery) {
     std::lock_guard<LockT> wr(lock_);
+
     MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
-    default_configs_ = configs;
-    auto &data_dir = default_configs_->storage_config.durability.storage_directory;
-    data_dir /= "databases";  // Add an additional level
     audit_log_ = audit_log;
-    // Space to save list of active dbs
-    utils::EnsureDirOrDie(data_dir);
-    utils::EnsureDirOrDie(data_dir / ".durability");
-    durability_ = std::make_unique<kvstore::KVStore>(data_dir / ".durability");
-    // Create default db
+    default_configs_ = configs;
+
+    // TODO: Decouple storage config from dbms config
+    // TODO: Save individual db configs inside the kvstore and restore from there
+    auto &db_dir = default_configs_->storage_config.durability.storage_directory;
+    db_dir /= "databases";  // Move database root one level up
+    const auto durability_dir = db_dir / ".durability";
+    utils::EnsureDirOrDie(db_dir);
+    utils::EnsureDirOrDie(durability_dir);
+    durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
+
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
+
     if (tenant_recovery) {
       for (const auto &[name, sts] : *durability_) {
         if (name == kDefaultDB) continue;  // Already set
@@ -203,11 +209,19 @@ class SessionContextHandler {
       }
     }
     // Low level handlers
+    const auto storage_path = StorageDir_(db_name);
+    MG_ASSERT(storage_path, "Missing storage for {}", db_name);
     if (!interp_handler_.Delete(db_name) || !auth_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
       return DeleteError::FAIL;
     }
     // Remove from durability list
     if (durability_) durability_->Delete(db_name);
+    // Delete disk storage (TODO: Add a config to enable this)
+    std::error_code ec;
+    (void)std::filesystem::remove_all(*storage_path, ec);
+    if (ec) {
+      return DeleteError::DISK_FAIL;
+    }
     return {};  // Success
   }
 
@@ -332,16 +346,21 @@ class SessionContextHandler {
     // Create the default DB in the root (this is how it was done pre multi-tenancy)
     auto res = New_(kDefaultDB, "..");
     if (res.HasValue()) {
-      // Symlink to support back-compatibility
+      // For back-compatibility...
+      // Recreate the dbms layout for the default db and symlink to the root
       const auto dir = StorageDir_(kDefaultDB);
       MG_ASSERT(dir, "Failed to find storage path.");
       const auto main_dir = *dir / "databases" / kDefaultDB;
+
       if (!std::filesystem::exists(main_dir)) {
         std::filesystem::create_directory(main_dir);
       }
+
       // Some directories are redundant (skip those)
       const std::vector<std::string> skip{".lock",    "audit_log", "databases", "internal_modules",
                                           "settings", kDefaultDB};
+
+      // Symlink to root dir
       for (auto const &item : std::filesystem::directory_iterator{*dir}) {
         const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
         if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;

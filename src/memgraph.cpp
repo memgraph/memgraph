@@ -226,10 +226,10 @@ DEFINE_bool(telemetry_enabled, false,
 // Multi-tenant flags
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(tenant_recover_on_startup, false,
-            "Controls whether the previous tenants get created on startup."
-            "Note: storage configuration dictates whether individual tenants recover their data (see "
-            "--storage-recover-on-startup).");
+DEFINE_HIDDEN_bool(tenant_recover_on_startup, false,
+                   "Controls whether the previous tenants get created on startup."
+                   "Note: storage configuration dictates whether individual tenants recover their data (see "
+                   "--storage-recover-on-startup).");
 #endif
 
 // Streams flags

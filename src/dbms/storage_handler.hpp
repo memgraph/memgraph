@@ -47,11 +47,11 @@ class StorageHandler {
    * @return NewResult pointer to storage on success, error on failure
    */
   NewResult New(const std::string &name, const TConfig &config) {
-    // Control that no one is using the same data directory
+    // TODO better checks
     if (storage_.find(std::string(name)) != storage_.end()) {
       return NewError::EXISTS;
     }
-    // TODO better check
+    // Control that no one is using the same data directory
     if (std::any_of(storage_.begin(), storage_.end(), [&](const auto &elem) {
           return elem.second.config_.durability.storage_directory == config.durability.storage_directory;
         })) {
