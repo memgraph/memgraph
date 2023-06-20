@@ -74,9 +74,9 @@ class StorageHandler {
    */
   NewResult New(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_config_) {
-      auto config = default_config_;
-      config->durability.storage_directory /= storage_subdir;
-      return New(name, *default_config_);
+      auto config = *default_config_;
+      config.durability.storage_directory /= storage_subdir;
+      return New(name, config);
     }
     return NewError::NO_CONFIGS;
   }

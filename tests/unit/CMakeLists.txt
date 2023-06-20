@@ -377,3 +377,9 @@ find_package(Boost REQUIRED)
 
 add_unit_test(monitoring.cpp)
 target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
+
+# Test multi-database
+if(MG_ENTERPRISE)
+  add_unit_test(dbms_storage.cpp)
+  target_link_libraries(${test_prefix}dbms_storage mg-storage-v2 mg-query)
+endif()
