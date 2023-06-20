@@ -26,6 +26,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/sync_ptr.hpp"
 
 namespace memgraph::dbms {
 
@@ -55,17 +56,17 @@ class InterpContextHandler {
    */
   NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
                 const std::filesystem::path &data_directory, glue::AuthQueryHandler &ah, glue::AuthChecker &ac) {
-    auto [itr, success] =
-        interp_.emplace(name, std::make_pair(std::make_shared<TContext>(db, config, data_directory, &ah, &ac), config));
+    auto [itr, success] = interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                          std::forward_as_tuple(config, db, config, data_directory, &ah, &ac));
     if (success) {
-      return itr->second.first;
+      return itr->second.ptr_;
     }
     return NewError::EXISTS;
   }
 
   std::optional<std::shared_ptr<TContext>> Get(const std::string &name) {
     if (auto search = interp_.find(name); search != interp_.end()) {
-      return search->second.first;
+      return search->second.ptr_;
     }
     return {};
   }
@@ -85,8 +86,7 @@ class InterpContextHandler {
   }
 
  private:
-  std::unordered_map<std::string, std::pair<std::shared_ptr<TContext>, TConfig>>
-      interp_;  //!< map to all active interpreters
+  std::unordered_map<std::string, utils::SyncPtr<TContext, TConfig>> interp_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms
