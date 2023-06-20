@@ -443,6 +443,8 @@ class InMemoryStorage final : public Storage {
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 
+  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+
   class ReplicationServer;
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 

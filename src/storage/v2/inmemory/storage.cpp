@@ -675,7 +675,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
           // the commits received from main.
           if (mem_storage->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
-            storage_->last_commit_timestamp_.store(*commit_timestamp_);
+            mem_storage->last_commit_timestamp_.store(*commit_timestamp_);
           }
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.

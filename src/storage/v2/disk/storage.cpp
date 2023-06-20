@@ -1445,7 +1445,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   if (!disk_label_index->CreateIndex(label, SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
   return {};
 }
@@ -1460,8 +1459,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
-
   return {};
 }
 
@@ -1472,7 +1469,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
   if (!indices_.label_index_->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
   return {};
 }
@@ -1484,8 +1480,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
   if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
   return {};
 }
@@ -1504,8 +1498,6 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
 
   constraints_.existence_constraints_->InsertConstraint(label, property);
 
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
-
   return {};
 }
 
@@ -1514,8 +1506,6 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
   return {};
 }
@@ -1541,8 +1531,6 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
     return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
   }
 
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
-
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -1554,8 +1542,6 @@ DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &pro
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-
-  last_commit_timestamp_ = CommitTimestamp(desired_commit_timestamp);
 
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }

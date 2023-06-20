@@ -277,9 +277,6 @@ class Storage {
   Indices indices_;
   Constraints constraints_;
 
-  /// TODO: andi This can be moved to the in-memory storage
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
-
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 
