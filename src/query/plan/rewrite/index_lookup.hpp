@@ -727,18 +727,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         expression->MapTo(symbol);
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
         auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
-        if (index_stats) {
-          scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{
-              .name = node_symbol.name(), .cardinality = index_stats->count, .degree = index_stats->avg_degree};
+        if (index_stats.has_value()) {
+          scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
+                                                                     .cardinality = index_stats.value().count,
+                                                                     .degree = index_stats.value().avg_degree};
         }
         return std::make_unique<ScanAllByLabelPropertyValue>(
             std::move(unwind_operator), node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
             prop_filter.property_.name, expression, view);
       } else if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
         auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
-        if (index_stats) {
-          scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{
-              .name = node_symbol.name(), .cardinality = index_stats->count, .degree = index_stats->avg_degree};
+        if (index_stats.has_value()) {
+          scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
+                                                                     .cardinality = index_stats.value().count,
+                                                                     .degree = index_stats.value().avg_degree};
         }
         return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
                                                         GetProperty(prop_filter.property_), prop_filter.property_.name,
@@ -746,9 +748,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else {
         MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
         auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
-        if (index_stats) {
-          scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{
-              .name = node_symbol.name(), .cardinality = index_stats->count, .degree = index_stats->avg_degree};
+        if (index_stats.has_value()) {
+          scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
+                                                                     .cardinality = index_stats.value().count,
+                                                                     .degree = index_stats.value().avg_degree};
         }
         return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
                                                              GetProperty(prop_filter.property_),
@@ -767,9 +770,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
     auto index_stats = db_->GetLabelIndexStats(GetLabel(label));
-    if (index_stats) {
-      scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{
-          .name = node_symbol.name(), .cardinality = index_stats->count, .degree = index_stats->avg_degree};
+    if (index_stats.has_value()) {
+      scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
+                                                                 .cardinality = index_stats.value().count,
+                                                                 .degree = index_stats.value().avg_degree};
     }
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }

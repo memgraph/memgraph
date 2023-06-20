@@ -218,6 +218,10 @@ class InteractiveDbAccessor {
     return dba_->GetIndexStats(label, property);
   }
 
+  std::optional<memgraph::storage::LabelIndexStats> GetLabelIndexStats(memgraph::storage::LabelId label) const {
+    return dba_->GetLabelIndexStats(label);
+  }
+
   // Save the cached vertex counts to a stream.
   void Save(std::ostream &out) {
     out << "vertex-count " << vertices_count_ << std::endl;
