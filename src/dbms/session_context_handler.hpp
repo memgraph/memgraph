@@ -268,7 +268,7 @@ class SessionContextHandler {
    */
   NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
-      auto &storage = default_configs_->storage_config;
+      auto storage = default_configs_->storage_config;
       storage.durability.storage_directory /= storage_subdir;
       return New_(name, storage, default_configs_->interp_config, default_configs_->ah_flags);
     }
