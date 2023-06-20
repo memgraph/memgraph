@@ -4720,7 +4720,7 @@ class LoadCsvCursor : public Cursor {
       reader_ = MakeReader(&context.evaluation_context);
     }
 
-    if (input_cursor_->Pull(frame, context);) {
+    if (input_cursor_->Pull(frame, context)) {
       if (did_pull_) {
         throw QueryRuntimeException(
             "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV is 1");
