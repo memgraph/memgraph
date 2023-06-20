@@ -592,7 +592,7 @@ class SessionHL final {
     return user_.has_value();
   }
 
-  std::optional<std::string> GetServerNameForInit() {
+  static std::optional<std::string> GetServerNameForInit() {
     if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
     return FLAGS_bolt_server_name_for_init;
   }
