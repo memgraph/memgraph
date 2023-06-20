@@ -39,9 +39,9 @@ class QueryCostEstimator : public ::testing::Test {
  protected:
   const std::string testSuite = "query_cost_estimator";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
-  memgraph::query::DbAccessor dba{storage_dba.get()};
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba;
+  std::optional<memgraph::query::DbAccessor> dba;
   memgraph::storage::LabelId label = db->NameToLabel("label");
   memgraph::storage::PropertyId property = db->NameToProperty("property");
 
@@ -53,6 +53,13 @@ class QueryCostEstimator : public ::testing::Test {
   SymbolTable symbol_table_;
   Parameters parameters_;
   int symbol_count = 0;
+
+  void SetUp() override {
+    ASSERT_FALSE(db->CreateIndex(label).HasError());
+    ASSERT_FALSE(db->CreateIndex(label, property).HasError());
+    storage_dba = db->Access();
+    dba.emplace(storage_dba.get());
+  }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -67,7 +74,7 @@ class QueryCostEstimator : public ::testing::Test {
    * the given numbers are labeled and have a property set. */
   void AddVertices(int vertex_count, int labeled_count, int property_count = 0) {
     for (int i = 0; i < vertex_count; i++) {
-      auto vertex = dba.InsertVertex();
+      auto vertex = dba->InsertVertex();
       if (i < labeled_count) {
         ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       }
@@ -76,11 +83,11 @@ class QueryCostEstimator : public ::testing::Test {
       }
     }
 
-    dba.AdvanceCommand();
+    dba->AdvanceCommand();
   }
 
   auto Cost() {
-    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&dba, parameters_);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, parameters_);
     this->last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -107,42 +114,29 @@ class QueryCostEstimator : public ::testing::Test {
   };
 
   const std::nullopt_t nullopt = std::nullopt;
-
-  void CreateIndices() {
-    EXPECT_FALSE(this->db->CreateIndex(this->label).HasError());
-    EXPECT_FALSE(this->db->CreateIndex(this->label, this->property).HasError());
-  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
-
 TYPED_TEST_CASE(QueryCostEstimator, StorageTypes);
 
 // multiply with 1 to avoid linker error (possibly fixed in CLang >= 3.81)
 #define EXPECT_COST(COST) EXPECT_FLOAT_EQ(this->Cost(), 1 * COST)
 
-TYPED_TEST(QueryCostEstimator, Once) {
-  this->CreateIndices();
-  EXPECT_COST(0);
-}
+TYPED_TEST(QueryCostEstimator, Once) { EXPECT_COST(0); }
 
 TYPED_TEST(QueryCostEstimator, ScanAll) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   this->template MakeOp<ScanAll>(this->last_op_, this->NextSymbol());
   EXPECT_COST(100 * CostParam::kScanAll);
 }
 
 TYPED_TEST(QueryCostEstimator, ScanAllByLabelCardinality) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   this->template MakeOp<ScanAllByLabel>(this->last_op_, this->NextSymbol(), this->label);
   EXPECT_COST(30 * CostParam::kScanAllByLabel);
 }
 
 TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   for (auto const_val : {this->Literal(12), this->Parameter(12)}) {
     this->template MakeOp<ScanAllByLabelPropertyValue>(nullptr, this->NextSymbol(), this->label, this->property,
@@ -152,7 +146,6 @@ TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
 }
 
 TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   for (auto const_val : {this->Literal(12), this->Parameter(12)}) {
     this->template MakeOp<ScanAllByLabelPropertyValue>(nullptr, this->NextSymbol(), this->label, this->property,
@@ -164,7 +157,6 @@ TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
 }
 
 TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   for (auto const_val : {this->Literal(12), this->Parameter(12)}) {
     this->template MakeOp<ScanAllByLabelPropertyRange>(nullptr, this->NextSymbol(), this->label, this->property,
@@ -175,7 +167,6 @@ TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
 }
 
 TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   for (auto const_val : {this->Literal(17), this->Parameter(17)}) {
     this->template MakeOp<ScanAllByLabelPropertyRange>(nullptr, this->NextSymbol(), this->label, this->property,
@@ -186,7 +177,6 @@ TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
 }
 
 TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
-  this->CreateIndices();
   this->AddVertices(100, 30, 20);
   for (auto const_val : {this->Literal(12), this->Parameter(12)}) {
     auto bound = std::make_optional(memgraph::utils::MakeBoundInclusive(
@@ -198,7 +188,6 @@ TYPED_TEST(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 }
 
 TYPED_TEST(QueryCostEstimator, Expand) {
-  this->CreateIndices();
   this->template MakeOp<Expand>(this->last_op_, this->NextSymbol(), this->NextSymbol(), this->NextSymbol(),
                                 EdgeAtom::Direction::IN, std::vector<memgraph::storage::EdgeTypeId>{}, false,
                                 memgraph::storage::View::OLD);
@@ -206,7 +195,6 @@ TYPED_TEST(QueryCostEstimator, Expand) {
 }
 
 TYPED_TEST(QueryCostEstimator, ExpandVariable) {
-  this->CreateIndices();
   this->template MakeOp<ExpandVariable>(
       this->last_op_, this->NextSymbol(), this->NextSymbol(), this->NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
       EdgeAtom::Direction::IN, std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, nullptr, false,
@@ -215,7 +203,6 @@ TYPED_TEST(QueryCostEstimator, ExpandVariable) {
 }
 
 TYPED_TEST(QueryCostEstimator, ForeachListLiteral) {
-  this->CreateIndices();
   constexpr size_t list_expr_sz = 10;
   std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(std::make_shared<Once>(), NodeCreationInfo{});
   this->template MakeOp<memgraph::query::plan::Foreach>(
@@ -226,7 +213,6 @@ TYPED_TEST(QueryCostEstimator, ForeachListLiteral) {
 }
 
 TYPED_TEST(QueryCostEstimator, Foreach) {
-  this->CreateIndices();
   std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(std::make_shared<Once>(), NodeCreationInfo{});
   this->template MakeOp<memgraph::query::plan::Foreach>(
       this->last_op_, create, this->storage_.template Create<Identifier>(), this->NextSymbol());
@@ -234,7 +220,6 @@ TYPED_TEST(QueryCostEstimator, Foreach) {
 }
 
 TYPED_TEST(QueryCostEstimator, SubqueryCartesian) {
-  this->CreateIndices();
   auto no_vertices = 4;
   this->AddVertices(no_vertices, 0, 0);
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), this->NextSymbol());
@@ -244,7 +229,6 @@ TYPED_TEST(QueryCostEstimator, SubqueryCartesian) {
 }
 
 TYPED_TEST(QueryCostEstimator, UnitSubquery) {
-  this->CreateIndices();
   auto no_vertices = 4;
   this->AddVertices(no_vertices, 0, 0);
   std::shared_ptr<LogicalOperator> input = std::make_shared<Once>();
@@ -254,7 +238,6 @@ TYPED_TEST(QueryCostEstimator, UnitSubquery) {
 }
 
 TYPED_TEST(QueryCostEstimator, Union) {
-  this->CreateIndices();
   auto no_vertices = 4;
   this->AddVertices(no_vertices, 0, 0);
 
@@ -277,20 +260,17 @@ TYPED_TEST(QueryCostEstimator, Union) {
   EXPECT_COST(OP_COST_PARAM + OP_CARD_PARAM * OP_COST_PARAM);
 
 TYPED_TEST(QueryCostEstimator, Filter) {
-  this->CreateIndices();
   TEST_OP(this->template MakeOp<Filter>(this->last_op_, std::vector<std::shared_ptr<LogicalOperator>>{},
                                         this->Literal(true)),
           CostParam::kFilter, CardParam::kFilter);
 }
 
 TYPED_TEST(QueryCostEstimator, EdgeUniquenessFilter) {
-  this->CreateIndices();
   TEST_OP(this->template MakeOp<EdgeUniquenessFilter>(this->last_op_, this->NextSymbol(), std::vector<Symbol>()),
           CostParam::kEdgeUniquenessFilter, CardParam::kEdgeUniquenessFilter);
 }
 
 TYPED_TEST(QueryCostEstimator, UnwindLiteral) {
-  this->CreateIndices();
   TEST_OP(this->template MakeOp<memgraph::query::plan::Unwind>(
               this->last_op_, this->storage_.template Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
               this->NextSymbol()),
@@ -298,7 +278,6 @@ TYPED_TEST(QueryCostEstimator, UnwindLiteral) {
 }
 
 TYPED_TEST(QueryCostEstimator, UnwindNoLiteral) {
-  this->CreateIndices();
   TEST_OP(this->template MakeOp<memgraph::query::plan::Unwind>(this->last_op_, nullptr, this->NextSymbol()),
           CostParam::kUnwind, MiscParam::kUnwindNoLiteral);
 }
