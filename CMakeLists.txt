@@ -18,10 +18,12 @@ set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
 # during the code coverage process
 find_program(CCACHE_FOUND ccache)
 option(USE_CCACHE "ccache:" ON)
-message(STATUS "CCache: ${USE_CCACHE}")
 if(CCACHE_FOUND AND USE_CCACHE)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+  message(STATUS "CCache: Used")
+else ()
+  message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler
