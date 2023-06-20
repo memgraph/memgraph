@@ -768,7 +768,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 
-  bool HasStatsFor(Symbol &symbol) { return utils::Contains(scope_.symbol_stats, symbol.name()); }
+  bool HasStatsFor(Symbol &symbol) const { return utils::Contains(scope_.symbol_stats, symbol.name()); }
   std::optional<SymbolStatistics> GetStatsFor(Symbol &symbol) {
     if (!HasStatsFor(symbol)) {
       return std::nullopt;

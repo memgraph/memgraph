@@ -107,12 +107,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
     auto index_stats = db_accessor_->GetIndexStats(scan_all_by_label.label_);
-    if (index_stats) {
-      scope_.symbol_stats[scan_all_by_label.output_symbol_.name()] = SymbolStatistics{
-          .name = scan_all_by_label.output_symbol_.name(),
-          .cardinality = index_stats->count,
-          .degree = index_stats->avg_degree,
-      };
+    if (index_stats.has_value()) {
+      SaveStatsFor(scan_all_by_label.output_symbol_, index_stats.value());
     }
 
     cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
@@ -125,6 +121,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
+
     auto property_value = ConstPropertyValue(logical_op.expression_);
     double factor = 1.0;
     if (property_value)
@@ -142,6 +143,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
+
     // this cardinality estimation depends on Bound expressions.
     // if they are literals we can evaluate cardinality properly
     auto lower = BoundToPropertyValue(logical_op.lower_bound_);
@@ -167,6 +173,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelProperty &logical_op) override {
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
+
     const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
     cardinality_ *= factor;
     IncrementCost(CostParam::MakeScanAllByLabelProperty);
@@ -177,7 +188,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Expand &expand) override {
     auto card_param = CardParam::kExpand;
-    if (utils::Contains(scope_.symbol_stats, expand.input_symbol_.name())) {
+    if (HasStatsFor(expand.input_symbol_)) {
       card_param = scope_.symbol_stats[expand.input_symbol_.name()].degree;
     }
 
@@ -321,6 +332,24 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       return parameters.AtTokenPosition(param_lookup->token_position_);
     }
     return std::nullopt;
+  }
+
+  bool HasStatsFor(Symbol &symbol) const { return utils::Contains(scope_.symbol_stats, symbol.name()); }
+
+  void SaveStatsFor(Symbol &symbol, storage::LabelIndexStats index_stats) {
+    scope_.symbol_stats[symbol.name()] = SymbolStatistics{
+        .name = symbol.name(),
+        .cardinality = index_stats.count,
+        .degree = index_stats.avg_degree,
+    };
+  }
+
+  void SaveStatsFor(Symbol &symbol, storage::LabelPropertyIndexStats index_stats) {
+    scope_.symbol_stats[symbol.name()] = SymbolStatistics{
+        .name = symbol.name(),
+        .cardinality = index_stats.count,
+        .degree = index_stats.avg_degree,
+    };
   }
 };
 
