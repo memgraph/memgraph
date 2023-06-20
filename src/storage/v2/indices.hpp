@@ -135,6 +135,8 @@ class LabelIndex {
 
   std::vector<LabelId> ClearIndexStats();
 
+  std::vector<LabelId> DeleteIndexStatsForLabel(const storage::LabelId &label);
+
   void Clear() { index_.clear(); }
 
   void RunGC();

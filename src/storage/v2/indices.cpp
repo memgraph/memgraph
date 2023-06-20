@@ -498,6 +498,20 @@ std::vector<LabelId> LabelIndex::ClearIndexStats() {
   return deleted_indexes;
 }
 
+std::vector<LabelId> LabelIndex::DeleteIndexStatsForLabel(const storage::LabelId &label) {
+  std::vector<LabelId> deleted_indexes;
+  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+    if (it->first == label) {
+      deleted_indexes.push_back(it->first);
+      it = stats_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  return deleted_indexes;
+}
+
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   if (value < rhs.value) {
     return true;

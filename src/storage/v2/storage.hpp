@@ -277,7 +277,7 @@ class Storage final {
       return storage_->indices_.label_property_index.GetIndexStats(label, property);
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
+    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() {
       return storage_->indices_.label_property_index.ClearIndexStats();
     }
 
@@ -291,6 +291,18 @@ class Storage final {
         deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
                                std::make_move_iterator(loc_results.end()));
       });
+      return deleted_indexes;
+    }
+
+    std::vector<LabelId> DeleteLabelIndexStatsForLabels(const std::span<std::string> labels) {
+      std::vector<LabelId> deleted_indexes;
+      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
+        std::vector<LabelId> loc_results =
+            storage_->indices_.label_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
+                               std::make_move_iterator(loc_results.end()));
+      });
+
       return deleted_indexes;
     }
 

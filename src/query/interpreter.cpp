@@ -1641,19 +1641,29 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> loc_results;
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_prop_results;
+  std::vector<storage::LabelId> label_results;
   if (labels[0] == kAsterisk) {
-    loc_results = execution_db_accessor->ClearIndexStats();
+    label_prop_results = execution_db_accessor->ClearLabelPropertyIndexStats();
+    label_results = execution_db_accessor->ClearLabelIndexStats();
   } else {
-    loc_results = execution_db_accessor->DeleteIndexStatsForLabels(labels);
+    label_prop_results = execution_db_accessor->DeleteIndexStatsForLabels(labels);
+    label_results = execution_db_accessor->DeleteLabelIndexStatsForLabels(labels);
   }
+
   std::vector<std::vector<TypedValue>> results;
-  std::transform(loc_results.begin(), loc_results.end(), std::back_inserter(results),
+  std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
                    return std::vector<TypedValue>{
                        TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
                        TypedValue(execution_db_accessor->PropertyToName(label_property_index.second))};
                  });
+
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
   return results;
 }
 
