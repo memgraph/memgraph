@@ -11,7 +11,9 @@
 
 #include <exception>
 #include <stdexcept>
-#include "_mgp.hpp"
+
+#include <functional>
+
 #include "mg_procedure.h"
 
 #include "mgp.hpp"
@@ -44,9 +46,9 @@ void NumsBatch(struct mgp_list *args, mgp_graph *graph, mgp_result *result, stru
   mgp::memory = memory;
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
-  auto record = record_factory.NewRecord();
   if (returned_ints < num_ints) {
-    record.Insert(kReturnOutput, returned_ints++);
+    auto record = record_factory.NewRecord();
+    record.Insert(kReturnOutput, ++returned_ints);
   }
 }
 
@@ -72,8 +74,9 @@ void StringsBatch(struct mgp_list *args, mgp_graph *graph, mgp_result *result, s
   mgp::memory = memory;
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
-  auto record = record_factory.NewRecord();
+
   if (returned_strings < num_strings) {
+    auto record = record_factory.NewRecord();
     returned_strings++;
     record.Insert(kReturnOutput, "output");
   }
@@ -92,7 +95,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   {
     mgp_proc *proc{nullptr};
     auto err_code =
-        mgp_module_add_batch_read_procedure(module, "nums_batch", NumsBatch, NumsBatchInit, NumsBatchCleanup, &proc);
+        mgp_module_add_batch_read_procedure(module, "batch_nums", NumsBatch, NumsBatchInit, NumsBatchCleanup, &proc);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;
     }
@@ -115,9 +118,9 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   {
     try {
       mgp::memory = memory;
-      mgp::AddBatchProcedure(StringsBatch, StringsBatchInit, StringsBatchCleanup, "strings", mgp::ProcedureType::Read,
-                             {mgp::Parameter("num_strings", mgp::Type::Int)}, {mgp::Return("output", mgp::Type::Int)},
-                             module, memory);
+      mgp::AddBatchProcedure(StringsBatch, StringsBatchInit, StringsBatchCleanup, "batch_strings",
+                             mgp::ProcedureType::Read, {mgp::Parameter("num_strings", mgp::Type::Int)},
+                             {mgp::Return("output", mgp::Type::String)}, module, memory);
 
     } catch (const std::exception &e) {
       return 1;

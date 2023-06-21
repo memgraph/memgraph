@@ -11,34 +11,8 @@
 
 import mgp
 
-
-class BaseClass:
-    def __init__(self, num_to_return=1) -> None:
-        self._init_is_called = False
-        self._num_to_return = num_to_return
-        self._num_returned = 0
-
-    def reset(self):
-        self._init_is_called = False
-        self._num_returned = 0
-
-    def set(self):
-        self._init_is_called = True
-
-    def get(self):
-        return self._init_is_called
-
-    def increment_returned(self, returned: int):
-        self._num_returned += returned
-
-    def get_to_return(self) -> int:
-        return self._num_to_return - self._num_returned
-
-
-class InitializationUnderlyingGraphMutable(BaseClass):
-    def __init__(self):
-        super().__init__()
-
+# isort: off
+from common.shared import BaseClass, InitializationGraphMutable, InitializationUnderlyingGraphMutable
 
 initialization_underlying_graph_mutable = InitializationUnderlyingGraphMutable()
 
@@ -62,11 +36,6 @@ def underlying_graph_is_mutable(ctx: mgp.ProcCtx, object: mgp.Any) -> mgp.Record
 
 # Register batched
 mgp.add_batch_read_proc(underlying_graph_is_mutable, init_underlying_graph_is_mutable, cleanup_underlying)
-
-
-class InitializationGraphMutable(BaseClass):
-    def __init__(self):
-        super().__init__()
 
 
 initialization_graph_mutable = InitializationGraphMutable()

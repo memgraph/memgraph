@@ -12,7 +12,7 @@
 import mgp
 
 # isort: off
-from batch_py_read import InitializationGraphMutable, InitializationUnderlyingGraphMutable
+from common.shared import InitializationGraphMutable, InitializationUnderlyingGraphMutable
 
 write_init_underlying_graph_mutable = InitializationUnderlyingGraphMutable()
 

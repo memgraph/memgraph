@@ -101,5 +101,38 @@ def test_batching_vertices(connection):
         )
 
 
+def test_batching_nums_c(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+
+    num_ints = 10
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            f"CALL batch_c_read.batch_nums({num_ints}) " "YIELD output RETURN output",
+        )
+    )
+    result_list = [item[0] for item in result]
+    print(result_list)
+    print([i for i in range(1, num_ints + 1)])
+    assert result_list == [i for i in range(1, num_ints + 1)]
+
+
+def test_batching_strings_c(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+
+    num_strings = 10
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            f"CALL batch_c_read.batch_strings({num_strings}) " "YIELD output RETURN output",
+        )
+    )
+    assert len(result) == num_strings
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -1760,9 +1760,7 @@ def _register_batch_proc(
     assert (
         func_params and initializer_params or not func_params and not initializer_params
     ), "Both function params and initializer params must exist or not exist"
-    print(func_params)
-    print(initializer_params)
-    print(len(func_params), len(initializer_params))
+
     assert len(func_params) == len(initializer_params), "Number of params must be same"
 
     assert initializer_sig.return_annotation is initializer_sig.empty, "Initializer can't return anything"
