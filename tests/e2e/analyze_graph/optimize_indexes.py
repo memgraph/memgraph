@@ -12,8 +12,7 @@
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
-from gqlalchemy import Memgraph
+from common import connect, execute_and_fetch_all, memgraph
 
 # E2E tests for checking query semantic
 # ------------------------------------
@@ -97,8 +96,8 @@ def test_analyze_full_graph(analyze_query, connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0, 0)
     # After analyzing graph, id1 index should be chosen because it has smaller average group size
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
@@ -132,8 +131,8 @@ def test_cardinality_different_avg_group_size_uniform_dist(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -162,8 +161,8 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(connect)
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -192,8 +191,8 @@ def test_large_diff_in_num_vertices_v1(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -222,8 +221,8 @@ def test_large_diff_in_num_vertices_v2(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -262,8 +261,8 @@ def test_same_avg_group_size_diff_distribution(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -292,6 +291,7 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
         memgraph.execute_and_fetch("explain match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
     )
     result_without_analysis = [x["QUERY PLAN"] for x in result_without_analysis]
+
     expected_explain_before_analysis = [
         f" * EmptyResult",
         f" * Merge",
@@ -312,6 +312,7 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
         memgraph.execute_and_fetch("explain match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
     )
     result_with_analysis = [x["QUERY PLAN"] for x in result_with_analysis]
+
     expected_explain_after_analysis = [
         f" * EmptyResult",
         f" * Merge",
@@ -328,11 +329,6 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
 
     assert expected_explain_before_analysis == result_without_analysis
     assert expected_explain_after_analysis == result_with_analysis
-
-    memgraph.execute("DROP INDEX ON :SuperNode")
-    memgraph.execute("DROP INDEX ON :Node")
-    memgraph.execute("DROP INDEX ON :SuperNode(id)")
-    memgraph.execute("DROP INDEX ON :Node(id)")
 
 
 if __name__ == "__main__":
