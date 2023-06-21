@@ -47,13 +47,13 @@ class StorageHandler {
    * @return NewResult pointer to storage on success, error on failure
    */
   NewResult New(const std::string &name, const TConfig &config) {
-    // Control that no one is using the same data directory
+    // TODO better checks
     if (storage_.find(std::string(name)) != storage_.end()) {
       return NewError::EXISTS;
     }
-    // TODO better check
+    // Control that no one is using the same data directory
     if (std::any_of(storage_.begin(), storage_.end(), [&](const auto &elem) {
-          return elem.second.config_.durability.storage_directory == config.durability.storage_directory;
+          return elem.second.config().durability.storage_directory == config.durability.storage_directory;
         })) {
       // LOG
       return NewError::EXISTS;
@@ -61,7 +61,7 @@ class StorageHandler {
     // Create storage
     auto [itr, success] = storage_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
                                            std::forward_as_tuple(config, config, name));
-    if (success) return itr->second.ptr_;
+    if (success) return itr->second.get();
     return NewError::EXISTS;
   }
 
@@ -97,7 +97,7 @@ class StorageHandler {
    */
   std::optional<std::shared_ptr<TStorage>> Get(const std::string &name) {
     if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.ptr_;
+      return search->second.get();
     }
     return {};
   }
@@ -110,7 +110,7 @@ class StorageHandler {
    */
   std::optional<TConfig> GetConfig(const std::string &name) const {
     if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.config_;
+      return search->second.config();
     }
     return {};
   }

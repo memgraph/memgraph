@@ -58,7 +58,7 @@ class AuthHandler {
   NewResult New(std::string_view name, const std::filesystem::path &data_directory, const std::string &ah_flag = "") {
     // Control that no one is using the same data directory or Storage
     if (std::any_of(auth_.begin(), auth_.end(),
-                    [&](const auto &elem) { return elem.second.config_.storage_dir == data_directory; })) {
+                    [&](const auto &elem) { return elem.second.config().storage_dir == data_directory; })) {
       // LOG
       return NewError::EXISTS;
     }
@@ -66,7 +66,7 @@ class AuthHandler {
         auth_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
                       std::forward_as_tuple(Config{data_directory, ah_flag}, data_directory, ah_flag));
     if (success) {
-      return itr->second.ptr_;
+      return itr->second.get();
     }
     return NewError::EXISTS;
   }
@@ -79,7 +79,7 @@ class AuthHandler {
    */
   std::optional<std::shared_ptr<AuthContext>> Get(const std::string &name) {
     if (auto search = auth_.find(name); search != auth_.end()) {
-      return search->second.ptr_;
+      return search->second.get();
     }
     return {};
   }

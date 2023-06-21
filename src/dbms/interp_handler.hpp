@@ -56,7 +56,7 @@ class InterpContextHandler {
                 const std::filesystem::path &data_directory, query::AuthQueryHandler &ah, query::AuthChecker &ac) {
     // Control that no one is using the same data directory or Storage
     if (std::any_of(interp_.begin(), interp_.end(), [&](const auto &elem) {
-          return elem.second.config_.storage_dir == data_directory || elem.second.ptr_->db == &db;
+          return elem.second.config().storage_dir == data_directory || elem.second.get()->db == &db;
         })) {
       // LOG
       return NewError::EXISTS;
@@ -65,14 +65,14 @@ class InterpContextHandler {
         interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
                         std::forward_as_tuple(Config{config, data_directory}, &db, config, data_directory, &ah, &ac));
     if (success) {
-      return itr->second.ptr_;
+      return itr->second.get();
     }
     return NewError::EXISTS;
   }
 
   std::optional<std::shared_ptr<TContext>> Get(const std::string &name) {
     if (auto search = interp_.find(name); search != interp_.end()) {
-      return search->second.ptr_;
+      return search->second.get();
     }
     return {};
   }

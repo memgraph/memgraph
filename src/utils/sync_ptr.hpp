@@ -53,14 +53,21 @@ struct SyncPtr {
   SyncPtr(SyncPtr &&) noexcept = delete;
   SyncPtr &operator=(SyncPtr &&) noexcept = delete;
 
- private:
-  bool in_use_;                                //!< Flag used to signal sync
-  mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
-  mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
+  /**
+   * @brief Get (copy) the underlying shared pointer.
+   *
+   * @return std::shared_ptr<TContext>
+   */
+  std::shared_ptr<TContext> get() { return ptr_; }
+  std::shared_ptr<const TContext> get() const { return ptr_; }
 
- public:
-  TConfig config_;                 //!< Additional metadata associated with the context
-  std::shared_ptr<TContext> ptr_;  //!< Pointer being synced
+  /**
+   * @brief Return saved configuration (metadata)
+   *
+   * @return TConfig
+   */
+  TConfig config() { return config_; }
+  const TConfig &config() const { return config_; }
 
  private:
   /**
@@ -85,6 +92,12 @@ struct SyncPtr {
     }
     in_use_cv_.notify_one();
   }
+
+  bool in_use_;                                //!< Flag used to signal sync
+  mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
+  mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
+  TConfig config_;                             //!< Additional metadata associated with the context
+  std::shared_ptr<TContext> ptr_;              //!< Pointer being synced
 };
 
 template <typename TContext>
@@ -116,13 +129,13 @@ class SyncPtr<TContext, void> {
   SyncPtr(SyncPtr &&) noexcept = delete;
   SyncPtr &operator=(SyncPtr &&) noexcept = delete;
 
- private:
-  bool in_use_;                                //!< Flag used to signal sync
-  mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
-  mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
-
- public:
-  std::shared_ptr<TContext> ptr_;  //!< Pointer being synced
+  /**
+   * @brief Get (copy) the underlying shared pointer.
+   *
+   * @return std::shared_ptr<TContext>
+   */
+  std::shared_ptr<TContext> get() { return ptr_; }
+  std::shared_ptr<const TContext> get() const { return ptr_; }
 
  private:
   /**
@@ -147,6 +160,11 @@ class SyncPtr<TContext, void> {
     }
     in_use_cv_.notify_one();
   }
+
+  bool in_use_;                                //!< Flag used to signal sync
+  mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
+  mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
+  std::shared_ptr<TContext> ptr_;              //!< Pointer being synced
 };
 
 }  // namespace memgraph::utils

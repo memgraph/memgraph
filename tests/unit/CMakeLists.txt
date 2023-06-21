@@ -254,6 +254,9 @@ target_link_libraries(${test_prefix}utils_signals mg-utils)
 add_unit_test(utils_string.cpp)
 target_link_libraries(${test_prefix}utils_string mg-utils)
 
+add_unit_test(utils_sync_ptr.cpp)
+target_link_libraries(${test_prefix}utils_sync_ptr)
+
 add_unit_test(utils_synchronized.cpp)
 target_link_libraries(${test_prefix}utils_synchronized mg-utils)
 
