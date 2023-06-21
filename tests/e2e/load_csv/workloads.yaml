@@ -1,0 +1,15 @@
+load_csv_cluster: &load_csv_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "load_csv_log_file.txt"
+      setup_queries:
+        - "CREATE (n {prop: 1});"
+        - "CREATE (n {prop: 2});"
+      validation_queries: []
+
+workloads:
+  - name: "MATCH + LOAD CSV"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_csv/load_csv.py"]
+    <<: *load_csv_cluster
