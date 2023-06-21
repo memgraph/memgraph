@@ -91,11 +91,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
-  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters)
-      : db_accessor_(db_accessor), parameters(parameters), scope_(Scope()) {}
+  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters, const SymbolTable &table)
+      : db_accessor_(db_accessor), parameters(parameters), table_(table), scopes_{Scope()} {}
 
-  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters, Scope scope)
-      : db_accessor_(db_accessor), parameters(parameters), scope_(scope) {}
+  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters, const SymbolTable &table, Scope scope)
+      : db_accessor_(db_accessor), parameters(parameters), table_(table), scopes_{scope} {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_->VerticesCount();
@@ -186,9 +186,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // TODO: Cost estimate ScanAllById?
 
   bool PostVisit(Expand &expand) override {
+    const auto &scope = scopes_.back();
     auto card_param = CardParam::kExpand;
-    if (HasStatsFor(expand.input_symbol_)) {
-      card_param = scope_.symbol_stats[expand.input_symbol_.name()].degree;
+
+    auto stats = GetStatsFor(expand.input_symbol_);
+
+    if (stats.has_value()) {
+      card_param = stats.value().degree;
     }
 
     cardinality_ *= card_param;
@@ -269,6 +273,21 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PostVisit(Produce &op) override {
+    auto scope = Scope();
+
+    for (const auto &symbol : op.ModifiedSymbols(table_)) {
+      auto stats = GetStatsFor(symbol);
+      if (stats.has_value()) {
+        scope.symbol_stats[symbol.name()] =
+            SymbolStatistics{.cardinality = stats.value().cardinality, .degree = stats.value().degree};
+      }
+    }
+
+    scopes_.push_back(scope);
+    return true;
+  }
+
   bool PreVisit(Apply &op) override {
     double input_cost = EstimateCostOnBranch(&op.input_);
     double subquery_cost = EstimateCostOnBranch(&op.subquery_);
@@ -300,12 +319,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
   const Parameters &parameters;
-  Scope scope_;
+  const SymbolTable &table_;
+  std::vector<Scope> scopes_;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
   double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
-    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters);
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters, table_);
     (*branch)->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -333,27 +353,39 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
-  bool HasStatsFor(Symbol &symbol) const { return utils::Contains(scope_.symbol_stats, symbol.name()); }
+  bool HasStatsFor(const Symbol &symbol) const { return utils::Contains(scopes_.back().symbol_stats, symbol.name()); }
 
-  void SaveStatsFor(Symbol &symbol, storage::LabelIndexStats index_stats) {
-    scope_.symbol_stats[symbol.name()] = SymbolStatistics{
+  std::optional<SymbolStatistics> GetStatsFor(const Symbol &symbol) {
+    if (!HasStatsFor(symbol)) {
+      return std::nullopt;
+    }
+
+    auto &scope = scopes_.back();
+    return scope.symbol_stats[symbol.name()];
+  }
+
+  void SaveStatsFor(const Symbol &symbol, storage::LabelIndexStats index_stats) {
+    scopes_.back().symbol_stats[symbol.name()] = SymbolStatistics{
         .cardinality = index_stats.count,
         .degree = index_stats.avg_degree,
     };
   }
 
-  void SaveStatsFor(Symbol &symbol, storage::LabelPropertyIndexStats index_stats) {
-    scope_.symbol_stats[symbol.name()] = SymbolStatistics{
+  void SaveStatsFor(const Symbol &symbol, storage::LabelPropertyIndexStats index_stats) {
+    scopes_.back().symbol_stats[symbol.name()] = SymbolStatistics{
         .cardinality = index_stats.count,
         .degree = index_stats.avg_degree,
     };
   }
+
+  void DeleteStatsFor(const Symbol &symbol) { scopes_.back().symbol_stats.erase(symbol.name()); }
 };
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOperator &plan) {
-  CostEstimator<TDbAccessor> estimator(db, parameters);
+double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOperator &plan,
+                        const SymbolTable &table) {
+  CostEstimator<TDbAccessor> estimator(db, parameters, table);
   plan.Accept(estimator);
   return estimator.cost();
 }
