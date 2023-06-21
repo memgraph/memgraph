@@ -27,10 +27,11 @@ print_help () {
   echo -e "$0 check\t\t\t\t  => check all containers"
   echo -e "$0 delete\t\t\t\t  => stop + remove all containers"
   echo -e "$0 copy src_container dst_container => copy build package from src to dst container"
+  exit 1
 }
 
-# TODO(gitbuda): Make docker_run always delete + start a new container.
 # NOTE: This is an idempotent operation!
+# TODO(gitbuda): Consider making docker_run always delete + start a new container or add a new function.
 docker_run () {
   cnt_name="$1"
   cnt_image="$2"
@@ -60,7 +61,7 @@ docker_stop_and_rm () {
   fi
 }
 
-# TODO(gitbuda): Configure NEW_DEPS, etc.
+# TODO(gitbuda): Make the call to `install NEW_DEPS` configurable, the question what else is useful?
 start_all () {
   for script_docker_pair in "${OPERATING_SYSTEMS[@]}"; do
     read -a script_docker <<< "$script_docker_pair"
@@ -104,7 +105,7 @@ delete_all () {
   done
 }
 
-# TODO(gitbuda): Copy file betwene containers is a useful util, also delete, + consider folder.
+# TODO(gitbuda): Copy file between containers is a useful util, also delete, + consider copying of a whole folder.
 # TODO(gitbuda): Add args: src_cnt dst_cnt abs_path; both file and recursive folder, always delete + copy.
 copy_build_package () {
   src_container="$1"
@@ -132,6 +133,9 @@ else
       delete_all
     ;;
     copy) # src_container dst_container
+      if [ "$#" -ne 3 ]; then
+        print_help
+      fi
       copy_build_package "$2" "$3"
     ;;
     *)
