@@ -28,7 +28,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/indices.hpp"
-#include "utils/algorithm.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -40,24 +39,11 @@ namespace impl {
 // given expression tree.
 Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
-struct SymbolStatistics {
-  std::string name;
-  int64_t cardinality;
-  double degree;
-};
-
-struct Scope {
-  std::unordered_map<std::string, SymbolStatistics> symbol_stats;
-};
-
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), scope_(Scope()) {}
-
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, Scope scope)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), scope_(scope) {}
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -113,21 +99,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     }
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
-
     auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     if (indexed_scan) {
-      // if both are matched upfront, see by index statistics how to expand
-      if (HasStatsFor(expand.common_.node_symbol) && HasStatsFor(expand.input_symbol_)) {
-        auto src_cost = GetStatsFor(expand.input_symbol_).value().degree;
-        auto dest_cost = GetStatsFor(expand.common_.node_symbol).value().cardinality;
-
-        if (dest_cost < src_cost) {
-          expand.set_input(std::move(indexed_scan));
-          expand.common_.existing_node = true;
-        }
-        return true;
-      }
-
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
     }
@@ -526,14 +499,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
-  Scope scope_;
 
   struct LabelPropertyIndex {
     LabelIx label;
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
-    std::optional<storage::LabelPropertyIndexStats> index_stats;
+    std::optional<storage::IndexStats> index_stats;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -549,7 +521,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, scope_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -578,7 +550,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
   // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
   // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
-  // the user has run `ANALYZE GRAPH` query before. If the index cannot be found, nullopt is returned.
+  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
                                                                const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -600,8 +572,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      * @param vertex_count: New index's number of vertices.
      * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
      */
-    auto compare_indices = [](std::optional<LabelPropertyIndex> &found,
-                              std::optional<storage::LabelPropertyIndexStats> &new_stats, int vertex_count) {
+    auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
+                              int vertex_count) {
       if (!new_stats.has_value()) {
         return 0;
       }
@@ -638,7 +610,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         };
 
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-        auto new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+        std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         // Conditions, from more to less important:
         // the index with 10x less vertices is better.
@@ -661,7 +633,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     return found;
   }
-
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
@@ -716,14 +687,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       std::vector<Expression *> removed_expressions;
       filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-
-      auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
-      if (index_stats.has_value()) {
-        scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
-                                                                   .cardinality = index_stats.value().count,
-                                                                   .degree = index_stats.value().avg_degree};
-      }
-
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
@@ -756,34 +719,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                              prop_filter.property_.name, prop_filter.value_, view);
       }
     }
-
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;
-    if (max_vertex_count && *max_vertex_count >= 1 && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
+    if (max_vertex_count && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
       // Don't create an indexed lookup, since we have more labeled vertices
       // than the allowed count.
       return nullptr;
     }
-
     std::vector<Expression *> removed_expressions;
     filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    auto index_stats = db_->GetIndexStats(GetLabel(label));
-    if (index_stats.has_value()) {
-      scope_.symbol_stats[node_symbol.name()] = SymbolStatistics{.name = node_symbol.name(),
-                                                                 .cardinality = index_stats.value().count,
-                                                                 .degree = index_stats.value().avg_degree};
-    }
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
-  }
-
-  bool HasStatsFor(Symbol &symbol) const { return utils::Contains(scope_.symbol_stats, symbol.name()); }
-  std::optional<SymbolStatistics> GetStatsFor(Symbol &symbol) {
-    if (!HasStatsFor(symbol)) {
-      return std::nullopt;
-    }
-    return scope_.symbol_stats[symbol.name()];
   }
 };
 

@@ -20,7 +20,6 @@
 namespace memgraph::query::plan {
 
 struct SymbolStatistics {
-  std::string name;
   int64_t cardinality;
   double degree;
 };
@@ -338,7 +337,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   void SaveStatsFor(Symbol &symbol, storage::LabelIndexStats index_stats) {
     scope_.symbol_stats[symbol.name()] = SymbolStatistics{
-        .name = symbol.name(),
         .cardinality = index_stats.count,
         .degree = index_stats.avg_degree,
     };
@@ -346,7 +344,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   void SaveStatsFor(Symbol &symbol, storage::LabelPropertyIndexStats index_stats) {
     scope_.symbol_stats[symbol.name()] = SymbolStatistics{
-        .name = symbol.name(),
         .cardinality = index_stats.count,
         .degree = index_stats.avg_degree,
     };
