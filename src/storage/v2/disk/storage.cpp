@@ -188,7 +188,7 @@ DiskStorage::DiskStorage(Config config)
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
   kvstore_->options_.wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
-  kvstore_->options_.wal_dir = wal_directory_ / "rocksdb";
+  kvstore_->options_.wal_dir = config_.disk.wal_directory;
   kvstore_->options_.wal_compression = rocksdb::kNoCompression;
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
@@ -196,6 +196,7 @@ DiskStorage::DiskStorage(Config config)
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
     column_families.emplace_back(defaultHandle, kvstore_->options_);
+
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory, column_families,
                                                               &column_handles, &kvstore_->db_));
@@ -528,7 +529,7 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
   uint64_t metadata_disk_storage_size = utils::GetDirDiskUsage(config_.disk.id_name_mapper_directory) +
                                         utils::GetDirDiskUsage(config_.disk.name_id_mapper_directory);
   uint64_t durability_disk_storage_size =
-      utils::GetDirDiskUsage(config_.disk.durability_directory) + utils::GetDirDiskUsage(kvstore_->options_.wal_dir);
+      utils::GetDirDiskUsage(config_.disk.durability_directory) + utils::GetDirDiskUsage(config_.disk.wal_directory);
   return main_disk_storage_size + index_disk_storage_size + constraints_disk_storage_size + metadata_disk_storage_size +
          durability_disk_storage_size;
 }

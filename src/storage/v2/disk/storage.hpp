@@ -83,7 +83,7 @@ class DiskStorage final : public Storage {
 
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                      const storage::PropertyId &property) const override {
-      throw utils::NotYetImplemented("GetIndexStats() is not implemented for DiskStorage.");
+      return {};
     }
 
     std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {

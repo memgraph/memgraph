@@ -382,6 +382,7 @@ class InMemoryStorage final : public Storage {
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
   std::unique_ptr<kvstore::KVStore> storage_;
+  std::filesystem::path wal_directory_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;

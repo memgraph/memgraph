@@ -25,7 +25,8 @@ memgraph::storage::Config GenerateOnDiskConfig(const std::string &testName) {
                    .unique_constraints_directory = "rocksdb_" + testName + "_unique_constraints",
                    .name_id_mapper_directory = "rocksdb_" + testName + "_name_id_mapper",
                    .id_name_mapper_directory = "rocksdb_" + testName + "_id_name_mapper",
-                   .durability_directory = "rocksdb_" + testName + "_durability"}};
+                   .durability_directory = "rocksdb_" + testName + "_durability",
+                   .wal_directory = "rocksdb_" + testName + "_wal"}};
 }
 
 void RemoveRocksDbDirs(const std::string &testName) {
@@ -36,6 +37,7 @@ void RemoveRocksDbDirs(const std::string &testName) {
   std::filesystem::remove_all("rocksdb_" + testName + "_name_id_mapper");
   std::filesystem::remove_all("rocksdb_" + testName + "_id_name_mapper");
   std::filesystem::remove_all("rocksdb_" + testName + "_durability");
+  std::filesystem::remove_all("rocksdb_" + testName + "_wal");
 }
 
 uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage) {

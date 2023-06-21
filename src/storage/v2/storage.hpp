@@ -279,8 +279,6 @@ class Storage {
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-
-  std::filesystem::path wal_directory_;
 };
 
 }  // namespace memgraph::storage

@@ -49,6 +49,7 @@ InMemoryStorage::InMemoryStorage(Config config)
     : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
+      wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
