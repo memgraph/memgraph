@@ -7,6 +7,7 @@ IFS=' '
 # "docker_container_type script_name docker_image_name"
 OPERATING_SYSTEMS=(
   "mgrun amzn-2 amazonlinux:2"
+  "mgrun centos-7 centos:7"
   "mgrun centos-9 dokken/centos-stream-9"
   "mgrun debian-10 debian:10"
   "mgrun debian-11 debian:11"
@@ -14,7 +15,6 @@ OPERATING_SYSTEMS=(
   "mgrun ubuntu-18.04 ubuntu:18.04"
   "mgrun ubuntu-20.04 ubuntu:20.04"
   "mgrun ubuntu-22.04 ubuntu:22.04"
-  "mgrun centos-7 centos:7"
   # "mgbuild centos-7 package-mgbuild_centos-7"
 )
 

@@ -61,6 +61,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    cyrus-sasl-devel
 )
 
 MEMGRAPH_RUN_DEPS=(

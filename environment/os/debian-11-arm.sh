@@ -58,6 +58,7 @@ MEMGRAPH_BUILD_DEPS=(
     golang custom-golang1.18.9 nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    libsasl2-dev
 )
 
 MEMGRAPH_RUN_DEPS=(
@@ -128,10 +129,17 @@ EOF
             install_custom_golang "1.18.9"
             continue
         fi
+        if [ "$pkg" == openjdk-17-jdk ]; then
+            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
+                apt install -y "$pkg"
+                # The default Java version should be Java 11
+                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+            fi
+            continue
+        fi
         apt install -y "$pkg"
     done
-    update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-    update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
 }
 
 deps=$2"[*]"

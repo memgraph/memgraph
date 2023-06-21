@@ -60,6 +60,7 @@ MEMGRAPH_BUILD_DEPS=(
     which nodejs golang custom-golang1.18.9 zip unzip java-11-openjdk-devel jdk-17 custom-maven3.9.2 # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    cyrus-sasl-devel
 )
 
 MEMGRAPH_RUN_DEPS=(

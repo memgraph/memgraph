@@ -52,11 +52,13 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which zip unzip java-11-openjdk-devel java-17-openjdk-devel custom-maven3.9.2 # for driver tests
+    java-11-openjdk-devel java-17-openjdk-devel custom-maven3.9.2 # for driver tests
+    which zip unzip
     nodejs golang custom-golang1.18.9 # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    cyrus-sasl-devel
 )
 
 MEMGRAPH_RUN_DEPS=(
@@ -130,10 +132,17 @@ install() {
             install_custom_golang "1.18.9"
             continue
         fi
+        if [ "$pkg" == java-17-openjdk-devel ]; then
+            if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
+                dnf install -y "$pkg"
+                # The default Java version should be Java 11
+                update-alternatives --set java java-11-openjdk.x86_64
+                update-alternatives --set javac java-11-openjdk.x86_64
+            fi
+            continue
+        fi
         dnf install -y "$pkg"
     done
-    update-alternatives --set java java-11-openjdk.x86_64
-    update-alternatives --set javac java-11-openjdk.x86_64
 }
 
 deps=$2"[*]"

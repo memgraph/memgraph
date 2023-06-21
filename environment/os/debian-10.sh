@@ -57,6 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     dotnet-sdk-3.1 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    libsasl2-dev
 )
 
 MEMGRAPH_RUN_DEPS=(
