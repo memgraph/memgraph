@@ -34,6 +34,7 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "audit/log.hpp"
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/http/server.hpp"
@@ -97,10 +98,6 @@
 
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
-
-#ifdef MG_ENTERPRISE
-#include "audit/log.hpp"
-#endif
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
@@ -473,31 +470,30 @@ struct SessionData {
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
-void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path
-#ifdef MG_ENTERPRISE
-                         ,
-                         memgraph::audit::Log *audit_log
-#endif
-) {
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path,
+                         memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx);
   std::ifstream file(cypherl_file_path);
-  if (file.is_open()) {
-    std::string line;
-    while (std::getline(file, line)) {
-      if (!line.empty()) {
-        auto results = interpreter.Prepare(line, {}, {});
-        memgraph::query::DiscardValueResultStream stream;
-        interpreter.Pull(&stream, {}, results.qid);
 
-#ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          audit_log->Record("", "", line, {});
-        }
-#endif
+  if (!file.is_open()) {
+    spdlog::trace("Could not find init file {}", cypherl_file_path);
+    return;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    if (!line.empty()) {
+      auto results = interpreter.Prepare(line, {}, {});
+      memgraph::query::DiscardValueResultStream stream;
+      interpreter.Pull(&stream, {}, results.qid);
+
+      if (audit_log) {
+        audit_log->Record("", "", line, {});
       }
     }
-    file.close();
   }
+
+  file.close();
 }
 
 namespace memgraph::metrics {
@@ -895,7 +891,7 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = true,
+                     .restore_replication_state_on_startup = true,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
@@ -945,10 +941,12 @@ int main(int argc, char **argv) {
   interpreter_context.auth_checker = &auth_checker;
 
   if (!FLAGS_init_file.empty()) {
-    spdlog::info("Running init file.");
+    spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    } else {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file);
     }
 #else
     InitFromCypherlFile(interpreter_context, FLAGS_init_file);
@@ -1095,6 +1093,8 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+    } else {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
     }
 #else
     InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
