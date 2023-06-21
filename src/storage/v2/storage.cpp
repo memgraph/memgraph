@@ -2091,6 +2091,7 @@ bool Storage::SetMainReplicationRole() {
   }
 
   replication_role_.store(ReplicationRole::MAIN);
+  spdlog::info("Instance is now in a MAIN roll.");
   return true;
 }
 
@@ -2156,6 +2157,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     clients.push_back(std::move(client));
     return {};
   });
+  spdlog::info("Replica {} registered.", name);
 }
 
 bool Storage::UnregisterReplica(const std::string &name) {
