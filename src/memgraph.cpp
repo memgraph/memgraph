@@ -546,7 +546,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
+      std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
       const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
@@ -560,6 +560,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     if (user_) {
       username = &user_->username();
     }
+
+    // TODO (gvolfing) - tie this behavior to a flag
+    graphql_checker_(query);
+
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,

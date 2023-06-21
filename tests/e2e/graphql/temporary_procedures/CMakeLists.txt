@@ -1,1 +1,1 @@
-copy_graphql_e2e_python_files(dbms.py)
+copy_graphql_e2e_python_files(mgp.py)

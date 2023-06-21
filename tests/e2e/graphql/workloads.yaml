@@ -10,5 +10,6 @@ workloads:
   - name: "GraphQL create"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
+    proc: "tests/e2e/graphql/graphql_library_config/"
     args: ["graphql/graphql_create.py"]
     <<: *template_cluster

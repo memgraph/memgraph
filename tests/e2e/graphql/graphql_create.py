@@ -30,11 +30,7 @@ def test_create_query(create_query_server):
 
 
 # TODO
-# 1. Send GraphQL queries to the GraphQL library
-# 2. Be able to initiate the memgraph instance as a subprocess as well.
-# 3. Find a good solution to pair the GraphQL queries with the desired response.
-# 4. Find an optimal solution to check if the nodejs service/memgraph instance has been initialized or not.
-# 5. Find a good way, how to group graphql tests that can be executed together.
+# 1. Find a good way, how to group graphql tests that can be executed together.
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

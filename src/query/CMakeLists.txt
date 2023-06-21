@@ -35,7 +35,8 @@ set(mg_query_sources
     trigger_context.cpp
     typed_value.cpp
     graph.cpp
-    db_accessor.cpp)
+    db_accessor.cpp
+    graphql_checker.cpp)
 
 find_package(Boost REQUIRED)
 

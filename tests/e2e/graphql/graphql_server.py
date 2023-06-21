@@ -1,5 +1,6 @@
 import collections.abc
 import json
+import os.path
 import subprocess
 import time
 from uuid import UUID
@@ -14,8 +15,7 @@ class GraphQLServer:
         self.url = "http://127.0.0.1:4000"
 
         graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # wait for the process to initialize
-        time.sleep(5)
+        self.__wait_process_to_init(graphql_lib.pid)
 
     def send_query(self, query: str, timeout=5.0) -> requests.Response:
         try:
@@ -25,8 +25,15 @@ class GraphQLServer:
         else:
             return response
 
+    def __wait_process_to_init(self, pid: int):
+        path = "/proc/" + str(pid)
+        while True:
+            if os.path.exists(path):
+                return
+            time.sleep(1 / 100)
 
-def ordered(obj):
+
+def ordered(obj: any) -> any:
     if isinstance(obj, dict):
         return sorted((k, ordered(v)) for k, v in obj.items())
     if isinstance(obj, list):
@@ -35,7 +42,7 @@ def ordered(obj):
         return obj
 
 
-def flatten(x):
+def flatten(x: any) -> list:
     result = []
     for el in x:
         if isinstance(x, collections.abc.Iterable) and not isinstance(el, str):
@@ -45,7 +52,7 @@ def flatten(x):
     return result
 
 
-def valid_uuid(uuid_to_test, version=4):
+def valid_uuid(uuid_to_test: any, version: int = 4) -> any:
     try:
         uuid_obj = UUID(uuid_to_test, version=version)
     except ValueError:
