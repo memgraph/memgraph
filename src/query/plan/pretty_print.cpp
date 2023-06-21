@@ -895,6 +895,10 @@ bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
     self["quote"] = ToJson(op.quote_);
   }
 
+  if (op.nullif_) {
+    self["nullif"] = ToJson(op.nullif_);
+  }
+
   self["row_variable"] = ToJson(op.row_var_);
 
   op.input_->Accept(*this);
