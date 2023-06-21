@@ -186,9 +186,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // TODO: Cost estimate ScanAllById?
 
   bool PostVisit(Expand &expand) override {
-    const auto &scope = scopes_.back();
     auto card_param = CardParam::kExpand;
-
     auto stats = GetStatsFor(expand.input_symbol_);
 
     if (stats.has_value()) {
@@ -289,10 +287,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Apply &op) override {
-    double input_cost = EstimateCostOnBranch(&op.input_);
-    double subquery_cost = EstimateCostOnBranch(&op.subquery_);
+    op.input_->Accept(*this);
+
+    auto last_scope = scopes_.back();
+    double subquery_cost = EstimateCostOnBranch(&op.subquery_, last_scope);
 
     // if the query is a unit subquery, we don't want the cost to be zero but 1xN
+    double input_cost = cost();
     input_cost = input_cost == 0 ? 1 : input_cost;
     subquery_cost = subquery_cost == 0 ? 1 : subquery_cost;
 
@@ -300,6 +301,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     IncrementCost(CostParam::kSubquery);
 
     return false;
+  }
+
+  bool PostVisit(EmptyResult & /*op*/) override {
+    scopes_.emplace_back();
+    return true;
   }
 
   bool Visit(Once &) override { return true; }
@@ -326,6 +332,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters, table_);
+    (*branch)->Accept(cost_estimator);
+    return cost_estimator.cost();
+  }
+
+  double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters, table_, scope);
     (*branch)->Accept(cost_estimator);
     return cost_estimator.cost();
   }
