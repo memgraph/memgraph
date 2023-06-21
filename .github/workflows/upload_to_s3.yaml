@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       memgraph_version:
-        description: "Memgraph version to upload as. Format: 'vX.Y.Z'"
+        description: "Memgraph version to upload as. Format: 'X.Y.Z'"
         required: true
       run_number:
-        description: "# of the package_all workflow run to upload artifacts from. Format: 'vX.Y.Z'"
+        description: "# of the package_all workflow run to upload artifacts from. Format: '#XYZ'"
         required: true
 
 jobs:
@@ -29,4 +29,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph/${{ github.event.inputs.memgraph_version }}/"
+          DEST_DIR: "memgraph/v${{ github.event.inputs.memgraph_version }}/"
