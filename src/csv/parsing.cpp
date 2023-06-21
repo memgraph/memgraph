@@ -239,9 +239,10 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
           break;
         }
         case CsvParserState::QUOTING: {
+          const auto quote_size = read_config_.quote->size();
           const auto quote_now = utils::StartsWith(line_string_view, *read_config_.quote);
-          const auto quote_next =
-              utils::StartsWith(line_string_view.substr(read_config_.quote->size()), *read_config_.quote);
+          const auto quote_next = quote_size <= line_string_view.size() &&
+                                  utils::StartsWith(line_string_view.substr(quote_size), *read_config_.quote);
           if (quote_now && quote_next) {
             // This is an escaped quote character.
             column += *read_config_.quote;

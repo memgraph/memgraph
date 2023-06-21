@@ -14,3 +14,5 @@ target_link_libraries(mg-csv
         PUBLIC mg-utils
         PRIVATE lib::ctre mg-requests Boost::iostreams
         )
+
+add_subdirectory(fuzz)

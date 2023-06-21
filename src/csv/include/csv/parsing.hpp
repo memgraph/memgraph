@@ -79,7 +79,11 @@ class Reader {
     Config() = default;
     Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
            std::optional<utils::pmr::string> qt)
-        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {}
+        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {
+      // delimiter + quote can not be empty
+      if (delimiter && delimiter->empty()) delimiter.reset();
+      if (quote && quote->empty()) quote.reset();
+    }
 
     bool with_header{false};
     bool ignore_bad{false};
