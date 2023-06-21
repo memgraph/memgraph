@@ -37,4 +37,5 @@ def memgraph(**kwargs) -> Memgraph:
     yield memgraph
 
     memgraph.drop_database()
+    memgraph.execute("analyze graph delete statistics;")
     memgraph.drop_indexes()
