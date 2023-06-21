@@ -227,6 +227,8 @@ class DiskStorage final : public Storage {
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
  private:
+  uint64_t GetDiskSpaceUsage() const;
+
   void LoadTimestampIfExists();
 
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(

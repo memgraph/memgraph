@@ -24,6 +24,8 @@
 
 namespace memgraph::storage {
 
+/// TODO: this should be somehow more wrapped inside the storage class so from the software engineering perspective
+/// it isn't great to have this here. But for now it is ok.
 /// Wraps RocksDB objects inside a struct. Vertex_chandle and edge_chandle are column family handles that may be
 /// nullptr. In that case client should take care about them.
 struct RocksDBStorage {
@@ -45,6 +47,12 @@ struct RocksDBStorage {
   uint64_t ApproximateVertexCount() const {
     uint64_t estimate_num_keys = 0;
     db_->GetIntProperty(vertex_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
+    return estimate_num_keys;
+  }
+
+  uint64_t ApproximateEdgeCount() const {
+    uint64_t estimate_num_keys = 0;
+    db_->GetIntProperty(edge_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
     return estimate_num_keys;
   }
 };

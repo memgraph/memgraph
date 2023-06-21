@@ -187,10 +187,9 @@ DiskStorage::DiskStorage(Config config)
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
-  // kvstore_->options_.wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
-  // kvstore_->options_.wal_dir = wal_directory_ / "rocksdb";
-  // kvstore_->options_.WAL_ttl_seconds = 10;
-  // kvstore_->options_.wal_compression = rocksdb::kNoCompression;
+  kvstore_->options_.wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+  kvstore_->options_.wal_dir = wal_directory_ / "rocksdb";
+  kvstore_->options_.wal_compression = rocksdb::kNoCompression;
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {
@@ -518,24 +517,32 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto estimatedCount = disk_storage->kvstore_->ApproximateVertexCount();
-  if (estimatedCount == 0) {
-    estimatedCount = vertices_.size();
-  }
-  return estimatedCount;
+  return disk_storage->kvstore_->ApproximateVertexCount();
+}
+
+uint64_t DiskStorage::GetDiskSpaceUsage() const {
+  uint64_t main_disk_storage_size = utils::GetDirDiskUsage(config_.disk.main_storage_directory);
+  uint64_t index_disk_storage_size = utils::GetDirDiskUsage(config_.disk.label_index_directory) +
+                                     utils::GetDirDiskUsage(config_.disk.label_property_index_directory);
+  uint64_t constraints_disk_storage_size = utils::GetDirDiskUsage(config_.disk.unique_constraints_directory);
+  uint64_t metadata_disk_storage_size = utils::GetDirDiskUsage(config_.disk.id_name_mapper_directory) +
+                                        utils::GetDirDiskUsage(config_.disk.name_id_mapper_directory);
+  uint64_t durability_disk_storage_size =
+      utils::GetDirDiskUsage(config_.disk.durability_directory) + utils::GetDirDiskUsage(kvstore_->options_.wal_dir);
+  return main_disk_storage_size + index_disk_storage_size + constraints_disk_storage_size + metadata_disk_storage_size +
+         durability_disk_storage_size;
 }
 
 StorageInfo DiskStorage::GetInfo() const {
   auto vertex_count = kvstore_->ApproximateVertexCount();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
+  auto edge_count = kvstore_->ApproximateEdgeCount();
   double average_degree = 0.0;
   if (vertex_count) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
   }
-  /// TODO: change this to the RocksDB disk usage.
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
