@@ -946,6 +946,7 @@ class Duration {
 /* #region Value */
 enum class Type : uint8_t {
   Null,
+  Any,
   Bool,
   Int,
   Double,
@@ -1505,6 +1506,8 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
 /// @brief Converts C++ API types to their MGP API equivalents.
 inline mgp_type *ToMGPType(Type type) {
   switch (type) {
+    case Type::Any:
+      return mgp::type_any();
     case Type::Bool:
       return mgp::type_bool();
     case Type::Int:
