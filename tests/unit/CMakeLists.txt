@@ -386,3 +386,6 @@ if(MG_ENTERPRISE)
   add_unit_test(dbms_interp.cpp)
   target_link_libraries(${test_prefix}dbms_interp mg-query)
 endif()
+
+add_unit_test(dbms_auth.cpp)
+target_link_libraries(${test_prefix}dbms_auth mg-glue)

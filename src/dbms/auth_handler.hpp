@@ -35,8 +35,8 @@ class AuthHandler {
   using LockT = utils::WritePrioritizedRWLock;
 
   struct AuthContext {
-    explicit AuthContext(const std::filesystem::path &data_directory, const std::string &ah_flags = "")
-        : auth(data_directory / "auth"), auth_handler(&auth, ah_flags), auth_checker(&auth) {}
+    explicit AuthContext(const std::filesystem::path &data_directory, const std::string &ah_flag = "")
+        : auth(data_directory / "auth"), auth_handler(&auth, ah_flag), auth_checker(&auth) {}
 
     utils::Synchronized<ContextT, LockT> auth;
     glue::AuthQueryHandler auth_handler;
@@ -55,9 +55,16 @@ class AuthHandler {
    * @param config glue::AuthHandler setup flags
    * @return NewResult pointer to context on success, error on failure
    */
-  NewResult New(std::string_view name, const std::filesystem::path &data_directory, const std::string &ah_flags) {
-    auto [itr, success] = auth_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                        std::forward_as_tuple(data_directory, ah_flags));
+  NewResult New(std::string_view name, const std::filesystem::path &data_directory, const std::string &ah_flag = "") {
+    // Control that no one is using the same data directory or Storage
+    if (std::any_of(auth_.begin(), auth_.end(),
+                    [&](const auto &elem) { return elem.second.config_.storage_dir == data_directory; })) {
+      // LOG
+      return NewError::EXISTS;
+    }
+    auto [itr, success] =
+        auth_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                      std::forward_as_tuple(Config{data_directory, ah_flag}, data_directory, ah_flag));
     if (success) {
       return itr->second.ptr_;
     }
@@ -92,7 +99,11 @@ class AuthHandler {
   }
 
  private:
-  std::unordered_map<std::string, utils::SyncPtr<AuthContext>> auth_;  //!< map to all active interpreters
+  struct Config {
+    std::filesystem::path storage_dir;
+    std::string ah_flag;
+  };
+  std::unordered_map<std::string, utils::SyncPtr<AuthContext, Config>> auth_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms
