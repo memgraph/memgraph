@@ -76,3 +76,26 @@ function install_all_apt() {
         apt install -y "$pkg"
     done
 }
+
+function install_custom_golang() {
+    # NOTE: The official https://go.dev/doc/manage-install doesn't seem to be working.
+    GOVERSION="$1"
+    GOINSTALLDIR="/opt/go$GOVERSION"
+    GOROOT="$GOINSTALLDIR/go" # GOPATH=$HOME/go
+    if [ ! -f "$GOROOT/bin/go" ]; then
+      curl -LO https://go.dev/dl/go$GOVERSION.linux-amd64.tar.gz
+      mkdir -p "$GOINSTALLDIR"
+      tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-amd64.tar.gz
+    fi
+    echo "go $GOVERSION installed under $GOROOT"
+}
+
+function install_custom_maven() {
+  MVNVERSION="$1"
+  MVNINSTALLDIR="/opt/apache-maven-$MVNVERSION"
+  if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
+    curl -LO "https://dlcdn.apache.org/maven/maven-3/$MVNVERSION/binaries/apache-maven-$MVNVERSION-bin.tar.gz"
+    tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
+  fi
+  echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
+}

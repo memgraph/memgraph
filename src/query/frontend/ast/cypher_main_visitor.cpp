@@ -362,6 +362,11 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   // handle skip bad row option
   load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
 
+  // handle character sequence which will correspond to nulls
+  if (ctx->NULLIF()) {
+    load_csv->nullif_ = std::any_cast<Expression *>(ctx->nullif()->accept(this));
+  }
+
   // handle delimiter
   if (ctx->DELIMITER()) {
     if (ctx->delimiter()->literal()->StringLiteral()) {

@@ -178,7 +178,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         throw QueryRuntimeException("Port number invalid!");
       }
       if (!db_->SetReplicaRole(
-              io::network::Endpoint(query::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
+              io::network::Endpoint(storage::replication::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -187,9 +187,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
     switch (db_->GetReplicationRole()) {
-      case storage::ReplicationRole::MAIN:
+      case storage::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::ReplicationRole::REPLICA:
+      case storage::replication::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -199,9 +199,13 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
-    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
+    }
+
+    if (name == storage::replication::kReservedReplicationRoleName) {
+      throw QueryRuntimeException("This replica name is reserved and can not be used as replica name!");
     }
 
     storage::replication::ReplicationMode repl_mode;
@@ -217,7 +221,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, storage::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
@@ -233,7 +237,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void DropReplica(const std::string &replica_name) override {
-    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
@@ -244,7 +248,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -2778,7 +2782,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (interpreter_context->db->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+  if (interpreter_context->db->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("Query forbidden on the replica!");
   }
   if (in_explicit_transaction) {
@@ -2910,7 +2914,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (interpreter_context->db->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+  if (interpreter_context->db->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
   return PreparedQuery{{"Name", "Current"},
@@ -3164,7 +3168,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     UpdateTypeCount(rw_type);
 
     if (const auto query_type = query_execution->prepared_query->rw_type;
-        interpreter_context_->db->GetReplicationRole() == storage::ReplicationRole::REPLICA &&
+        interpreter_context_->db->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA &&
         (query_type == RWType::W || query_type == RWType::RW)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");

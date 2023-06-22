@@ -16,11 +16,8 @@ add_subdirectory(slk)
 add_subdirectory(rpc)
 add_subdirectory(license)
 add_subdirectory(auth)
+add_subdirectory(audit)
 add_subdirectory(dbms)
-
-if(MG_ENTERPRISE)
-        add_subdirectory(audit)
-endif()
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -37,12 +34,7 @@ set(mg_single_node_v2_sources
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
-        mg-telemetry mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-glue)
-
-if(MG_ENTERPRISE)
-        # These are enterprise subsystems
-        set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-audit)
-endif()
+        mg-telemetry mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-glue mg-audit)
 
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
