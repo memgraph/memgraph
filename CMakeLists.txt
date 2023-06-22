@@ -231,7 +231,17 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
-set(MG_ARCH "x86_64" CACHE STRING "Host architecture to build Memgraph on. Supported values are x86_64 (default), ARM64.")
+add_definitions( -DCMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}")
+
+if (NOT MG_ARCH)
+    set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")
+    if (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "aarch64")
+        set(MG_ARCH "ARM64" CACHE STRING ${MG_ARCH_DESCR})
+    else()
+        set(MG_ARCH "x86_64" CACHE STRING ${MG_ARCH_DESCR})
+    endif()
+endif()
+message(STATUS "MG_ARCH: ${MG_ARCH}")
 
 # setup external dependencies -------------------------------------------------
 

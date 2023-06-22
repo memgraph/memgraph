@@ -261,6 +261,13 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   op.input_->Accept(*this);
   return false;
 }
+
+bool PlanPrinter::PreVisit(query::plan::Apply &op) {
+  WithPrintLn([](auto &out) { out << "* Apply"; });
+  Branch(*op.subquery_);
+  op.input_->Accept(*this);
+  return false;
+}
 #undef PRE_VISIT
 
 bool PlanPrinter::DefaultPreVisit() {
@@ -867,11 +874,31 @@ bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
 bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
   json self;
   self["name"] = "LoadCsv";
-  self["file"] = ToJson(op.file_);
-  self["with_header"] = op.with_header_;
-  self["ignore_bad"] = op.ignore_bad_;
-  self["delimiter"] = ToJson(op.delimiter_);
-  self["quote"] = ToJson(op.quote_);
+
+  if (op.file_) {
+    self["file"] = ToJson(op.file_);
+  }
+
+  if (op.with_header_) {
+    self["with_header"] = op.with_header_;
+  }
+
+  if (op.ignore_bad_) {
+    self["ignore_bad"] = op.ignore_bad_;
+  }
+
+  if (op.delimiter_) {
+    self["delimiter"] = ToJson(op.delimiter_);
+  }
+
+  if (op.quote_) {
+    self["quote"] = ToJson(op.quote_);
+  }
+
+  if (op.nullif_) {
+    self["nullif"] = ToJson(op.nullif_);
+  }
+
   self["row_variable"] = ToJson(op.row_var_);
 
   op.input_->Accept(*this);
@@ -949,6 +976,20 @@ bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Apply &op) {
+  json self;
+  self["name"] = "Apply";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.subquery_->Accept(*this);
+  self["subquery"] = PopOutput();
 
   output_ = std::move(self);
   return false;

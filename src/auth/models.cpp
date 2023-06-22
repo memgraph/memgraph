@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -16,6 +16,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "license/license.hpp"
+#include "query/constants.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
@@ -34,13 +35,19 @@ namespace memgraph::auth {
 namespace {
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
-    Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
-    Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
-    Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY, Permission::TRIGGER,
-    Permission::CONFIG,     Permission::STREAM,    Permission::MODULE_READ, Permission::MODULE_WRITE,
-    Permission::WEBSOCKET};
+const std::vector<Permission> kPermissionsAll = {Permission::MATCH,       Permission::CREATE,
+                                                 Permission::MERGE,       Permission::DELETE,
+                                                 Permission::SET,         Permission::REMOVE,
+                                                 Permission::INDEX,       Permission::STATS,
+                                                 Permission::CONSTRAINT,  Permission::DUMP,
+                                                 Permission::AUTH,        Permission::REPLICATION,
+                                                 Permission::DURABILITY,  Permission::READ_FILE,
+                                                 Permission::FREE_MEMORY, Permission::TRIGGER,
+                                                 Permission::CONFIG,      Permission::STREAM,
+                                                 Permission::MODULE_READ, Permission::MODULE_WRITE,
+                                                 Permission::WEBSOCKET,   Permission::TRANSACTION_MANAGEMENT,
+                                                 Permission::STORAGE_MODE};
+
 }  // namespace
 
 std::string PermissionToString(Permission permission) {
@@ -87,6 +94,10 @@ std::string PermissionToString(Permission permission) {
       return "MODULE_WRITE";
     case Permission::WEBSOCKET:
       return "WEBSOCKET";
+    case Permission::TRANSACTION_MANAGEMENT:
+      return "TRANSACTION_MANAGEMENT";
+    case Permission::STORAGE_MODE:
+      return "STORAGE_MODE";
   }
 }
 
@@ -264,7 +275,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
-  if (permission == kAsterisk) {
+  if (permission == query::kAsterisk) {
     global_permission_ = CalculateGrant(fine_grained_permission);
   } else {
     permissions_[permission] = CalculateGrant(fine_grained_permission);
@@ -272,7 +283,7 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission,
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
-  if (permission == kAsterisk) {
+  if (permission == query::kAsterisk) {
     permissions_.clear();
     global_permission_ = std::nullopt;
   } else {

@@ -289,6 +289,7 @@ void ExecuteTimeDependentWorkload(
   // Synchronize workers and collect runtime.
   while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
     ;
+
   run.store(true);
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
@@ -310,6 +311,7 @@ void ExecuteTimeDependentWorkload(
 
   final_duration /= FLAGS_num_workers;
   double execution_delta = time_limit.count() / final_duration;
+
   // This is adjusted throughput based on how much longer did workload execution time took.
   double throughput = (total_iterations / final_duration) * execution_delta;
   double raw_throughput = total_iterations / final_duration;
@@ -319,7 +321,6 @@ void ExecuteTimeDependentWorkload(
   summary["duration"] = final_duration;
   summary["time_limit"] = FLAGS_time_dependent_execution;
   summary["queries_executed"] = total_iterations;
-
   summary["throughput"] = throughput;
   summary["raw_throughput"] = raw_throughput;
   summary["latency_stats"] = LatencyStatistics(worker_query_durations);
@@ -335,6 +336,8 @@ void ExecuteWorkload(
     std::ostream *stream) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
+
+  auto total_time_start = std::chrono::steady_clock::now();
 
   std::vector<uint64_t> worker_retries(FLAGS_num_workers, 0);
   std::vector<Metadata> worker_metadata(FLAGS_num_workers, Metadata());
@@ -397,8 +400,12 @@ void ExecuteWorkload(
     final_duration += worker_duration[i];
   }
 
+  auto total_time_end = std::chrono::steady_clock::now();
+  auto total_time = std::chrono::duration_cast<std::chrono::duration<double>>(total_time_end - total_time_start);
+
   final_duration /= FLAGS_num_workers;
   nlohmann::json summary = nlohmann::json::object();
+  summary["total_time"] = total_time.count();
   summary["count"] = queries.size();
   summary["duration"] = final_duration;
   summary["throughput"] = static_cast<double>(queries.size()) / final_duration;

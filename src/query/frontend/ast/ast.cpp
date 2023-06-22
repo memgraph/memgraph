@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
@@ -113,11 +114,17 @@ constexpr utils::TypeInfo query::ListLiteral::kType{utils::TypeId::AST_LIST_LITE
 constexpr utils::TypeInfo query::MapLiteral::kType{utils::TypeId::AST_MAP_LITERAL, "MapLiteral",
                                                    &query::BaseLiteral::kType};
 
+constexpr utils::TypeInfo query::MapProjectionLiteral::kType{utils::TypeId::AST_MAP_PROJECTION_LITERAL,
+                                                             "MapProjectionLiteral", &query::BaseLiteral::kType};
+
 constexpr utils::TypeInfo query::Identifier::kType{utils::TypeId::AST_IDENTIFIER, "Identifier",
                                                    &query::Expression::kType};
 
 constexpr utils::TypeInfo query::PropertyLookup::kType{utils::TypeId::AST_PROPERTY_LOOKUP, "PropertyLookup",
                                                        &query::Expression::kType};
+
+constexpr utils::TypeInfo query::AllPropertiesLookup::kType{utils::TypeId::AST_ALL_PROPERTIES_LOOKUP,
+                                                            "AllPropertiesLookup", &query::Expression::kType};
 
 constexpr utils::TypeInfo query::LabelsTest::kType{utils::TypeId::AST_LABELS_TEST, "LabelsTest",
                                                    &query::Expression::kType};
@@ -242,6 +249,9 @@ constexpr utils::TypeInfo query::TriggerQuery::kType{utils::TypeId::AST_TRIGGER_
 constexpr utils::TypeInfo query::IsolationLevelQuery::kType{utils::TypeId::AST_ISOLATION_LEVEL_QUERY,
                                                             "IsolationLevelQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::StorageModeQuery::kType{utils::TypeId::AST_STORAGE_MODE_QUERY, "StorageModeQuery",
+                                                         &query::Query::kType};
+
 constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{utils::TypeId::AST_CREATE_SNAPSHOT_QUERY,
                                                             "CreateSnapshotQuery", &query::Query::kType};
 
@@ -259,5 +269,14 @@ constexpr utils::TypeInfo query::Foreach::kType{utils::TypeId::AST_FOREACH, "For
 constexpr utils::TypeInfo query::ShowConfigQuery::kType{utils::TypeId::AST_SHOW_CONFIG_QUERY, "ShowConfigQuery",
                                                         &query::Query::kType};
 
+constexpr utils::TypeInfo query::AnalyzeGraphQuery::kType{utils::TypeId::AST_ANALYZE_GRAPH_QUERY, "AnalyzeGraphQuery",
+                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::TransactionQueueQuery::kType{utils::TypeId::AST_TRANSACTION_QUEUE_QUERY,
+                                                              "TransactionQueueQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
+
+constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
+                                                     &query::Clause::kType};
 }  // namespace memgraph

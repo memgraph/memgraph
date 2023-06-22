@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,9 @@ namespace memgraph::storage {
 
 struct Indices;
 struct Constraints;
+
+using ParalellizedIndexCreationInfo =
+    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class LabelIndex {
  private:
@@ -58,7 +61,8 @@ class LabelIndex {
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
@@ -131,6 +135,10 @@ class LabelIndex {
   Config::Items config_;
 };
 
+struct IndexStats {
+  double statistic, avg_group_size;
+};
+
 class LabelPropertyIndex {
  private:
   struct Entry {
@@ -156,7 +164,8 @@ class LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
 
   bool DropIndex(LabelId label, PropertyId property) { return index_.erase({label, property}) > 0; }
 
@@ -237,12 +246,23 @@ class LabelPropertyIndex {
                                  const std::optional<utils::Bound<PropertyValue>> &lower,
                                  const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
+  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
+
+  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label);
+
+  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                     const storage::IndexStats &stats);
+
+  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                   const storage::PropertyId &property) const;
+
   void Clear() { index_.clear(); }
 
   void RunGC();
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;

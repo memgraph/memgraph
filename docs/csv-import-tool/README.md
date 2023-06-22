@@ -202,3 +202,29 @@ for row in csv.reader(stream, delimiter=',', doublequote=True,
 For more information about the meaning of the above values, see:
 https://docs.python.org/3/library/csv.html#csv.Dialect
 
+## Errors
+
+1. [Skipping duplicate node with ID '{}'. For more details, visit:
+   memgr.ph/csv-import-tool.](#error-1)
+2. [Skipping bad relationship with START_ID '{}'. For more details, visit:
+   memgr.ph/csv-import-tool.](#error-2)
+3. [Skipping bad relationship with END_ID '{}'. For more details, visit:
+   memgr.ph/csv-import-tool.](#error-3)
+
+## Skipping duplicate node with ID {} {#error-1}
+
+Duplicate nodes are nodes that have an ID that is the same as another node that
+was already imported. You can instruct the importer to ignore all duplicate
+nodes (instead of raising an error) by using the `--skip-duplicate-nodes` flag.
+
+## Skipping bad relationship with START_ID {} {#error-2}
+
+A node with the id `START_ID` doesn't exist. You can instruct the importer to
+ignore all bad relationships (instead of raising an error) that refer to nodes
+that don't exist in the node files by using the `--skip-bad-relationships` flag.
+
+## Skipping bad relationship with END_ID {} {#error-3}
+
+A node with the id `END_ID` doesn't exist. You can instruct the importer to
+ignore all bad relationships (instead of raising an error) that refer to nodes
+that don't exist in the node files by using the `--skip-bad-relationships` flag.

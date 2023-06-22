@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,8 +31,11 @@
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -40,6 +43,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
+#include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
 /// REPLICATION ///
@@ -47,6 +51,13 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/storage_error.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotCreationLatency_us;
+
+extern const Event ActiveLabelIndices;
+extern const Event ActiveLabelPropertyIndices;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -316,6 +327,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
+      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
@@ -323,13 +335,6 @@ Storage::Storage(Config config)
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_role_ == ReplicationRole::MAIN) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -358,7 +363,7 @@ Storage::Storage(Config config)
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
                                         &vertices_, &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_,
-                                        config_.items, &wal_seq_num_);
+                                        config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -398,11 +403,18 @@ Storage::Storage(Config config)
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+      if (auto maybe_error = this->CreateSnapshot({true}); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
                 utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+            break;
+          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                                "https://memgr.ph/durability"));
+            break;
+          case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
             break;
         }
       }
@@ -418,14 +430,29 @@ Storage::Storage(Config config)
     commit_log_.emplace(timestamp_);
   }
 
-  if (config_.durability.restore_replicas_on_startup) {
-    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
+  if (config_.durability.restore_replication_state_on_startup) {
+    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
     storage_ =
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
-    RestoreReplicas();
+
+    RestoreReplicationRole();
+
+    if (replication_role_ == replication::ReplicationRole::MAIN) {
+      RestoreReplicas();
+    }
   } else {
-    spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be forgotten.");
+    spdlog::warn(
+        "Replicastion configuration will NOT be stored. When the server restarts, replication state will be "
+        "forgotten.");
+  }
+
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
+      replication_role_ == replication::ReplicationRole::MAIN) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
   }
 }
 
@@ -446,23 +473,30 @@ Storage::~Storage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+    if (auto maybe_error = this->CreateSnapshot({false}); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                              "https://memgr.ph/replication"));
+          break;
+        case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
           break;
       }
     }
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
+Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
@@ -490,11 +524,16 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
+
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
@@ -509,11 +548,14 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
@@ -656,12 +698,15 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+    if (delta) {
+      delta->prev.Set(&*it);
+    }
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -724,12 +769,15 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+    if (delta) {
+      delta->prev.Set(&*it);
+    }
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -928,7 +976,7 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        if (storage_->replication_role_ == replication::ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
@@ -942,7 +990,8 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          if (storage_->replication_role_ == replication::ReplicationRole::MAIN ||
+              desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             storage_->last_commit_timestamp_.store(*commit_timestamp_);
           }
@@ -985,8 +1034,8 @@ void Storage::Accessor::Abort() {
         auto vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -1072,8 +1121,8 @@ void Storage::Accessor::Abort() {
         auto edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -1144,6 +1193,13 @@ void Storage::Accessor::FinalizeTransaction() {
   }
 }
 
+std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
+  if (is_transaction_active_) {
+    return transaction_.transaction_id.load(std::memory_order_acquire);
+  }
+  return {};
+}
+
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
 
 const std::string &Storage::PropertyToName(PropertyId property) const {
@@ -1176,6 +1232,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+
   if (success) {
     return {};
   }
@@ -1195,6 +1254,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+
   if (success) {
     return {};
   }
@@ -1213,6 +1275,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
 
   if (success) {
     return {};
@@ -1234,6 +1299,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 
   if (success) {
     return {};
@@ -1373,7 +1441,7 @@ VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
+Transaction Storage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1388,13 +1456,13 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_role_ == ReplicationRole::REPLICA) {
+    if (replication_role_ == replication::ReplicationRole::REPLICA) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode};
 }
 
 template <bool force>
@@ -1693,7 +1761,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  if (replication_role_.load() == ReplicationRole::MAIN) {
+  if (replication_role_.load() == replication::ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1881,7 +1949,7 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
   auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   {
-    if (replication_role_.load() == ReplicationRole::MAIN) {
+    if (replication_role_.load() == replication::ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
           client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1900,40 +1968,71 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
-  if (replication_role_.load() != ReplicationRole::MAIN) {
+utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::optional<bool> is_periodic) {
+  if (replication_role_.load() != replication::ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
+  auto snapshot_creator = [this]() {
+    utils::Timer timer;
+
+    auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
+    // Create snapshot.
+    durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+                               config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
+                               &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
+    // Finalize snapshot transaction.
+    commit_log_->MarkFinished(transaction.start_timestamp);
+
+    memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  };
+
   std::lock_guard snapshot_guard(snapshot_lock_);
 
-  // Take master RW lock (for reading).
-  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+  auto should_try_shared{true};
+  auto max_num_tries{10};
+  while (max_num_tries) {
+    if (should_try_shared) {
+      std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        snapshot_creator();
+        return {};
+      }
+    } else {
+      std::unique_lock main_guard{main_lock_};
+      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+        if (is_periodic && *is_periodic) {
+          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
+        }
+        snapshot_creator();
+        return {};
+      }
+    }
+    should_try_shared = !should_try_shared;
+    max_num_tries--;
+  }
 
-  // Create the transaction used to create the snapshot.
-  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
-
-  // Create snapshot.
-  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                             config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
-                             &file_retainer_);
-
-  // Finalize snapshot transaction.
-  commit_log_->MarkFinished(transaction.start_timestamp);
-  return {};
+  return CreateSnapshotError::ReachedMaxNumTries;
 }
 
-bool Storage::LockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::IsPathLocked() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.IsPathLocked(config_.durability.storage_directory);
+}
+
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);
 }
 
-bool Storage::UnlockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
+    const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
+    if (ret.HasError() || !ret.GetValue()) {
+      // Exit without cleaning the queue
+      return ret;
     }
   }
 
@@ -1964,20 +2063,38 @@ uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_t
 
 bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
-  if (replication_role_ == ReplicationRole::REPLICA) {
+  if (replication_role_ == replication::ReplicationRole::REPLICA) {
     return false;
   }
 
+  auto port = endpoint.port;  // assigning because we will move the endpoint
   replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 
-  replication_role_.store(ReplicationRole::REPLICA);
+  if (ShouldStoreAndRestoreReplicationState()) {
+    // Only thing that matters here is the role saved as REPLICA and the listening port
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = port,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::REPLICA});
+
+    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving REPLICA replication role in settings.");
+      return false;
+    }
+  }
+
+  replication_role_.store(replication::ReplicationRole::REPLICA);
   return true;
 }
 
 bool Storage::SetMainReplicationRole() {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
-  if (replication_role_ == ReplicationRole::MAIN) {
+  if (replication_role_ == replication::ReplicationRole::MAIN) {
     return false;
   }
 
@@ -2000,14 +2117,33 @@ bool Storage::SetMainReplicationRole() {
     epoch_id_ = utils::GenerateUUID();
   }
 
-  replication_role_.store(ReplicationRole::MAIN);
+  if (ShouldStoreAndRestoreReplicationState()) {
+    // Only thing that matters here is the role saved as MAIN
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = 0,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::MAIN});
+
+    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving MAIN replication role in settings.");
+      return false;
+    }
+  }
+
+  replication_role_.store(replication::ReplicationRole::MAIN);
+
   return true;
 }
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
+  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
+            "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
@@ -2026,14 +2162,15 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  if (ShouldStoreAndRestoreReplicas()) {
-    auto data = replication::ReplicaStatusToJSON(
-        replication::ReplicaStatus{.name = name,
-                                   .ip_address = endpoint.address,
-                                   .port = endpoint.port,
-                                   .sync_mode = replication_mode,
-                                   .replica_check_frequency = config.replica_check_frequency,
-                                   .ssl = config.ssl});
+  if (ShouldStoreAndRestoreReplicationState()) {
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = name,
+                                       .ip_address = endpoint.address,
+                                       .port = endpoint.port,
+                                       .sync_mode = replication_mode,
+                                       .replica_check_frequency = config.replica_check_frequency,
+                                       .ssl = config.ssl,
+                                       .role = replication::ReplicationRole::REPLICA});
     if (!storage_->Put(name, data.dump())) {
       spdlog::error("Error when saving replica {} in settings.", name);
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
@@ -2069,8 +2206,9 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 }
 
 bool Storage::UnregisterReplica(const std::string &name) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
-  if (ShouldStoreAndRestoreReplicas()) {
+  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
+            "Only main instance can unregister a replica!");
+  if (ShouldStoreAndRestoreReplicationState()) {
     if (!storage_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
       return false;
@@ -2093,7 +2231,7 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::str
   });
 }
 
-ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
+replication::ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
 
 std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
@@ -2107,14 +2245,67 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   });
 }
 
-void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
+  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
+  }
+
   isolation_level_ = isolation_level;
+  return {};
 }
 
+void Storage::RestoreReplicationRole() {
+  if (!ShouldStoreAndRestoreReplicationState()) {
+    return;
+  }
+
+  spdlog::info("Restoring replication role.");
+
+  uint16_t port = replication::kDefaultReplicationPort;
+  for (const auto &[replica_name, replica_data] : *storage_) {
+    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
+    if (!maybe_replica_status.has_value()) {
+      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
+    }
+
+    if (replica_name != replication::kReservedReplicationRoleName) {
+      continue;
+    }
+
+    auto replica_status = *maybe_replica_status;
+
+    if (!replica_status.role.has_value()) {
+      replication_role_.store(replication::ReplicationRole::MAIN);
+    } else {
+      replication_role_.store(*replica_status.role);
+      port = replica_status.port;
+    }
+
+    break;
+  }
+
+  if (replication_role_ == replication::ReplicationRole::REPLICA) {
+    io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
+    replication_server_ =
+        std::make_unique<ReplicationServer>(this, std::move(endpoint), replication::ReplicationServerConfig{});
+  }
+
+  spdlog::info("Replication role restored to {}.",
+               replication_role_ == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
+}
+
+IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
+
+void Storage::SetStorageMode(StorageMode storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  storage_mode_ = storage_mode;
+}
+
+StorageMode Storage::GetStorageMode() { return storage_mode_; }
+
 void Storage::RestoreReplicas() {
-  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
-  if (!ShouldStoreAndRestoreReplicas()) {
+  if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
   spdlog::info("Restoring replicas.");
@@ -2122,7 +2313,7 @@ void Storage::RestoreReplicas() {
   for (const auto &[replica_name, replica_data] : *storage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
-    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
+    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
       LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
     }
@@ -2130,6 +2321,10 @@ void Storage::RestoreReplicas() {
     auto replica_status = *maybe_replica_status;
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
+
+    if (replica_name == replication::kReservedReplicationRoleName) {
+      continue;
+    }
 
     auto ret =
         RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
@@ -2147,6 +2342,6 @@ void Storage::RestoreReplicas() {
   }
 }
 
-bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
+bool Storage::ShouldStoreAndRestoreReplicationState() const { return nullptr != storage_; }
 
 }  // namespace memgraph::storage

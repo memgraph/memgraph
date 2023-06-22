@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,18 @@
 #include "query/trigger.hpp"
 #include "utils/async_timer.hpp"
 
+#include "query/frame_change.hpp"
+
 namespace memgraph::query {
+
+enum class TransactionStatus {
+  IDLE,
+  ACTIVE,
+  VERIFYING,
+  TERMINATED,
+  STARTED_COMMITTING,
+  STARTED_ROLLBACK,
+};
 
 struct EvaluationContext {
   /// Memory for allocations during evaluation of a *single* Pull call.
@@ -66,12 +77,14 @@ struct ExecutionContext {
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   std::atomic<bool> *is_shutting_down{nullptr};
+  std::atomic<TransactionStatus> *transaction_status{nullptr};
   bool is_profile_query{false};
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
+  FrameChangeCollector *frame_change_collector{nullptr};
   utils::AsyncTimer timer;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
@@ -82,7 +95,9 @@ static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext mus
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 
 inline bool MustAbort(const ExecutionContext &context) noexcept {
-  return (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
+  return (context.transaction_status != nullptr &&
+          context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) ||
+         (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
 }
 

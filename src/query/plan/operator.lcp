@@ -134,6 +134,7 @@ class LoadCsv;
 class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
+class Apply;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -142,7 +143,8 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
-    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter>;
+    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
+    EvaluatePatternFilter, Apply>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2377,6 +2379,52 @@ clauses.
    void set_input(std::shared_ptr<LogicalOperator> input) override {
      input_ = std::move(input);
    }
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class apply (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (subquery "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (subquery-has-return "bool" :scope :public))
+
+  (:documentation "Applies symbols from both output branches.")
+
+  (:public
+   #>cpp
+   Apply() {}
+
+   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery, bool subquery_has_return);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private
+   #>cpp
+   class ApplyCursor : public Cursor {
+    public:
+     ApplyCursor(const Apply &, utils::MemoryResource *);
+     bool Pull(Frame &, ExecutionContext &) override;
+     void Shutdown() override;
+     void Reset() override;
+
+    private:
+     const Apply &self_;
+     UniqueCursorPtr input_;
+     UniqueCursorPtr subquery_;
+     bool pull_input_{true};
+     bool subquery_has_return_{true};
+   };
    cpp<#)
   (:serialize (:slk))
   (:clone))

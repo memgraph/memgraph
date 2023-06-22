@@ -196,22 +196,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          cd tests/integration
-          for name in *; do
-            if [ ! -d $name ]; then continue; fi
-            pushd $name >/dev/null
-            echo "Running: $name"
-            if [ -x prepare.sh ]; then
-              ./prepare.sh
-            fi
-            if [ -x runner.py ]; then
-              ./runner.py
-            elif [ -x runner.sh ]; then
-              ./runner.sh
-            fi
-            echo
-            popd >/dev/null
-          done
+          tests/integration/run.sh
 
       - name: Run cppcheck and clang-format
         run: |
@@ -437,7 +422,7 @@ jobs:
       - name: Run mgbench
         run: |
           cd tests/mgbench
-          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
 
       - name: Upload mgbench results
         run: |
