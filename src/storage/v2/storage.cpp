@@ -335,13 +335,6 @@ Storage::Storage(Config config)
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_role_ == ReplicationRole::MAIN) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -437,14 +430,29 @@ Storage::Storage(Config config)
     commit_log_.emplace(timestamp_);
   }
 
-  if (config_.durability.restore_replicas_on_startup) {
-    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
+  if (config_.durability.restore_replication_state_on_startup) {
+    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
     storage_ =
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
-    RestoreReplicas();
+
+    RestoreReplicationRole();
+
+    if (replication_role_ == replication::ReplicationRole::MAIN) {
+      RestoreReplicas();
+    }
   } else {
-    spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be forgotten.");
+    spdlog::warn(
+        "Replicastion configuration will NOT be stored. When the server restarts, replication state will be "
+        "forgotten.");
+  }
+
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
+      replication_role_ == replication::ReplicationRole::MAIN) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
   }
 }
 
@@ -968,7 +976,7 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        if (storage_->replication_role_ == replication::ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
@@ -982,7 +990,8 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          if (storage_->replication_role_ == replication::ReplicationRole::MAIN ||
+              desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             storage_->last_commit_timestamp_.store(*commit_timestamp_);
           }
@@ -1447,7 +1456,7 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level, StorageMo
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_role_ == ReplicationRole::REPLICA) {
+    if (replication_role_ == replication::ReplicationRole::REPLICA) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
@@ -1752,7 +1761,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  if (replication_role_.load() == ReplicationRole::MAIN) {
+  if (replication_role_.load() == replication::ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1940,7 +1949,7 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
   auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   {
-    if (replication_role_.load() == ReplicationRole::MAIN) {
+    if (replication_role_.load() == replication::ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
           client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1960,7 +1969,7 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
 }
 
 utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::optional<bool> is_periodic) {
-  if (replication_role_.load() != ReplicationRole::MAIN) {
+  if (replication_role_.load() != replication::ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
@@ -2054,20 +2063,38 @@ uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_t
 
 bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
-  if (replication_role_ == ReplicationRole::REPLICA) {
+  if (replication_role_ == replication::ReplicationRole::REPLICA) {
     return false;
   }
 
+  auto port = endpoint.port;  // assigning because we will move the endpoint
   replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 
-  replication_role_.store(ReplicationRole::REPLICA);
+  if (ShouldStoreAndRestoreReplicationState()) {
+    // Only thing that matters here is the role saved as REPLICA and the listening port
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = port,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::REPLICA});
+
+    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving REPLICA replication role in settings.");
+      return false;
+    }
+  }
+
+  replication_role_.store(replication::ReplicationRole::REPLICA);
   return true;
 }
 
 bool Storage::SetMainReplicationRole() {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
-  if (replication_role_ == ReplicationRole::MAIN) {
+  if (replication_role_ == replication::ReplicationRole::MAIN) {
     return false;
   }
 
@@ -2090,14 +2117,33 @@ bool Storage::SetMainReplicationRole() {
     epoch_id_ = utils::GenerateUUID();
   }
 
-  replication_role_.store(ReplicationRole::MAIN);
+  if (ShouldStoreAndRestoreReplicationState()) {
+    // Only thing that matters here is the role saved as MAIN
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = 0,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::MAIN});
+
+    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving MAIN replication role in settings.");
+      return false;
+    }
+  }
+
+  replication_role_.store(replication::ReplicationRole::MAIN);
+
   return true;
 }
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
+  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
+            "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
@@ -2116,14 +2162,15 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  if (ShouldStoreAndRestoreReplicas()) {
-    auto data = replication::ReplicaStatusToJSON(
-        replication::ReplicaStatus{.name = name,
-                                   .ip_address = endpoint.address,
-                                   .port = endpoint.port,
-                                   .sync_mode = replication_mode,
-                                   .replica_check_frequency = config.replica_check_frequency,
-                                   .ssl = config.ssl});
+  if (ShouldStoreAndRestoreReplicationState()) {
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = name,
+                                       .ip_address = endpoint.address,
+                                       .port = endpoint.port,
+                                       .sync_mode = replication_mode,
+                                       .replica_check_frequency = config.replica_check_frequency,
+                                       .ssl = config.ssl,
+                                       .role = replication::ReplicationRole::REPLICA});
     if (!storage_->Put(name, data.dump())) {
       spdlog::error("Error when saving replica {} in settings.", name);
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
@@ -2159,8 +2206,9 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 }
 
 bool Storage::UnregisterReplica(const std::string &name) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
-  if (ShouldStoreAndRestoreReplicas()) {
+  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
+            "Only main instance can unregister a replica!");
+  if (ShouldStoreAndRestoreReplicationState()) {
     if (!storage_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
       return false;
@@ -2183,7 +2231,7 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::str
   });
 }
 
-ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
+replication::ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
 
 std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
@@ -2207,6 +2255,46 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   return {};
 }
 
+void Storage::RestoreReplicationRole() {
+  if (!ShouldStoreAndRestoreReplicationState()) {
+    return;
+  }
+
+  spdlog::info("Restoring replication role.");
+
+  uint16_t port = replication::kDefaultReplicationPort;
+  for (const auto &[replica_name, replica_data] : *storage_) {
+    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
+    if (!maybe_replica_status.has_value()) {
+      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
+    }
+
+    if (replica_name != replication::kReservedReplicationRoleName) {
+      continue;
+    }
+
+    auto replica_status = *maybe_replica_status;
+
+    if (!replica_status.role.has_value()) {
+      replication_role_.store(replication::ReplicationRole::MAIN);
+    } else {
+      replication_role_.store(*replica_status.role);
+      port = replica_status.port;
+    }
+
+    break;
+  }
+
+  if (replication_role_ == replication::ReplicationRole::REPLICA) {
+    io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
+    replication_server_ =
+        std::make_unique<ReplicationServer>(this, std::move(endpoint), replication::ReplicationServerConfig{});
+  }
+
+  spdlog::info("Replication role restored to {}.",
+               replication_role_ == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
+}
+
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 void Storage::SetStorageMode(StorageMode storage_mode) {
@@ -2217,8 +2305,7 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
 StorageMode Storage::GetStorageMode() { return storage_mode_; }
 
 void Storage::RestoreReplicas() {
-  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
-  if (!ShouldStoreAndRestoreReplicas()) {
+  if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
   spdlog::info("Restoring replicas.");
@@ -2226,7 +2313,7 @@ void Storage::RestoreReplicas() {
   for (const auto &[replica_name, replica_data] : *storage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
-    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
+    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
       LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
     }
@@ -2234,6 +2321,10 @@ void Storage::RestoreReplicas() {
     auto replica_status = *maybe_replica_status;
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
+
+    if (replica_name == replication::kReservedReplicationRoleName) {
+      continue;
+    }
 
     auto ret =
         RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
@@ -2251,6 +2342,6 @@ void Storage::RestoreReplicas() {
   }
 }
 
-bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
+bool Storage::ShouldStoreAndRestoreReplicationState() const { return nullptr != storage_; }
 
 }  // namespace memgraph::storage
