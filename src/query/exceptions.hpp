@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,9 +120,8 @@ class HintedAbortError : public utils::BasicException {
   using utils::BasicException::BasicException;
   HintedAbortError()
       : utils::BasicException(
-            "Transaction was asked to abort, most likely because it was "
-            "executing longer than time specified by "
-            "--query-execution-timeout-sec flag.") {}
+            "Transaction was asked to abort either because it was executing longer than time specified or another user "
+            "asked it to abort.") {}
 };
 
 class ExplicitTransactionUsageException : public QueryRuntimeException {
@@ -212,6 +211,21 @@ class IsolationLevelModificationInMulticommandTxException : public QueryExceptio
       : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
 };
 
+class IsolationLevelModificationInAnalyticsException : public QueryException {
+ public:
+  IsolationLevelModificationInAnalyticsException()
+      : QueryException(
+            "Isolation level cannot be modified when storage mode is set to IN_MEMORY_ANALYTICAL."
+            "IN_MEMORY_ANALYTICAL mode doesn't provide any isolation guarantees, "
+            "you can think about it as an equivalent to READ_UNCOMMITED.") {}
+};
+
+class StorageModeModificationInMulticommandTxException : public QueryException {
+ public:
+  StorageModeModificationInMulticommandTxException()
+      : QueryException("Storage mode cannot be modified in multicommand transactions.") {}
+};
+
 class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()
@@ -230,11 +244,24 @@ class VersionInfoInMulticommandTxException : public QueryException {
       : QueryException("Version info query not allowed in multicommand transactions.") {}
 };
 
+class AnalyzeGraphInMulticommandTxException : public QueryException {
+ public:
+  AnalyzeGraphInMulticommandTxException()
+      : QueryException("Analyze graph query not allowed in multicommand transactions.") {}
+};
+
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   explicit ReplicationException(const std::string &message)
-      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICA' query.",
+      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
                               message) {}
 };
+
+class TransactionQueueInMulticommandTxException : public QueryException {
+ public:
+  TransactionQueueInMulticommandTxException()
+      : QueryException("Transaction queue queries not allowed in multicommand transactions.") {}
+};
+
 }  // namespace memgraph::query

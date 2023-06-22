@@ -22,6 +22,7 @@ import Cypher ;
 memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
+                      | ANALYZE
                       | ASYNC
                       | AUTH
                       | BAD
@@ -30,6 +31,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -53,10 +55,14 @@ memgraphCypherKeyword : cypherKeyword
                       | FREE
                       | FROM
                       | GLOBAL
+                      | GRAPH
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | NULLIF
                       | ISOLATION
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -86,6 +92,8 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STATUS
+                      | STORAGE
                       | STREAM
                       | STREAMS
                       | SYNC
@@ -102,6 +110,8 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | VERSION
+                      | TERMINATE
+                      | TRANSACTIONS
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -117,16 +127,19 @@ query : cypherQuery
       | constraintQuery
       | authQuery
       | dumpQuery
+      | analyzeGraphQuery
       | replicationQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
+      | storageModeQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
       | showConfigQuery
+      | transactionQueueQuery
       ;
 
 authQuery : createRole
@@ -170,6 +183,7 @@ clause : cypherMatch
        | callProcedure
        | loadCsv
        | foreach
+       | callSubquery
        ;
 
 updateClause : set
@@ -181,6 +195,8 @@ updateClause : set
              ;
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
+
+callSubquery : CALL '{' cypherQuery '}' ;
 
 streamQuery : checkStream
             | createStream
@@ -197,10 +213,19 @@ settingQuery : setSetting
              | showSettings
              ;
 
+transactionQueueQuery : showTransactions
+                      | terminateTransactions
+                      ;
+
+showTransactions : SHOW TRANSACTIONS ;
+
+terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
+
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
+         ( NULLIF nullif ) ?
          AS rowVar ;
 
 csvFile : literal ;
@@ -208,6 +233,8 @@ csvFile : literal ;
 delimiter : literal ;
 
 quote : literal ;
+
+nullif : literal ;
 
 rowVar : variable ;
 
@@ -259,6 +286,8 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | TRANSACTION_MANAGEMENT
+          | STORAGE_MODE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -279,11 +308,11 @@ revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
 
 privilegesList : privilege ( ',' privilege )* ;
 
-entitiesList : ASTERISK | listOfEntities ;
+entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
-listOfEntities : entity ( ',' entity )* ;
+listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
-entity : COLON symbolicName ;
+colonSymbolicName : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
@@ -292,6 +321,8 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
+
+analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
 setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;
@@ -309,7 +340,7 @@ dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
 
-lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
 freeMemoryQuery : FREE MEMORY ;
 
@@ -333,6 +364,10 @@ isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
+
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL ;
+
+storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 
@@ -402,3 +437,7 @@ showSettings : SHOW DATABASE SETTINGS ;
 showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;
+
+transactionIdList : transactionId ( ',' transactionId )* ;
+
+transactionId : literal ;

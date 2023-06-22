@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # shellcheck disable=1091
+
 set -Eeuo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -15,6 +16,8 @@ PIP_DEPS=(
    "pytest==6.2.3"
    "pyyaml==5.4.1"
    "six==1.15.0"
+   "networkx==2.4"
+   "gqlalchemy==1.3.3"
 )
 cd "$DIR"
 
@@ -33,14 +36,7 @@ set -u
 PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[:][1])')
 
 # install pulsar-client
-# NOTE (2021-11-15): PyPi doesn't contain pulsar-client for Python 3.9 so we have to use
-# our manually built wheel file. When they update the repository, pulsar-client can be
-# added as a regular PIP dependancy
-if [ $PYTHON_MINOR -lt 9 ]; then
-  pip --timeout 1000 install "pulsar-client==2.8.1"
-else
-  pip --timeout 1000 install https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pulsar_client-2.8.1-cp39-cp39-manylinux_2_5_x86_64.manylinux1_x86_64.whl
-fi
+pip --timeout 1000 install "pulsar-client==3.1.0"
 
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"

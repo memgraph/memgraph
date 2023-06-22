@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,15 +24,6 @@
 namespace memgraph::query::plan {
 
 namespace {
-
-bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  for (const auto &symbol : filter.used_symbols) {
-    if (bound_symbols.find(symbol) == bound_symbols.end()) {
-      return false;
-    }
-  }
-  return true;
-}
 
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
@@ -133,8 +124,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PostVisit(MapLiteral &map_literal) override {
     MG_ASSERT(map_literal.elements_.size() <= has_aggregation_.size(),
-              "Expected has_aggregation_ flags as much as there are map elements.");
+              "Expected as many has_aggregation_ flags as there are map elements.");
     PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
+    return true;
+  }
+
+  bool PostVisit(MapProjectionLiteral &map_projection_literal) override {
+    MG_ASSERT(map_projection_literal.elements_.size() <= has_aggregation_.size(),
+              "Expected as many has_aggregation_ flags as there are map elements.");
+    PostVisitCollectionLiteral(map_projection_literal, [](auto it) { return it->second; });
     return true;
   }
 
@@ -495,7 +493,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    last_op = std::make_unique<Filter>(std::move(last_op), body.where()->expression_);
+    last_op = std::make_unique<Filter>(std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{},
+                                       body.where()->expression_);
   }
   return last_op;
 }
@@ -503,6 +502,12 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 }  // namespace
 
 namespace impl {
+
+bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
+  return std::ranges::all_of(
+      filter.used_symbols.begin(), filter.used_symbols.end(),
+      [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
+}
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
@@ -517,14 +522,20 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   return filter_expr;
 }
 
-std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
-                                            const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-                                            AstStorage &storage) {
-  auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
-  if (filter_expr) {
-    last_op = std::make_unique<Filter>(std::move(last_op), filter_expr);
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
+                                                   SymbolTable &symbol_table, AstStorage &storage) {
+  const auto &query = single_query_parts[0];
+
+  if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
+    return {};
   }
-  return last_op;
+
+  if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
+    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage);
+    return bound_symbols;
+  }
+
+  return {};
 }
 
 std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,

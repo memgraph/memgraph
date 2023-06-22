@@ -46,7 +46,9 @@ indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
 
-infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo ) ;
+buildInfo : BUILD INFO ;
+
+infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo | buildInfo) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -236,6 +238,7 @@ atom : literal
      | ( ANY '(' filterExpression ')' )
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
+     | ( EXISTS '(' existsExpression ')' )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -247,6 +250,7 @@ literal : numberLiteral
         | booleanLiteral
         | CYPHERNULL
         | mapLiteral
+        | mapProjectionLiteral
         | listLiteral
         ;
 
@@ -275,6 +279,8 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
+existsExpression : patternPart ;
+
 idInColl : variable IN expression ;
 
 functionInvocation : functionName '(' ( DISTINCT )? ( expression ( ',' expression )* )? ')' ;
@@ -286,6 +292,8 @@ listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
 
 propertyLookup : '.' ( propertyKeyName ) ;
+
+allPropertiesLookup : '.' '*' ;
 
 caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
 
@@ -299,11 +307,21 @@ numberLiteral : doubleLiteral
 
 mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
 
+mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
+
+mapElement : propertyLookup
+           | allPropertiesLookup
+           | variable
+           | propertyKeyValuePair
+           ;
+
 parameter : '$' ( symbolicName | DecimalLiteral ) ;
 
 propertyExpression : atom ( propertyLookup )+ ;
 
 propertyKeyName : symbolicName ;
+
+propertyKeyValuePair : propertyKeyName ':' expression ;
 
 integerLiteral : DecimalLiteral
                | OctalLiteral

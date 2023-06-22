@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,15 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/timer.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotRecoveryLatency_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage::durability {
 
@@ -68,6 +74,12 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
   if (utils::DirExists(snapshot_directory)) {
     for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
+      if (!utils::HasReadAccess(item.path())) {
+        spdlog::warn(
+            "Skipping snapshot file '{}' because it is not readable, check file ownership and read permissions!",
+            item.path());
+        continue;
+      }
       try {
         auto info = ReadSnapshotInfo(item.path());
         if (uuid.empty() || info.uuid == uuid) {
@@ -113,13 +125,15 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                  const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index.CreateIndex(item, vertices->access()))
+    if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info))
       throw RecoveryFailure("The label index must be created here!");
+
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
@@ -163,7 +177,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        Indices *indices, Constraints *constraints, const Config &config,
                                         uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
@@ -173,6 +187,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         "https://memgr.ph/durability"));
     return std::nullopt;
   }
+
+  utils::Timer timer;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
@@ -195,7 +211,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, items);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -213,7 +229,11 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+      const auto par_exec_info = config.durability.allow_parallel_index_creation
+                                     ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
+                                                                         config.durability.recovery_thread_count))
+                                     : std::nullopt;
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -319,7 +339,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, items);
+                            edge_count, config.items);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
@@ -341,6 +361,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   }
 
   RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+
+  memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
   return recovery_info;
 }
 
