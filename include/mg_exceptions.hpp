@@ -16,15 +16,12 @@
 #include <sstream>
 #include <string>
 
-// TODO(gitbuda): Add more info how to deal with exceptions.
-// TODO(gitbuda): An issue here is that the message.hpp also has to be shipped.
-// fmt dependency is a further problem.
-// PROPOSAL: Format all manually to avoid any additional client complexity.
-// #include "utils/message.hpp"
-
 namespace mg_exception {
 
-// TODO(gitbuda): Write explanation why StringSerialize.
+// Instead of writing this utility function, we could have used `fmt::format`, but that's not an ideal option here
+// because that would introduce dependency that would be propagated to the client code (if exceptions here would be
+// used). Since the functionality here is not complex + the code is not on a critical path, we opted for a pure C++
+// solution.
 template <typename FirstArg, typename... Args>
 std::string StringSerialize(FirstArg &&firstArg, Args &&...args) {
   std::stringstream stream;
@@ -33,19 +30,24 @@ std::string StringSerialize(FirstArg &&firstArg, Args &&...args) {
   return stream.str();
 }
 
-struct NotEnoughMemoryException : public std::exception {
-  const char *what() const noexcept override { return "Not enough memory!"; }
-};
-
 struct UnknownException : public std::exception {
   const char *what() const noexcept override { return "Unknown exception!"; }
 };
 
+struct NotEnoughMemoryException : public std::exception {
+  NotEnoughMemoryException()
+      : message_{
+            StringSerialize("Not enough memory! For more details please visit", "https://memgr.ph/memory-control")} {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
+};
+
 struct AllocationException : public std::exception {
   AllocationException()
-      : message_(StringSerialize("Could not allocate memory.",
-                                 "https://memgraph.com/docs/memgraph/reference-guide/"
-                                 "memory-control#controlling-the-memory-usage-of-a-procedure")) {}
+      : message_{StringSerialize("Could not allocate memory. For more details please visit",
+                                 "https://memgr.ph/memory-control")} {}
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -73,7 +75,7 @@ struct InvalidArgumentException : public std::exception {
 };
 
 struct InvalidIDException : public std::exception {
-  InvalidIDException() : message_("Invalid ID!") {}
+  InvalidIDException() : message_{"Invalid ID!"} {}
   explicit InvalidIDException(std::uint64_t identifier) : message_{StringSerialize("Invalid ID =", identifier)} {}
   const char *what() const noexcept override { return message_.c_str(); }
 
@@ -82,7 +84,13 @@ struct InvalidIDException : public std::exception {
 };
 
 struct KeyAlreadyExistsException : public std::exception {
-  const char *what() const noexcept override { return "Key you are trying to set already exists!"; }
+  KeyAlreadyExistsException() : message_{"Key you are trying to set already exists!"} {}
+  explicit KeyAlreadyExistsException(const std::string &key)
+      : message_{StringSerialize("Key you are trying to set already exists! KEY = ", key)} {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
 };
 
 struct ImmutableObjectException : public std::exception {

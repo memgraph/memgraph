@@ -51,11 +51,6 @@ class NotFoundException : public std::exception {
   std::string message_;
 };
 
-class NotEnoughMemoryException : public std::exception {
- public:
-  const char *what() const noexcept override { return "Not enough memory!"; }
-};
-
 class MustAbortException : public std::exception {
  public:
   explicit MustAbortException(const std::string &message) : message_(message) {}
