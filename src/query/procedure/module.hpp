@@ -153,7 +153,8 @@ class ModuleRegistry final {
   };
 
   inline static const std::string kLibstdcppWarning =
-      "Query modules might not work as expected. Please install libstdc++ or compile from source.";
+      "Query modules might not work as expected. Printing non-string values from query modules might not work. Please "
+      "install libstdc++ or compile from source with the recent toolchain (all included).";
 #if __has_feature(address_sanitizer)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89

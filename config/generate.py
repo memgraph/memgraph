@@ -28,6 +28,8 @@ def extract_flags(binary_path):
     # can be logged before gflags output (e.g. during the global objects init).
     # This gets called during memgraph build phase to generate default config
     # file later installed under /etc/memgraph/memgraph.conf
+    # NOTE: Don't use \n in the gflags description strings.
+    # NOTE: Check here if gflags version changes because of the XML format.
     data = "\n".join([line for line in data.split("\n") if line.startswith("<")])
     root = ET.fromstring(data)
     for child in root:
