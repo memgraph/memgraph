@@ -214,7 +214,9 @@ struct Delta {
       case Action::ADD_OUT_EDGE:
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
+        break;
       case Action::DELETE_DESERIALIZED_OBJECT:
+        old_disk_key.reset();
         break;
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();
