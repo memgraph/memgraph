@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -652,9 +652,9 @@ TEST_F(ReplicationTest, ReplicationInformation) {
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID)
                    .HasError());
 
-  ASSERT_EQ(main_store.GetReplicationRole(), memgraph::storage::ReplicationRole::MAIN);
-  ASSERT_EQ(replica_store1.GetReplicationRole(), memgraph::storage::ReplicationRole::REPLICA);
-  ASSERT_EQ(replica_store2.GetReplicationRole(), memgraph::storage::ReplicationRole::REPLICA);
+  ASSERT_EQ(main_store.GetReplicationRole(), memgraph::storage::replication::ReplicationRole::MAIN);
+  ASSERT_EQ(replica_store1.GetReplicationRole(), memgraph::storage::replication::ReplicationRole::REPLICA);
+  ASSERT_EQ(replica_store2.GetReplicationRole(), memgraph::storage::replication::ReplicationRole::REPLICA);
 
   const auto replicas_info = main_store.ReplicasInfo();
   ASSERT_EQ(replicas_info.size(), 2);
@@ -730,7 +730,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
   auto main_config = configuration;
-  main_config.durability.restore_replicas_on_startup = true;
+  main_config.durability.restore_replication_state_on_startup = true;
   auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
 
   memgraph::storage::Storage replica_store1(configuration);
@@ -773,7 +773,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto main_config = configuration;
-  main_config.durability.restore_replicas_on_startup = true;
+  main_config.durability.restore_replication_state_on_startup = true;
   auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
   memgraph::storage::Storage replica_store1(configuration);
   replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[0]});

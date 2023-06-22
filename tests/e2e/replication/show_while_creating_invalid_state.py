@@ -9,17 +9,16 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
-
 import os
-import pytest
 import random
+import sys
+import tempfile
 
-from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
 import interactive_mg_runner
 import mgclient
-import tempfile
+import pytest
+from common import execute_and_fetch_all
+from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -338,6 +337,138 @@ def test_basic_recovery(connection):
     assert len(res_from_main) == 4
     for index in (1, 2, 3, 4):
         assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
+
+
+def test_replication_role_recovery(connection):
+    # Goal of this test is to check the recovery of main and replica role.
+    # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 1/ We try to add a replica with reserved name which results in an exception
+    # 2/ We check that all replicas have the correct state: they should all be ready.
+    # 3/ We kill main.
+    # 4/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
+    # 5/ We kill the replica.
+    # 6/ We observed that the replica result is in invalid state.
+    # 7/ We start the replica again. We observe that indeed the replica has the replica state.
+    # 8/ We observe that main has the replica ready.
+    # 9/ We kill the replica again.
+    # 10/ We add data to main.
+    # 11/ We start the replica again. We observe that the replica has the same
+    #     data as main because it synced and added lost data.
+
+    # 0/
+    data_directory = tempfile.TemporaryDirectory()
+    CONFIGURATION = {
+        "replica": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "data_directory": f"{data_directory.name}/replica",
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "log_file": "main.log",
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/main",
+        },
+    }
+
+    interactive_mg_runner.start_all(CONFIGURATION)
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica SYNC TO '127.0.0.1:10001';")
+
+    # When we restart the replica, it does not need this query anymore since it needs to remember state
+    CONFIGURATION = {
+        "replica": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica.log",
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/replica",
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "log_file": "main.log",
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/main",
+        },
+    }
+    # 1/
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
+
+    # 2/
+    expected_data = {
+        ("replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+    }
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    assert actual_data == expected_data
+
+    def check_roles():
+        assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
+        assert "replica" == interactive_mg_runner.MEMGRAPH_INSTANCES["replica"].query("SHOW REPLICATION ROLE;")[0][0]
+
+    check_roles()
+
+    # 3/
+    interactive_mg_runner.kill(CONFIGURATION, "main")
+
+    # 4/
+    interactive_mg_runner.start(CONFIGURATION, "main")
+    cursor = connection(7687, "main").cursor()
+    check_roles()
+
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+
+    # 5/
+    interactive_mg_runner.kill(CONFIGURATION, "replica")
+
+    # 6/
+    expected_data = {
+        ("replica", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+
+    assert actual_data == expected_data
+
+    # 7/
+    interactive_mg_runner.start(CONFIGURATION, "replica")
+    check_roles()
+
+    # 8/
+    expected_data = {
+        ("replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+    }
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+
+    # 9/
+    interactive_mg_runner.kill(CONFIGURATION, "replica")
+
+    # 10/
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "CREATE (n:First)")
+
+    # 11/
+    interactive_mg_runner.start(CONFIGURATION, "replica")
+    check_roles()
+
+    expected_data = {
+        ("replica", "127.0.0.1:10001", "sync", 2, 0, "ready"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+
+    QUERY_TO_CHECK = "MATCH (node) return node;"
+    res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
+    assert len(res_from_main) == 1
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["replica"].query(QUERY_TO_CHECK)
 
 
 def test_conflict_at_startup(connection):
