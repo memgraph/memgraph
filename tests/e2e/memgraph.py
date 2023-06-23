@@ -75,6 +75,19 @@ class MemgraphInstanceRunner:
         cursor.close()
         conn.close()
 
+    def query(self, query, conn=None):
+        new_conn = conn is None
+        if new_conn:
+            conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query)
+        if new_conn:
+            conn.close()
+        return cursor.fetchall()
+
+    def get_connection(self):
+        return mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
+
     def start(self, restart=False, args=None, setup_queries=None):
         if not restart and self.is_running():
             return

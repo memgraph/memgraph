@@ -16,9 +16,8 @@ import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
 
-import yaml
-
 import interactive_mg_runner
+import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -49,6 +48,7 @@ def run(args):
         if args.workload_name is not None and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)
+
         # Setup.
         @atexit.register
         def cleanup():
@@ -66,10 +66,12 @@ def run(args):
         # Validation.
         if "cluster" in workload:
             for name, config in workload["cluster"].items():
+                mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+                conn = mg_instance.get_connection()
                 for validation in config.get("validation_queries", []):
-                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
-                    data = mg_instance.query(validation["query"])[0][0]
+                    data = mg_instance.query(conn, validation["query"])[0][0]
                     assert data == validation["expected"]
+                conn.close()
         cleanup()
         log.info("%s PASSED.", workload_name)
 
