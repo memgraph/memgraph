@@ -11,8 +11,6 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -89,5 +87,3 @@ class Handler {
 };
 
 }  // namespace memgraph::dbms
-
-#endif
