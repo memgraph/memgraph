@@ -22,21 +22,16 @@
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_storage"};
 
-memgraph::storage::Config default_conf{
-    .durability = {
-        .storage_directory = storage_directory,
-        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
+memgraph::storage::Config default_conf(std::string name = "") {
+  return {.durability = {
+              .storage_directory = storage_directory / name,
+              .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
+}
 
 #ifdef MG_ENTERPRISE
 TEST(DBMS_Storage, New) {
-  memgraph::dbms::StorageHandler<> sh;
-  {
-    // Try new without config (should fail)
-    ASSERT_FALSE(sh.GetDefaultConfig());
-    ASSERT_FALSE(sh.GetConfig("db1"));
-    const auto res = sh.New("db1");
-    ASSERT_TRUE(res.HasError() && res.GetError() == memgraph::dbms::NewError::NO_CONFIGS);
-  }
+  memgraph::dbms::StorageHandler sh;
+  { ASSERT_FALSE(sh.GetConfig("db1")); }
   {
     // With custom config
     memgraph::storage::Config db_config{
@@ -45,20 +40,17 @@ TEST(DBMS_Storage, New) {
             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
     auto db2 = sh.New("db2", db_config);
     ASSERT_TRUE(db2.HasValue() && db2.GetValue() != nullptr);
-    ASSERT_FALSE(sh.GetDefaultConfig());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db2"));
   }
   {
     // With default config
-    sh.SetDefaultConfig(default_conf);
-    ASSERT_TRUE(sh.GetDefaultConfig());
-    auto db3 = sh.New("db3");
+    auto db3 = sh.New("db3", default_conf("db3"));
     ASSERT_TRUE(db3.HasValue() && db3.GetValue() != nullptr);
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db3"));
-    auto db4 = sh.New("db4", "four");
+    auto db4 = sh.New("db4", default_conf("four"));
     ASSERT_TRUE(db4.HasValue() && db4.GetValue() != nullptr);
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "four"));
-    auto db5 = sh.New("db5", "db3");
+    auto db5 = sh.New("db5", default_conf("db3"));
     ASSERT_TRUE(db5.HasError() && db5.GetError() == memgraph::dbms::NewError::EXISTS);
   }
 
@@ -71,14 +63,11 @@ TEST(DBMS_Storage, New) {
 }
 
 TEST(DBMS_Storage, Get) {
-  memgraph::dbms::StorageHandler<> sh;
+  memgraph::dbms::StorageHandler sh;
 
-  sh.SetDefaultConfig(default_conf);
-  ASSERT_TRUE(sh.GetDefaultConfig());
-
-  auto db1 = sh.New("db1");
-  auto db2 = sh.New("db2");
-  auto db3 = sh.New("db3");
+  auto db1 = sh.New("db1", default_conf("db1"));
+  auto db2 = sh.New("db2", default_conf("db2"));
+  auto db3 = sh.New("db3", default_conf("db3"));
 
   ASSERT_TRUE(db1.HasValue());
   ASSERT_TRUE(db2.HasValue());
@@ -98,14 +87,11 @@ TEST(DBMS_Storage, Get) {
 }
 
 TEST(DBMS_Storage, Delete) {
-  memgraph::dbms::StorageHandler<> sh;
+  memgraph::dbms::StorageHandler sh;
 
-  sh.SetDefaultConfig(default_conf);
-  ASSERT_TRUE(sh.GetDefaultConfig());
-
-  auto db1 = sh.New("db1");
-  auto db2 = sh.New("db2");
-  auto db3 = sh.New("db3");
+  auto db1 = sh.New("db1", default_conf("db1"));
+  auto db2 = sh.New("db2", default_conf("db2"));
+  auto db3 = sh.New("db3", default_conf("db3"));
 
   ASSERT_TRUE(db1.HasValue());
   ASSERT_TRUE(db2.HasValue());
@@ -137,14 +123,11 @@ TEST(DBMS_Storage, Delete) {
 
 TEST(DBMS_Storage, DeleteAndRecover) {
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::dbms::StorageHandler<> sh;
-
-  sh.SetDefaultConfig(default_conf);
-  ASSERT_TRUE(sh.GetDefaultConfig());
+  memgraph::dbms::StorageHandler sh;
 
   {
-    auto db1 = sh.New("db1");
-    auto db2 = sh.New("db2");
+    auto db1 = sh.New("db1", default_conf("db1"));
+    auto db2 = sh.New("db2", default_conf("db2"));
 
     memgraph::storage::Config conf_w_snap{
         .durability = {
@@ -188,8 +171,8 @@ TEST(DBMS_Storage, DeleteAndRecover) {
 
   {
     // Recover graphs (only db3)
-    auto db1 = sh.New("db1");
-    auto db2 = sh.New("db2");
+    auto db1 = sh.New("db1", default_conf("db1"));
+    auto db2 = sh.New("db2", default_conf("db2"));
 
     memgraph::storage::Config conf_w_rec{
         .durability = {

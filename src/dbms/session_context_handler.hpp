@@ -24,6 +24,7 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "interp_handler.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "session_context.hpp"
@@ -36,6 +37,8 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
+
+#include "handler.hpp"
 
 namespace memgraph::dbms {
 
@@ -60,7 +63,7 @@ class SessionContextHandler {
  public:
   using StorageT = storage::Storage;
   using StorageConfigT = storage::Config;
-  // using InterpT = query::InterpreterContext;
+  // using InterpT = decltype(interp_handler_)::ExpandedInterpContext;
   // using InterpConfigT = query::InterpreterConfig;
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, SessionContext>;
@@ -69,24 +72,6 @@ class SessionContextHandler {
   SessionContextHandler &operator=(const SessionContextHandler &) = delete;
   SessionContextHandler(SessionContextHandler &&) = delete;
   SessionContextHandler &operator=(SessionContextHandler &&) = delete;
-
-  class ExpandedInterpContext : public query::InterpreterContext {
-   public:
-    template <typename... TArgs>
-    explicit ExpandedInterpContext(SessionContextHandler &ref, TArgs &&...args)
-        : query::InterpreterContext(std::forward<TArgs>(args)...), sc_handler_(ref) {}
-
-    SessionContextHandler &sc_handler_;
-  };
-
-  using InterpT = ExpandedInterpContext;
-
-  struct ExpandedInterpConfig {
-    query::InterpreterConfig interp_config;
-    std::filesystem::path storage_dir;
-  };
-
-  using InterpConfigT = ExpandedInterpConfig;
 
   struct Config {
     StorageConfigT storage_config;           //!< Storage configuration
@@ -184,6 +169,7 @@ class SessionContextHandler {
    */
   SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
+    (void)Get_(db_name);  // throw if db doesn't exist (TODO: Better to pass it via OnChange - but injecting dependency)
     auto &s = sessions_.at(uuid);
     return s.OnChange(db_name);
   }
@@ -205,10 +191,9 @@ class SessionContextHandler {
    *
    * @param session
    */
-  void Delete(const SessionInterface &session) {
+  bool Delete(const SessionInterface &session) {
     std::lock_guard<LockT> wr(lock_);
-    const auto &uuid = session.UUID();
-    sessions_.erase(uuid);
+    return sessions_.erase(session.UUID()) > 0;
   }
 
   /**
@@ -355,19 +340,11 @@ class SessionContextHandler {
     if (new_storage.HasValue()) {
       auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
       if (new_auth.HasValue()) {
-        if (std::any_of(interp_handler_.cbegin(), interp_handler_.cend(), [&](const auto &elem) {
-              return elem.second.config().storage_dir == storage_config.durability.storage_directory;
-            })) {
-          // LOG
-          return NewError::EXISTS;
-        }
         auto &auth_context = new_auth.GetValue();
-        auto new_interp =
-            interp_handler_.New(std::piecewise_construct, name,
-                                std::forward_as_tuple(inter_config, storage_config.durability.storage_directory),
-                                std::forward_as_tuple(*this, new_storage.GetValue().get(), inter_config,
-                                                      storage_config.durability.storage_directory,
-                                                      &auth_context->auth_handler, &auth_context->auth_checker));
+        auto new_interp = interp_handler_.New(name, *this, *new_storage.GetValue(), inter_config,
+                                              storage_config.durability.storage_directory, auth_context->auth_handler,
+                                              auth_context->auth_checker);
+
         if (new_interp.HasValue()) {
           // Success
           if (durability_) durability_->Put(name, "ok");
@@ -453,14 +430,17 @@ class SessionContextHandler {
   std::atomic_bool initialized_;          //!< initialized flag (safeguard against multiple init calls)
   std::filesystem::path lock_file_path_;  //!< Lock file protecting the main storage
   utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
-  StorageHandler<StorageT, StorageConfigT> storage_handler_;      //!< multi-tenancy storage handler
-  InterpContextHandler<InterpT, InterpConfigT> interp_handler_;   //!< multi-tenancy interpreter handler
-  AuthHandler auth_handler_;                                      //!< multi-tenancy authorization handler
+  StorageHandler storage_handler_;        //!< multi-tenancy storage handler
+  InterpContextHandler<SessionContextHandler> interp_handler_;    //!< multi-tenancy interpreter handler
+  AuthContextHandler auth_handler_;                               //!< multi-tenancy authorization handler
   std::optional<Config> default_configs_;                         //!< default storage and interpreter configurations
   const std::string run_id_;                                      //!< run's unique identifier (auto generated)
   memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
   std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+
+ public:
+  using InterpContextT = decltype(interp_handler_)::ExpandedInterpContext;
 };
 
 #else
@@ -475,7 +455,7 @@ static inline SessionContext Init(storage::Config &storage_config, query::Interp
   auto storage = std::make_shared<storage::Storage>(storage_config);
   MG_ASSERT(storage, "Failed to allocate main storage.");
 
-  auto auth = std::make_shared<AuthHandler::AuthContext>(storage_config.durability.storage_directory, ah_flags);
+  auto auth = std::make_shared<AuthContextHandler::AuthContext>(storage_config.durability.storage_directory, ah_flags);
   MG_ASSERT(auth, "Failed to generate authentication.");
 
   auto interp_context = std::make_shared<query::InterpreterContext>(storage.get(), interp_config,

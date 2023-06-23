@@ -24,86 +24,48 @@
 #include "utils/rw_lock.hpp"
 #include "utils/sync_ptr.hpp"
 
+#include "handler.hpp"
+
 namespace memgraph::dbms {
 
-/**
- * @brief Multi-tenancy handler of authentication context.
- */
-class AuthHandler {
+class AuthContextHandler {
  public:
-  using ContextT = auth::Auth;
-  using LockT = utils::WritePrioritizedRWLock;
-
   struct AuthContext {
     explicit AuthContext(const std::filesystem::path &data_directory, const std::string &ah_flag = "")
         : auth(data_directory / "auth"), auth_handler(&auth, ah_flag), auth_checker(&auth) {}
 
-    utils::Synchronized<ContextT, LockT> auth;
+    utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth;
     glue::AuthQueryHandler auth_handler;
     glue::AuthChecker auth_checker;
   };
 
-  using NewResult = utils::BasicResult<NewError, std::shared_ptr<AuthContext>>;
+  struct AuthConfig {
+    std::filesystem::path storage_dir;
+    std::string ah_flag;
+  };
 
-  AuthHandler() = default;
+  using HandlerT = Handler<AuthContext, AuthConfig>;
 
-  /**
-   * @brief Create a new authentication context associated to the "name" database.
-   *
-   * @param name name of the database
-   * @param data_directory underlying RocksDB directory
-   * @param config glue::AuthHandler setup flags
-   * @return NewResult pointer to context on success, error on failure
-   */
-  NewResult New(std::string_view name, const std::filesystem::path &data_directory, const std::string &ah_flag = "") {
-    // Control that no one is using the same data directory or Storage
-    if (std::any_of(auth_.begin(), auth_.end(),
+  typename HandlerT::NewResult New(const std::string &name, const std::filesystem::path &data_directory,
+                                   const std::string &ah_flag = "") {
+    // Check if compatible with the existing auth
+    if (std::any_of(handler_.cbegin(), handler_.cend(),
                     [&](const auto &elem) { return elem.second.config().storage_dir == data_directory; })) {
       // LOG
       return NewError::EXISTS;
     }
-    auto [itr, success] =
-        auth_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                      std::forward_as_tuple(Config{data_directory, ah_flag}, data_directory, ah_flag));
-    if (success) {
-      return itr->second.get();
-    }
-    return NewError::EXISTS;
+    return handler_.New(name, std::forward_as_tuple(data_directory, ah_flag),
+                        std::forward_as_tuple(data_directory, ah_flag));
   }
 
-  /**
-   * @brief Get pointer to the authentication context associated with "name" database.
-   *
-   * @param name name of the database
-   * @return std::optional<std::shared_ptr<AuthContext>> empty on error
-   */
-  std::optional<std::shared_ptr<AuthContext>> Get(const std::string &name) {
-    if (auto search = auth_.find(name); search != auth_.end()) {
-      return search->second.get();
-    }
-    return {};
-  }
+  auto Get(const std::string &name) { return handler_.Get(name); }
 
-  /**
-   * @brief Delete the authentication context associated with the "name" database
-   *
-   * @param name name of the database
-   * @return true on success
-   */
-  bool Delete(const std::string &name) {
-    if (auto itr = auth_.find(name); itr != auth_.end()) {
-      auth_.erase(itr);
-      return true;
-    }
-    return false;
-  }
+  auto GetConfig(const std::string &name) const { return handler_.GetConfig(name); }
+
+  auto Delete(const std::string &name) { return handler_.Delete(name); }
 
  private:
-  struct Config {
-    std::filesystem::path storage_dir;
-    std::string ah_flag;
-  };
-  std::unordered_map<std::string, utils::SyncPtr<AuthContext, Config>> auth_;  //!< map to all active interpreters
+  HandlerT handler_;
 };
 
 }  // namespace memgraph::dbms

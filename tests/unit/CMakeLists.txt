@@ -394,6 +394,6 @@ add_unit_test(dbms_auth.cpp)
 target_link_libraries(${test_prefix}dbms_auth mg-glue)
 
 if(MG_ENTERPRISE)
-  add_unit_test_with_custom_main(dbms_handler.cpp)
-  target_link_libraries(${test_prefix}dbms_handler mg-query mg-audit)
+  add_unit_test_with_custom_main(dbms_sc_handler.cpp)
+  target_link_libraries(${test_prefix}dbms_sc_handler mg-query mg-audit)
 endif()

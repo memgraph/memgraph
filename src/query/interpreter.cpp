@@ -2798,7 +2798,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
           std::move(parsed_query.required_privileges),
           [db_name = query->db_name_, session_uuid,
            &sc_handler =
-               static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
+               static_cast<typename memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)
                    ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
@@ -2834,8 +2834,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
           std::move(parsed_query.required_privileges),
           [db_name = query->db_name_, session_uuid,
            &sc_handler =
-               static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
-                   ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+               static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
@@ -2871,8 +2871,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
           std::move(parsed_query.required_privileges),
           [db_name = query->db_name_, session_uuid,
            &sc_handler =
-               static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
-                   ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+               static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
@@ -2927,8 +2927,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       {"Name", "Current"},
       std::move(parsed_query.required_privileges),
       [session_uuid,
-       &sc_handler = static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
-                         ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+       &sc_handler =
+           static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
+          AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         std::vector<std::vector<TypedValue>> status;
 
         auto all = sc_handler.All();

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #ifdef MG_ENTERPRISE
 
 #include <filesystem>
@@ -22,144 +24,43 @@
 #include "global.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/result.hpp"
-#include "utils/sync_ptr.hpp"
+
+#include "handler.hpp"
 
 namespace memgraph::dbms {
 
-/**
- * @brief Multi-tenancy handler of storage.
- *
- * @tparam TStorage
- * @tparam TConfig
- */
-template <typename TStorage = memgraph::storage::Storage, typename TConfig = memgraph::storage::Config>
 class StorageHandler {
  public:
-  using NewResult = utils::BasicResult<NewError, std::shared_ptr<TStorage>>;
+  using HandlerT = Handler<storage::Storage, storage::Config>;
 
-  StorageHandler() {}
-
-  /**
-   * @brief Create a new storage associated to the "name" database.
-   *
-   * @param name name of the database
-   * @param config storage configuration
-   * @return NewResult pointer to storage on success, error on failure
-   */
-  NewResult New(const std::string &name, const TConfig &config) {
-    // TODO better checks
-    if (storage_.find(std::string(name)) != storage_.end()) {
-      return NewError::EXISTS;
-    }
+  HandlerT::NewResult New(const std::string &name, const storage::Config &config) {
     // Control that no one is using the same data directory
-    if (std::any_of(storage_.begin(), storage_.end(), [&](const auto &elem) {
+    if (std::any_of(handler_.cbegin(), handler_.cend(), [&](const auto &elem) {
           return elem.second.config().durability.storage_directory == config.durability.storage_directory;
         })) {
       // LOG
       return NewError::EXISTS;
     }
-    // Create storage
-    auto [itr, success] = storage_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                           std::forward_as_tuple(config, config, name));
-    if (success) return itr->second.get();
-    return NewError::EXISTS;
+    return handler_.New(name, std::forward_as_tuple(config), std::forward_as_tuple(config, name));
   }
 
-  /**
-   * @brief Create a new storage associated to the "name" database.
-   *
-   * @param name name of the database
-   * @param storage_subdir undelying RocksDB directory
-   * @return NewResult pointer to storage on success, error on failure
-   */
-  NewResult New(const std::string &name, std::filesystem::path storage_subdir) {
-    if (default_config_) {
-      auto config = *default_config_;
-      config.durability.storage_directory /= storage_subdir;
-      return New(name, config);
-    }
-    return NewError::NO_CONFIGS;
-  }
+  auto Get(const std::string &name) { return handler_.Get(name); }
 
-  /**
-   * @brief Create a new storage associated to the "name" database.
-   *
-   * @param name name of the database
-   * @return NewResult pointer to storage on success, error on failure
-   */
-  NewResult New(const std::string &name) { return New(name, name); }
+  auto GetConfig(const std::string &name) const { return handler_.GetConfig(name); }
 
-  /**
-   * @brief Get storage associated with "name" database
-   *
-   * @param name name of the database
-   * @return std::optional<std::shared_ptr<TStorage>>
-   */
-  std::optional<std::shared_ptr<TStorage>> Get(const std::string &name) {
-    if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.get();
-    }
-    return {};
-  }
+  auto Delete(const std::string &name) { return handler_.Delete(name); }
 
-  /**
-   * @brief Get the storage configuration associated with "name" database
-   *
-   * @param name name of the database
-   * @return std::optional<TConfig>
-   */
-  std::optional<TConfig> GetConfig(const std::string &name) const {
-    if (auto search = storage_.find(name); search != storage_.end()) {
-      return search->second.config();
-    }
-    return {};
-  }
+  auto Has(const std::string &name) const { return handler_.Has(name); }
 
-  /**
-   * @brief Delete the storage associated with the "name" database
-   *
-   * @param name name of the database
-   * @return true on success
-   */
-  bool Delete(const std::string &name) {
-    if (auto itr = storage_.find(name); itr != storage_.end()) {
-      storage_.erase(itr);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * @brief Set the default configuration
-   *
-   * @param config
-   */
-  void SetDefaultConfig(TConfig config) { default_config_ = config; }
-
-  /**
-   * @brief Get the default configuration
-   *
-   * @return std::optional<TConfig>
-   */
-  std::optional<TConfig> GetDefaultConfig() { return default_config_; }
-
-  /**
-   * @brief Return all active databases.
-   *
-   * @return std::vector<std::string>
-   */
   std::vector<std::string> All() const {
     std::vector<std::string> res;
-    res.reserve(storage_.size());
-    for (const auto &[name, _] : storage_) {
-      res.emplace_back(name);
-    }
+    res.reserve(std::distance(handler_.cbegin(), handler_.cend()));
+    std::for_each(handler_.cbegin(), handler_.cend(), [&](const auto &elem) { res.push_back(elem.first); });
     return res;
   }
 
  private:
-  std::unordered_map<std::string, utils::SyncPtr<TStorage, TConfig>> storage_;  //!< map to all active storages
-  std::optional<TConfig> default_config_;                                       //!< default configuration
+  HandlerT handler_;
 };
 
 }  // namespace memgraph::dbms

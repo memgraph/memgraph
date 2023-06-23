@@ -21,7 +21,7 @@
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_auth"};
 
 TEST(DBMS_Auth, New) {
-  memgraph::dbms::AuthHandler ah;
+  memgraph::dbms::AuthContextHandler ah;
   {
     // Clean new
     auto a1 = ah.New("auth1", storage_directory / "auth1");
@@ -53,7 +53,7 @@ TEST(DBMS_Auth, New) {
 }
 
 TEST(DBMS_Auth, Get) {
-  memgraph::dbms::AuthHandler ah;
+  memgraph::dbms::AuthContextHandler ah;
 
   ASSERT_FALSE(ah.Get("auth1"));
 
@@ -67,7 +67,7 @@ TEST(DBMS_Auth, Get) {
 }
 
 TEST(DBMS_Auth, Delete) {
-  memgraph::dbms::AuthHandler ah;
+  memgraph::dbms::AuthContextHandler ah;
 
   ASSERT_FALSE(ah.Delete("auth1"));
 
