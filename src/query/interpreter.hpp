@@ -382,6 +382,13 @@ class Interpreter final {
       prepared_query.reset();
       std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
     }
+
+    void CleanRuntimeData() {
+      if (prepared_query.has_value()) {
+        prepared_query.reset();
+      }
+      notifications.clear();
+    }
   };
 
   // Interpreter supports multiple prepared queries at the same time.

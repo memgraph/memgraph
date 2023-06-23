@@ -3050,6 +3050,9 @@ void Interpreter::Abort() {
   in_explicit_transaction_ = false;
   if (!db_accessor_) return;
   db_accessor_->Abort();
+  for (auto &qe : query_executions_) {
+    if (qe) qe->CleanRuntimeData();
+  }
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();
@@ -3178,6 +3181,9 @@ void Interpreter::Commit() {
   }
 
   const auto reset_necessary_members = [this]() {
+    for (auto &qe : query_executions_) {
+      if (qe) qe->CleanRuntimeData();
+    }
     execution_db_accessor_.reset();
     db_accessor_.reset();
     trigger_context_collector_.reset();
