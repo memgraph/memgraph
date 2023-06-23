@@ -149,15 +149,13 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
   if (deletion_success) {
     return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
   }
-  spdlog::error("Deletetion of vertices with removed indexing label failed.");
   return false;
 }
 
-void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update,
-                                              const Transaction &tx) {
-  entries_for_deletion.WithLock([added_label, vertex_before_update, &tx](auto &tx_to_entries_for_deletion) {
+void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
+  entries_for_deletion.WithLock([added_label, vertex_after_update, &tx](auto &tx_to_entries_for_deletion) {
     if (auto tx_it = tx_to_entries_for_deletion.find(tx.start_timestamp); tx_it != tx_to_entries_for_deletion.end()) {
-      if (auto vertex_label_index_it = tx_it->second.find(vertex_before_update->gid);
+      if (auto vertex_label_index_it = tx_it->second.find(vertex_after_update->gid);
           vertex_label_index_it != tx_it->second.end()) {
         std::erase_if(vertex_label_index_it->second, [added_label](const std::pair<LabelId, PropertyId> &index) {
           return index.first == added_label;
@@ -167,20 +165,18 @@ void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *verte
   });
 }
 
-void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update,
+void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                                                  const Transaction &tx) {
   for (const auto &index_entry : index_) {
     if (index_entry.first == removed_label) {
-      entries_for_deletion.WithLock([&index_entry, &tx, vertex_before_update](auto &tx_to_entries_for_deletion) {
+      entries_for_deletion.WithLock([&index_entry, &tx, vertex_after_update](auto &tx_to_entries_for_deletion) {
         const auto &[indexing_label, indexing_property] = index_entry;
         auto [it, _] = tx_to_entries_for_deletion.emplace(
             std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp), std::forward_as_tuple());
         auto &vertex_map_store = it->second;
         auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
-            std::piecewise_construct, std::forward_as_tuple(vertex_before_update->gid), std::forward_as_tuple());
+            std::piecewise_construct, std::forward_as_tuple(vertex_after_update->gid), std::forward_as_tuple());
         it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
-        spdlog::debug("Added to the map label index storage for vertex {} with label {}",
-                      utils::SerializeIdType(vertex_before_update->gid), utils::SerializeIdType(indexing_label));
       });
     }
   }

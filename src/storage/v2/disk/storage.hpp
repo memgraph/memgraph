@@ -199,7 +199,7 @@ class DiskStorage final : public Storage {
     return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
   }
 
-  RocksDBStorage *GetRocksDBStorage() { return kvstore_.get(); }
+  RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;

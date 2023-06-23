@@ -31,7 +31,7 @@ class LabelIndex {
 
   virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
-  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) = 0;
+  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
   virtual bool DropIndex(LabelId label) = 0;
 

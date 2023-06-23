@@ -36,12 +36,10 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                             uint64_t transaction_commit_timestamp);
 
-  /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) override;
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override;
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-  /// @throw std::bad_alloc
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override;
 

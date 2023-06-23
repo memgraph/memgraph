@@ -29,6 +29,13 @@ inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key
   return {user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t)};
 }
 
+// Extracts global id from user key. User key must be without timestamp.
+std::string_view ExtractGidFromUserKey(const rocksdb::Slice &key) {
+  assert(key.size() >= 2);
+  auto keyStrView = key.ToStringView();
+  return keyStrView.substr(keyStrView.find_last_of('|') + 1);
+}
+
 }  // namespace
 
 ComparatorWithU64TsImpl::ComparatorWithU64TsImpl()
@@ -44,7 +51,7 @@ int ComparatorWithU64TsImpl::Compare(const rocksdb::Slice &a, const rocksdb::Sli
   // Compare timestamp.
   // For the same user key with different timestamps, larger (newer) timestamp
   // comes first.
-  return -CompareTimestamp(ExtractTimestampFromUserKey(a), ExtractTimestampFromUserKey(b));
+  return CompareTimestamp(ExtractTimestampFromUserKey(b), ExtractTimestampFromUserKey(a));
 }
 
 int ComparatorWithU64TsImpl::CompareWithoutTimestamp(const rocksdb::Slice &a, bool a_has_ts, const rocksdb::Slice &b,
@@ -71,12 +78,6 @@ int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const r
     return 1;
   }
   return 0;
-}
-
-std::string_view ComparatorWithU64TsImpl::ExtractGidFromUserKey(const rocksdb::Slice &key) const {
-  assert(key.size() >= 2);
-  auto keyStrView = key.ToStringView();
-  return keyStrView.substr(keyStrView.find_last_of('|') + 1);
 }
 
 }  // namespace memgraph::storage

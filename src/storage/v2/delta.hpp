@@ -123,7 +123,9 @@ inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 
 struct Delta {
   enum class Action {
-    // Used for both Vertex and Edge
+    /// Use for Vertex and Edge
+    /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for
+    /// deleting old-data (compaction).
     DELETE_DESERIALIZED_OBJECT,
     DELETE_OBJECT,
     RECREATE_OBJECT,

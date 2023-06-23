@@ -196,12 +196,12 @@ class InMemoryStorage final : public Storage {
     }
 
     IndicesInfo ListAllIndices() const override {
-      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       return mem_storage->ListAllIndices();
     }
 
     ConstraintsInfo ListAllConstraints() const override {
-      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       return mem_storage->ListAllConstraints();
     }
 

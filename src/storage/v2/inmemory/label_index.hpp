@@ -35,7 +35,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config);
 
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_before_update, const Transaction &tx) override;
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
 

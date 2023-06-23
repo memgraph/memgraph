@@ -145,12 +145,12 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
   for (const auto &[label, property] : indices_constraints.constraints.existence) {
     if (constraints->existence_constraints_->ConstraintExists(label, property)) {
-      throw RecoveryFailure("The existence constraint must be created here!");
+      throw RecoveryFailure("The existence constraint already exists!");
     }
 
     if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property);
         violation.has_value()) {
-      throw RecoveryFailure("The existence constraint must be created here!");
+      throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
     constraints->existence_constraints_->InsertConstraint(label, property);
