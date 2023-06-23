@@ -15,6 +15,7 @@
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
 
@@ -22,11 +23,15 @@ struct Constraints {
   Constraints(const Config &config, StorageMode storage_mode) {
     std::invoke([this, config, storage_mode]() {
       existence_constraints_ = std::make_unique<ExistenceConstraints>();
-      if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
-      } else {
-        unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
-      }
+      switch (storage_mode) {
+        case StorageMode::IN_MEMORY_TRANSACTIONAL:
+        case StorageMode::IN_MEMORY_ANALYTICAL:
+          unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+          break;
+        case StorageMode::ON_DISK_TRANSACTIONAL:
+          unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
+          break;
+      };
     });
   }
 

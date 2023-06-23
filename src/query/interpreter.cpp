@@ -1852,7 +1852,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     InterpreterContext *interpreter_context, DbAccessor *dba) {
+                                     InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
   }
@@ -2149,7 +2149,6 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       std::unique_lock main_guard{interpreter_context->db->main_lock_};
 
       if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
-        main_guard.unlock();
         throw utils::BasicException(
             "You cannot switch from in-memory storage to on-disk storage when the database "
             "contains data. Please delete all entries from the database, run FREE MEMORY and then repeat this "
@@ -2220,12 +2219,12 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 }
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                         InterpreterContext *interpreter_context, DbAccessor *dba) {
+                                         InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
   }
 
-  if (dba->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw CreateSnapshotDisabledOnDiskStorage();
   }
 
@@ -2974,8 +2973,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
-      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                              &*execution_db_accessor_);
+      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
       prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
@@ -2990,8 +2988,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
-      prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_,
-                                                  interpreter_context_, &*execution_db_accessor_);
+      prepared_query =
+          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {

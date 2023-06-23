@@ -134,7 +134,7 @@ class Allocator {
 
   void deallocate(T *p, size_t count_elements) { memory_->Deallocate(p, count_elements * sizeof(T), alignof(T)); }
 
-  /// Return default NewDevertex_id_leteResource() allocator.
+  /// Return default NewDeleteResource() allocator.
   Allocator select_on_container_copy_construction() const { return utils::NewDeleteResource(); }
 
   template <class U, class... TArgs>

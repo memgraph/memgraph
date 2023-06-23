@@ -29,8 +29,8 @@
 
 namespace memgraph::utils {
 
-constexpr const char *outEdgeDirection = "0";
-constexpr const char *inEdgeDirection = "1";
+static constexpr const char *outEdgeDirection = "0";
+static constexpr const char *inEdgeDirection = "1";
 
 /// TODO: try to move this to hpp files so that we can follow jump on readings
 
