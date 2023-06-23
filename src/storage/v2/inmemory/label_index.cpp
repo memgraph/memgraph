@@ -143,8 +143,6 @@ uint64_t InMemoryLabelIndex::ApproximateVertexCount(LabelId label) const {
   return it->second.size();
 }
 
-void InMemoryLabelIndex::Clear() { index_.clear(); }
-
 void InMemoryLabelIndex::RunGC() {
   for (auto &index_entry : index_) {
     index_entry.second.run_gc();

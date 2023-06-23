@@ -403,8 +403,6 @@ std::optional<IndexStats> InMemoryLabelPropertyIndex::GetIndexStats(const storag
   return {};
 }
 
-void InMemoryLabelPropertyIndex::Clear() { index_.clear(); }
-
 void InMemoryLabelPropertyIndex::RunGC() {
   for (auto &index_entry : index_) {
     index_entry.second.run_gc();

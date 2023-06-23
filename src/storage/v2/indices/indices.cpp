@@ -10,12 +10,14 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
 
 namespace memgraph::storage {
 
 void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) const {
-  label_index_->RemoveObsoleteEntries(oldest_active_start_timestamp);
-  label_property_index_->RemoveObsoleteEntries(oldest_active_start_timestamp);
+  static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp);
+  static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->RemoveObsoleteEntries(oldest_active_start_timestamp);
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

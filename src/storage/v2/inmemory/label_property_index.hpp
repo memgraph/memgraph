@@ -55,7 +55,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   class Iterable {
    public:
@@ -122,8 +122,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                    const storage::PropertyId &property) const override;
-
-  void Clear() override;
 
   void RunGC();
 

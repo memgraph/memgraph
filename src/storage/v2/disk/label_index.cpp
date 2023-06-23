@@ -9,19 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-/// TODO: clear dependencies
-
 #include <rocksdb/options.h>
 #include <rocksdb/utilities/transaction.h>
-#include <tuple>
-#include <utility>
 
 #include "storage/v2/disk/label_index.hpp"
-#include "storage/v2/disk/rocksdb_storage.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/indices_utils.hpp"
 #include "utils/disk_utils.hpp"
-#include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
@@ -41,6 +33,16 @@ namespace {
   return true;
 }
 
+/// TODO: duplication with label_property_index.cpp
+bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit_ts) {
+  disk_transaction->SetCommitTimestamp(commit_ts);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
+}
+
 }  // namespace
 
 DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config)
@@ -54,38 +56,33 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
 }
 
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
-  if (index_.emplace(label).second) {
+  if (!index_.emplace(label).second) {
     return false;
   }
-  /// How to remove duplication
-  /// TODO: how to deal with commit timestamp in a better way
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+
+  auto disk_transaction = CreateRocksDBTransaction();
   for (const auto &[key, value] : vertices) {
     disk_transaction->Put(key, value);
   }
-  /// TODO: figure out a better way to handle this since it is a duplicate of InsertConstraint
-  disk_transaction->SetCommitTimestamp(0);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+  return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
-std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateRocksDBTransaction() {
+std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateRocksDBTransaction() const {
   return std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 }
 
+std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateAllReadingRocksDBTransaction() const {
+  auto tx = CreateRocksDBTransaction();
+  tx->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  return tx;
+}
+
 bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  auto disk_transaction = CreateRocksDBTransaction();
 
   if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-    spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
-                  utils::SerializeIdType(vertex.gid));
-    if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
+    if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }
   }
@@ -100,19 +97,13 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
       }
     }
   }
-  disk_transaction->SetCommitTimestamp(commit_timestamp);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+
+  return CommitWithTimestamp(disk_transaction.get(), commit_timestamp);
 }
 
 /// TODO: this can probably be optimized
 bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const {
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
@@ -126,20 +117,13 @@ bool DiskLabelIndex::ClearDeletedVertex(std::string_view gid, uint64_t transacti
       }
     }
   }
-  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+
+  return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
 }
 
-/// TODO: andi What if there no indices, no need to call it?
 bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                             uint64_t transaction_commit_timestamp) {
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
@@ -155,16 +139,8 @@ bool DiskLabelIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction
     }
   });
   if (deletion_success) {
-    /// TODO: Extract to some useful method
-    disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
-    auto status = disk_transaction->Commit();
-    if (!status.ok()) {
-      /// TODO: better naming
-      spdlog::error("rocksdb: {}", status.getState());
-    }
-    return status.ok();
+    return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
   }
-  spdlog::error("Deletetion of vertices with removed indexing label failed.");
   return false;
 }
 
@@ -198,9 +174,7 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   if (!(index_.erase(label) > 0)) {
     return false;
   }
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
@@ -214,49 +188,14 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
     }
   }
 
-  disk_transaction->SetCommitTimestamp(0);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+  return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
 bool DiskLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
 
 std::vector<LabelId> DiskLabelIndex::ListIndices() const { return {index_.begin(), index_.end()}; }
 
-void DiskLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
-  throw utils::NotYetImplemented("DiskLabelIndex::RemoveObsoleteEntries");
-}
-
-uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const {
-  /// TODO: andi figure out something smarter.
-  return 10;
-}
-
-/// TODO: delete everything
-void DiskLabelIndex::Clear() {
-  index_.clear();
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
-
-  rocksdb::ReadOptions ro;
-  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
-  rocksdb::Slice ts(strTs);
-  ro.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    disk_transaction->Delete(it->key().ToString());
-  }
-
-  disk_transaction->SetCommitTimestamp(0);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-}
+uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const { return 10; }
 
 void DiskLabelIndex::LoadIndexInfo(const std::vector<std::string> &labels) {
   for (const std::string &label : labels) {

@@ -50,7 +50,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   std::vector<LabelId> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   class Iterable {
    public:
@@ -91,8 +91,6 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   };
 
   uint64_t ApproximateVertexCount(LabelId label) const override;
-
-  void Clear() override;
 
   void RunGC();
 

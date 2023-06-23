@@ -25,7 +25,9 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   [[nodiscard]] bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
-  std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction();
+  std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction() const;
+
+  std::unique_ptr<rocksdb::Transaction> CreateAllReadingRocksDBTransaction() const;
 
   [[nodiscard]] bool SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
@@ -45,11 +47,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   std::vector<LabelId> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
-
   uint64_t ApproximateVertexCount(LabelId label) const override;
-
-  void Clear() override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 

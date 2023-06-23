@@ -39,12 +39,7 @@ class LabelIndex {
 
   virtual std::vector<LabelId> ListIndices() const = 0;
 
-  /// TODO: (andi) Maybe not needed for disk version so remove from abstract class
-  virtual void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) = 0;
-
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
-
-  virtual void Clear() = 0;
 
  protected:
   /// TODO: andi maybe no need for have those in abstract class if disk storage isn't using it

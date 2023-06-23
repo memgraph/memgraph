@@ -73,7 +73,7 @@ ConstraintsInfo Storage::ListAllConstraints() const {
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
   MG_ASSERT(
-      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
+      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
   storage_mode_ = storage_mode;
 }

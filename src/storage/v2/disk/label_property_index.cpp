@@ -43,6 +43,15 @@ bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, Propert
   return true;
 }
 
+bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit_ts) {
+  disk_transaction->SetCommitTimestamp(commit_ts);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
+}
+
 }  // namespace
 
 DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
@@ -62,29 +71,28 @@ bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   }
 
   /// TODO: how to deal with commit timestamp in a better way
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  auto disk_transaction = CreateRocksDBTransaction();
   for (const auto &[key, value] : vertices) {
     disk_transaction->Put(key, value);
   }
-  /// TODO: figure out a better way to handle this since it is a duplicate of InsertConstraint
-  disk_transaction->SetCommitTimestamp(0);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+
+  return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
-std::unique_ptr<rocksdb::Transaction> DiskLabelPropertyIndex::CreateRocksDBTransaction() {
+std::unique_ptr<rocksdb::Transaction> DiskLabelPropertyIndex::CreateRocksDBTransaction() const {
   return std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 }
 
+std::unique_ptr<rocksdb::Transaction> DiskLabelPropertyIndex::CreateAllReadingRocksDBTransaction() const {
+  auto tx = CreateRocksDBTransaction();
+  tx->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  return tx;
+}
+
 bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex &vertex,
                                                                    uint64_t commit_timestamp) const {
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  auto disk_transaction = CreateRocksDBTransaction();
 
   if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
     spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
@@ -103,18 +111,11 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
       }
     }
   }
-  disk_transaction->SetCommitTimestamp(commit_timestamp);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+  return CommitWithTimestamp(disk_transaction.get(), commit_timestamp);
 }
 
 bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const {
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
@@ -128,19 +129,13 @@ bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t t
       }
     }
   }
-  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
-  auto status = disk_transaction->Commit();
-  if (!status.ok()) {
-    spdlog::error("rocksdb: {}", status.getState());
-  }
-  return status.ok();
+  return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
 }
 
 bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                                     uint64_t transaction_commit_timestamp) {
-  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
-      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
-  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+  /// TODO: same as for label_index, it would be good to extract in separate function
+  auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
@@ -156,14 +151,7 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
     }
   });
   if (deletion_success) {
-    /// TODO: Extract to some useful method
-    disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
-    auto status = disk_transaction->Commit();
-    if (!status.ok()) {
-      /// TODO: better naming
-      spdlog::error("rocksdb: {}", status.getState());
-    }
-    return status.ok();
+    return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
   }
   spdlog::error("Deletetion of vertices with removed indexing label failed.");
   return false;
@@ -218,10 +206,6 @@ std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices(
   return std::vector<std::pair<LabelId, PropertyId>>(index_.begin(), index_.end());
 }
 
-void DiskLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::RemoveObsoleteEntries");
-}
-
 // These constants represent the smallest possible value of each type that is
 // contained in a `PropertyValue`. Note that numbers (integers and doubles) are
 // treated as the same "type" in `PropertyValue`.
@@ -234,23 +218,18 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
-}
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const { return 10; }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                         const PropertyValue &value) const {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
+  return 10;
 }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                         const std::optional<utils::Bound<PropertyValue>> &lower,
                                                         const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
+  return 10;
 }
-
-/// TODO: clear whole RocksDB instance
-void DiskLabelPropertyIndex::Clear() { index_.clear(); }
 
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;

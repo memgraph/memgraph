@@ -46,8 +46,6 @@ class LabelPropertyIndex {
 
   virtual std::vector<std::pair<LabelId, PropertyId>> ListIndices() const = 0;
 
-  virtual void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) = 0;
-
   virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
@@ -65,8 +63,6 @@ class LabelPropertyIndex {
 
   virtual std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                            const storage::PropertyId &property) const = 0;
-
-  virtual void Clear() = 0;
 
  protected:
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
