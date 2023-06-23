@@ -866,7 +866,10 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = true},
+                     .restore_replicas_on_startup = true,
+                     .items_per_batch = FLAGS_storage_items_per_batch,
+                     .recovery_thread_count = FLAGS_storage_recovery_thread_count,
+                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
       .transaction = {.isolation_level = ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
@@ -979,8 +982,8 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
-    telemetry->AddCollector("storage", [&interpreter_context]() -> nlohmann::json {
-      auto info = interpreter_context.db->GetInfo();
+    telemetry->AddCollector("storage", [db_ = interpreter_context.db.get()]() -> nlohmann::json {
+      auto info = db_->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {

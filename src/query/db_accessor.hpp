@@ -508,7 +508,7 @@ class SubgraphDbAccessor final {
 
   void PrefetchOutEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchOutEdges(vertex.impl_); }
 
-  void PrefetchInEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchOutEdges(vertex.impl_); }
+  void PrefetchInEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchInEdges(vertex.impl_); }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge);
 

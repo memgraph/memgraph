@@ -1170,7 +1170,8 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
                                      const query::plan::ReadWriteTypeChecker::RWType query_type) {
-  if (storage->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
+                                                     storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
     return (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) &&
            (query_type == RWType::W || query_type == RWType::RW);
@@ -2080,13 +2081,15 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
 }
 
 bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
-  return current_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+  return (current_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
+          current_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) &&
          next_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL;
 }
 
 bool SwitchingFromDiskToInMemory(storage::StorageMode current_mode, storage::StorageMode next_mode) {
   return current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
-         next_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+         (next_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
+          next_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL);
 }
 
 PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
