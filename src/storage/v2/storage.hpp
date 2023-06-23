@@ -50,6 +50,7 @@
 #include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -187,8 +188,6 @@ struct StorageInfo {
   uint64_t memory_usage;
   uint64_t disk_usage;
 };
-
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
 class Storage final {
  public:
@@ -516,7 +515,7 @@ class Storage final {
 
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
-  ReplicationRole GetReplicationRole() const;
+  replication::ReplicationRole GetReplicationRole() const;
 
   struct TimestampInfo {
     uint64_t current_timestamp_of_replica;
@@ -580,9 +579,11 @@ class Storage final {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
+  void RestoreReplicationRole();
+
   void RestoreReplicas();
 
-  bool ShouldStoreAndRestoreReplicas() const;
+  bool ShouldStoreAndRestoreReplicationState() const;
 
   // Main storage lock.
   //
@@ -703,7 +704,7 @@ class Storage final {
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
 };
 
 }  // namespace memgraph::storage
