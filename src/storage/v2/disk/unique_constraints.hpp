@@ -58,6 +58,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   RocksDBStorage *GetRocksDBStorage() const;
 
+  void LoadUniqueConstraints(const std::vector<std::string> &keys);
+
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>>>>
       entries_for_deletion;

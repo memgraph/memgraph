@@ -57,8 +57,7 @@ DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *co
 
 bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                          const std::vector<std::pair<std::string, std::string>> &vertices) {
-  auto [it, emplaced] = index_.emplace(label, property);
-  if (!emplaced) {
+  if (!index_.emplace(label, property).second) {
     return false;
   }
 
@@ -287,6 +286,14 @@ std::optional<IndexStats> DiskLabelPropertyIndex::GetIndexStats(const storage::L
     return it->second;
   }
   return {};
+}
+
+void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys) {
+  for (const auto &label_property : keys) {
+    std::vector<std::string> label_property_split = utils::Split(label_property, ",");
+    index_.emplace(std::make_pair(LabelId::FromUint(std::stoull(label_property_split[0])),
+                                  PropertyId::FromUint(std::stoull(label_property_split[1]))));
+  }
 }
 
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }

@@ -68,7 +68,9 @@ DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
 bool DiskUniqueConstraints::InsertConstraint(
     LabelId label, const std::set<PropertyId> &properties,
     const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint) {
-  constraints_.insert(std::make_pair(label, properties));
+  if (!constraints_.insert(std::make_pair(label, properties)).second) {
+    return false;
+  }
 
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
@@ -331,5 +333,17 @@ void DiskUniqueConstraints::Clear() {
 }
 
 RocksDBStorage *DiskUniqueConstraints::GetRocksDBStorage() const { return kvstore_.get(); }
+
+void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string> &keys) {
+  for (const auto &key : keys) {
+    std::vector<std::string> key_parts = utils::Split(key, ",");
+    LabelId label = LabelId::FromUint(std::stoull(key_parts[0]));
+    std::set<PropertyId> properties;
+    for (int i = 1; i < key_parts.size(); i++) {
+      properties.insert(PropertyId::FromUint(std::stoull(key_parts[i])));
+    }
+    constraints_.emplace(std::make_pair(label, properties));
+  }
+}
 
 }  // namespace memgraph::storage

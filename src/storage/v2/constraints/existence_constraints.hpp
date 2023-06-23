@@ -53,6 +53,8 @@ class ExistenceConstraints {
 
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
 
+  void LoadExistenceConstraints(const std::vector<std::string> &keys);
+
  private:
   std::vector<std::pair<LabelId, PropertyId>> constraints_;
 };

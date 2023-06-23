@@ -12,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
@@ -59,6 +60,10 @@ constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
 constexpr const char *lastTransactionStartTimeStamp = "last_transaction_start_timestamp";
+constexpr const char *label_index_str = "label_index";
+constexpr const char *label_property_index_str = "label_property_index";
+constexpr const char *existence_constraints_str = "existence_constraints";
+constexpr const char *unique_constraints_str = "unique_constraints";
 
 bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
   return accessor.find(gid) != accessor.end();
@@ -179,11 +184,60 @@ void DiskStorage::LoadTimestampIfExists() {
   }
 }
 
+void DiskStorage::LoadIndexInfoIfExists() const {
+  if (utils::DirExists(config_.disk.durability_directory)) {
+    LoadLabelIndexInfoIfExists();
+    LoadLabelPropertyIndexInfoIfExists();
+  }
+}
+
+void DiskStorage::LoadLabelIndexInfoIfExists() const {
+  if (auto label_index = durability_kvstore_->Get(label_index_str); label_index.has_value()) {
+    auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+    std::vector<std::string> labels = utils::Split(label_index.value(), "|");
+    disk_label_index->LoadIndexInfo(labels);
+  }
+}
+
+void DiskStorage::LoadLabelPropertyIndexInfoIfExists() const {
+  if (auto label_property_index = durability_kvstore_->Get(label_property_index_str);
+      label_property_index.has_value()) {
+    auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
+    std::vector<std::string> keys = utils::Split(label_property_index.value(), "|");
+    disk_label_property_index->LoadIndexInfo(keys);
+  }
+}
+
+void DiskStorage::LoadConstraintsInfoIfExists() const {
+  if (utils::DirExists(config_.disk.durability_directory)) {
+    LoadExistenceConstraintInfoIfExists();
+    LoadUniqueConstraintInfoIfExists();
+  }
+}
+
+void DiskStorage::LoadExistenceConstraintInfoIfExists() const {
+  if (auto existence_constraints = durability_kvstore_->Get(existence_constraints_str);
+      existence_constraints.has_value()) {
+    std::vector<std::string> keys = utils::Split(existence_constraints.value(), "|");
+    constraints_.existence_constraints_->LoadExistenceConstraints(keys);
+  }
+}
+
+void DiskStorage::LoadUniqueConstraintInfoIfExists() const {
+  if (auto unique_constraints = durability_kvstore_->Get(unique_constraints_str); unique_constraints.has_value()) {
+    std::vector<std::string> keys = utils::Split(unique_constraints.value(), "|");
+    auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+    disk_unique_constraints->LoadUniqueConstraints(keys);
+  }
+}
+
 DiskStorage::DiskStorage(Config config)
     : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durability_kvstore_(std::make_unique<kvstore::KVStore>(config.disk.durability_directory)) {
   LoadTimestampIfExists();
+  LoadIndexInfoIfExists();
+  LoadConstraintsInfoIfExists();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
@@ -519,6 +573,76 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return disk_storage->kvstore_->ApproximateVertexCount();
+}
+
+bool DiskStorage::PersistLabelIndexCreation(LabelId label) const {
+  if (auto label_index_store = durability_kvstore_->Get(label_index_str); label_index_store.has_value()) {
+    std::string &value = label_index_store.value();
+    value += "|" + utils::SerializeIdType(label);
+    return durability_kvstore_->Put(label_index_str, value);
+  }
+  return durability_kvstore_->Put(label_index_str, utils::SerializeIdType(label));
+}
+
+bool DiskStorage::PersistLabelIndexDeletion(LabelId label) const {
+  if (auto label_index_store = durability_kvstore_->Get(label_index_str); label_index_store.has_value()) {
+    const std::string &value = label_index_store.value();
+    std::vector<std::string> labels = utils::Split(value, "|");
+    std::erase(labels, utils::SerializeIdType(label));
+    return durability_kvstore_->Put(label_index_str, utils::Join(labels, "|"));
+  }
+  return true;
+}
+
+bool DiskStorage::PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property) const {
+  if (auto label_property_index_store = durability_kvstore_->Get(label_property_index_str);
+      label_property_index_store.has_value()) {
+    std::string &value = label_property_index_store.value();
+    value += "|" + utils::SerializeIdType(label) + "," + utils::SerializeIdType(property);
+    return durability_kvstore_->Put(label_property_index_str, value);
+  }
+  return durability_kvstore_->Put(label_property_index_str,
+                                  utils::SerializeIdType(label) + "," + utils::SerializeIdType(property));
+}
+
+bool DiskStorage::PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property) const {
+  if (auto label_property_index_store = durability_kvstore_->Get(label_property_index_str);
+      label_property_index_store.has_value()) {
+    const std::string &value = label_property_index_store.value();
+    std::vector<std::string> label_properties = utils::Split(value, "|");
+    std::erase(label_properties, utils::SerializeIdType(label) + "," + utils::SerializeIdType(property));
+    return durability_kvstore_->Put(label_property_index_str, utils::Join(label_properties, "|"));
+  }
+  return true;
+}
+
+bool DiskStorage::PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties) const {
+  std::string entry = utils::SerializeIdType(label);
+  for (auto property : properties) {
+    entry += "," + utils::SerializeIdType(property);
+  }
+
+  if (auto unique_store = durability_kvstore_->Get(unique_constraints_str); unique_store.has_value()) {
+    std::string &value = unique_store.value();
+    value += "|" + entry;
+    return durability_kvstore_->Put(unique_constraints_str, value);
+  }
+  return durability_kvstore_->Put(unique_constraints_str, entry);
+}
+
+bool DiskStorage::PersistUniqueConstraintDeletion(LabelId label, const std::set<PropertyId> &properties) const {
+  std::string entry = utils::SerializeIdType(label);
+  for (auto property : properties) {
+    entry += "," + utils::SerializeIdType(property);
+  }
+
+  if (auto unique_store = durability_kvstore_->Get(unique_constraints_str); unique_store.has_value()) {
+    const std::string &value = unique_store.value();
+    std::vector<std::string> unique_constraints = utils::Split(value, "|");
+    std::erase(unique_constraints, entry);
+    return durability_kvstore_->Put(unique_constraints_str, utils::Join(unique_constraints, "|"));
+  }
+  return true;
 }
 
 uint64_t DiskStorage::GetDiskSpaceUsage() const {
@@ -1322,6 +1446,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
+  if (!PersistLabelIndexCreation(label)) {
+    return StorageIndexDefinitionError{IndexPersistenceError{}};
+  }
+
   return {};
 }
 
@@ -1335,6 +1463,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
+  if (!PersistLabelPropertyIndexAndExistenceConstraintCreation(label, property)) {
+    return StorageIndexDefinitionError{IndexPersistenceError{}};
+  }
+
   return {};
 }
 
@@ -1346,6 +1478,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
+  if (!PersistLabelIndexDeletion(label)) {
+    return StorageIndexDefinitionError{IndexPersistenceError{}};
+  }
+
   return {};
 }
 
@@ -1355,6 +1491,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
 
   if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+
+  if (!PersistLabelPropertyIndexAndExistenceConstraintDeletion(label, property)) {
+    return StorageIndexDefinitionError{IndexPersistenceError{}};
   }
 
   return {};
@@ -1374,6 +1514,10 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
 
   constraints_.existence_constraints_->InsertConstraint(label, property);
 
+  if (!PersistLabelPropertyIndexAndExistenceConstraintCreation(label, property)) {
+    return StorageExistenceConstraintDefinitionError{ConstraintsPersistenceError{}};
+  }
+
   return {};
 }
 
@@ -1381,6 +1525,10 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
     LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
+  }
+
+  if (!PersistLabelPropertyIndexAndExistenceConstraintDeletion(label, property)) {
+    return StorageExistenceConstraintDroppingError{ConstraintsPersistenceError{}};
   }
 
   return {};
@@ -1407,6 +1555,10 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
     return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
   }
 
+  if (!PersistUniqueConstraintCreation(label, properties)) {
+    return StorageUniqueConstraintDefinitionError{ConstraintsPersistenceError{}};
+  }
+
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -1417,6 +1569,10 @@ DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &pro
   auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
+  }
+
+  if (!PersistUniqueConstraintDeletion(label, properties)) {
+    return StorageUniqueConstraintDroppingError{ConstraintsPersistenceError{}};
   }
 
   return UniqueConstraints::DeletionStatus::SUCCESS;

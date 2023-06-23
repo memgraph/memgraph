@@ -1683,6 +1683,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                   index_notification.code = NotificationCode::EXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
                                                          label_name, properties_stringified);
+                } else if constexpr (std::is_same_v<ErrorType, storage::IndexPersistenceError>) {
+                  throw IndexPersistenceException();
                 } else {
                   static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                 }
@@ -1720,6 +1722,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                   index_notification.code = NotificationCode::NONEXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
                                                          label_name, properties_stringified);
+                } else if constexpr (std::is_same_v<ErrorType, storage::IndexPersistenceError>) {
+                  throw IndexPersistenceException();
                 } else {
                   static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                 }
@@ -2591,6 +2595,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "label "
                           "{} on properties {}.",
                           label_name, properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
+                      throw ConstraintsPersistenceException();
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -2642,6 +2648,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("At least one SYNC replica has not confirmed the creation of the UNIQUE "
                                       "constraint: {}({}).",
                                       label_name, properties_stringified));
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
+                      throw ConstraintsPersistenceException();
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -2703,6 +2711,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("At least one SYNC replica has not confirmed the dropping of the EXISTS "
                                       "constraint  on label {} on properties {}.",
                                       label_name, properties_stringified));
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
+                      throw ConstraintsPersistenceException();
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -2737,6 +2747,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("At least one SYNC replica has not confirmed the dropping of the UNIQUE "
                                       "constraint on label {} on properties {}.",
                                       label_name, properties_stringified));
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
+                      throw ConstraintsPersistenceException();
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }

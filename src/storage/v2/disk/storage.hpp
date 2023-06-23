@@ -227,6 +227,31 @@ class DiskStorage final : public Storage {
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
  private:
+  void LoadIndexInfoIfExists() const;
+
+  /// TODO (andi): Maybe good to separate these methods and durability kvstore into a separate class
+  bool PersistLabelIndexCreation(LabelId label) const;
+
+  bool PersistLabelIndexDeletion(LabelId label) const;
+
+  void LoadLabelIndexInfoIfExists() const;
+
+  bool PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property) const;
+
+  bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property) const;
+
+  void LoadLabelPropertyIndexInfoIfExists() const;
+
+  void LoadConstraintsInfoIfExists() const;
+
+  void LoadExistenceConstraintInfoIfExists() const;
+
+  bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties) const;
+
+  bool PersistUniqueConstraintDeletion(LabelId label, const std::set<PropertyId> &properties) const;
+
+  void LoadUniqueConstraintInfoIfExists() const;
+
   uint64_t GetDiskSpaceUsage() const;
 
   void LoadTimestampIfExists();

@@ -285,4 +285,14 @@ class TransactionQueueInMulticommandTxException : public QueryException {
       : QueryException("Transaction queue queries not allowed in multicommand transactions.") {}
 };
 
+class IndexPersistenceException : public QueryException {
+ public:
+  IndexPersistenceException() : QueryException("Persisting index on disk failed.") {}
+};
+
+class ConstraintsPersistenceException : public QueryException {
+ public:
+  ConstraintsPersistenceException() : QueryException("Persisting constraints on disk failed.") {}
+};
+
 }  // namespace memgraph::query

@@ -54,7 +54,9 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
 }
 
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
-  index_.emplace(label);
+  if (index_.emplace(label).second) {
+    return false;
+  }
   /// How to remove duplication
   /// TODO: how to deal with commit timestamp in a better way
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
@@ -253,6 +255,13 @@ void DiskLabelIndex::Clear() {
   auto status = disk_transaction->Commit();
   if (!status.ok()) {
     spdlog::error("rocksdb: {}", status.getState());
+  }
+}
+
+void DiskLabelIndex::LoadIndexInfo(const std::vector<std::string> &labels) {
+  for (const std::string &label : labels) {
+    LabelId label_id = LabelId::FromUint(std::stoull(label));
+    index_.insert(label_id);
   }
 }
 

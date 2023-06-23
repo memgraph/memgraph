@@ -20,24 +20,29 @@ namespace memgraph::storage {
 
 struct ReplicationError {};
 
+struct IndexPersistenceError {};
+
+struct ConstraintsPersistenceError {};
+
 struct SerializationError {};
 inline bool operator==(const SerializationError &, const SerializationError &) { return true; }
 
 using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError, SerializationError>;
 
 struct IndexDefinitionError {};
-using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError>;
+using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError, IndexPersistenceError>;
 
 struct ConstraintDefinitionError {};
 
 using StorageExistenceConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError>;
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
 
-using StorageExistenceConstraintDroppingError = std::variant<ConstraintDefinitionError, ReplicationError>;
+using StorageExistenceConstraintDroppingError =
+    std::variant<ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
 
 using StorageUniqueConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError>;
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
 
-using StorageUniqueConstraintDroppingError = std::variant<ReplicationError>;
+using StorageUniqueConstraintDroppingError = std::variant<ReplicationError, ConstraintsPersistenceError>;
 
 }  // namespace memgraph::storage

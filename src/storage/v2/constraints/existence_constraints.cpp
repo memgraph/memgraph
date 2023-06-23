@@ -9,7 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "utils/logging.hpp"
 
@@ -20,6 +22,9 @@ bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) 
 }
 
 void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
+  if (ConstraintExists(label, property)) {
+    return;
+  }
   constraints_.emplace_back(label, property);
 }
 
@@ -41,6 +46,13 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
     }
   }
   return std::nullopt;
+}
+
+void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::string> &keys) {
+  for (const auto &key : keys) {
+    const std::vector<std::string> parts = utils::Split(key, ",");
+    constraints_.emplace_back(LabelId::FromUint(std::stoull(parts[0])), PropertyId::FromUint(std::stoull(parts[1])));
+  }
 }
 
 }  // namespace memgraph::storage

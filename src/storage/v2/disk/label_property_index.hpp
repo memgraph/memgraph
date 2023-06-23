@@ -73,6 +73,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   RocksDBStorage *GetRocksDBStorage() const;
 
+  void LoadIndexInfo(const std::vector<std::string> &keys);
+
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
       entries_for_deletion;
