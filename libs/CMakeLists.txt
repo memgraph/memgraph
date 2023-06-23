@@ -12,6 +12,7 @@ find_package(Boost 1.78 REQUIRED)
 find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
+# NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt 8.0.1)
 find_package(Jemalloc REQUIRED)
