@@ -1325,11 +1325,8 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
       std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
   } else {
-    /// TODO: I think no need for lock here
-    {
-      std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
-    }
+    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
 
     if (auto res = CheckConstraintsAndFlushMainMemoryCache(); res.HasError()) {
       Abort();

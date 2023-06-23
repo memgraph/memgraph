@@ -70,7 +70,6 @@ bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
     return false;
   }
 
-  /// TODO: how to deal with commit timestamp in a better way
   auto disk_transaction = CreateRocksDBTransaction();
   for (const auto &[key, value] : vertices) {
     disk_transaction->Put(key, value);
@@ -95,9 +94,7 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
   auto disk_transaction = CreateRocksDBTransaction();
 
   if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-    spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
-                  utils::SerializeIdType(vertex.gid));
-    if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
+    if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }
   }
@@ -134,7 +131,6 @@ bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t t
 
 bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                                     uint64_t transaction_commit_timestamp) {
-  /// TODO: same as for label_index, it would be good to extract in separate function
   auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;
