@@ -175,8 +175,8 @@ startup_config_dict = {
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
     "query_plan_cache_ttl": ("60", "60", "Time to live for cached query plans, in seconds."),
     "query_vertex_count_to_expand_existing": (
-        "-1",
-        "-1",
+        "10",
+        "10",
         "Maximum count of indexed vertices which provoke indexed lookup and then expand to existing, instead of a regular expand. Default is 10, to turn off use -1.",
     ),
     "query_max_plans": ("1000", "1000", "Maximum number of generated plans for a query."),
