@@ -131,7 +131,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&dba, parameters, *plan, symbol_table);
+      memgraph::query::plan::EstimatePlanCost(&dba, symbol_table, parameters, *plan);
     }
   }
 }
@@ -161,7 +161,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&vertex_counts, parameters, *plan, symbol_table);
+      memgraph::query::plan::EstimatePlanCost(&vertex_counts, symbol_table, parameters, *plan);
     }
   }
 }

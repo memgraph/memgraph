@@ -74,7 +74,7 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, parameters_, symbol_table_);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, symbol_table_, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }

@@ -19,11 +19,20 @@
 
 namespace memgraph::query::plan {
 
+/**
+ * The symbol statistics specify essential DB statistics which
+ * help the query planner (namely here the cost estimator), to decide
+ * how to do expands and other types of Cypher manipulations.
+ */
 struct SymbolStatistics {
   int64_t cardinality;
   double degree;
 };
 
+/**
+ * Scope of the statistics for every scanned symbol in
+ * the operator tree.
+ */
 struct Scope {
   std::unordered_map<std::string, SymbolStatistics> symbol_stats;
 };
@@ -91,11 +100,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
-  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters, const SymbolTable &table)
-      : db_accessor_(db_accessor), parameters(parameters), table_(table), scopes_{Scope()} {}
+  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters)
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{Scope()} {}
 
-  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters, const SymbolTable &table, Scope scope)
-      : db_accessor_(db_accessor), parameters(parameters), table_(table), scopes_{scope} {}
+  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters, Scope scope)
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{scope} {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_->VerticesCount();
@@ -324,20 +333,20 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
-  const Parameters &parameters;
   const SymbolTable &table_;
+  const Parameters &parameters;
   std::vector<Scope> scopes_;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
   double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
-    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters, table_);
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters);
     (*branch)->Accept(cost_estimator);
     return cost_estimator.cost();
   }
 
   double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
-    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters, table_, scope);
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope);
     (*branch)->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -395,9 +404,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOperator &plan,
-                        const SymbolTable &table) {
-  CostEstimator<TDbAccessor> estimator(db, parameters, table);
+double EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
+                        LogicalOperator &plan) {
+  CostEstimator<TDbAccessor> estimator(db, table, parameters);
   plan.Accept(estimator);
   return estimator.cost();
 }
