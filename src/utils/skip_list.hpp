@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -391,7 +391,7 @@ class SkipListGc final {
 ///
 /// The implementation is based on the work described in the paper
 /// "A Provably Correct Scalable Concurrent Skip List"
-/// https://www.cs.tau.ac.il/~shanir/nir-pubs-web/Papers/OPODIS2006-BA.pdf
+/// http://people.csail.mit.edu/shanir/publications/OPODIS2006-BA.pdf
 ///
 /// The proposed implementation is in Java so the authors don't worry about
 /// garbage collection. This implementation uses the garbage collector that is
@@ -640,6 +640,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
+      return *this;
     }
 
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
@@ -775,6 +776,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
+      return *this;
     }
 
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }

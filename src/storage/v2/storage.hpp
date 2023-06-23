@@ -509,7 +509,7 @@ class Storage final {
 
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  void FreeMemory();
+  void FreeMemory(std::unique_lock<utils::RWLock> main_guard = {});
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -543,7 +543,7 @@ class Storage final {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage();
+  void CollectGarbage(std::unique_lock<utils::RWLock> main_guard = {});
 
   bool InitializeWalFile();
   void FinalizeWalFile();
@@ -617,6 +617,10 @@ class Storage final {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  // Flags to inform CollectGarbage that it needs to do the more expensive full scans
+  std::atomic<bool> gc_full_scan_vertices_delete_ = false;
+  std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
   // Durability
   std::filesystem::path snapshot_directory_;
