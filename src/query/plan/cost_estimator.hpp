@@ -296,8 +296,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Apply &op) override {
+    // Get the cost of the main branch
     op.input_->Accept(*this);
 
+    // Estimate cost on the subquery branch independently, use a copy
     auto last_scope = scopes_.back();
     double subquery_cost = EstimateCostOnBranch(&op.subquery_, last_scope);
 
@@ -385,14 +387,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return scope.symbol_stats[symbol.name()];
   }
 
-  void SaveStatsFor(const Symbol &symbol, storage::LabelIndexStats index_stats) {
-    scopes_.back().symbol_stats[symbol.name()] = SymbolStatistics{
-        .cardinality = index_stats.count,
-        .degree = index_stats.avg_degree,
-    };
-  }
-
-  void SaveStatsFor(const Symbol &symbol, storage::LabelPropertyIndexStats index_stats) {
+  template <typename T>
+  void SaveStatsFor(const Symbol &symbol, T index_stats) {
     scopes_.back().symbol_stats[symbol.name()] = SymbolStatistics{
         .cardinality = index_stats.count,
         .degree = index_stats.avg_degree,
