@@ -201,7 +201,7 @@ TEST_F(QueryCostEstimator, SubqueryCartesian) {
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> subquery = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   MakeOp<memgraph::query::plan::Apply>(input, subquery, true);
-  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices);
+  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices + no_vertices);
 }
 
 TEST_F(QueryCostEstimator, UnitSubquery) {

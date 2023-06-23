@@ -302,13 +302,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // Estimate cost on the subquery branch independently, use a copy
     auto last_scope = scopes_.back();
     double subquery_cost = EstimateCostOnBranch(&op.subquery_, last_scope);
+    subquery_cost = subquery_cost != 0 ? subquery_cost : 1;
+    cardinality_ *= subquery_cost;
 
-    // if the query is a unit subquery, we don't want the cost to be zero but 1xN
-    double input_cost = cost();
-    input_cost = input_cost == 0 ? 1 : input_cost;
-    subquery_cost = subquery_cost == 0 ? 1 : subquery_cost;
-
-    cardinality_ *= input_cost * subquery_cost;
     IncrementCost(CostParam::kSubquery);
 
     return false;
