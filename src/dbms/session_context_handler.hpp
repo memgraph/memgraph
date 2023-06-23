@@ -11,6 +11,7 @@
 // TODO: Check if comment above is ok
 #pragma once
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -26,8 +27,10 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "session_context.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage_handler.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
@@ -57,31 +60,39 @@ class SessionContextHandler {
  public:
   using StorageT = storage::Storage;
   using StorageConfigT = storage::Config;
-  using InterpT = query::InterpreterContext;
-  using InterpConfigT = query::InterpreterConfig;
+  // using InterpT = query::InterpreterContext;
+  // using InterpConfigT = query::InterpreterConfig;
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, SessionContext>;
-
-  struct Config {
-    StorageConfigT storage_config;  //!< Storage configuration
-    InterpConfigT interp_config;    //!< Interpreter context configuration
-    std::string ah_flags;           //!< glue::AuthHandler setup flags
-  };
 
   SessionContextHandler(const SessionContextHandler &) = delete;
   SessionContextHandler &operator=(const SessionContextHandler &) = delete;
   SessionContextHandler(SessionContextHandler &&) = delete;
   SessionContextHandler &operator=(SessionContextHandler &&) = delete;
 
-  /**
-   * @brief Singleton's access API.
-   *
-   * @return SessionContextHandler&
-   */
-  static SessionContextHandler &get() {
-    static SessionContextHandler sd;
-    return sd;
-  }
+  class ExpandedInterpContext : public query::InterpreterContext {
+   public:
+    template <typename... TArgs>
+    explicit ExpandedInterpContext(SessionContextHandler &ref, TArgs &&...args)
+        : query::InterpreterContext(std::forward<TArgs>(args)...), sc_handler_(ref) {}
+
+    SessionContextHandler &sc_handler_;
+  };
+
+  using InterpT = ExpandedInterpContext;
+
+  struct ExpandedInterpConfig {
+    query::InterpreterConfig interp_config;
+    std::filesystem::path storage_dir;
+  };
+
+  using InterpConfigT = ExpandedInterpConfig;
+
+  struct Config {
+    StorageConfigT storage_config;           //!< Storage configuration
+    query::InterpreterConfig interp_config;  //!< Interpreter context configuration
+    std::string ah_flags;                    //!< glue::AuthHandler setup flags
+  };
 
   /**
    * @brief Initialize the handler.
@@ -89,11 +100,30 @@ class SessionContextHandler {
    * @param audit_log pointer to the audit logger (ENTERPRISE only)
    * @param configs storage and interpreter configurations
    */
-  void Init(memgraph::audit::Log *audit_log, Config configs, bool tenant_recovery) {
-    std::lock_guard<LockT> wr(lock_);
+  SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool tenant_recovery)
+      : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()} {
+    // std::lock_guard<LockT> wr(lock_);
+    // MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
 
-    MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
-    audit_log_ = audit_log;
+    const auto &root = configs.storage_config.durability.storage_directory;
+    utils::EnsureDirOrDie(root);
+    // Verify that the user that started the process is the same user that is
+    // the owner of the storage directory.
+    storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(root);
+
+    // Create the lock file and open a handle to it. This will crash the
+    // database if it can't open the file for writing or if any other process is
+    // holding the file opened.
+    lock_file_path_ = root / ".lock";
+    lock_file_handle_.Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    MG_ASSERT(lock_file_handle_.AcquireLock(),
+              "Couldn't acquire lock on the storage directory {}"
+              "!\nAnother Memgraph process is currently running with the same "
+              "storage directory, please stop it first before starting this "
+              "process!",
+              root);
+
+    audit_log_ = &audit_log;
     default_configs_ = configs;
 
     // TODO: Decouple storage config from dbms config
@@ -115,8 +145,11 @@ class SessionContextHandler {
         spdlog::info("Database {} restored.", name);
       }
     }
+
     initialized_ = true;
   }
+
+  ~SessionContextHandler() {}
 
   /**
    * @brief Create a new SessionContext associated with the "name" database
@@ -205,6 +238,7 @@ class SessionContextHandler {
     // High level handlers
     for (auto &[_, s] : sessions_) {
       if (!s.OnDelete(db_name)) {
+        // TODO Handle
         return DeleteError::FAIL;
       }
     }
@@ -216,7 +250,7 @@ class SessionContextHandler {
     }
     // Remove from durability list
     if (durability_) durability_->Delete(db_name);
-    // Delete disk storage (TODO: Add a config to enable this)
+    // Delete disk storage (TODO: Add a config to enable/disable this)
     std::error_code ec;
     (void)std::filesystem::remove_all(*storage_path, ec);
     if (ec) {
@@ -268,8 +302,9 @@ class SessionContextHandler {
   }
 
  private:
-  SessionContextHandler() : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()} {}
-  ~SessionContextHandler() {}
+  // SessionContextHandler() : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()}
+  // {}
+  // ~SessionContextHandler() {}
 
   std::optional<std::filesystem::path> StorageDir_(const std::string &name) const {
     try {
@@ -314,16 +349,25 @@ class SessionContextHandler {
    * @param inter_config interpreter configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, StorageConfigT &storage_config, InterpConfigT &inter_config,
+  NewResultT New_(const std::string &name, StorageConfigT &storage_config, query::InterpreterConfig &inter_config,
                   const std::string &ah_flags) {
     auto new_storage = storage_handler_.New(name, storage_config);
     if (new_storage.HasValue()) {
       auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
       if (new_auth.HasValue()) {
+        if (std::any_of(interp_handler_.cbegin(), interp_handler_.cend(), [&](const auto &elem) {
+              return elem.second.config().storage_dir == storage_config.durability.storage_directory;
+            })) {
+          // LOG
+          return NewError::EXISTS;
+        }
         auto &auth_context = new_auth.GetValue();
-        auto new_interp = interp_handler_.New(name, *new_storage.GetValue(), inter_config,
-                                              storage_config.durability.storage_directory, auth_context->auth_handler,
-                                              auth_context->auth_checker);
+        auto new_interp =
+            interp_handler_.New(std::piecewise_construct, name,
+                                std::forward_as_tuple(inter_config, storage_config.durability.storage_directory),
+                                std::forward_as_tuple(*this, new_storage.GetValue().get(), inter_config,
+                                                      storage_config.durability.storage_directory,
+                                                      &auth_context->auth_handler, &auth_context->auth_checker));
         if (new_interp.HasValue()) {
           // Success
           if (durability_) durability_->Put(name, "ok");
@@ -405,8 +449,10 @@ class SessionContextHandler {
   }
 
   // Should storage objects ever be deleted?
-  mutable LockT lock_;            //!< protective lock
-  std::atomic_bool initialized_;  //!< initialized flag (safeguard against multiple init calls)
+  mutable LockT lock_;                    //!< protective lock
+  std::atomic_bool initialized_;          //!< initialized flag (safeguard against multiple init calls)
+  std::filesystem::path lock_file_path_;  //!< Lock file protecting the main storage
+  utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
   StorageHandler<StorageT, StorageConfigT> storage_handler_;      //!< multi-tenancy storage handler
   InterpContextHandler<InterpT, InterpConfigT> interp_handler_;   //!< multi-tenancy interpreter handler
   AuthHandler auth_handler_;                                      //!< multi-tenancy authorization handler

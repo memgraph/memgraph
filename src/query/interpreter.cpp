@@ -2796,12 +2796,14 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, session_uuid,
+           &sc_handler =
+               static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
+                   ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            const auto success = sd_handler.New(db_name);
+            const auto success = sc_handler.New(db_name);
             if (success.HasError()) {
               switch (success.GetError()) {
                 case dbms::NewError::EXISTS:
@@ -2830,13 +2832,15 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, session_uuid,
+           &sc_handler =
+               static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
+                   ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
             try {
-              const auto set = sd_handler.SetFor(session_uuid, db_name);
+              const auto set = sc_handler.SetFor(session_uuid, db_name);
               switch (set) {
                 case dbms::SetForResult::SUCCESS:
                   res = "Using " + db_name;
@@ -2865,12 +2869,14 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, session_uuid,
+           &sc_handler =
+               static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
+                   ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            const auto success = sd_handler.Delete(db_name);
+            const auto success = sc_handler.Delete(db_name);
             if (success.HasError()) {
               switch (success.GetError()) {
                 case dbms::DeleteError::DEFAULT_DB:
@@ -2917,27 +2923,29 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   if (interpreter_context->db->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
-  return PreparedQuery{{"Name", "Current"},
-                       std::move(parsed_query.required_privileges),
-                       [session_uuid, &sd_handler = memgraph::dbms::SessionContextHandler::get()](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         std::vector<std::vector<TypedValue>> status;
+  return PreparedQuery{
+      {"Name", "Current"},
+      std::move(parsed_query.required_privileges),
+      [session_uuid,
+       &sc_handler = static_cast<memgraph::dbms::SessionContextHandler::ExpandedInterpContext *>(interpreter_context)
+                         ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        std::vector<std::vector<TypedValue>> status;
 
-                         auto all = sd_handler.All();
-                         const auto in_use = sd_handler.Current(session_uuid);
-                         std::sort(all.begin(), all.end());
-                         status.reserve(all.size());
-                         for (const auto &name : all) {
-                           status.push_back({TypedValue(name), (name == in_use) ? TypedValue("*") : TypedValue("")});
-                         }
+        auto all = sc_handler.All();
+        const auto in_use = sc_handler.Current(session_uuid);
+        std::sort(all.begin(), all.end());
+        status.reserve(all.size());
+        for (const auto &name : all) {
+          status.push_back({TypedValue(name), (name == in_use) ? TypedValue("*") : TypedValue("")});
+        }
 
-                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE};
 #else
   throw QueryException("Query not supported.");
 #endif

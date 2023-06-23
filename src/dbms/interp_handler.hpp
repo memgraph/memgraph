@@ -55,19 +55,38 @@ class InterpContextHandler {
   NewResult New(std::string_view name, storage::Storage &db, const TConfig &config,
                 const std::filesystem::path &data_directory, query::AuthQueryHandler &ah, query::AuthChecker &ac) {
     // Control that no one is using the same data directory or Storage
-    if (std::any_of(interp_.begin(), interp_.end(), [&](const auto &elem) {
-          return elem.second.config().storage_dir == data_directory || elem.second.get()->db == &db;
-        })) {
-      // LOG
-      return NewError::EXISTS;
-    }
-    auto [itr, success] =
-        interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                        std::forward_as_tuple(Config{config, data_directory}, &db, config, data_directory, &ah, &ac));
+    // if (std::any_of(interp_.begin(), interp_.end(), [&](const auto &elem) {
+    //       return elem.second.config().storage_dir == data_directory || elem.second.get()->db == &db;
+    //     })) {
+    //   // LOG
+    //   return NewError::EXISTS;
+    // }
+    auto [itr, success] = interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                          std::forward_as_tuple(config, &db, config, data_directory, &ah, &ac));
     if (success) {
       return itr->second.get();
     }
     return NewError::EXISTS;
+  }
+
+  template <typename... T1, typename... T2, std::size_t... I1, std::size_t... I2>
+  NewResult New(std::string name, std::tuple<T1...> &args1, std::tuple<T2...> &args2,
+                std::integer_sequence<std::size_t, I1...> /*not-used*/,
+                std::integer_sequence<std::size_t, I2...> /*not-used*/) {
+    auto [itr, success] = interp_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                          std::forward_as_tuple(TConfig{std::forward<T1>(std::get<I1>(args1))...},
+                                                                std::forward<T2>(std::get<I2>(args2))...));
+    if (success) {
+      return itr->second.get();
+    }
+    return NewError::EXISTS;
+  }
+
+  template <typename... T1, typename... T2>
+  NewResult New(std::piecewise_construct_t /*not-used*/, std::string name, std::tuple<T1...> args1,
+                std::tuple<T2...> args2) {
+    return New(name, args1, args2, std::make_index_sequence<sizeof...(T1)>{},
+               std::make_index_sequence<sizeof...(T2)>{});
   }
 
   std::optional<std::shared_ptr<TContext>> Get(const std::string &name) {
@@ -91,12 +110,11 @@ class InterpContextHandler {
     return false;
   }
 
+  auto cbegin() const { return interp_.cbegin(); }
+  auto cend() const { return interp_.cend(); }
+
  private:
-  struct Config {
-    TConfig interp_config;
-    std::filesystem::path storage_dir;
-  };
-  std::unordered_map<std::string, utils::SyncPtr<TContext, Config>> interp_;  //!< map to all active interpreters
+  std::unordered_map<std::string, utils::SyncPtr<TContext, TConfig>> interp_;  //!< map to all active interpreters
 };
 
 }  // namespace memgraph::dbms

@@ -914,9 +914,8 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::get();
-  sc_handler.Init(&audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex},
-                  FLAGS_tenant_recover_on_startup);
+  memgraph::dbms::SessionContextHandler sc_handler(
+      audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex}, FLAGS_tenant_recover_on_startup);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
