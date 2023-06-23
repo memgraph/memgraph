@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+import memgraph
+
 c_red = "\033[91m"
 c_green = "\033[92m"
 c_yellow = "\033[93m"
@@ -14,23 +16,6 @@ c_blue = "\033[94m"
 c_reset = "\033[0m"
 
 no_color = False
-
-
-def send(mgconsole, cmd):
-    process = subprocess.Popen(
-        [mgconsole], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-    output, error = process.communicate(input=cmd)
-    ret = process.wait()
-    return output, error, ret
-
-
-def get_actual_pid(pid):
-    pgrep_cmd = ["pgrep", "-P", str(pid)]
-    pgrep_process = subprocess.Popen(pgrep_cmd, stdout=subprocess.PIPE)
-    output, _ = pgrep_process.communicate()
-    child_pid = int(output.strip())
-    return child_pid
 
 
 def program_exists(prog):
@@ -63,9 +48,6 @@ def validate(args):
     # setup_file
     if args.setup_file and not os.path.exists(args.setup_file):
         error(f"No such setup file: {args.setup_file}")
-    # mgconsole
-    if not program_exists(args.mgconsole):
-        error(f"mgconsole not found: {args.mgconsole}")
     # memgraph
     if not program_exists(args.memgraph):
         error(f"memgraph not found: {args.memgraph}")
@@ -75,26 +57,8 @@ def main(args, custom_env):
     validate(args)
 
     # launch memgraph
-    memgraph_process = subprocess.Popen(
-        [args.memgraph],
-        shell=True,
-        stdout=subprocess.PIPE,
-        env=custom_env,
-    )
-
-    print("Waiting for memgraph to be responsive...", end="", flush=True)
-    memgraph_ready = False
-    while not memgraph_ready:
-        _, _, ret = send(args.mgconsole, "")
-        if not ret:
-            memgraph_ready = True
-        else:
-            time.sleep(0.4)
-            print(".", end="", flush=True)
-    print(" Ready\n")
-
-    # I think process forks for some reason, need to get the child's pid
-    pid = get_actual_pid(memgraph_process.pid)
+    mg = memgraph.MemgraphInstanceRunner(args.memgraph)
+    mg.start()
 
     try:
         # setup
@@ -105,7 +69,10 @@ def main(args, custom_env):
                 print_file_content(setup_content)
 
                 print("Running setup...", end="", flush=True)
-                send(args.mgconsole, setup_content)
+                for q in map(str.strip, setup_content.split(";")):
+                    if q:
+                        print(q + ";")
+                        mg.query(q + ";")
                 print(" Done\n")
 
         # run test
@@ -122,19 +89,16 @@ def main(args, custom_env):
         print("Running test command", end="", flush=True)
         for _ in range(args.nruns):
             print(".", end="", flush=True)
-            send(args.mgconsole, test_content)
+            mg.query(test_content)
         print(" Done\n")
 
     finally:
-        os.kill(pid, signal.SIGTERM)
+        mg.stop()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Perf harness for memgraph")
 
-    parser.add_argument(
-        "--mgconsole", type=str, help="The mgconsole binary to use", default=os.environ.get("MGCONSOLE") or "mgconsole"
-    )
     parser.add_argument(
         "--memgraph", type=str, help="The memgraph binary to use", default=os.environ.get("MEMGRAPH") or "memgraph"
     )
