@@ -86,7 +86,10 @@ class StreamsTestFixture : public ::testing::Test {
     }
   }
 
-  void ResetStreamsObject() { proxyStreams_->streams_.emplace(&interpreter_context_, streams_data_directory_); }
+  void ResetStreamsObject() {
+    proxyStreams_.emplace();
+    proxyStreams_->streams_.emplace(&interpreter_context_, streams_data_directory_);
+  }
 
   void CheckStreamStatus(const StreamCheckData &check_data) {
     SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
