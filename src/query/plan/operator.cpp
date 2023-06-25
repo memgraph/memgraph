@@ -4637,18 +4637,19 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
-                 Expression *delimiter, Expression *quote, Symbol row_var)
+                 Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())),
       file_(file),
       with_header_(with_header),
       ignore_bad_(ignore_bad),
       delimiter_(delimiter),
       quote_(quote),
+      nullif_(nullif),
       row_var_(row_var) {
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
 
-bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
+ACCEPT_WITH_INPUT(LoadCsv)
 
 class LoadCsvCursor;
 
@@ -4674,22 +4675,31 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::string> &nullif) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
-    typed_columns.emplace_back(std::move(column));
+    if (!nullif.has_value() || column != nullif.value()) {
+      typed_columns.emplace_back(std::move(column));
+    } else {
+      typed_columns.emplace_back();
+    }
   }
   return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
+                            std::optional<utils::pmr::string> &nullif) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    m.emplace(std::move(header[i]), std::move(row[i]));
+    if (!nullif.has_value() || row[i] != nullif.value()) {
+      m.emplace(std::move(header[i]), std::move(row[i]));
+    } else {
+      m.emplace(std::piecewise_construct, std::forward_as_tuple(std::move(header[i])), std::forward_as_tuple());
+    }
   }
   return {std::move(m), mem};
 }
@@ -4699,14 +4709,13 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  bool input_is_once_;
+  bool did_pull_;
   std::optional<csv::Reader> reader_{};
+  std::optional<utils::pmr::string> nullif_;
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
-    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
-  }
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("LoadCsv");
@@ -4720,25 +4729,26 @@ class LoadCsvCursor : public Cursor {
     //  without massacring the code even worse than I did here
     if (UNLIKELY(!reader_)) {
       reader_ = MakeReader(&context.evaluation_context);
+      nullif_ = ParseNullif(&context.evaluation_context);
     }
 
-    bool input_pulled = input_cursor_->Pull(frame, context);
+    if (input_cursor_->Pull(frame, context)) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV is 1");
+      }
+      did_pull_ = true;
+    }
 
-    // If the input is Once, we have to keep going until we read all the rows,
-    // regardless of whether the pull on Once returned false.
-    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
-    // have to read at most cardinality(n) rows (but we can read less and stop
-    // pulling MATCH).
-    if (!input_is_once_ && !input_pulled) return false;
     auto row = reader_->GetNextRow(context.evaluation_context.memory);
     if (!row) {
       return false;
     }
     if (!reader_->HasHeader()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row);
+      frame[self_->row_var_] = CsvRowToTypedList(*row, nullif_);
     } else {
       frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
     }
     if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
       context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
@@ -4769,6 +4779,15 @@ class LoadCsvCursor : public Cursor {
         *maybe_file,
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         utils::NewDeleteResource());
+  }
+
+  std::optional<utils::pmr::string> ParseNullif(EvaluationContext *eval_context) {
+    Frame frame(0);
+    SymbolTable symbol_table;
+    DbAccessor *dba = nullptr;
+    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::View::OLD);
+
+    return ToOptionalString(&evaluator, self_->nullif_);
   }
 };
 
