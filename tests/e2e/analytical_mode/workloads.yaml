@@ -1,0 +1,14 @@
+analytical_mode_cluster: &analytical_mode_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "analytical_mode.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Analytical mode checks"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["analytical_mode/free_memory.py"]
+    <<: *analytical_mode_cluster
