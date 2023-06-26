@@ -103,7 +103,7 @@ void Storage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reade
 }
 
 void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  spdlog::debug("Started replication recovery as append deltas!");
+  spdlog::debug("Started replication recovery from appending deltas!");
   replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
 
@@ -221,6 +221,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
 }
 
 void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  spdlog::debug("Started replication recovery from received WAL files!");
   replication::WalFilesReq req;
   slk::Load(&req, req_reader);
 
@@ -237,6 +238,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
 
   replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
+  spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
 
 void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
