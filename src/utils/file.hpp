@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,9 @@ bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst
 /// Renames the path from `src` to `dst`. If the `dst` contains directories that
 /// don't exist, the renaming fails. Symlinks are not followed.
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst);
+
+/// Checks if process has read access to the file.
+bool HasReadAccess(const std::filesystem::path &path);
 
 /// Buffer size used for `InputFile` and `OutputFile` implementations. Using
 /// system calls is very expensive and we can't afford to call either `read` or
