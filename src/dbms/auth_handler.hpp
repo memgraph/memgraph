@@ -28,44 +28,35 @@
 
 namespace memgraph::dbms {
 
-class AuthContextHandler {
+struct AuthContext {
+  explicit AuthContext(const std::filesystem::path &data_directory, const std::string &ah_flag = "")
+      : auth(data_directory / "auth"), auth_handler(&auth, ah_flag), auth_checker(&auth) {}
+
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth;
+  glue::AuthQueryHandler auth_handler;
+  glue::AuthChecker auth_checker;
+};
+
+struct AuthConfig {
+  std::filesystem::path storage_dir;
+  std::string ah_flag;
+};
+
+class AuthContextHandler : public Handler<AuthContext, AuthConfig> {
  public:
-  struct AuthContext {
-    explicit AuthContext(const std::filesystem::path &data_directory, const std::string &ah_flag = "")
-        : auth(data_directory / "auth"), auth_handler(&auth, ah_flag), auth_checker(&auth) {}
-
-    utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth;
-    glue::AuthQueryHandler auth_handler;
-    glue::AuthChecker auth_checker;
-  };
-
-  struct AuthConfig {
-    std::filesystem::path storage_dir;
-    std::string ah_flag;
-  };
-
   using HandlerT = Handler<AuthContext, AuthConfig>;
 
   typename HandlerT::NewResult New(const std::string &name, const std::filesystem::path &data_directory,
                                    const std::string &ah_flag = "") {
     // Check if compatible with the existing auth
-    if (std::any_of(handler_.cbegin(), handler_.cend(),
+    if (std::any_of(cbegin(), cend(),
                     [&](const auto &elem) { return elem.second.config().storage_dir == data_directory; })) {
       // LOG
       return NewError::EXISTS;
     }
-    return handler_.New(name, std::forward_as_tuple(data_directory, ah_flag),
-                        std::forward_as_tuple(data_directory, ah_flag));
+    return HandlerT::New(name, std::forward_as_tuple(data_directory, ah_flag),
+                         std::forward_as_tuple(data_directory, ah_flag));
   }
-
-  auto Get(const std::string &name) { return handler_.Get(name); }
-
-  auto GetConfig(const std::string &name) const { return handler_.GetConfig(name); }
-
-  auto Delete(const std::string &name) { return handler_.Delete(name); }
-
- private:
-  HandlerT handler_;
 };
 
 }  // namespace memgraph::dbms

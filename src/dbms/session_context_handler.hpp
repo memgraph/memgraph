@@ -440,7 +440,7 @@ class SessionContextHandler {
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
 
  public:
-  using InterpContextT = decltype(interp_handler_)::ExpandedInterpContext;
+  using InterpContextT = ExpandedInterpContext<SessionContextHandler>;
 };
 
 #else

@@ -77,6 +77,10 @@ TEST(DBMS_Auth, Delete) {
 
   ASSERT_TRUE(ah.Delete("auth1"));
   ASSERT_FALSE(ah.Get("auth1"));
+  ASSERT_TRUE(ah.New("auth1", storage_directory / "auth1").HasValue());
+  ASSERT_TRUE(ah.Get("auth1"));
+  ASSERT_TRUE(ah.Delete("auth1"));
+  ASSERT_FALSE(ah.Get("auth1"));
   ASSERT_TRUE(ah.Get("auth3"));
 }
 

@@ -33,7 +33,7 @@ struct SessionContext {
 
   SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
                  std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
-                 std::shared_ptr<AuthContextHandler::AuthContext> auth_context
+                 std::shared_ptr<AuthContext> auth_context
 #ifdef MG_ENTERPRISE
                  ,
                  memgraph::audit::Log *audit_log
@@ -55,7 +55,7 @@ struct SessionContext {
   std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
   const std::string run_id;
 
-  std::shared_ptr<AuthContextHandler::AuthContext> auth_context;
+  std::shared_ptr<AuthContext> auth_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *const auth;
 
 #ifdef MG_ENTERPRISE

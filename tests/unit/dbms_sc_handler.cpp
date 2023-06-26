@@ -274,6 +274,13 @@ TEST(DBMS_Handler, Delete) {
     ASSERT_EQ(sch.SetFor(ti1.UUID(), "memgraph"), memgraph::dbms::SetForResult::SUCCESS);
     auto del = sch.Delete("sc1");
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
+    auto del2 = sch.Delete("sc1");
+    ASSERT_TRUE(del2.HasError() && del2.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
+  }
+  {
+    ASSERT_TRUE(sch.New("sc1").HasValue());
+    auto del = sch.Delete("sc1");
+    ASSERT_FALSE(del.HasError()) << (int)del.GetError();
   }
   {
     auto del = sch.Delete("sc3");
@@ -290,8 +297,6 @@ TEST(DBMS_Handler, Delete) {
 
   ASSERT_TRUE(sch.Delete(ti1));
 }
-
-TEST(DBMS_Handler, DeleteAndRecover) {}
 
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);

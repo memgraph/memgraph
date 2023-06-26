@@ -23,30 +23,31 @@
 
 namespace memgraph::dbms {
 
-template <typename TSCHandler>
-class InterpContextHandler {
+template <typename T>
+class ExpandedInterpContext : public query::InterpreterContext {
  public:
-  class ExpandedInterpContext : public query::InterpreterContext {
-   public:
-    template <typename... TArgs>
-    explicit ExpandedInterpContext(TSCHandler &ref, TArgs &&...args)
-        : query::InterpreterContext(std::forward<TArgs>(args)...), sc_handler_(ref) {}
+  template <typename... TArgs>
+  explicit ExpandedInterpContext(T &ref, TArgs &&...args)
+      : query::InterpreterContext(std::forward<TArgs>(args)...), sc_handler_(ref) {}
 
-    TSCHandler &sc_handler_;
-  };
+  T &sc_handler_;
+};
 
-  struct ExpandedInterpConfig {
-    query::InterpreterConfig interp_config;
-    std::filesystem::path storage_dir;
-  };
+struct ExpandedInterpConfig {
+  query::InterpreterConfig interp_config;
+  std::filesystem::path storage_dir;
+};
 
-  using HandlerT = Handler<ExpandedInterpContext, ExpandedInterpConfig>;
+template <typename TSCHandler>
+class InterpContextHandler : public Handler<ExpandedInterpContext<TSCHandler>, ExpandedInterpConfig> {
+ public:
+  using HandlerT = Handler<ExpandedInterpContext<TSCHandler>, ExpandedInterpConfig>;
 
   typename HandlerT::NewResult New(const std::string &name, TSCHandler &sc_handler, storage::Storage &db,
                                    const query::InterpreterConfig &config, const std::filesystem::path &dir,
                                    query::AuthQueryHandler &auth_handler, query::AuthChecker &auth_checker) {
     // Check if compatible with the existing interpreters
-    if (std::any_of(handler_.cbegin(), handler_.cend(), [&](const auto &elem) {
+    if (std::any_of(HandlerT::cbegin(), HandlerT::cend(), [&](const auto &elem) {
           const auto &config = elem.second.config();
           const auto &context = *elem.second.get();
           return config.storage_dir == dir || context.db == &db;
@@ -54,18 +55,9 @@ class InterpContextHandler {
       // LOG
       return NewError::EXISTS;
     }
-    return handler_.New(name, std::forward_as_tuple(config, dir),
-                        std::forward_as_tuple(sc_handler, &db, config, dir, &auth_handler, &auth_checker));
+    return HandlerT::New(name, std::forward_as_tuple(config, dir),
+                         std::forward_as_tuple(sc_handler, &db, config, dir, &auth_handler, &auth_checker));
   }
-
-  auto Get(const std::string &name) { return handler_.Get(name); }
-
-  auto GetConfig(const std::string &name) const { return handler_.GetConfig(name); }
-
-  auto Delete(const std::string &name) { return handler_.Delete(name); }
-
- private:
-  HandlerT handler_;
 };
 
 }  // namespace memgraph::dbms

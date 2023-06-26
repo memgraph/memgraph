@@ -29,38 +29,27 @@
 
 namespace memgraph::dbms {
 
-class StorageHandler {
+class StorageHandler : public Handler<storage::Storage, storage::Config> {
  public:
   using HandlerT = Handler<storage::Storage, storage::Config>;
 
   HandlerT::NewResult New(const std::string &name, const storage::Config &config) {
     // Control that no one is using the same data directory
-    if (std::any_of(handler_.cbegin(), handler_.cend(), [&](const auto &elem) {
+    if (std::any_of(cbegin(), cend(), [&](const auto &elem) {
           return elem.second.config().durability.storage_directory == config.durability.storage_directory;
         })) {
       // LOG
       return NewError::EXISTS;
     }
-    return handler_.New(name, std::forward_as_tuple(config), std::forward_as_tuple(config, name));
+    return HandlerT::New(name, std::forward_as_tuple(config), std::forward_as_tuple(config, name));
   }
-
-  auto Get(const std::string &name) { return handler_.Get(name); }
-
-  auto GetConfig(const std::string &name) const { return handler_.GetConfig(name); }
-
-  auto Delete(const std::string &name) { return handler_.Delete(name); }
-
-  auto Has(const std::string &name) const { return handler_.Has(name); }
 
   std::vector<std::string> All() const {
     std::vector<std::string> res;
-    res.reserve(std::distance(handler_.cbegin(), handler_.cend()));
-    std::for_each(handler_.cbegin(), handler_.cend(), [&](const auto &elem) { res.push_back(elem.first); });
+    res.reserve(std::distance(cbegin(), cend()));
+    std::for_each(cbegin(), cend(), [&](const auto &elem) { res.push_back(elem.first); });
     return res;
   }
-
- private:
-  HandlerT handler_;
 };
 
 }  // namespace memgraph::dbms
