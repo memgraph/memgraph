@@ -15,6 +15,7 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
+#include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
@@ -30,7 +31,6 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
 
 namespace {

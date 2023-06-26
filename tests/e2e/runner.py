@@ -73,10 +73,21 @@ def run(args):
         # Validation.
         if "cluster" in workload:
             for name, config in workload["cluster"].items():
-                for validation in config.get("validation_queries", []):
-                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
-                    data = mg_instance.query(validation["query"])[0][0]
+                mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+                # Explicitely check if there are validation queries and skip if
+                # nothing is to validate. If setup queries are dealing with
+                # users, any new connection requires auth details.
+                validation_queries = config.get("validation_queries", [])
+                if len(validation_queries) == 0:
+                    continue
+                # NOTE: If the setup quries create users AND there are some
+                # validation queries, the connection here has to get the right
+                # username/password.
+                conn = mg_instance.get_connection()
+                for validation in validation_queries:
+                    data = mg_instance.query(validation["query"], conn)[0][0]
                     assert data == validation["expected"]
+                conn.close()
         cleanup()
         log.info("%s PASSED.", workload_name)
 

@@ -22,6 +22,8 @@
 #include "query/trigger.hpp"
 #include "utils/async_timer.hpp"
 
+#include "query/frame_change.hpp"
+
 namespace memgraph::query {
 
 enum class TransactionStatus {
@@ -82,6 +84,7 @@ struct ExecutionContext {
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
+  FrameChangeCollector *frame_change_collector{nullptr};
   utils::AsyncTimer timer;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};

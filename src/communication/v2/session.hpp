@@ -44,8 +44,17 @@
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/variant_helpers.hpp"
+
+namespace memgraph::metrics {
+extern const Event ActiveSessions;
+extern const Event ActiveTCPSessions;
+extern const Event ActiveSSLSessions;
+extern const Event ActiveWebSocketSessions;
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
 
@@ -100,6 +109,8 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
   void DoAccept(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> req) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveWebSocketSessions);
+
     execution_active_ = true;
     // Set suggested timeout settings for the websocket
     ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
@@ -214,6 +225,10 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     if (!IsConnected()) {
       return;
     }
+
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveWebSocketSessions);
+
     if (ec) {
       return OnError(ec, "close");
     }
@@ -260,12 +275,19 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (execution_active_) {
       return false;
     }
+
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSessions);
+
     execution_active_ = true;
     timeout_timer_.async_wait(boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
+      utils::OnScopeExit increment_counter(
+          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
     } else {
+      utils::OnScopeExit increment_counter(
+          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
     }
     return true;
@@ -451,6 +473,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnClose(const boost::system::error_code &ec) {
+    if (ssl_context_.has_value()) {
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSSLSessions);
+    } else {
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTCPSessions);
+    }
+
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
+
     if (ec) {
       return OnError(ec);
     }
@@ -466,7 +496,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (timeout_timer_.expiry() <= boost::asio::steady_timer::clock_type::now()) {
       // The deadline has passed. Stop the session. The other actors will
       // terminate as soon as possible.
-      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_);
+      spdlog::info("Shutting down session after {} seconds of inactivity", timeout_seconds_.count());
       DoShutdown();
     } else {
       // Put the actor back to sleep.

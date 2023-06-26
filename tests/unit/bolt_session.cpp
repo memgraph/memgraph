@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include <string>
 
 #include <gflags/gflags.h>
+#include <gtest/gtest.h>
 
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/session.hpp"
@@ -27,6 +28,7 @@ using memgraph::communication::bolt::Value;
 static const char *kInvalidQuery = "invalid query";
 static const char *kQueryReturn42 = "RETURN 42";
 static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
+static const char *kQueryShowTx = "SHOW TRANSACTIONS";
 static const char *kQueryEmpty = "no results";
 
 class TestSessionData {};
@@ -39,10 +41,18 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params) override {
+      const std::string &query, const std::map<std::string, Value> &params,
+      const std::map<std::string, Value> &metadata) override {
+    if (!metadata.empty()) md_ = metadata;
     if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
       return {{"result_name"}, {}};
+    } else if (query == kQueryShowTx) {
+      if (md_.at("str").ValueString() != "aha" || md_.at("num").ValueInt() != 123) {
+        throw ClientError("Wrong metadata!");
+      }
+      query_ = query;
+      return {{"username", "transaction_id", "query", "metadata"}, {}};
     } else {
       query_ = "";
       throw ClientError("client sent invalid query");
@@ -71,6 +81,9 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
       }
 
       return {std::pair("has_more", true)};
+    } else if (query_ == kQueryShowTx) {
+      encoder->MessageRecord({"", 1234567890, query_, md_});
+      return {};
     } else {
       throw ClientError("client sent invalid query");
     }
@@ -78,11 +91,11 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
 
-  void BeginTransaction() override {}
-  void CommitTransaction() override {}
-  void RollbackTransaction() override {}
+  void BeginTransaction(const std::map<std::string, Value> &metadata) override { md_ = metadata; }
+  void CommitTransaction() override { md_.clear(); }
+  void RollbackTransaction() override { md_.clear(); }
 
-  void Abort() override {}
+  void Abort() override { md_.clear(); }
 
   bool Authenticate(const std::string &username, const std::string &password) override { return true; }
 
@@ -90,6 +103,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
  private:
   std::string query_;
+  std::map<std::string, Value> md_;
 };
 
 // TODO: This could be done in fixture.
@@ -157,6 +171,10 @@ inline constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 
                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 inline constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x03, 0x04};
 inline constexpr uint8_t route[]{0xb3, 0x66, 0xa0, 0x90, 0xc0};
+const std::string extra_w_metadata =
+    "\xa2\x8b\x74\x78\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\xa2\x83\x73\x74\x72\x83\x61\x68\x61\x83\x6e\x75\x6d\x7b\x8a"
+    "\x74\x78\x5f\x74\x69\x6d\x65\x6f\x75\x74\xc9\x07\xd0";
+inline constexpr uint8_t commit[] = {0xb0, 0x12};
 }  // namespace v4_3
 
 // Write bolt chunk header (length)
@@ -229,10 +247,11 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session, std::vecto
 }
 
 // Write bolt encoded run request
-void WriteRunRequest(TestInputStream &input_stream, const char *str, const bool is_v4 = false) {
+void WriteRunRequest(TestInputStream &input_stream, const char *str, const bool is_v4 = false,
+                     const std::string &extra = "\xA0") {
   // write chunk header
   auto len = strlen(str);
-  WriteChunkHeader(input_stream, (3 + is_v4) + 2 + len + 1);
+  WriteChunkHeader(input_stream, (3 + is_v4 * extra.size()) + 2 + len + 1);
 
   const auto *run_header = is_v4 ? v4::run_req_header : run_req_header;
   const auto run_header_size = is_v4 ? sizeof(v4::run_req_header) : sizeof(run_req_header);
@@ -250,7 +269,7 @@ void WriteRunRequest(TestInputStream &input_stream, const char *str, const bool 
 
   if (is_v4) {
     // write empty map for extra field
-    input_stream.Write("\xA0", 1);  // TinyMap
+    input_stream.Write(extra.data(), extra.size());  // TinyMap
   }
 
   // write chunk tail
@@ -353,15 +372,15 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     ASSERT_EQ(session.version_.minor, 3);
     ASSERT_EQ(session.version_.major, 4);
   }
-  // With multiple offsets
+  // With multiple offsets (added v5.2)
   {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x07, 0x00, 0x03,
                                         0x03, 0x06, 0x00, 0x03, 0x03, 0x05, 0x00, 0x03, 0x03, 0x04};
-    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x02, 0x05};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
-    ASSERT_EQ(session.version_.minor, 3);
-    ASSERT_EQ(session.version_.major, 4);
+    ASSERT_EQ(session.version_.minor, 2);
+    ASSERT_EQ(session.version_.major, 5);
   }
   // Offset overflows
   {
@@ -1120,5 +1139,29 @@ TEST(BoltSession, ResetInIdle) {
     ExecuteInit(input_stream, session, output, true);
     ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
     EXPECT_EQ(session.state_, State::Idle);
+  }
+}
+
+TEST(BoltSession, PassMetadata) {
+  // v4+
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+
+    WriteRunRequest(input_stream, kQueryShowTx, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+
+    ExecuteCommand(input_stream, session, v4::pullall_req, sizeof(v4::pullall_req));
+    ASSERT_EQ(session.state_, State::Idle);
+    PrintOutput(output);
+    constexpr std::array<uint8_t, 5> md_num_123{0x83, 0x6E, 0x75, 0x6D, 0x7B};
+    constexpr std::array<uint8_t, 8> md_str_aha{0x83, 0x73, 0x74, 0x72, 0x83, 0x61, 0x68, 0x61};
+    auto find_num = std::search(begin(output), end(output), begin(md_num_123), end(md_num_123));
+    EXPECT_NE(find_num, end(output));
+    auto find_str = std::search(begin(output), end(output), begin(md_str_aha), end(md_str_aha));
+    EXPECT_NE(find_str, end(output));
   }
 }

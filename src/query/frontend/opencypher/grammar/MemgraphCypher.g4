@@ -31,6 +31,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -58,6 +59,7 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | NULLIF
                       | ISOLATION
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -90,6 +92,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STATUS
                       | STORAGE
                       | STREAM
                       | STREAMS
@@ -222,6 +225,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
+         ( NULLIF nullif ) ?
          AS rowVar ;
 
 csvFile : literal ;
@@ -229,6 +233,8 @@ csvFile : literal ;
 delimiter : literal ;
 
 quote : literal ;
+
+nullif : literal ;
 
 rowVar : variable ;
 
@@ -334,7 +340,7 @@ dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
 
-lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
 freeMemoryQuery : FREE MEMORY ;
 

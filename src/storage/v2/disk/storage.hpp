@@ -269,6 +269,8 @@ class DiskStorage final : public Storage {
 
   StorageInfo GetInfo() const override;
 
+  void FreeMemory(std::unique_lock<utils::RWLock>) override {}
+
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   std::unique_ptr<RocksDBStorage> kvstore_;

@@ -11,9 +11,15 @@
 
 #pragma once
 
+#include "storage/v2/storage.hpp"
+
+/// REPLICATION ///
+#include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/replication/serialization.hpp"
 
 namespace memgraph::storage {
 
@@ -35,8 +41,6 @@ class InMemoryStorage final : public Storage {
     uint64_t current_timestamp_of_replica;
     uint64_t current_number_of_timestamp_behind_master;
   };
-
-  enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
   struct ReplicaInfo {
     std::string name;
@@ -325,15 +329,15 @@ class InMemoryStorage final : public Storage {
 
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
-  ReplicationRole GetReplicationRole() const;
+  replication::ReplicationRole GetReplicationRole() const;
 
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  void FreeMemory();
+  void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
 
-  bool LockPath();
-
-  bool UnlockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
+  utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
 
@@ -352,7 +356,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage();
+  void CollectGarbage(std::unique_lock<utils::RWLock> main_guard = {});
 
   bool InitializeWalFile();
   void FinalizeWalFile();
@@ -369,7 +373,9 @@ class InMemoryStorage final : public Storage {
 
   void RestoreReplicas();
 
-  bool ShouldStoreAndRestoreReplicas() const;
+  void RestoreReplicationRole();
+
+  bool ShouldStoreAndRestoreReplicationState() const;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
@@ -442,6 +448,10 @@ class InMemoryStorage final : public Storage {
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 
+  // Flags to inform CollectGarbage that it needs to do the more expensive full scans
+  std::atomic<bool> gc_full_scan_vertices_delete_ = false;
+  std::atomic<bool> gc_full_scan_edges_delete_ = false;
+
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
   class ReplicationServer;
@@ -461,7 +471,7 @@ class InMemoryStorage final : public Storage {
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
 };
 
 }  // namespace memgraph::storage

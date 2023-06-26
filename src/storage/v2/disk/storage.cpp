@@ -1483,6 +1483,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexPersistenceError{}};
   }
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+
   return {};
 }
 
@@ -1500,6 +1503,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexPersistenceError{}};
   }
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+
   return {};
 }
 
@@ -1515,6 +1521,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     return StorageIndexDefinitionError{IndexPersistenceError{}};
   }
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+
   return {};
 }
 
@@ -1529,6 +1538,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
   if (!PersistLabelPropertyIndexAndExistenceConstraintDeletion(label, property, label_property_index_str)) {
     return StorageIndexDefinitionError{IndexPersistenceError{}};
   }
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 
   return {};
 }

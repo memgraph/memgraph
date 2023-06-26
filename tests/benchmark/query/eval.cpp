@@ -61,6 +61,8 @@ BENCHMARK_TEMPLATE(MapLiteral, NewDeleteResource)->Range(512, 1U << 15U)->Unit(b
 
 BENCHMARK_TEMPLATE(MapLiteral, MonotonicBufferResource)->Range(512, 1U << 15U)->Unit(benchmark::kMicrosecond);
 
+// TODO ante benchmark template for MapProjectionLiteral
+
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void AdditionOperator(benchmark::State &state) {

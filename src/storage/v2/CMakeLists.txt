@@ -22,7 +22,8 @@ set(storage_v2_src_files
     disk/label_index.cpp
     disk/label_property_index.cpp
     disk/unique_constraints.cpp
-)
+    storage_mode.cpp
+    isolation_level.cpp)
 
 
 set(storage_v2_src_files

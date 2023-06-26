@@ -2753,6 +2753,7 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
 }
 
 namespace {
+/// @throw std::bad_alloc, std::length_error
 mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
                                    const ProcedureInfo &procedure_info) {
   if (!IsValidIdentifierName(name)) {
@@ -2763,9 +2764,24 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
   };
 
   auto *memory = module->procedures.get_allocator().GetMemoryResource();
-  // May throw std::bad_alloc, std::length_error
   return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
+
+/// @throw std::bad_alloc, std::length_error
+mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                         mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                         const ProcedureInfo &procedure_info) {
+  if (!IsValidIdentifierName(name)) {
+    throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
+  }
+  if (module->procedures.find(name) != module->procedures.end()) {
+    throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
+  };
+  auto *memory = module->procedures.get_allocator().GetMemoryResource();
+  return &module->procedures.emplace(name, mgp_proc(name, cb_batch, initializer, cleanup, memory, procedure_info))
+              .first->second;
+}
+
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
@@ -2774,6 +2790,28 @@ mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mg
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
   return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
+}
+
+mgp_error mgp_module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                              mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                              mgp_proc **result) {
+  return WrapExceptions(
+      [=] {
+        return mgp_module_add_batch_procedure(module, name, cb_batch, initializer, cleanup,
+                                              {.is_write = false, .is_batched = true});
+      },
+      result);
+}
+
+mgp_error mgp_module_add_batch_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                               mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                               mgp_proc **result) {
+  return WrapExceptions(
+      [=] {
+        return mgp_module_add_batch_procedure(module, name, cb_batch, initializer, cleanup,
+                                              {.is_write = true, .is_batched = true});
+      },
+      result);
 }
 
 namespace {

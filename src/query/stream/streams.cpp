@@ -36,9 +36,9 @@
 #include "utils/pmr/string.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event MessagesConsumed;
-}  // namespace EventCounter
+}  // namespace memgraph::metrics
 
 namespace memgraph::query::stream {
 namespace {
@@ -495,7 +495,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     utils::OnScopeExit interpreter_cleanup{
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
-    EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
+    memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
     CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;

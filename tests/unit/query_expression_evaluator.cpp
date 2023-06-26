@@ -434,6 +434,89 @@ TYPED_TEST(ExpressionEvaluatorTest, MapIndexing) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, MapProjectionIndexing) {
+  auto *map_variable = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+      {this->storage.GetPropertyIx("x"), this->storage.template Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = this->storage.template Create<MapProjectionLiteral>(
+      map_variable, std::unordered_map<PropertyIx, Expression *>{
+                        {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)},
+                        {this->storage.GetPropertyIx("y"), this->storage.template Create<PropertyLookup>(
+                                                               map_variable, this->storage.GetPropertyIx("y"))}});
+
+  {
+    // Legal indexing.
+    auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
+                                                                this->storage.template Create<PrimitiveLiteral>("a"));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueInt(), 1);
+  }
+  {
+    // Legal indexing; property created by PropertyLookup of a non-existent map variable key
+    auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
+                                                                this->storage.template Create<PrimitiveLiteral>("y"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Legal indexing, non-existing property.
+    auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
+                                                                this->storage.template Create<PrimitiveLiteral>("z"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Wrong key type.
+    auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
+                                                                this->storage.template Create<PrimitiveLiteral>(42));
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
+  }
+  {
+    // Indexing with Null.
+    auto *op = this->storage.template Create<SubscriptOperator>(
+        map_projection_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupBefore) {
+  // AllPropertiesLookup (.*) may contain properties whose names also occur in MapProjectionLiteral
+  // The ones in MapProjectionLiteral are explicitly given and thus take precedence over those in AllPropertiesLookup
+  // Test case: AllPropertiesLookup comes before the identically-named properties
+
+  auto *map_variable = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+      {this->storage.GetPropertyIx("x"), this->storage.template Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = this->storage.template Create<MapProjectionLiteral>(
+      map_variable,
+      std::unordered_map<PropertyIx, Expression *>{
+          {this->storage.GetPropertyIx("*"), this->storage.template Create<AllPropertiesLookup>(map_variable)},
+          {this->storage.GetPropertyIx("x"), this->storage.template Create<PrimitiveLiteral>(1)}});
+
+  auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
+                                                              this->storage.template Create<PrimitiveLiteral>("x"));
+  auto value = Eval(op);
+  EXPECT_EQ(value.ValueInt(), 1);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupAfter) {
+  // AllPropertiesLookup (.*) may contain properties whose names also occur in MapProjectionLiteral
+  // The ones in MapProjectionLiteral are explicitly given and thus take precedence over those in AllPropertiesLookup
+  // Test case: AllPropertiesLookup comes after the identically-named properties
+
+  auto *map_variable = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+      {this->storage.GetPropertyIx("x"), this->storage.template Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = this->storage.template Create<MapProjectionLiteral>(
+      map_variable,
+      std::unordered_map<PropertyIx, Expression *>{
+          {this->storage.GetPropertyIx("x"), this->storage.template Create<PrimitiveLiteral>(1)},
+          {this->storage.GetPropertyIx("*"), this->storage.template Create<AllPropertiesLookup>(map_variable)}});
+
+  auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
+                                                              this->storage.template Create<PrimitiveLiteral>("x"));
+  auto value = Eval(op);
+  EXPECT_EQ(value.ValueInt(), 1);
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto edge_type = this->dba.NameToEdgeType("edge_type");
   auto prop = this->dba.NameToProperty("prop");
@@ -1289,10 +1372,91 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
   EXPECT_TRUE(this->Value(this->prop_age).IsNull());
 }
 
-TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteral) {
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, Map) {
   this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
-  EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
-  EXPECT_TRUE(this->Value(this->prop_height).IsNull());
+  EXPECT_EQ(Value(this->prop_age).ValueInt(), 10);
+  EXPECT_TRUE(Value(this->prop_height).IsNull());
+}
+
+template <typename StorageType>
+class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest<StorageType> {
+ protected:
+  std::pair<std::string, memgraph::storage::PropertyId> prop_age =
+      std::make_pair("age", this->dba.NameToProperty("age"));
+  std::pair<std::string, memgraph::storage::PropertyId> prop_height =
+      std::make_pair("height", this->dba.NameToProperty("height"));
+  Identifier *identifier = this->storage.template Create<Identifier>("element");
+  Symbol symbol = this->symbol_table.CreateSymbol("element", true);
+
+  void SetUp() { identifier->MapTo(symbol); }
+
+  auto Value() {
+    auto *op = this->storage.template Create<AllPropertiesLookup>(identifier);
+    return Eval(op);
+  }
+};
+
+TYPED_TEST_CASE(ExpressionEvaluatorAllPropertiesLookup, StorageTypes);
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
+  auto v1 = this->dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  this->dba.AdvanceCommand();
+  this->frame[this->symbol] = TypedValue(v1);
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Edge) {
+  auto v1 = this->dba.InsertVertex();
+  auto v2 = this->dba.InsertVertex();
+  auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("edge_type"));
+  ASSERT_TRUE(e12.HasValue());
+  ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  this->dba.AdvanceCommand();
+  this->frame[this->symbol] = TypedValue(*e12);
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Duration) {
+  const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
+  this->frame[this->symbol] = TypedValue(dur);
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Date) {
+  const memgraph::utils::Date date({1996, 11, 22});
+  this->frame[this->symbol] = TypedValue(date);
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
+  const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
+  this->frame[this->symbol] = TypedValue(lt);
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
+  const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
+  this->frame[this->symbol] = TypedValue(ldt);
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Null) {
+  this->frame[this->symbol] = TypedValue();
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Map) {
+  this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
+  auto all_properties = this->Value();
+  EXPECT_TRUE(all_properties.IsMap());
 }
 
 template <typename StorageType>

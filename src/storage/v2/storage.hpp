@@ -27,8 +27,18 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertices_iterable.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/timer.hpp"
 #include "utils/uuid.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotCreationLatency_us;
+
+extern const Event ActiveLabelIndices;
+extern const Event ActiveLabelPropertyIndices;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -192,6 +202,9 @@ class Storage {
 
   StorageMode GetStorageMode() const;
 
+  virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+  void FreeMemory() { FreeMemory({}); }
+
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
@@ -244,6 +257,7 @@ class Storage {
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  IsolationLevel GetIsolationLevel() const noexcept;
 
   virtual StorageInfo GetInfo() const = 0;
 

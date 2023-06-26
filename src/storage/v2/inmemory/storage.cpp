@@ -15,14 +15,15 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_persistence_helper.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/stat.hpp"
+
+/// REPLICATION ///
+#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_server.hpp"
+#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage_error.hpp"
 
 namespace memgraph::storage {
 
@@ -53,13 +54,6 @@ InMemoryStorage::InMemoryStorage(Config config)
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_role_ == ReplicationRole::MAIN) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -155,14 +149,29 @@ InMemoryStorage::InMemoryStorage(Config config)
     commit_log_.emplace(timestamp_);
   }
 
-  if (config_.durability.restore_replicas_on_startup) {
-    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
+  if (config_.durability.restore_replication_state_on_startup) {
+    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
     storage_ =
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
-    RestoreReplicas();
+
+    RestoreReplicationRole();
+
+    if (replication_role_ == replication::ReplicationRole::MAIN) {
+      RestoreReplicas();
+    }
   } else {
-    spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be forgotten.");
+    spdlog::warn(
+        "Replicastion configuration will NOT be stored. When the server restarts, replication state will be "
+        "forgotten.");
+  }
+
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
+      replication_role_ == replication::ReplicationRole::MAIN) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
   }
 }
 
@@ -281,6 +290,13 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
+  // Need to inform the next CollectGarbage call that there are some
+  // non-transactional deletions that need to be collected
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    mem_storage->gc_full_scan_vertices_delete_ = true;
+  }
+
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
 }
@@ -350,6 +366,13 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
+
+  // Need to inform the next CollectGarbage call that there are some
+  // non-transactional deletions that need to be collected
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    mem_storage->gc_full_scan_vertices_delete_ = true;
+  }
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -563,6 +586,13 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
     auto *edge_ptr = edge_ref.ptr;
     CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
     edge_ptr->deleted = true;
+
+    // Need to inform the next CollectGarbage call that there are some
+    // non-transactional deletions that need to be collected
+    if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      mem_storage->gc_full_scan_edges_delete_ = true;
+    }
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
@@ -659,7 +689,8 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (mem_storage->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        if (mem_storage->replication_role_ == replication::ReplicationRole::MAIN ||
+            desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
@@ -674,7 +705,8 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (mem_storage->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          if (mem_storage->replication_role_ == replication::ReplicationRole::MAIN ||
+              desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             mem_storage->last_commit_timestamp_.store(*commit_timestamp_);
           }
@@ -893,6 +925,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+
   if (success) {
     return {};
   }
@@ -913,6 +948,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+
   if (success) {
     return {};
   }
@@ -931,6 +969,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
 
   if (success) {
     return {};
@@ -952,6 +993,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
+
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 
   if (success) {
     return {};
@@ -1097,7 +1141,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_role_ == ReplicationRole::REPLICA) {
+    if (replication_role_ == replication::ReplicationRole::REPLICA) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
@@ -1107,26 +1151,42 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 template <bool force>
-void InMemoryStorage::CollectGarbage() {
-  if constexpr (force) {
-    // We take the unique lock on the main storage lock so we can forcefully clean
-    // everything we can
-    if (!main_lock_.try_lock()) {
-      CollectGarbage<false>();
-      return;
+void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard) {
+  // NOTE: You do not need to consider cleanup of deleted object that occurred in
+  // different storage modes within the same CollectGarbage call. This is because
+  // SetStorageMode will ensure CollectGarbage is called before any new transactions
+  // with the new storage mode can start.
+
+  // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
+  // as reacquiring the lock would cause  deadlock. Otherwise, we need to get our own
+  // lock.
+  if (!main_guard.owns_lock()) {
+    if constexpr (force) {
+      // We take the unique lock on the main storage lock, so we can forcefully clean
+      // everything we can
+      if (!main_lock_.try_lock()) {
+        CollectGarbage<false>();
+        return;
+      }
+    } else {
+      // Because the garbage collector iterates through the indices and constraints
+      // to clean them up, it must take the main lock for reading to make sure that
+      // the indices and constraints aren't concurrently being modified.
+      main_lock_.lock_shared();
     }
   } else {
-    // Because the garbage collector iterates through the indices and constraints
-    // to clean them up, it must take the main lock for reading to make sure that
-    // the indices and constraints aren't concurrently being modified.
-    main_lock_.lock_shared();
+    MG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
   }
 
   utils::OnScopeExit lock_releaser{[&] {
-    if constexpr (force) {
-      main_lock_.unlock();
+    if (!main_guard.owns_lock()) {
+      if constexpr (force) {
+        main_lock_.unlock();
+      } else {
+        main_lock_.unlock_shared();
+      }
     } else {
-      main_lock_.unlock_shared();
+      main_guard.unlock();
     }
   }};
 
@@ -1156,14 +1216,18 @@ void InMemoryStorage::CollectGarbage() {
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
+  auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
+  auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
+
   // Flag that will be used to determine whether the Index GC should be run. It
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
+  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty() ||
+                           need_full_scan_vertices || need_full_scan_edges;
 
   while (true) {
-    // We don't want to hold the lock on commited transactions for too long,
+    // We don't want to hold the lock on committed transactions for too long,
     // because that prevents other transactions from committing.
     Transaction *transaction = nullptr;
     {
@@ -1360,11 +1424,37 @@ void InMemoryStorage::CollectGarbage() {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
+
+  // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
+  // TODO: implement a fast internal iteration inside the skip_list (to avoid unnecessary find_node calls),
+  //  accessor.remove_if([](auto const & item){ return item.delta == nullptr && item.deleted;});
+  //  alternatively, an auxiliary data structure within skip_list to track these, hence a full scan wouldn't be needed
+  //  we will wait for evidence that this is needed before doing so.
+  if (need_full_scan_vertices) {
+    auto vertex_acc = vertices_.access();
+    for (auto &vertex : vertex_acc) {
+      // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
+      if (vertex.delta == nullptr && vertex.deleted) {
+        vertex_acc.remove(vertex);
+      }
+    }
+  }
+
+  // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
+  if (need_full_scan_edges) {
+    auto edge_acc = edges_.access();
+    for (auto &edge : edge_acc) {
+      // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
+      if (edge.delta == nullptr && edge.deleted) {
+        edge_acc.remove(edge);
+      }
+    }
+  }
 }
 
 // tell the linker he can find the CollectGarbage definitions here
-template void InMemoryStorage::CollectGarbage<true>();
-template void InMemoryStorage::CollectGarbage<false>();
+template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::RWLock>);
+template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::RWLock>);
 
 StorageInfo InMemoryStorage::GetInfo() const {
   auto vertex_count = vertices_.size();
@@ -1415,7 +1505,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  if (replication_role_.load() == ReplicationRole::MAIN) {
+  if (replication_role_.load() == replication::ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1605,7 +1695,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperati
   auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   {
-    if (replication_role_.load() == ReplicationRole::MAIN) {
+    if (replication_role_.load() == replication::ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
           client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1626,11 +1716,13 @@ bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperati
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     std::optional<bool> is_periodic) {
-  if (replication_role_.load() != ReplicationRole::MAIN) {
+  if (replication_role_.load() != replication::ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
   auto snapshot_creator = [this]() {
+    utils::Timer timer;
+
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
@@ -1638,6 +1730,9 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
                                &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
+
+    memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   };
 
   std::lock_guard snapshot_guard(snapshot_lock_);
@@ -1668,8 +1763,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   return CreateSnapshotError::ReachedMaxNumTries;
 }
 
-void InMemoryStorage::FreeMemory() {
-  CollectGarbage<true>();
+void InMemoryStorage::FreeMemory(std::unique_lock<utils::RWLock> main_guard) {
+  CollectGarbage<true>(std::move(main_guard));
 
   // SkipList is already threadsafe
   vertices_.run_gc();
@@ -1690,20 +1785,38 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
 bool InMemoryStorage::SetReplicaRole(io::network::Endpoint endpoint,
                                      const replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
-  if (replication_role_ == ReplicationRole::REPLICA) {
+  if (replication_role_ == replication::ReplicationRole::REPLICA) {
     return false;
   }
 
+  auto port = endpoint.port;  // assigning because we will move the endpoint
   replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 
-  replication_role_.store(ReplicationRole::REPLICA);
+  if (ShouldStoreAndRestoreReplicationState()) {
+    // Only thing that matters here is the role saved as REPLICA and the listening port
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = port,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::REPLICA});
+
+    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving REPLICA replication role in settings.");
+      return false;
+    }
+  }
+
+  replication_role_.store(replication::ReplicationRole::REPLICA);
   return true;
 }
 
 bool InMemoryStorage::SetMainReplicationRole() {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
-  if (replication_role_ == ReplicationRole::MAIN) {
+  if (replication_role_ == replication::ReplicationRole::MAIN) {
     return false;
   }
 
@@ -1726,14 +1839,32 @@ bool InMemoryStorage::SetMainReplicationRole() {
     epoch_id_ = utils::GenerateUUID();
   }
 
-  replication_role_.store(ReplicationRole::MAIN);
+  if (ShouldStoreAndRestoreReplicationState()) {
+    // Only thing that matters here is the role saved as MAIN
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = 0,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::MAIN});
+
+    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving MAIN replication role in settings.");
+      return false;
+    }
+  }
+
+  replication_role_.store(replication::ReplicationRole::MAIN);
   return true;
 }
 
 utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
+  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
+            "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
@@ -1752,14 +1883,15 @@ utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::Regis
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  if (ShouldStoreAndRestoreReplicas()) {
-    auto data = replication::ReplicaStatusToJSON(
-        replication::ReplicaStatus{.name = name,
-                                   .ip_address = endpoint.address,
-                                   .port = endpoint.port,
-                                   .sync_mode = replication_mode,
-                                   .replica_check_frequency = config.replica_check_frequency,
-                                   .ssl = config.ssl});
+  if (ShouldStoreAndRestoreReplicationState()) {
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = name,
+                                       .ip_address = endpoint.address,
+                                       .port = endpoint.port,
+                                       .sync_mode = replication_mode,
+                                       .replica_check_frequency = config.replica_check_frequency,
+                                       .ssl = config.ssl,
+                                       .role = replication::ReplicationRole::REPLICA});
     if (!storage_->Put(name, data.dump())) {
       spdlog::error("Error when saving replica {} in settings.", name);
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
@@ -1795,8 +1927,9 @@ utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::Regis
 }
 
 bool InMemoryStorage::UnregisterReplica(const std::string &name) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
-  if (ShouldStoreAndRestoreReplicas()) {
+  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
+            "Only main instance can unregister a replica!");
+  if (ShouldStoreAndRestoreReplicationState()) {
     if (!storage_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
       return false;
@@ -1819,7 +1952,7 @@ std::optional<replication::ReplicaState> InMemoryStorage::GetReplicaState(const 
   });
 }
 
-InMemoryStorage::ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
+replication::ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
 
 std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
@@ -1833,9 +1966,48 @@ std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
   });
 }
 
+void InMemoryStorage::RestoreReplicationRole() {
+  if (!ShouldStoreAndRestoreReplicationState()) {
+    return;
+  }
+
+  spdlog::info("Restoring replication role.");
+
+  uint16_t port = replication::kDefaultReplicationPort;
+  for (const auto &[replica_name, replica_data] : *storage_) {
+    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
+    if (!maybe_replica_status.has_value()) {
+      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
+    }
+
+    if (replica_name != replication::kReservedReplicationRoleName) {
+      continue;
+    }
+
+    auto replica_status = *maybe_replica_status;
+
+    if (!replica_status.role.has_value()) {
+      replication_role_.store(replication::ReplicationRole::MAIN);
+    } else {
+      replication_role_.store(*replica_status.role);
+      port = replica_status.port;
+    }
+
+    break;
+  }
+
+  if (replication_role_ == replication::ReplicationRole::REPLICA) {
+    io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
+    replication_server_ =
+        std::make_unique<ReplicationServer>(this, std::move(endpoint), replication::ReplicationServerConfig{});
+  }
+
+  spdlog::info("Replication role restored to {}.",
+               replication_role_ == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
+}
+
 void InMemoryStorage::RestoreReplicas() {
-  MG_ASSERT(memgraph::storage::InMemoryStorage::ReplicationRole::MAIN == GetReplicationRole());
-  if (!ShouldStoreAndRestoreReplicas()) {
+  if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
   spdlog::info("Restoring replicas.");
@@ -1843,7 +2015,7 @@ void InMemoryStorage::RestoreReplicas() {
   for (const auto &[replica_name, replica_data] : *storage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
-    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
+    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
       LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
     }
@@ -1851,6 +2023,10 @@ void InMemoryStorage::RestoreReplicas() {
     auto replica_status = *maybe_replica_status;
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
+
+    if (replica_name == replication::kReservedReplicationRoleName) {
+      continue;
+    }
 
     auto ret =
         RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
@@ -1868,21 +2044,27 @@ void InMemoryStorage::RestoreReplicas() {
   }
 }
 
-bool InMemoryStorage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
+bool InMemoryStorage::ShouldStoreAndRestoreReplicationState() const { return nullptr != storage_; }
 
-bool InMemoryStorage::LockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.IsPathLocked(config_.durability.storage_directory);
+}
+
+utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);
 }
 
-bool InMemoryStorage::UnlockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
+    const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
+    if (ret.HasError() || !ret.GetValue()) {
+      // Exit without cleaning the queue
+      return ret;
     }
   }
-
   // We use locker accessor in seperate scope so we don't produce deadlock
   // after we call clean queue.
   file_retainer_.CleanQueue();

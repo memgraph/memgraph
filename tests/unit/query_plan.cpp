@@ -16,6 +16,7 @@
 #include <sstream>
 #include <tuple>
 #include <typeinfo>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -897,6 +898,20 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
   CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MapProjectionLiteralAggregationReturn) {
+  // Test WITH {} as map RETURN map {sum: SUM(2)} AS result, 42 AS group_by
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto sum = SUM(LITERAL(2), false);
+  auto group_by_literal = LITERAL(42);
+  auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
+      {storage.GetPropertyIx("sum"), sum}};
+  auto *query = QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), elements), AS("result"),
+                                                                  group_by_literal, AS("group_by"))));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   // Test RETURN [][SUM(2)] AS result, 42 AS group_by
   auto sum = SUM(LITERAL(2), false);
@@ -953,6 +968,20 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
              AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MapProjectionWithAggregationAndGroupBy) {
+  // Test WITH {} as map RETURN map {lit: 42, sum: SUM(2)} AS result
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto sum = SUM(LITERAL(2), false);
+  auto group_by_literal = LITERAL(42);
+  auto projection = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
+      {storage.GetPropertyIx("lit"), group_by_literal}, {storage.GetPropertyIx("sum"), sum}};
+  auto *query =
+      QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), projection), AS("result"))));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {

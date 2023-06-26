@@ -67,6 +67,7 @@ class MemgraphInstanceRunner:
     def execute_setup_queries(self, setup_queries):
         if setup_queries is None:
             return
+        # An assumption being database instance is fresh, no need for the auth.
         conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
         conn.autocommit = True
         cursor = conn.cursor()
@@ -74,6 +75,27 @@ class MemgraphInstanceRunner:
             cursor.execute(query)
         cursor.close()
         conn.close()
+
+    # NOTE: Both query and get_connection may esablish new connection -> auth
+    # details required -> username/password should be optional arguments.
+    def query(self, query, conn=None, username="", password=""):
+        new_conn = conn is None
+        if new_conn:
+            conn = self.get_connection(username, password)
+        cursor = conn.cursor()
+        cursor.execute(query)
+        data = cursor.fetchall()
+        cursor.close()
+        if new_conn:
+            conn.close()
+        return data
+
+    def get_connection(self, username="", password=""):
+        conn = mgclient.connect(
+            host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
+        )
+        conn.autocommit = True
+        return conn
 
     def start(self, restart=False, args=None, setup_queries=None):
         if not restart and self.is_running():

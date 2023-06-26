@@ -789,7 +789,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
   auto main_config = configuration;
-  main_config.durability.restore_replicas_on_startup = true;
+  main_config.durability.restore_replication_state_on_startup = true;
   std::unique_ptr<memgraph::storage::Storage> main_store{new memgraph::storage::InMemoryStorage(main_config)};
   std::unique_ptr<memgraph::storage::Storage> replica_store1{new memgraph::storage::InMemoryStorage(configuration)};
   auto *main_mem_store = static_cast<memgraph::storage::InMemoryStorage *>(main_store.get());
@@ -841,7 +841,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto main_config = configuration;
-  main_config.durability.restore_replicas_on_startup = true;
+  main_config.durability.restore_replication_state_on_startup = true;
 
   std::unique_ptr<memgraph::storage::Storage> main_store{new memgraph::storage::InMemoryStorage(main_config)};
   std::unique_ptr<memgraph::storage::Storage> replica_store1{new memgraph::storage::InMemoryStorage(configuration)};

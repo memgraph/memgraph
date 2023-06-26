@@ -14,12 +14,27 @@
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/stat.hpp"
+#include "utils/timer.hpp"
 #include "utils/typeinfo.hpp"
+#include "utils/uuid.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotCreationLatency_us;
+
+extern const Event ActiveLabelIndices;
+extern const Event ActiveLabelPropertyIndices;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
+
+class InMemoryStorage;
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
@@ -75,8 +90,13 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
-  storage_mode_ = storage_mode;
+  if (storage_mode_ != storage_mode) {
+    storage_mode_ = storage_mode;
+    FreeMemory(std::move(main_guard));
+  }
 }
+
+IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 StorageMode Storage::GetStorageMode() const { return storage_mode_; }
 
