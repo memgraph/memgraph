@@ -26,8 +26,8 @@ void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_af
 
 bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                                      const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
-  auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
+  const auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
+                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
 
     CreateIndexOnSingleThread(vertices, it, index_, label,
@@ -38,9 +38,9 @@ bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Acc
     return true;
   };
 
-  auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                 const ParalellizedIndexCreationInfo &paralell_exec_info) {
+  const auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
+                                       std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
+                                       const ParalellizedIndexCreationInfo &paralell_exec_info) {
     using IndexAccessor = decltype(label_it->second.access());
 
     CreateIndexOnMultipleThreads(vertices, label_it, index_, label, paralell_exec_info,
@@ -150,7 +150,7 @@ void InMemoryLabelIndex::RunGC() {
 }
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Transaction *transaction) {
-  auto it = index_.find(label);
+  const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
   return {it->second.access(), label, view, transaction, indices_, constraints_, config_};
 }

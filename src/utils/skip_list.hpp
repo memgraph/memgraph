@@ -349,9 +349,6 @@ class SkipListGc final {
   MemoryResource *GetMemoryResource() const { return memory_; }
 
   void Clear() {
-    // #ifndef NDEBUG
-    //     MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
-    // #endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
     while (head != nullptr) {

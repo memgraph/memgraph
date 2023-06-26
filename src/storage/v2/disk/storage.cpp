@@ -177,10 +177,11 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 }  // namespace
 
 void DiskStorage::LoadTimestampIfExists() {
-  if (utils::DirExists(config_.disk.durability_directory)) {
-    if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
-      timestamp_ = std::stoull(last_timestamp_.value());
-    }
+  if (!utils::DirExists(config_.disk.durability_directory)) {
+    return;
+  }
+  if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
+    timestamp_ = std::stoull(last_timestamp_.value());
   }
 }
 
@@ -194,7 +195,7 @@ void DiskStorage::LoadIndexInfoIfExists() const {
 void DiskStorage::LoadLabelIndexInfoIfExists() const {
   if (auto label_index = durability_kvstore_->Get(label_index_str); label_index.has_value()) {
     auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
-    std::vector<std::string> labels = utils::Split(label_index.value(), "|");
+    const std::vector<std::string> labels{utils::Split(label_index.value(), "|")};
     disk_label_index->LoadIndexInfo(labels);
   }
 }
@@ -203,7 +204,7 @@ void DiskStorage::LoadLabelPropertyIndexInfoIfExists() const {
   if (auto label_property_index = durability_kvstore_->Get(label_property_index_str);
       label_property_index.has_value()) {
     auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
-    std::vector<std::string> keys = utils::Split(label_property_index.value(), "|");
+    const std::vector<std::string> keys{utils::Split(label_property_index.value(), "|")};
     disk_label_property_index->LoadIndexInfo(keys);
   }
 }
@@ -327,8 +328,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
     return std::nullopt;
   }
 
-  const std::string value_str = value.ToString();
-  std::vector<LabelId> labels = utils::DeserializeLabelsFromLabelIndexStorage(value_str);
+  const std::string value_str{value.ToString()};
+  const auto labels{utils::DeserializeLabelsFromLabelIndexStorage(value_str)};
   return CreateVertex(index_accessor, gid, labels, utils::DeserializePropertiesFromLabelIndexStorage(value_str),
                       index_delta);
 }
@@ -342,8 +343,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
     return std::nullopt;
   }
 
-  const std::string value_str = value.ToString();
-  std::vector<LabelId> labels = utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str);
+  const std::string value_str{value.ToString()};
+  const auto labels{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
   return CreateVertex(index_accessor, gid, labels,
                       utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()),
                       CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, std::nullopt));
@@ -360,8 +361,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
     return std::nullopt;
   }
 
-  auto [from_gid, to_gid] = std::invoke(
-      [&](const auto &edge_parts) {
+  const auto [from_gid, to_gid] = std::invoke(
+      [](const auto &edge_parts) {
         if (edge_parts[2] == "0") {  // out edge
           return std::make_pair(edge_parts[0], edge_parts[1]);
         }
@@ -370,8 +371,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
       },
       edge_parts);
 
-  auto from_acc = FindVertex(Gid::FromUint(std::stoull(from_gid)), View::OLD);
-  auto to_acc = FindVertex(Gid::FromUint(std::stoull(to_gid)), View::OLD);
+  const auto from_acc = FindVertex(Gid::FromUint(std::stoull(from_gid)), View::OLD);
+  const auto to_acc = FindVertex(Gid::FromUint(std::stoull(to_gid)), View::OLD);
   if (!from_acc || !to_acc) {
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
@@ -876,9 +877,9 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
   });
 }
 
-Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
+Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor *from, const VertexAccessor *to,
                                                            EdgeTypeId edge_type, storage::Gid gid,
-                                                           std::string_view properties,
+                                                           const std::string_view properties,
                                                            const std::string &old_disk_key) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
@@ -888,8 +889,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -949,8 +950,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -1004,12 +1005,12 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   MG_ASSERT(edge->transaction_ == &transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
             "accessor when deleting an edge!");
-  auto edge_ref = edge->edge_;
-  auto edge_type = edge->edge_type_;
+  const auto edge_ref = edge->edge_;
+  const auto edge_type = edge->edge_type_;
 
   std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
+    const auto *edge_ptr = edge_ref.ptr;
     guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
@@ -1043,7 +1044,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   }
 
   auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
+    const std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
     auto it = std::find(edges->begin(), edges->end(), link);
     if (config_.properties_on_edges) {
       MG_ASSERT(it != edges->end(), "Invalid database state!");
@@ -1055,10 +1056,11 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
     return true;
   };
 
-  auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
-  auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
-  auto src_dest_del_key =
-      utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges);
+  const auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
+  const auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
+
+  const std::string src_dest_del_key{
+      utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges)};
   edges_to_delete_.emplace_back(src_dest_del_key);
 
   if (config_.properties_on_edges) {
@@ -1345,15 +1347,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageDataManipulationError{SerializationError{}};
   }
-  // if (auto status = disk_storage->kvstore_->db_->Flush(rocksdb::FlushOptions{},
-  // disk_storage->kvstore_->vertex_chandle); !status.ok()) {
-  //   spdlog::error("rocksdb: Flush failed with status {}", status.ToString());
-  //   return StorageDataManipulationError{SerializationError{}};
-  // }
-  // if (auto status = disk_storage->kvstore_->db_->SyncWAL(); !status.ok()) {
-  //   spdlog::error("rocksdb: SyncWAL failed with status {}", status.ToString());
-  //   return StorageDataManipulationError{SerializationError{}};
-  // }
   spdlog::debug("rocksdb: Commit successful");
 
   is_transaction_active_ = false;

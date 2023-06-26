@@ -29,7 +29,7 @@ using ParalellizedIndexCreationInfo =
 template <typename TCallback>
 inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
     // This is a committed change that we see so we shouldn't undo it.
     if (ts < timestamp) {
       break;
@@ -46,8 +46,8 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
 inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp) {
-  bool has_label = false;
-  bool deleted = false;
+  bool has_label{false};
+  bool deleted{false};
   const Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
@@ -99,9 +99,9 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
 /// property value.
 inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key, const PropertyValue &value,
                                        uint64_t timestamp) {
-  bool has_label = false;
-  bool current_value_equal_to_value = value.IsNull();
-  bool deleted = false;
+  bool has_label{false};
+  bool current_value_equal_to_value{value.IsNull()};
+  bool deleted{false};
   const Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);

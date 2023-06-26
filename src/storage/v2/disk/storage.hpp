@@ -164,8 +164,8 @@ class DiskStorage final : public Storage {
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid,
-                                    std::string_view properties, const std::string &old_disk_key);
+    Result<EdgeAccessor> CreateEdge(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
+                                    storage::Gid gid, std::string_view properties, const std::string &old_disk_key);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.

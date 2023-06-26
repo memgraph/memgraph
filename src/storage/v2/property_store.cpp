@@ -996,13 +996,6 @@ bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) con
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   /// TODO: andi extract this into a private method
   auto property_map = Properties();
-  std::stringstream ss;
-  ss << "{";
-  for (const auto &[property_id, property_value] : property_map) {
-    ss << property_id.AsUint() << ": " << property_value;
-  }
-  ss << "}";
-  spdlog::debug("PropertyStore::HasAllPropertyValues: {}", ss.str());
   std::vector<PropertyValue> all_property_values;
   transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
             [](const auto &kv_entry) { return kv_entry.second; });
@@ -1024,7 +1017,7 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
     }
     value_array.emplace_back(std::move(value));
   }
-  return std::move(value_array);
+  return value_array;
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
