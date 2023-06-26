@@ -1314,7 +1314,7 @@ enum class ProcedureType : uint8_t {
 /// @param returns - procedure return values
 /// @param module - the query module that the procedure is added to
 /// @param memory - access to memory
-inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
+inline void AddProcedure(mgp_proc_cb callback, const std::string_view &name, ProcedureType proc_type,
                          std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                          mgp_memory *memory);
 
@@ -1329,7 +1329,7 @@ inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureT
 /// @param module - the query module that the procedure is added to
 /// @param memory - access to memory
 inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
-                              std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
+                              const std::string_view &name, ProcedureType proc_type, std::vector<Parameter> parameters,
                               std::vector<Return> returns, mgp_module *module, mgp_memory *memory);
 
 /// @brief Adds a function to the query module.
@@ -3461,7 +3461,7 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }
 }  // namespace detail
 
-void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
+void AddProcedure(mgp_proc_cb callback, const std::string_view &name, ProcedureType proc_type,
                   std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                   mgp_memory *memory) {
   auto *proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
@@ -3470,7 +3470,7 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
 }
 
 void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
-                       std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
+                       const std::string_view &name, ProcedureType proc_type, std::vector<Parameter> parameters,
                        std::vector<Return> returns, mgp_module *module, mgp_memory *memory) {
   auto *proc = (proc_type == ProcedureType::Read)
                    ? mgp::module_add_batch_read_procedure(module, name.data(), callback, initializer, cleanup)

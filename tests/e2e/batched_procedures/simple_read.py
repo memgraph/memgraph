@@ -16,47 +16,50 @@ from conftest import get_connection
 from mgclient import DatabaseError
 
 
-def test_graph_mutability(connection):
+@pytest.mark.parametrize(
+    "is_write",
+    [
+        True,
+        False,
+    ],
+)
+def test_graph_mutability(is_write: bool, connection):
     cursor = connection.cursor()
 
-    def test_mutability(is_write: bool):
-        execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
-        assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
 
-        module = "write" if is_write else "read"
+    module = "write" if is_write else "read"
 
-        result = list(
-            execute_and_fetch_all(
-                cursor,
-                f"CALL batch_py_{module}.graph_is_mutable() " "YIELD mutable, init_called RETURN mutable, init_called",
-            )
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            f"CALL batch_py_{module}.graph_is_mutable() " "YIELD mutable, init_called RETURN mutable, init_called",
         )
-        assert result == [(is_write, True)]
+    )
+    assert result == [(is_write, True)]
 
-        execute_and_fetch_all(cursor, "CREATE ()")
-        result = list(
-            execute_and_fetch_all(
-                cursor,
-                "MATCH (n) "
-                f"CALL batch_py_{module}.underlying_graph_is_mutable(n) "
-                "YIELD mutable, init_called RETURN mutable, init_called",
-            )
+    execute_and_fetch_all(cursor, "CREATE ()")
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            "MATCH (n) "
+            f"CALL batch_py_{module}.underlying_graph_is_mutable(n) "
+            "YIELD mutable, init_called RETURN mutable, init_called",
         )
-        assert result == [(is_write, True)]
+    )
+    assert result == [(is_write, True)]
 
-        execute_and_fetch_all(cursor, "CREATE ()-[:TYPE]->()")
-        result = list(
-            execute_and_fetch_all(
-                cursor,
-                "MATCH (n)-[e]->(m) "
-                f"CALL batch_py_{module}.underlying_graph_is_mutable(e) "
-                "YIELD mutable, init_called RETURN mutable, init_called",
-            )
+    execute_and_fetch_all(cursor, "CREATE ()-[:TYPE]->()")
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            "MATCH (n)-[e]->(m) "
+            f"CALL batch_py_{module}.underlying_graph_is_mutable(e) "
+            "YIELD mutable, init_called RETURN mutable, init_called",
         )
-        assert result == [(is_write, True)]
-
-    test_mutability(False)
-    test_mutability(True)
+    )
+    assert result == [(is_write, True)]
 
 
 def test_batching_nums(connection):

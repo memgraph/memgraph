@@ -1285,13 +1285,10 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &clauses, DbAccessor *dba) {
-  Frame frame(0);
-  SymbolTable symbol_table;
+bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &clauses) {
   EvaluationContext evaluation_context;
 
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
-  for (auto &clause : clauses) {
+  return std::ranges::any_of(clauses, [&evaluation_context](const auto &clause) -> bool {
     if (clause->GetTypeInfo() == CallProcedure::kType) {
       auto *call_procedure_clause = utils::Downcast<CallProcedure>(clause);
 
@@ -1306,7 +1303,9 @@ bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &c
         return true;
       }
     }
-  }
+    return false;
+  });
+
   return false;
 }
 
@@ -1341,7 +1340,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     contains_csv = true;
   }
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses, dba);
+  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses);
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
@@ -1473,7 +1472,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     contains_csv = true;
   }
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses, dba);
+  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses);
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
@@ -2880,12 +2879,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
         cypher_query = profile_query->cypher_query_;
       }
-      storage::Storage::Accessor temp_storage_accessor{interpreter_context_->db->Access(GetIsolationLevelOverride())};
-      DbAccessor temp_db_accessor{&temp_storage_accessor};
       if (const auto &clauses = cypher_query->single_query_->clauses_;
-          IsCallBatchedProcedureQuery(clauses, &temp_db_accessor) ||
-          std::any_of(clauses.begin(), clauses.end(),
-                      [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+          IsCallBatchedProcedureQuery(clauses) || std::any_of(clauses.begin(), clauses.end(), [](const auto *clause) {
+            return clause->GetTypeInfo() == LoadCsv::kType;
+          })) {
         // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(utils::PoolResource(

@@ -4467,7 +4467,7 @@ namespace {
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
-                         const bool call_initializer) {
+                         const bool call_initializer = false) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4615,7 +4615,7 @@ class CallProcedureCursor : public Cursor {
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           result_, call_initializer);
 
-      if (call_initializer) call_initializer = !call_initializer;
+      if (call_initializer) call_initializer = false;
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload

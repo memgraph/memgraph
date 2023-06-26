@@ -1405,7 +1405,7 @@ class UnsupportedTypingError(Exception):
 class UnequalTypesError(Exception):
     """Signals a typing annotation is not equal between types"""
 
-    def __init__(self, type1_, type2_):
+    def __init__(self, type1_: typing.Any, type2_: typing.Any):
         super().__init__(f"Unequal typing annotation '{type1_}' and '{type2_}'")
 
 
