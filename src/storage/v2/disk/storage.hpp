@@ -142,11 +142,6 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    void PrepareForNextIndexQuery() override {
-      index_storage_.clear();
-      index_deltas_storage_.clear();
-    }
-
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
         const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);

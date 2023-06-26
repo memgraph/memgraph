@@ -85,7 +85,6 @@ int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   int count = 0;
   while (cursor->Pull(frame, *context)) {
     count++;
-    context->db_accessor->PrepareForNextIndexQuery();
   }
   return count;
 }

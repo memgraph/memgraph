@@ -434,8 +434,6 @@ class DbAccessor final {
 
   storage::StorageMode GetStorageMode() const { return accessor_->GetCreationStorageMode(); }
 
-  void PrepareForNextIndexQuery() { accessor_->PrepareForNextIndexQuery(); }
-
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
   bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {

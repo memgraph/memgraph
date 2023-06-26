@@ -141,8 +141,9 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
       [transaction_start_timestamp, disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
         if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
             tx_it != tx_to_entries_for_deletion.end()) {
+          bool res = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
           tx_to_entries_for_deletion.erase(tx_it);
-          return ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
+          return res;
         }
         return true;
       });

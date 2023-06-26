@@ -335,8 +335,6 @@ class Interpreter final {
 
   std::vector<TypedValue> GetQueries();
 
-  void PrepareStorageForNextQuery();
-
   /**
    * Abort the current multicommand transaction.
    */

@@ -3181,7 +3181,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
     auto results = run_scan_all(lower, lower_type, upper, upper_type);
     ASSERT_EQ(results.size(), expected.size());
     ASSERT_TRUE(check_no_order(results, expected));
-    storage_dba->PrepareForNextIndexQuery();
   };
 
   // normal ranges that return something
@@ -3428,7 +3427,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  storage_dba->PrepareForNextIndexQuery();
 
   SymbolTable symbol_table;
 

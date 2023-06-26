@@ -141,8 +141,6 @@ class Storage {
 
     virtual void FinalizeTransaction() = 0;
 
-    virtual void PrepareForNextIndexQuery() = 0;
-
     std::optional<uint64_t> GetTransactionId() const;
 
     void AdvanceCommand();
