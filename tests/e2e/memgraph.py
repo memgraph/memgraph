@@ -75,10 +75,10 @@ class MemgraphInstanceRunner:
         cursor.close()
         conn.close()
 
-    def query(self, query, conn=None):
+    def query(self, query, conn=None, username="", password=""):
         new_conn = conn is None
         if new_conn:
-            conn = self.get_connection()
+            conn = self.get_connection(username, password)
         cursor = conn.cursor()
         cursor.execute(query)
         data = cursor.fetchall()
@@ -87,8 +87,10 @@ class MemgraphInstanceRunner:
             conn.close()
         return data
 
-    def get_connection(self):
-        conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
+    def get_connection(self, username="", password=""):
+        conn = mgclient.connect(
+            host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
+        )
         conn.autocommit = True
         return conn
 
