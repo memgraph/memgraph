@@ -272,8 +272,8 @@ target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 add_unit_test(utils_thread_pool.cpp)
 target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
-add_unit_test(utils_csv_parsing.cpp ${CMAKE_SOURCE_DIR}/src/utils/csv_parsing.cpp)
-target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
+add_unit_test(csv_csv_parsing.cpp)
+target_link_libraries(${test_prefix}csv_csv_parsing mg::csv)
 
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
