@@ -55,7 +55,7 @@ PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-static constexpr bool kStartGarbageCollection{true};
+constexpr bool kStartGarbageCollection{true};
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
