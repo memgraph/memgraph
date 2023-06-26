@@ -122,6 +122,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
       storage_->wal_file_->FinalizeWal();
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
+      spdlog::trace("Finalized WAL file");
     } else {
       MG_ASSERT(storage_->wal_file_->SequenceNumber() == req.seq_num, "Invalid sequence number of current wal file");
       storage_->wal_seq_num_ = req.seq_num + 1;
@@ -189,6 +190,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
     storage_->edge_id_ = recovery_info.next_edge_id;
     storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
 
+    spdlog::trace("Recovering indices and constraints from snapshot.");
     durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
                                              &storage_->constraints_, &storage_->vertices_);
   } catch (const durability::RecoveryFailure &e) {
@@ -204,6 +206,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
   for (const auto &[path, uuid, _] : snapshot_files) {
     if (path != *maybe_snapshot_path) {
+      spdlog::trace("Deleting snapshot file {}", path);
       storage_->file_retainer_.DeleteFile(path);
     }
   }
@@ -212,6 +215,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   auto wal_files = durability::GetWalFiles(storage_->wal_directory_, storage_->uuid_);
   if (wal_files) {
     for (const auto &wal_file : *wal_files) {
+      spdlog::trace("Deleting WAL file {}", wal_file.path);
       storage_->file_retainer_.DeleteFile(wal_file.path);
     }
 
@@ -279,6 +283,7 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
         storage_->wal_file_->FinalizeWal();
         storage_->wal_seq_num_ = wal_info.seq_num;
         storage_->wal_file_.reset();
+        spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
       }
     } else {
       storage_->wal_seq_num_ = wal_info.seq_num;
@@ -316,6 +321,7 @@ Storage::ReplicationServer::~ReplicationServer() {
   }
 }
 uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) {
+  spdlog::debug("Reading and applying missing transaction deltas!");
   auto edge_acc = storage_->edges_.access();
   auto vertex_acc = storage_->vertices_.access();
 
@@ -428,7 +434,6 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::EDGE_SET_PROPERTY: {
         spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
-
         if (!storage_->config_.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
@@ -599,6 +604,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
   storage_->last_commit_timestamp_ = max_commit_timestamp;
 
+  spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
 }  // namespace memgraph::storage
