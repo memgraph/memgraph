@@ -19,7 +19,8 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/session_context_handler.hpp"
-
+#include "glue/auth_checker.hpp"
+#include "glue/auth_handler.hpp"
 #include "query/config.hpp"
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler"};
@@ -67,7 +68,17 @@ class TestEnvironment : public ::testing::Environment {
     //   for (const auto &entry : std::filesystem::directory_iterator(storage_directory))
     //     std::filesystem::remove_all(entry.path());
     ptr_ = std::make_unique<memgraph::dbms::SessionContextHandler>(
-        audit_log, memgraph::dbms::SessionContextHandler::Config{storage_conf, interp_conf, ""}, false);
+        audit_log,
+        memgraph::dbms::SessionContextHandler::Config{
+            storage_conf, interp_conf,
+            [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+               std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+               std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+              // Glue high level auth implementations to the query side
+              ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
+              ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+            }},
+        false);
   }
 
   void TearDown() override { ptr_.reset(); }
@@ -99,7 +110,17 @@ TEST(DBMS_HandlerDeath, InitSameDir) {
   // NOTE: Init test has ran in another process (so holds the lock)
   ASSERT_DEATH(
       {
-        memgraph::dbms::SessionContextHandler sch(audit_log, {storage_conf, interp_conf, ""}, false);
+        memgraph::dbms::SessionContextHandler sch(
+            audit_log,
+            {storage_conf, interp_conf,
+             [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+                std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+                std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+               // Glue high level auth implementations to the query side
+               ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
+               ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+             }},
+            false);
       },
       R"(\b.*\b)");
 }
@@ -118,7 +139,7 @@ TEST(DBMS_Handler, New) {
     ASSERT_TRUE(sc1.GetValue().db != nullptr);
     ASSERT_TRUE(sc1.GetValue().interpreter_context != nullptr);
     ASSERT_TRUE(sc1.GetValue().audit_log != nullptr);
-    ASSERT_TRUE(sc1.GetValue().auth_context != nullptr);
+    ASSERT_TRUE(sc1.GetValue().auth != nullptr);
     const auto all = sch.All();
     ASSERT_EQ(all.size(), 2);
     ASSERT_TRUE(std::find(all.begin(), all.end(), memgraph::dbms::kDefaultDB) != all.end());
@@ -136,7 +157,7 @@ TEST(DBMS_Handler, New) {
     ASSERT_TRUE(sc3.GetValue().db != nullptr);
     ASSERT_TRUE(sc3.GetValue().interpreter_context != nullptr);
     ASSERT_TRUE(sc3.GetValue().audit_log != nullptr);
-    ASSERT_TRUE(sc3.GetValue().auth_context != nullptr);
+    ASSERT_TRUE(sc3.GetValue().auth != nullptr);
     const auto all = sch.All();
     ASSERT_EQ(all.size(), 3);
     ASSERT_TRUE(std::find(all.begin(), all.end(), "sc3") != all.end());
@@ -149,7 +170,7 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(default_sc.db != nullptr);
   ASSERT_TRUE(default_sc.interpreter_context != nullptr);
   ASSERT_TRUE(default_sc.audit_log != nullptr);
-  ASSERT_TRUE(default_sc.auth_context != nullptr);
+  ASSERT_TRUE(default_sc.auth != nullptr);
 
   ASSERT_ANY_THROW(sch.Get("non-existent"));
 
@@ -157,13 +178,13 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(sc1.db != nullptr);
   ASSERT_TRUE(sc1.interpreter_context != nullptr);
   ASSERT_TRUE(sc1.audit_log != nullptr);
-  ASSERT_TRUE(sc1.auth_context != nullptr);
+  ASSERT_TRUE(sc1.auth != nullptr);
 
   auto sc3 = sch.Get("sc3");
   ASSERT_TRUE(sc3.db != nullptr);
   ASSERT_TRUE(sc3.interpreter_context != nullptr);
   ASSERT_TRUE(sc3.audit_log != nullptr);
-  ASSERT_TRUE(sc3.auth_context != nullptr);
+  ASSERT_TRUE(sc3.auth != nullptr);
 }
 
 TEST(DBMS_Handler, SetFor) {

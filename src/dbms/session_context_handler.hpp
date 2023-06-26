@@ -21,8 +21,6 @@
 
 #include "constants.hpp"
 #include "global.hpp"
-#include "glue/auth_checker.hpp"
-#include "glue/auth_handler.hpp"
 #include "interp_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -76,7 +74,10 @@ class SessionContextHandler {
   struct Config {
     StorageConfigT storage_config;           //!< Storage configuration
     query::InterpreterConfig interp_config;  //!< Interpreter context configuration
-    std::string ah_flags;                    //!< glue::AuthHandler setup flags
+    // std::string ah_flags;                    //!< glue::AuthHandler setup flags
+    std::function<void(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *,
+                       std::unique_ptr<query::AuthQueryHandler> &, std::unique_ptr<query::AuthChecker> &)>
+        glue_auth;
   };
 
   /**
@@ -86,7 +87,11 @@ class SessionContextHandler {
    * @param configs storage and interpreter configurations
    */
   SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool tenant_recovery)
-      : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()} {
+      : lock_{utils::RWLock::Priority::READ},
+        initialized_{false},
+        default_configs_(configs),
+        run_id_{utils::GenerateUUID()},
+        audit_log_(&audit_log) {
     // std::lock_guard<LockT> wr(lock_);
     // MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
 
@@ -108,8 +113,9 @@ class SessionContextHandler {
               "process!",
               root);
 
-    audit_log_ = &audit_log;
-    default_configs_ = configs;
+    // Lazy initialization of auth_
+    auth_ = std::make_unique<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>>(root / "auth");
+    configs.glue_auth(auth_.get(), auth_handler_, auth_checker_);
 
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
@@ -230,7 +236,7 @@ class SessionContextHandler {
     // Low level handlers
     const auto storage_path = StorageDir_(db_name);
     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
-    if (!interp_handler_.Delete(db_name) || !auth_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
+    if (!interp_handler_.Delete(db_name) /*|| !auth_handler_.Delete(db_name)*/ || !storage_handler_.Delete(db_name)) {
       return DeleteError::FAIL;
     }
     // Remove from durability list
@@ -287,10 +293,6 @@ class SessionContextHandler {
   }
 
  private:
-  // SessionContextHandler() : lock_{utils::RWLock::Priority::READ}, initialized_{false}, run_id_{utils::GenerateUUID()}
-  // {}
-  // ~SessionContextHandler() {}
-
   std::optional<std::filesystem::path> StorageDir_(const std::string &name) const {
     try {
       const auto conf = storage_handler_.GetConfig(name);
@@ -321,7 +323,7 @@ class SessionContextHandler {
     if (default_configs_) {
       auto storage = default_configs_->storage_config;
       storage.durability.storage_directory /= storage_subdir;
-      return New_(name, storage, default_configs_->interp_config, default_configs_->ah_flags);
+      return New_(name, storage, default_configs_->interp_config);
     }
     return NewError::NO_CONFIGS;
   }
@@ -334,26 +336,29 @@ class SessionContextHandler {
    * @param inter_config interpreter configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, StorageConfigT &storage_config, query::InterpreterConfig &inter_config,
-                  const std::string &ah_flags) {
+  NewResultT New_(const std::string &name, StorageConfigT &storage_config, query::InterpreterConfig &inter_config/*,
+                  const std::string &ah_flags*/) {
+    MG_ASSERT(auth_handler_, "No high level AuthQueryHandler has been supplied.");
+    MG_ASSERT(auth_checker_, "No high level AuthChecker has been supplied.");
+
     auto new_storage = storage_handler_.New(name, storage_config);
     if (new_storage.HasValue()) {
-      auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
-      if (new_auth.HasValue()) {
-        auto &auth_context = new_auth.GetValue();
-        auto new_interp = interp_handler_.New(name, *this, *new_storage.GetValue(), inter_config,
-                                              storage_config.durability.storage_directory, auth_context->auth_handler,
-                                              auth_context->auth_checker);
+      // auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
+      // if (new_auth.HasValue()) {
+      // auto &auth_context = new_auth.GetValue();
+      auto new_interp =
+          interp_handler_.New(name, *this, *new_storage.GetValue(), inter_config,
+                              storage_config.durability.storage_directory, *auth_handler_, *auth_checker_);
 
-        if (new_interp.HasValue()) {
-          // Success
-          if (durability_) durability_->Put(name, "ok");
-          return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_context, audit_log_};
-        }
-        // TODO: Handler partial success
-        return new_interp.GetError();
+      if (new_interp.HasValue()) {
+        // Success
+        if (durability_) durability_->Put(name, "ok");
+        return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_.get(), audit_log_};
       }
-      return new_auth.GetError();
+      // TODO: Handler partial success
+      return new_interp.GetError();
+      // }
+      // return new_auth.GetError();
     }
     return new_storage.GetError();
   }
@@ -414,13 +419,13 @@ class SessionContextHandler {
   SessionContext Get_(const std::string &name) {
     auto storage = storage_handler_.Get(name);
     if (storage) {
-      auto auth = auth_handler_.Get(name);
-      if (auth) {
-        auto interp = interp_handler_.Get(name);
-        if (interp) {
-          return SessionContext{*storage, *interp, run_id_, *auth, audit_log_};
-        }
+      // auto auth = auth_handler_.Get(name);
+      // if (auth) {
+      auto interp = interp_handler_.Get(name);
+      if (interp) {
+        return SessionContext{*storage, *interp, run_id_, auth_.get(), audit_log_};
       }
+      // }
     }
     throw SessionContextException("Tried to retrieve an unknown database.");
   }
@@ -431,8 +436,11 @@ class SessionContextHandler {
   std::filesystem::path lock_file_path_;  //!< Lock file protecting the main storage
   utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
   StorageHandler storage_handler_;        //!< multi-tenancy storage handler
-  InterpContextHandler<SessionContextHandler> interp_handler_;    //!< multi-tenancy interpreter handler
-  AuthContextHandler auth_handler_;                               //!< multi-tenancy authorization handler
+  InterpContextHandler<SessionContextHandler> interp_handler_;  //!< multi-tenancy interpreter handler
+  // AuthContextHandler auth_handler_; //!< multi-tenancy authorization handler (currently we use a single global auth)
+  std::unique_ptr<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>> auth_;
+  std::unique_ptr<query::AuthQueryHandler> auth_handler_;
+  std::unique_ptr<query::AuthChecker> auth_checker_;
   std::optional<Config> default_configs_;                         //!< default storage and interpreter configurations
   const std::string run_id_;                                      //!< run's unique identifier (auto generated)
   memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger

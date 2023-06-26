@@ -915,7 +915,28 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
   memgraph::dbms::SessionContextHandler sc_handler(
-      audit_log, {db_config, interp_config, FLAGS_auth_user_or_role_name_regex}, FLAGS_tenant_recover_on_startup);
+      audit_log,
+      {db_config, interp_config,
+       [flag = FLAGS_auth_user_or_role_name_regex](
+           memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+           std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+         // Glue high level auth implementations to the query side
+         ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
+         ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+         // Handle users passed via arguments
+         auto *maybe_username = std::getenv(kMgUser);
+         auto *maybe_password = std::getenv(kMgPassword);
+         auto *maybe_pass_file = std::getenv(kMgPassfile);
+         if (maybe_username && maybe_password) {
+           ah->CreateUser(maybe_username, maybe_password);
+         } else if (maybe_pass_file) {
+           const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+           if (!username.empty() && !password.empty()) {
+             ah->CreateUser(username, password);
+           }
+         }
+       }},
+      FLAGS_tenant_recover_on_startup);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
@@ -924,8 +945,7 @@ int main(int argc, char **argv) {
 
   auto &db = *session_context.db;
   auto &interpreter_context = *session_context.interpreter_context;
-  auto *auth = &session_context.auth_context->auth;
-  auto &auth_handler = session_context.auth_context->auth_handler;
+  auto *auth = session_context.auth;
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
@@ -941,18 +961,6 @@ int main(int argc, char **argv) {
 #else
     InitFromCypherlFile(interpreter_context, FLAGS_init_file);
 #endif
-  }
-
-  auto *maybe_username = std::getenv(kMgUser);
-  auto *maybe_password = std::getenv(kMgPassword);
-  auto *maybe_pass_file = std::getenv(kMgPassfile);
-  if (maybe_username && maybe_password) {
-    auth_handler.CreateUser(maybe_username, maybe_password);
-  } else if (maybe_pass_file) {
-    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-    if (!username.empty() && !password.empty()) {
-      auth_handler.CreateUser(username, password);
-    }
   }
 
   {

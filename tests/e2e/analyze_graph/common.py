@@ -26,4 +26,6 @@ def connect(**kwargs) -> mgclient.Connection:
     connection.autocommit = True
     yield connection
     cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+    execute_and_fetch_all(cursor, "DROP DATABASE clean")
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")

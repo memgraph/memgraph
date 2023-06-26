@@ -11,6 +11,8 @@
 
 #pragma once
 
+#if 0 /* Disabled for now; we moved back to a single auth source */
+
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -60,3 +62,5 @@ class AuthContextHandler : public Handler<AuthContext, AuthConfig> {
 };
 
 }  // namespace memgraph::dbms
+
+#endif
