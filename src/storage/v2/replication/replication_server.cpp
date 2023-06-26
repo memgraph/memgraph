@@ -13,6 +13,7 @@
 #include <atomic>
 #include <filesystem>
 
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -102,6 +103,7 @@ void Storage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reade
 }
 
 void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  spdlog::debug("Started replication recovery as append deltas!");
   replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
 
@@ -146,9 +148,11 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
 
   replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
+  spdlog::info("Replication recovery from append deltas finished!");
 }
 
 void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  spdlog::debug("Started replication recovery from received snapshot file!");
   replication::SnapshotReq req;
   slk::Load(&req, req_reader);
 
@@ -161,6 +165,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
   std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
+  spdlog::trace("Clearing database since recovering from snapshot.");
   // Clear the database
   storage_->vertices_.clear();
   storage_->edges_.clear();
@@ -194,6 +199,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
+  spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
   // Delete other durability files
   auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
   for (const auto &[path, uuid, _] : snapshot_files) {
@@ -202,6 +208,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
     }
   }
 
+  spdlog::trace("Deleting old WAL files due to snapshot recovery.");
   auto wal_files = durability::GetWalFiles(storage_->wal_directory_, storage_->uuid_);
   if (wal_files) {
     for (const auto &wal_file : *wal_files) {
@@ -210,6 +217,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
 
     storage_->wal_file_.reset();
   }
+  spdlog::debug("Replication recovery from snapshot finished!");
 }
 
 void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -232,6 +240,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
 }
 
 void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  spdlog::debug("Started replication recovery from current WAL!");
   replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
 
@@ -243,6 +252,7 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
+  spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
 void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
@@ -271,9 +281,10 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
     } else {
       storage_->wal_seq_num_ = wal_info.seq_num;
     }
-
+    spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
     durability::Decoder wal;
     const auto version = wal.Initialize(*maybe_wal_path, durability::kWalMagic);
+    spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
     if (!version) throw durability::RecoveryFailure("Couldn't read WAL magic and/or version!");
     if (!durability::IsVersionSupported(*version)) throw durability::RecoveryFailure("Invalid WAL version!");
     wal.SetPosition(wal_info.offset_deltas);
@@ -282,7 +293,7 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
       i += ReadAndApplyDelta(&wal);
     }
 
-    spdlog::debug("{} loaded successfully", *maybe_wal_path);
+    spdlog::debug("Replication from current WAL successful!");
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", *maybe_wal_path, e.what());
   }

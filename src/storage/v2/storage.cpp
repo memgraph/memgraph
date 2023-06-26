@@ -2189,10 +2189,7 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::str
   });
 }
 
-ReplicationRole Storage::GetReplicationRole() const {
-  spdlog::trace("Getting replication role...");
-  return replication_role_;
-}
+ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
 
 std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   spdlog::trace("Getting replicas info...");
