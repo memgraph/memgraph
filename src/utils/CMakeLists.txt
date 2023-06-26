@@ -4,7 +4,6 @@ set(utils_src_files
     event_counter.cpp
     event_gauge.cpp
     event_histogram.cpp
-    csv_parsing.cpp
     file.cpp
     file_locker.cpp
     memory.cpp
