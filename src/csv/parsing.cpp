@@ -363,7 +363,7 @@ std::istream &CsvSource::GetStream() {
 }
 
 auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
-  constexpr auto protocol_matcher = ctre::starts_with<"(https?|t?ftp|telnet)://">;
+  constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
   if (protocol_matcher(csv_location)) {
     return csv::UrlCsvSource{csv_location.c_str()};
   }

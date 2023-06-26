@@ -16,6 +16,7 @@
 #include <curl/curl.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
+#include <ctre/ctre.hpp>
 
 #include "utils/logging.hpp"
 
@@ -126,8 +127,22 @@ auto DownloadToStream(char const *url, std::ostream &os) -> bool {
   curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &os);
 
   auto const res = curl_easy_perform(curl_handle);
+  long response_code = 0;  // NOLINT
+  curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &response_code);
   curl_easy_cleanup(curl_handle);
-  return res == CURLE_OK;
+
+  if (res != CURLE_OK) {
+    SPDLOG_WARN("Couldn't perform request: {}", curl_easy_strerror(res));
+    return false;
+  }
+
+  constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
+  if (protocol_matcher(url) && response_code != 200) {
+    SPDLOG_WARN("Request response code isn't 200 (received {})!", response_code);
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace memgraph::requests
