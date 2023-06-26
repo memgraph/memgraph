@@ -32,7 +32,7 @@ using memgraph::query::TypedValueException;
 template <typename StorageType>
 class AllTypesFixture : public testing::Test {
  protected:
-  const std::string testSuite = "transactin_queue_multiple";
+  const std::string testSuite = "typed_value";
 
   std::vector<TypedValue> values_;
   memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
