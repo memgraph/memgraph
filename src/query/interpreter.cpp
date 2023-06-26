@@ -192,9 +192,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
     switch (static_cast<storage::InMemoryStorage *>(db_)->GetReplicationRole()) {
-      case storage::InMemoryStorage::ReplicationRole::MAIN:
+      case storage::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::InMemoryStorage::ReplicationRole::REPLICA:
+      case storage::replication::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -205,7 +205,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-    if (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) {
+    if (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
@@ -245,7 +245,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void DropReplica(const std::string &replica_name) override {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
 
-    if (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) {
+    if (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
@@ -257,7 +257,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-    if (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) {
+    if (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -1205,7 +1205,7 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-    return (mem_storage->GetReplicationRole() == storage::InMemoryStorage::ReplicationRole::REPLICA) &&
+    return (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) &&
            (query_type == RWType::W || query_type == RWType::RW);
   }
   return false;
@@ -1977,8 +1977,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
-        mem_storage->FreeMemory();
+        interpreter_context->db->FreeMemory();
         memory::PurgeUnusedMemory();
         return QueryHandlerResult::COMMIT;
       },
