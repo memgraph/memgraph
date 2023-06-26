@@ -23,6 +23,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -36,13 +37,53 @@ class CsvReadException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+class FileCsvSource {
+ public:
+  explicit FileCsvSource(std::filesystem::path path);
+  std::istream &GetStream();
+
+ private:
+  std::filesystem::path path_;
+  std::ifstream stream_;
+};
+
+class StreamCsvSource {
+ public:
+  StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+  std::istream &GetStream() { return stream_; }
+
+ private:
+  std::stringstream stream_;
+};
+
+class UrlCsvSource : public StreamCsvSource {
+ public:
+  UrlCsvSource(char const *url);
+};
+
+class CsvSource {
+ public:
+  static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
+  CsvSource(FileCsvSource source) : source_{std::move(source)} {}
+  CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
+  CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
+  std::istream &GetStream();
+
+ private:
+  std::variant<FileCsvSource, UrlCsvSource, StreamCsvSource> source_;
+};
+
 class Reader {
  public:
   struct Config {
     Config() = default;
     Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
            std::optional<utils::pmr::string> qt)
-        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {}
+        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {
+      // delimiter + quote can not be empty
+      if (delimiter && delimiter->empty()) delimiter.reset();
+      if (quote && quote->empty()) quote.reset();
+    }
 
     bool with_header{false};
     bool ignore_bad{false};
@@ -53,16 +94,7 @@ class Reader {
   using Row = utils::pmr::vector<utils::pmr::string>;
   using Header = utils::pmr::vector<utils::pmr::string>;
 
-  Reader() = default;
-  explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource())
-      : memory_(mem), path_(std::move(path)) {
-    read_config_.with_header = cfg.with_header;
-    read_config_.ignore_bad = cfg.ignore_bad;
-    read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
-    read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
-    InitializeStream();
-    TryInitializeHeader();
-  }
+  explicit Reader(CsvSource source, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource());
 
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
@@ -81,28 +113,18 @@ class Reader {
   };
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
-  [[nodiscard]] bool HasHeader() const;
-  const Header &GetHeader() const;
-  std::optional<Row> GetNextRow(utils::MemoryResource *mem);
+
+  bool HasHeader() const;
+  auto GetHeader() const -> Header const &;
+  auto GetNextRow(utils::MemoryResource *mem) -> std::optional<Row>;
 
  private:
-  utils::MemoryResource *memory_;
-  std::filesystem::path path_;
-  std::ifstream csv_stream_;
-  Config read_config_;
-  uint64_t line_count_{1};
-  uint16_t number_of_columns_{0};
-  Header header_{memory_};
-
-  void InitializeStream();
-
-  void TryInitializeHeader();
-
-  std::optional<utils::pmr::string> GetNextLine(utils::MemoryResource *mem);
-
-  ParsingResult ParseHeader();
-
-  ParsingResult ParseRow(utils::MemoryResource *mem);
+  // Some implementation issues that need clearing up, but this is mainly because
+  // I don't want `boost/iostreams/filtering_stream.hpp` included in this header file
+  // Because it causes issues when combined with antlr headers
+  // When we have C++20 modules this can be fixed
+  struct impl;
+  std::unique_ptr<impl, void (*)(impl *)> pimpl;
 };
 
 }  // namespace memgraph::csv
