@@ -40,7 +40,7 @@ class GraphqlChecker {
  private:
   static constexpr std::array<std::pair<std::string_view, std::string_view>, 1> mapping_ = {{
 
-      {"dbms.components", "mgp.components"}
+      {"dbms.components", "mgps.components"}
 
   }};
 };

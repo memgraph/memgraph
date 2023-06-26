@@ -77,4 +77,5 @@ def server_returned_expceted(expected_string: str, server_response: requests.Res
 
 @pytest.fixture
 def create_query_server() -> GraphQLServer:
-    return GraphQLServer("tests/e2e/graphql/graphql_library_config/create.js")
+    path = "../../build/tests/e2e/graphql/graphql_library_config/create.js"
+    return GraphQLServer(path)
