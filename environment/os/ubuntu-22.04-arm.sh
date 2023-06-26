@@ -131,8 +131,8 @@ install() {
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 apt install -y "$pkg"
                 # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
+                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-arm64/bin/javac
             fi
             continue
         fi
