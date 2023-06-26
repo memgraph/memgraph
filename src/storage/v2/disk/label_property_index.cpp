@@ -45,7 +45,7 @@ bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, Propert
 
 bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit_ts) {
   disk_transaction->SetCommitTimestamp(commit_ts);
-  auto status = disk_transaction->Commit();
+  const auto status = disk_transaction->Commit();
   if (!status.ok()) {
     spdlog::error("rocksdb: {}", status.getState());
   }
@@ -56,8 +56,8 @@ bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit
 
 DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
     : LabelPropertyIndex(indices, constraints, config) {
-  kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.label_property_index_directory);
+  kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(
@@ -137,15 +137,15 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
-  bool deletion_success = true;
-  entries_for_deletion.WithLock([&deletion_success, transaction_start_timestamp,
-                                 disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
-    if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
-        tx_it != tx_to_entries_for_deletion.end()) {
-      deletion_success = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
-      tx_to_entries_for_deletion.erase(tx_it);
-    }
-  });
+  bool deletion_success = entries_for_deletion.WithLock(
+      [transaction_start_timestamp, disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
+        if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
+            tx_it != tx_to_entries_for_deletion.end()) {
+          tx_to_entries_for_deletion.erase(tx_it);
+          return ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
+        }
+        return true;
+      });
   if (deletion_success) {
     return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
   }
@@ -154,31 +154,34 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
 
 void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
   entries_for_deletion.WithLock([added_label, vertex_after_update, &tx](auto &tx_to_entries_for_deletion) {
-    if (auto tx_it = tx_to_entries_for_deletion.find(tx.start_timestamp); tx_it != tx_to_entries_for_deletion.end()) {
-      if (auto vertex_label_index_it = tx_it->second.find(vertex_after_update->gid);
-          vertex_label_index_it != tx_it->second.end()) {
-        std::erase_if(vertex_label_index_it->second, [added_label](const std::pair<LabelId, PropertyId> &index) {
-          return index.first == added_label;
-        });
-      }
+    auto tx_it = tx_to_entries_for_deletion.find(tx.start_timestamp);
+    if (tx_it == tx_to_entries_for_deletion.end()) {
+      return;
     }
+    auto vertex_label_index_it = tx_it->second.find(vertex_after_update->gid);
+    if (vertex_label_index_it == tx_it->second.end()) {
+      return;
+    }
+    std::erase_if(vertex_label_index_it->second,
+                  [added_label](const std::pair<LabelId, PropertyId> &index) { return index.first == added_label; });
   });
 }
 
 void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                                                  const Transaction &tx) {
   for (const auto &index_entry : index_) {
-    if (index_entry.first == removed_label) {
-      entries_for_deletion.WithLock([&index_entry, &tx, vertex_after_update](auto &tx_to_entries_for_deletion) {
-        const auto &[indexing_label, indexing_property] = index_entry;
-        auto [it, _] = tx_to_entries_for_deletion.emplace(
-            std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp), std::forward_as_tuple());
-        auto &vertex_map_store = it->second;
-        auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
-            std::piecewise_construct, std::forward_as_tuple(vertex_after_update->gid), std::forward_as_tuple());
-        it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
-      });
+    if (index_entry.first != removed_label) {
+      continue;
     }
+    entries_for_deletion.WithLock([&index_entry, &tx, vertex_after_update](auto &tx_to_entries_for_deletion) {
+      const auto &[indexing_label, indexing_property] = index_entry;
+      auto [it, _] = tx_to_entries_for_deletion.emplace(
+          std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp), std::forward_as_tuple());
+      auto &vertex_map_store = it->second;
+      auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
+          std::piecewise_construct, std::forward_as_tuple(vertex_after_update->gid), std::forward_as_tuple());
+      it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
+    });
   }
 }
 
@@ -195,20 +198,8 @@ bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) con
 }
 
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
-  return std::vector<std::pair<LabelId, PropertyId>>(index_.begin(), index_.end());
+  return {index_.begin(), index_.end()};
 }
-
-// These constants represent the smallest possible value of each type that is
-// contained in a `PropertyValue`. Note that numbers (integers and doubles) are
-// treated as the same "type" in `PropertyValue`.
-const PropertyValue kSmallestBool = PropertyValue(false);
-static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
-const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
-const PropertyValue kSmallestString = PropertyValue("");
-const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
-const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
-const PropertyValue kSmallestTemporalData =
-    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const { return 10; }
 
