@@ -143,7 +143,8 @@ endif()
 # files used can be seen here:
 # https://git-scm.com/book/en/v2/Git-Internals-Git-References
 set(git_directory "${CMAKE_SOURCE_DIR}/.git")
-# Check for directory because if the repo is cloned as a git submodule, .git is a file and below code doesn't work.
+# Check for directory because if the repo is cloned as a git submodule, .git is
+# a file and below code doesn't work.
 if (IS_DIRECTORY "${git_directory}")
   set_property(DIRECTORY APPEND PROPERTY
       CMAKE_CONFIGURE_DEPENDS "${git_directory}/HEAD")
