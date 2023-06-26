@@ -9,8 +9,8 @@ template_cluster: &template_cluster
 disk_cluster: &disk_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--log-level=trace"]
-      log_file: "magic-functions-e2e.log"
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      log_file: "isolation-levels-disk-e2e.log"
       setup_queries: ["storage mode on_disk_transactional"]
       validation_queries: []
 
