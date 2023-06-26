@@ -67,9 +67,17 @@ def run(args):
         if "cluster" in workload:
             for name, config in workload["cluster"].items():
                 mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
-                # TODO(gitbuda): This is a hack just to test if CI tests will pass -> CHANGE
-                conn = mg_instance.get_connection("admin", "test")
-                for validation in config.get("validation_queries", []):
+                # Explicitely check if there are validation queries and skip if
+                # nothing is to validate. If setup queries are dealing with
+                # users, any new connection requires auth details.
+                validation_queries = config.get("validation_queries", [])
+                if len(validation_queries) == 0:
+                    continue
+                # NOTE: If the setup quries create users AND there are some
+                # validation queries, the connection here has to get the right
+                # username/password.
+                conn = mg_instance.get_connection()
+                for validation in validation_queries:
                     data = mg_instance.query(validation["query"], conn)[0][0]
                     assert data == validation["expected"]
                 conn.close()
