@@ -11,6 +11,7 @@ on:
 
 jobs:
   centos-7:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -28,6 +29,7 @@ jobs:
           path: build/output/centos-7/memgraph*.rpm
 
   centos-9:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -45,6 +47,7 @@ jobs:
           path: build/output/centos-9/memgraph*.rpm
 
   debian-10:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -62,6 +65,7 @@ jobs:
           path: build/output/debian-10/memgraph*.deb
 
   debian-11:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -79,6 +83,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   docker:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -98,6 +103,7 @@ jobs:
           path: build/output/docker/memgraph*.tar.gz
 
   ubuntu-1804:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -115,6 +121,7 @@ jobs:
           path: build/output/ubuntu-18.04/memgraph*.deb
 
   ubuntu-2004:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -132,6 +139,7 @@ jobs:
           path: build/output/ubuntu-20.04/memgraph*.deb
 
   ubuntu-2204:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -149,6 +157,7 @@ jobs:
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   debian-11-platform:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -166,6 +175,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   fedora-36:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -183,6 +193,7 @@ jobs:
           path: build/output/fedora-36/memgraph*.rpm
 
   amzn-2:
+    if: false
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
