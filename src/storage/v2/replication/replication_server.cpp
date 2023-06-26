@@ -148,7 +148,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
 
   replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
-  spdlog::info("Replication recovery from append deltas finished!");
+  spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
 void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {

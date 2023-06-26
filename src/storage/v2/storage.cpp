@@ -2093,7 +2093,7 @@ bool Storage::SetMainReplicationRole() {
   }
 
   replication_role_.store(ReplicationRole::MAIN);
-  spdlog::info("Instance is now in a MAIN roll.");
+  spdlog::info("Instance is now in a MAIN role.");
   return true;
 }
 
