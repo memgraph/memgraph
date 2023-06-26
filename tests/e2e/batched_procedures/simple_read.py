@@ -8,9 +8,10 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
+# isort: off
 import sys
-
 import pytest
+
 from common import execute_and_fetch_all, has_n_result_row, has_one_result_row
 from conftest import get_connection
 from mgclient import DatabaseError
