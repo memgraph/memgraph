@@ -157,25 +157,33 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 // Query
 
 bool SymbolGenerator::PreVisit(SingleQuery &) {
-  prev_return_names_ = curr_return_names_;
-  curr_return_names_.clear();
+  auto &scope = scopes_.back();
+
+  scope.prev_return_names = scope.curr_return_names;
+  scope.curr_return_names.clear();
   return true;
 }
 
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
+  auto scope = scopes_.back();
   scopes_.back() = Scope();
+
+  scopes_.back().curr_return_names = scope.curr_return_names;
+
   return true;
 }
 
 bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
-  if (prev_return_names_ != curr_return_names_) {
+  auto &scope = scopes_.back();
+
+  if (scope.prev_return_names != scope.curr_return_names) {
     throw SemanticException("All subqueries in an UNION must have the same column names.");
   }
 
   // create new symbols for the result of the union
-  for (const auto &name : curr_return_names_) {
+  for (const auto &name : scope.curr_return_names) {
     auto symbol = CreateSymbol(name, false);
     cypher_union.union_symbols_.push_back(symbol);
   }
@@ -259,7 +267,9 @@ bool SymbolGenerator::PreVisit(Return &ret) {
 }
 
 bool SymbolGenerator::PostVisit(Return &) {
-  for (const auto &name_symbol : scopes_.back().symbols) curr_return_names_.insert(name_symbol.first);
+  auto &scope = scopes_.back();
+
+  for (const auto &name_symbol : scope.symbols) scope.curr_return_names.insert(name_symbol.first);
   return true;
 }
 

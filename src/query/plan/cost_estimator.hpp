@@ -283,6 +283,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Produce &op) override {
     auto scope = Scope();
 
+    // translate all the stats to the scope outside the return
     for (const auto &symbol : op.ModifiedSymbols(table_)) {
       auto stats = GetStatsFor(symbol);
       if (stats.has_value()) {
