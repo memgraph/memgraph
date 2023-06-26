@@ -320,9 +320,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
-    const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta) {
-  auto index_accessor = indexed_vertices_.access();
-
+    const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+    utils::SkipList<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key.ToString())));
   if (VertexExistsInCache(index_accessor, gid)) {
     return std::nullopt;
@@ -335,9 +334,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
-    const rocksdb::Slice &key, const rocksdb::Slice &value) {
-  auto index_accessor = indexed_vertices_.access();
-
+    const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+    utils::SkipList<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key.ToString())));
   if (VertexExistsInCache(index_accessor, gid)) {
     return std::nullopt;
@@ -346,8 +344,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   const std::string value_str{value.ToString()};
   const auto labels{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
   return CreateVertex(index_accessor, gid, labels,
-                      utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()),
-                      CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, std::nullopt));
+                      utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()), index_delta);
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -399,6 +396,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
+  index_storage_.emplace_back(utils::SkipList<storage::Vertex>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back(std::list<Delta>());
+  auto &index_deltas = index_deltas_storage_.back();
+
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
   auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
   disk_index_transaction->SetReadTimestampForValidation(transaction_.start_timestamp);
@@ -416,7 +418,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
       spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelIndexCache(utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
                                   utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, std::nullopt));
+                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+                                  indexed_vertices.access());
     }
   }
 
@@ -426,15 +429,21 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     /// TODO: optimize
     if (key.starts_with(utils::SerializeIdType(label)) && !utils::Contains(gids, curr_gid)) {
       LoadVertexToLabelIndexCache(index_it->key(), index_it->value(),
-                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas_, key));
+                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
+                                  indexed_vertices.access());
     }
   }
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
+  index_storage_.emplace_back(utils::SkipList<storage::Vertex>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back(std::list<Delta>());
+  auto &index_deltas = index_deltas_storage_.back();
+
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
@@ -450,11 +459,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   std::unordered_set<storage::Gid> gids(main_cache_acc.size());
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
+    /// TODO: delta support for clearing old disk keys
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         HasVertexProperty(vertex, property, &transaction_, view)) {
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+          indexed_vertices.access());
     }
   }
 
@@ -464,16 +476,24 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     /// TODO: optimize
     if (key.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid)) {
-      LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
+      LoadVertexToLabelPropertyIndexCache(
+          index_it->key(), index_it->value(),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+          indexed_vertices.access());
     }
   }
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
+  index_storage_.emplace_back(utils::SkipList<storage::Vertex>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back(std::list<Delta>());
+  auto &index_deltas = index_deltas_storage_.back();
+
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
@@ -493,7 +513,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
         HasVertexEqualPropertyValue(vertex, property, value, &transaction_, view)) {
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+          indexed_vertices.access());
     }
   }
 
@@ -506,11 +528,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && properties.IsPropertyEqual(property, value)) {
-      LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
+      LoadVertexToLabelPropertyIndexCache(
+          index_it->key(), index_it->value(),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+          indexed_vertices.access());
     }
   }
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
 
@@ -518,6 +543,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
+  index_storage_.emplace_back(utils::SkipList<storage::Vertex>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back(std::list<Delta>());
+  auto &index_deltas = index_deltas_storage_.back();
+
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
@@ -544,7 +574,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       }
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties));
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+          indexed_vertices.access());
     }
   }
 
@@ -563,11 +595,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       } else if (prop_value.IsDouble()) {
         spdlog::debug("Added to prop index value from label-property storage: {}", prop_value.ValueDouble());
       }
-      LoadVertexToLabelPropertyIndexCache(index_it->key(), index_it->value());
+      LoadVertexToLabelPropertyIndexCache(
+          index_it->key(), index_it->value(),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+          indexed_vertices.access());
     }
   }
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
 

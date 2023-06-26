@@ -143,18 +143,20 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     void PrepareForNextIndexQuery() override {
-      indexed_vertices_.clear();
-      index_deltas_.clear();
+      index_storage_.clear();
+      index_deltas_storage_.clear();
     }
 
-    std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(const rocksdb::Slice &key,
-                                                                       const rocksdb::Slice &value, Delta *index_delta);
+    std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
+        const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+        utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const rocksdb::Slice &key,
                                                                        const rocksdb::Slice &value);
 
-    std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(const rocksdb::Slice &key,
-                                                                               const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
+        const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+        utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
@@ -179,11 +181,11 @@ class DiskStorage final : public Storage {
 
     /// Main storage
     utils::SkipList<storage::Vertex> vertices_;
-    utils::SkipList<storage::Vertex> indexed_vertices_;
+    std::vector<utils::SkipList<storage::Vertex>> index_storage_;
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
-    std::list<Delta> index_deltas_;
+    std::vector<std::list<Delta>> index_deltas_storage_;
     utils::SkipList<storage::Edge> edges_;
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
