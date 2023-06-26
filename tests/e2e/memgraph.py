@@ -82,6 +82,7 @@ class MemgraphInstanceRunner:
         cursor = conn.cursor()
         cursor.execute(query)
         data = cursor.fetchall()
+        cursor.close()
         if new_conn:
             conn.close()
         return data

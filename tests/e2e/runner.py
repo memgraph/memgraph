@@ -69,7 +69,7 @@ def run(args):
                 mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
                 conn = mg_instance.get_connection()
                 for validation in config.get("validation_queries", []):
-                    data = mg_instance.query(conn, validation["query"])[0][0]
+                    data = mg_instance.query(validation["query"], conn)[0][0]
                     assert data == validation["expected"]
                 conn.close()
         cleanup()
