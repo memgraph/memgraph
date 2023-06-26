@@ -41,7 +41,8 @@ struct ExpandedInterpConfig {
 template <typename TSCHandler>
 class InterpContextHandler : public Handler<ExpandedInterpContext<TSCHandler>, ExpandedInterpConfig> {
  public:
-  using HandlerT = Handler<ExpandedInterpContext<TSCHandler>, ExpandedInterpConfig>;
+  using InterpContextT = ExpandedInterpContext<TSCHandler>;
+  using HandlerT = Handler<InterpContextT, ExpandedInterpConfig>;
 
   typename HandlerT::NewResult New(const std::string &name, TSCHandler &sc_handler, storage::Storage &db,
                                    const query::InterpreterConfig &config, const std::filesystem::path &dir,

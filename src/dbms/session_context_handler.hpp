@@ -440,7 +440,7 @@ class SessionContextHandler {
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
 
  public:
-  using InterpContextT = ExpandedInterpContext<SessionContextHandler>;
+  using InterpContextT = decltype(interp_handler_)::InterpContextT;
 };
 
 #else
@@ -455,7 +455,7 @@ static inline SessionContext Init(storage::Config &storage_config, query::Interp
   auto storage = std::make_shared<storage::Storage>(storage_config);
   MG_ASSERT(storage, "Failed to allocate main storage.");
 
-  auto auth = std::make_shared<AuthContextHandler::AuthContext>(storage_config.durability.storage_directory, ah_flags);
+  auto auth = std::make_shared<AuthContext>(storage_config.durability.storage_directory, ah_flags);
   MG_ASSERT(auth, "Failed to generate authentication.");
 
   auto interp_context = std::make_shared<query::InterpreterContext>(storage.get(), interp_config,
