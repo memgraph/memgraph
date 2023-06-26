@@ -176,7 +176,7 @@ class DiskStorage final : public Storage {
 
     /// Main storage
     utils::SkipList<storage::Vertex> vertices_;
-    std::vector<utils::SkipList<storage::Vertex>> index_storage_;
+    std::vector<std::unique_ptr<utils::SkipList<storage::Vertex>>> index_storage_;
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
