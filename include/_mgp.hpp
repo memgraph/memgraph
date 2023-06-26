@@ -677,6 +677,16 @@ inline mgp_proc *module_add_write_procedure(mgp_module *module, const char *name
   return MgInvoke<mgp_proc *>(mgp_module_add_write_procedure, module, name, cb);
 }
 
+inline mgp_proc *module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                 mgp_proc_initializer initializer, mgp_proc_cleanup cleanup) {
+  return MgInvoke<mgp_proc *>(mgp_module_add_batch_read_procedure, module, name, cb, initializer, cleanup);
+}
+
+inline mgp_proc *module_add_batch_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                  mgp_proc_initializer initializer, mgp_proc_cleanup cleanup) {
+  return MgInvoke<mgp_proc *>(mgp_module_add_batch_write_procedure, module, name, cb, initializer, cleanup);
+}
+
 inline void proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
   MgInvokeVoid(mgp_proc_add_arg, proc, name, type);
 }

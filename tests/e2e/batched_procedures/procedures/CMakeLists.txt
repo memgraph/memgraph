@@ -1,0 +1,7 @@
+copy_batched_procedures_e2e_python_files(batch_py_read.py)
+copy_batched_procedures_e2e_python_files(batch_py_write.py)
+
+add_query_module(batch_c_read batch_c_read.cpp)
+
+
+add_subdirectory(common)
