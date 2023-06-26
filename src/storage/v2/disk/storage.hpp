@@ -234,9 +234,11 @@ class DiskStorage final : public Storage {
 
   void LoadLabelIndexInfoIfExists() const;
 
-  bool PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property) const;
+  bool PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property,
+                                                               const char *key) const;
 
-  bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property) const;
+  bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
+                                                               const char *key) const;
 
   void LoadLabelPropertyIndexInfoIfExists() const;
 
