@@ -1563,7 +1563,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                   total_degree += *vertex.OutDegree(view) + *vertex.InDegree(view);
                                 });
 
-                  auto average_degree = static_cast<double>(total_degree) / static_cast<double>(no_vertices);
+                  auto average_degree =
+                      no_vertices > 0 ? static_cast<double>(total_degree) / static_cast<double>(no_vertices) : 0;
                   auto index_stats = storage::LabelIndexStats{.count = no_vertices, .avg_degree = average_degree};
                   execution_db_accessor->SetIndexStats(index_info, index_stats);
                   label_stats.emplace_back(std::make_pair(index_info, index_stats));
@@ -1597,8 +1598,9 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
               return prev_result + utils::ChiSquaredValue(value_entry.second, avg_group_size);
             });
 
-        double average_degree =
-            static_cast<double>(vertex_degree_counter[label_property]) / static_cast<double>(count_property_value);
+        double average_degree = count_property_value > 0 ? static_cast<double>(vertex_degree_counter[label_property]) /
+                                                               static_cast<double>(count_property_value)
+                                                         : 0;
 
         auto index_stats =
             storage::LabelPropertyIndexStats{.count = count_property_value,

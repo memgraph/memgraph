@@ -454,5 +454,23 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
     assert expected_explain == result_with_analysis
 
 
+def test_given_empty_graph_when_analyzing_graph_return_zero_degree(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node;")
+
+    label_stats = next(memgraph.execute_and_fetch("analyze graph;"))
+
+    expected_analysis = {
+        "label": "Node",
+        "property": None,
+        "num estimation nodes": 0,
+        "num groups": None,
+        "avg group size": None,
+        "chi-squared value": None,
+        "avg degree": 0.0,
+    }
+
+    assert set(label_stats) == set(expected_analysis)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
