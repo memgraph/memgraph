@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -131,7 +131,12 @@ class ModuleRegistry final {
  private:
   class SharedLibraryHandle {
    public:
-    SharedLibraryHandle(const std::string &shared_library, int mode) : handle_{dlopen(shared_library.c_str(), mode)} {}
+    SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "")
+        : handle_{dlopen(shared_library.c_str(), mode)} {
+      if (!handle_) {
+        spdlog::warn("Unable to load {}. {}", shared_library, hint_message);
+      }
+    }
     SharedLibraryHandle(const SharedLibraryHandle &) = delete;
     SharedLibraryHandle(SharedLibraryHandle &&) = delete;
     SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
@@ -147,10 +152,13 @@ class ModuleRegistry final {
     void *handle_;
   };
 
+  inline static const std::string kLibstdcppWarning =
+      "Query modules might not work as expected. Printing non-string values from query modules might not work. Please "
+      "install libstdc++ or compile from source with the recent toolchain (all included).";
 #if __has_feature(address_sanitizer)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE, kLibstdcppWarning};
 #else
   // The reason behind opening share library during runtime is to avoid issues
   // with loading symbols from stdlib. We have encounter issues with locale
@@ -161,7 +169,7 @@ class ModuleRegistry final {
   // mentioned library will be first performed in the already existing binded
   // libraries and then the global namespace.
   // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND, kLibstdcppWarning};
 #endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
