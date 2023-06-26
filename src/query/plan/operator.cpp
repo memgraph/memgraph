@@ -4535,8 +4535,8 @@ class CallProcedureCursor : public Cursor {
       : self_(self),
         input_cursor_(self_->input_->MakeCursor(mem)),
         // result_ needs to live throughout multiple Pull evaluations, until all
-        // rows are produced. Therefore, we use the memory dedicated for the
-        // whole execution.
+        // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
+        // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
         result_(utils::Allocator<mgp_result>(self_->memory_resource)
                     .new_object<mgp_result>(nullptr, self_->memory_resource)) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
@@ -4582,13 +4582,12 @@ class CallProcedureCursor : public Cursor {
             proc->cleanup.value()();
           }
           return false;
-        } else {
-          stream_exhausted = false;
-          if (proc->initializer) {
-            call_initializer = true;
-            MG_ASSERT(proc->cleanup);
-            proc->cleanup.value()();
-          }
+        }
+        stream_exhausted = false;
+        if (proc->initializer) {
+          call_initializer = true;
+          MG_ASSERT(proc->cleanup);
+          proc->cleanup.value()();
         }
       }
       if (!cleanup_ && proc->cleanup) [[unlikely]] {
@@ -4627,9 +4626,7 @@ class CallProcedureCursor : public Cursor {
       }
       result_row_it_ = result_->rows.begin();
 
-      if (result_row_it_ == result_->rows.end()) {
-        stream_exhausted = true;
-      }
+      stream_exhausted = result_row_it_ == result_->rows.end();
     }
 
     auto &values = result_row_it_->values;

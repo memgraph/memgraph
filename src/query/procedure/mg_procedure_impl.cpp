@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2731,6 +2731,7 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
 }
 
 namespace {
+/// @throw std::bad_alloc, std::length_error
 mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
                                    const ProcedureInfo &procedure_info) {
   if (!IsValidIdentifierName(name)) {
@@ -2741,10 +2742,10 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
   };
 
   auto *memory = module->procedures.get_allocator().GetMemoryResource();
-  // May throw std::bad_alloc, std::length_error
   return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
 
+/// @throw std::bad_alloc, std::length_error
 mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
                                          mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                                          const ProcedureInfo &procedure_info) {
@@ -2755,7 +2756,6 @@ mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, m
     throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
   };
   auto *memory = module->procedures.get_allocator().GetMemoryResource();
-  // May throw std::bad_alloc, std::length_error
   return &module->procedures.emplace(name, mgp_proc(name, cb_batch, initializer, cleanup, memory, procedure_info))
               .first->second;
 }

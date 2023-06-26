@@ -55,6 +55,8 @@ PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
+static constexpr bool kStartGarbageCollection{true};
+
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
   switch (error) {
@@ -1069,7 +1071,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
 
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, false));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, !kStartGarbageCollection));
     call(py_graph);
   }
 }
@@ -1110,8 +1112,8 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     py::Object py_graph(MakePyGraph(graph, memory));
     py::Object py_messages(MakePyMessages(msgs, memory));
 
-    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, true));
-    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages, true));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, kStartGarbageCollection));
+    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages, kStartGarbageCollection));
 
     if (py_graph && py_messages) {
       maybe_msg = error_to_msg(call(py_graph, py_messages));
@@ -1162,7 +1164,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, true));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, kStartGarbageCollection));
     if (py_graph) {
       auto maybe_result = call(py_graph);
       if (!maybe_result.HasError()) {
