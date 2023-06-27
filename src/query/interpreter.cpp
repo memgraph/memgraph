@@ -2254,7 +2254,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
           "You cannot switch from on-disk storage to in-memory storage while the database is running. "
-          "Please restart the database to switch to in-memory storage.");
+          "Please delete your data directory and restart the database. Once restarted, the Memgraph will automatically "
+          "start to use in-memory storage.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
       std::unique_lock main_guard{interpreter_context->db->main_lock_};
