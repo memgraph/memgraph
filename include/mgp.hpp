@@ -1319,6 +1319,20 @@ inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureT
                          std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                          mgp_memory *memory);
 
+/// @brief Adds a batch procedure to the query module.
+/// @param callback - procedure callback
+/// @param initializer - procedure initializer
+/// @param cleanup - procedure cleanup
+/// @param name - procedure name
+/// @param proc_type - procedure type (read/write)
+/// @param parameters - procedure parameters
+/// @param returns - procedure return values
+/// @param module - the query module that the procedure is added to
+/// @param memory - access to memory
+inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                              std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
+                              std::vector<Return> returns, mgp_module *module, mgp_memory *memory);
+
 /// @brief Adds a function to the query module.
 /// @param callback - function callback
 /// @param name - function name
@@ -3437,14 +3451,12 @@ inline mgp_type *Return::GetMGPType() const {
   return util::ToMGPType(type_);
 }
 
-void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
-                  std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
-                  mgp_memory *memory) {
-  auto proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
-                                                 : mgp::module_add_write_procedure(module, name.data(), callback);
-
+// do not enter
+namespace detail {
+inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
+                                   const std::vector<Return> &returns) {
   for (const auto &parameter : parameters) {
-    auto parameter_name = parameter.name.data();
+    const auto *parameter_name = parameter.name.data();
     if (!parameter.optional) {
       mgp::proc_add_arg(proc, parameter_name, parameter.GetMGPType());
     } else {
@@ -3453,18 +3465,35 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
   }
 
   for (const auto return_ : returns) {
-    auto return_name = return_.name.data();
-
+    const auto *return_name = return_.name.data();
     mgp::proc_add_result(proc, return_name, return_.GetMGPType());
   }
+}
+}  // namespace detail
+
+void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
+                  std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                  mgp_memory *memory) {
+  auto *proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
+                                                  : mgp::module_add_write_procedure(module, name.data(), callback);
+  detail::AddParamsReturnsToProc(proc, parameters, returns);
+}
+
+void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                       std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
+                       std::vector<Return> returns, mgp_module *module, mgp_memory *memory) {
+  auto *proc = (proc_type == ProcedureType::Read)
+                   ? mgp::module_add_batch_read_procedure(module, name.data(), callback, initializer, cleanup)
+                   : mgp::module_add_batch_write_procedure(module, name.data(), callback, initializer, cleanup);
+  detail::AddParamsReturnsToProc(proc, parameters, returns);
 }
 
 void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters, mgp_module *module,
                  mgp_memory *memory) {
-  auto func = mgp::module_add_function(module, name.data(), callback);
+  auto *func = mgp::module_add_function(module, name.data(), callback);
 
   for (const auto &parameter : parameters) {
-    auto parameter_name = parameter.name.data();
+    const auto *parameter_name = parameter.name.data();
 
     if (!parameter.optional) {
       mgp::func_add_arg(func, parameter_name, parameter.GetMGPType());
