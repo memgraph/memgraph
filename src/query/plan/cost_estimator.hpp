@@ -16,6 +16,7 @@
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/math.hpp"
 
 namespace memgraph::query::plan {
 
@@ -25,7 +26,7 @@ namespace memgraph::query::plan {
  * how to do expands and other types of Cypher manipulations.
  */
 struct SymbolStatistics {
-  int64_t cardinality;
+  uint64_t count;
   double degree;
 };
 
@@ -288,11 +289,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       auto stats = GetStatsFor(symbol);
       if (stats.has_value()) {
         scope.symbol_stats[symbol.name()] =
-            SymbolStatistics{.cardinality = stats.value().cardinality, .degree = stats.value().degree};
+            SymbolStatistics{.count = stats.value().count, .degree = stats.value().degree};
       }
     }
 
-    scopes_.push_back(scope);
+    scopes_.push_back(std::move(scope));
     return true;
   }
 
@@ -301,9 +302,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     op.input_->Accept(*this);
 
     // Estimate cost on the subquery branch independently, use a copy
-    auto last_scope = scopes_.back();
+    auto &last_scope = scopes_.back();
     double subquery_cost = EstimateCostOnBranch(&op.subquery_, last_scope);
-    subquery_cost = subquery_cost != 0 ? subquery_cost : 1;
+    subquery_cost = !utils::ApproxEqualDecimal(subquery_cost, 0.0) ? subquery_cost : 1;
     cardinality_ *= subquery_cost;
 
     IncrementCost(CostParam::kSubquery);
@@ -387,12 +388,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   template <typename T>
   void SaveStatsFor(const Symbol &symbol, T index_stats) {
     scopes_.back().symbol_stats[symbol.name()] = SymbolStatistics{
-        .cardinality = index_stats.count,
+        .count = index_stats.count,
         .degree = index_stats.avg_degree,
     };
   }
-
-  void DeleteStatsFor(const Symbol &symbol) { scopes_.back().symbol_stats.erase(symbol.name()); }
 };
 
 /** Returns the estimated cost of the given plan. */

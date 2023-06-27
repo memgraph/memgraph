@@ -14,9 +14,7 @@ import sys
 import pytest
 from common import connect, execute_and_fetch_all, memgraph
 
-
-class OptimizeIndexesConstants:
-    QUERY_PLAN = "QUERY PLAN"
+QUERY_PLAN = "QUERY PLAN"
 
 
 # E2E tests for checking query semantic
@@ -308,7 +306,7 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
     ]
 
     result_without_analysis = list(memgraph.execute_and_fetch(query))
-    result_without_analysis = [x[OptimizeIndexesConstants.QUERY_PLAN] for x in result_without_analysis]
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
     assert expected_explain == result_without_analysis
 
     memgraph.execute("analyze graph;")
@@ -319,7 +317,7 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
     ]
 
     result_with_analysis = list(memgraph.execute_and_fetch(query))
-    result_with_analysis = [x[OptimizeIndexesConstants.QUERY_PLAN] for x in result_with_analysis]
+    result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
     assert expected_explain == result_with_analysis
 
@@ -363,7 +361,7 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
     ]
 
     result_without_analysis = list(memgraph.execute_and_fetch(query))
-    result_without_analysis = [x[OptimizeIndexesConstants.QUERY_PLAN] for x in result_without_analysis]
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
     assert expected_explain == result_without_analysis
 
     memgraph.execute("analyze graph;")
@@ -373,7 +371,7 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
         for x in expected_explain
     ]
     result_with_analysis = list(memgraph.execute_and_fetch(query))
-    result_with_analysis = [x[OptimizeIndexesConstants.QUERY_PLAN] for x in result_with_analysis]
+    result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
     assert expected_explain == result_with_analysis
 
@@ -435,7 +433,7 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
     ]
 
     result_without_analysis = list(memgraph.execute_and_fetch(query))
-    result_without_analysis = [x[OptimizeIndexesConstants.QUERY_PLAN] for x in result_without_analysis]
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
     assert expected_explain == result_without_analysis
 
     memgraph.execute("analyze graph;")
@@ -449,7 +447,7 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         for x in expected_explain
     ]
     result_with_analysis = list(memgraph.execute_and_fetch(query))
-    result_with_analysis = [x[OptimizeIndexesConstants.QUERY_PLAN] for x in result_with_analysis]
+    result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
     assert expected_explain == result_with_analysis
 

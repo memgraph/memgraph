@@ -498,7 +498,7 @@ std::vector<LabelId> LabelIndex::ClearIndexStats() {
   return deleted_indexes;
 }
 
-std::vector<LabelId> LabelIndex::DeleteIndexStatsForLabel(const storage::LabelId &label) {
+std::vector<LabelId> LabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   std::vector<LabelId> deleted_indexes;
   for (auto it = stats_.cbegin(); it != stats_.cend();) {
     if (it->first == label) {
@@ -848,8 +848,7 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
 /*
 Iterate over all property-label pairs and deletes if label from the index is equal to label parameter.
 */
-std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStatsForLabel(
-    const storage::LabelId &label) {
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStats(const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   for (auto it = stats_.cbegin(); it != stats_.cend();) {
     if (it->first.first == label) {
@@ -871,14 +870,14 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats(
   return deleted_indexes;
 }
 
-void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+void LabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                                        const storage::LabelPropertyIndexStats &stats) {
-  stats_[{label, property}] = stats;
+  stats_[key] = stats;
 }
 
 std::optional<storage::LabelPropertyIndexStats> LabelPropertyIndex::GetIndexStats(
-    const storage::LabelId &label, const storage::PropertyId &property) const {
-  if (auto it = stats_.find({label, property}); it != stats_.end()) {
+    const std::pair<storage::LabelId, storage::PropertyId> &key) const {
+  if (auto it = stats_.find(key); it != stats_.end()) {
     return it->second;
   }
   return {};

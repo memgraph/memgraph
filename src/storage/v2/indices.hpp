@@ -32,7 +32,7 @@ using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 struct LabelIndexStats {
-  int64_t count;
+  uint64_t count;
   double avg_degree;
 };
 
@@ -135,7 +135,7 @@ class LabelIndex {
 
   std::vector<LabelId> ClearIndexStats();
 
-  std::vector<LabelId> DeleteIndexStatsForLabel(const storage::LabelId &label);
+  std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
 
   void Clear() { index_.clear(); }
 
@@ -150,7 +150,7 @@ class LabelIndex {
 };
 
 struct LabelPropertyIndexStats {
-  int64_t count, distinct_values_count;
+  uint64_t count, distinct_values_count;
   double statistic, avg_group_size, avg_degree;
 };
 
@@ -263,13 +263,13 @@ class LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
 
-  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label);
+  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStats(const storage::LabelId &label);
 
-  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+  void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                      const storage::LabelPropertyIndexStats &stats);
 
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                const storage::PropertyId &property) const;
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const std::pair<storage::LabelId, storage::PropertyId> &key) const;
 
   void Clear() { index_.clear(); }
 

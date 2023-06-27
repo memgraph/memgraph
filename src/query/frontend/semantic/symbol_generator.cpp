@@ -167,10 +167,11 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
-  auto scope = scopes_.back();
-  scopes_.back() = Scope();
+  auto next_scope = Scope();
+  next_scope.curr_return_names = scopes_.back().curr_return_names;
 
-  scopes_.back().curr_return_names = scope.curr_return_names;
+  scopes_.pop_back();
+  scopes_.push_back(next_scope);
 
   return true;
 }
