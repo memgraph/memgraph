@@ -1456,8 +1456,8 @@ void DiskStorage::DiskAccessor::Abort() {
   // disk_transaction correctly in destructor.
   // This happens in tests when we create and remove storage in one test. For example, in
   // query_plan_accumulate_aggregate.cpp
-  // disk_transaction_->Rollback();
-  // disk_transaction_->ClearSnapshot();
+  disk_transaction_->Rollback();
+  disk_transaction_->ClearSnapshot();
   delete disk_transaction_;
   disk_transaction_ = nullptr;
 
