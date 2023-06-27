@@ -2126,6 +2126,7 @@ uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_t
 }
 
 bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+  spdlog::trace("Setting role to replica...");
   // We don't want to restart the server if we're already a REPLICA
   if (replication_role_ == replication::ReplicationRole::REPLICA) {
     return false;
@@ -2156,6 +2157,7 @@ bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::
 }
 
 bool Storage::SetMainReplicationRole() {
+  spdlog::trace("Setting main role...");
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
   if (replication_role_ == replication::ReplicationRole::MAIN) {
@@ -2197,7 +2199,7 @@ bool Storage::SetMainReplicationRole() {
       return false;
     }
   }
-
+  spdlog::info("Instance is now in a MAIN role.");
   replication_role_.store(replication::ReplicationRole::MAIN);
 
   return true;
@@ -2206,8 +2208,10 @@ bool Storage::SetMainReplicationRole() {
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
+
   MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
             "Only main instance can register a replica!");
+  spdlog::trace("Registering replica...");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
@@ -2267,9 +2271,12 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     clients.push_back(std::move(client));
     return {};
   });
+  spdlog::info("Replica {} registered.", name);
 }
 
 bool Storage::UnregisterReplica(const std::string &name) {
+
+  spdlog::trace("Unregistering replica...");
   MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
             "Only main instance can unregister a replica!");
   if (ShouldStoreAndRestoreReplicationState()) {
@@ -2285,6 +2292,7 @@ bool Storage::UnregisterReplica(const std::string &name) {
 }
 
 std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::string_view name) {
+  spdlog::trace("Getting replica state...");
   return replication_clients_.WithLock([&](auto &clients) -> std::optional<replication::ReplicaState> {
     const auto client_it =
         std::find_if(clients.cbegin(), clients.cend(), [name](auto &client) { return client->Name() == name; });
@@ -2298,6 +2306,7 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::str
 replication::ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
 
 std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
+  spdlog::trace("Getting replicas info...");
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<Storage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
