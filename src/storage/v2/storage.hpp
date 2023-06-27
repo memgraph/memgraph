@@ -267,28 +267,66 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
-    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                     const storage::PropertyId &property) const {
-      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+    template <typename TResult, typename TIndex, typename TIndexKey>
+    std::optional<TResult> GetIndexStatsForIndex(TIndex &index, TIndexKey &&key) const {
+      return index.GetIndexStats(key);
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
-      return storage_->indices_.label_property_index.ClearIndexStats();
+    std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
+      return GetIndexStatsForIndex<storage::LabelIndexStats>(storage_->indices_.label_index, label);
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::span<std::string> labels) {
-      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
-        std::vector<std::pair<LabelId, PropertyId>> loc_results =
-            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                  const storage::PropertyId &property) const {
+      return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(storage_->indices_.label_property_index,
+                                                                     std::make_pair(label, property));
+    }
+
+    template <typename TIndex, typename TIndexKey, typename TIndexStats>
+    void SetIndexStatsForIndex(TIndex &index, TIndexKey &&key, TIndexStats &stats) const {
+      index.SetIndexStats(key, stats);
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
+      SetIndexStatsForIndex(storage_->indices_.label_index, label, stats);
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                       const LabelPropertyIndexStats &stats) {
+      SetIndexStatsForIndex(storage_->indices_.label_property_index, std::make_pair(label, property), stats);
+    }
+
+    template <typename TResult, typename TIndex>
+    std::vector<TResult> ClearIndexStatsForIndex(TIndex &index) const {
+      return index.ClearIndexStats();
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() {
+      return ClearIndexStatsForIndex<std::pair<LabelId, PropertyId>>(storage_->indices_.label_property_index);
+    }
+
+    std::vector<LabelId> ClearLabelIndexStats() {
+      return ClearIndexStatsForIndex<LabelId>(storage_->indices_.label_index);
+    }
+
+    template <typename TResult, typename TIndex>
+    std::vector<TResult> DeleteIndexStatsForIndex(TIndex &index, const std::span<std::string> labels) {
+      std::vector<TResult> deleted_indexes;
+
+      for (const auto &label : labels) {
+        std::vector<TResult> loc_results = index.DeleteIndexStats(NameToLabel(label));
         deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
                                std::make_move_iterator(loc_results.end()));
-      });
+      }
       return deleted_indexes;
     }
 
-    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {
-      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(const std::span<std::string> labels) {
+      return DeleteIndexStatsForIndex<std::pair<LabelId, PropertyId>>(storage_->indices_.label_property_index, labels);
+    }
+
+    std::vector<LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) {
+      return DeleteIndexStatsForIndex<LabelId>(storage_->indices_.label_index, labels);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise

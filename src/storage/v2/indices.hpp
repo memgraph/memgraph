@@ -31,6 +31,11 @@ struct Constraints;
 using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
+struct LabelIndexStats {
+  uint64_t count;
+  double avg_degree;
+};
+
 class LabelIndex {
  private:
   struct Entry {
@@ -124,19 +129,29 @@ class LabelIndex {
     return it->second.size();
   }
 
+  void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
+
+  std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const;
+
+  std::vector<LabelId> ClearIndexStats();
+
+  std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
+
   void Clear() { index_.clear(); }
 
   void RunGC();
 
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::map<LabelId, storage::LabelIndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
 };
 
-struct IndexStats {
-  double statistic, avg_group_size;
+struct LabelPropertyIndexStats {
+  uint64_t count, distinct_values_count;
+  double statistic, avg_group_size, avg_degree;
 };
 
 class LabelPropertyIndex {
@@ -248,13 +263,13 @@ class LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
 
-  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label);
+  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStats(const storage::LabelId &label);
 
-  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::IndexStats &stats);
+  void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
+                     const storage::LabelPropertyIndexStats &stats);
 
-  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                   const storage::PropertyId &property) const;
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const std::pair<storage::LabelId, storage::PropertyId> &key) const;
 
   void Clear() { index_.clear(); }
 
@@ -262,7 +277,7 @@ class LabelPropertyIndex {
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
+  std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;

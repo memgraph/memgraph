@@ -27,6 +27,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
@@ -213,8 +214,12 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  std::optional<memgraph::storage::IndexStats> GetIndexStats(memgraph::storage::LabelId label,
-                                                             memgraph::storage::PropertyId property) const {
+  std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
+    return dba_->GetIndexStats(label);
+  }
+
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
     return dba_->GetIndexStats(label, property);
   }
 
@@ -458,7 +463,7 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
     memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);
     auto rewritten_plan = post_process.Rewrite(std::move(plan), &ctx);
-    double cost = post_process.EstimatePlanCost(rewritten_plan, dba);
+    double cost = post_process.EstimatePlanCost(rewritten_plan, dba, symbol_table);
     interactive_plans.push_back(
         InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy), std::move(rewritten_plan), cost});
   }

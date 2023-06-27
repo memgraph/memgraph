@@ -478,6 +478,40 @@ void LabelIndex::RunGC() {
   }
 }
 
+void LabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
+  stats_[label] = stats;
+}
+
+std::optional<LabelIndexStats> LabelIndex::GetIndexStats(const storage::LabelId &label) const {
+  if (auto it = stats_.find(label); it != stats_.end()) {
+    return it->second;
+  }
+  return {};
+}
+
+std::vector<LabelId> LabelIndex::ClearIndexStats() {
+  std::vector<LabelId> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
+  return deleted_indexes;
+}
+
+std::vector<LabelId> LabelIndex::DeleteIndexStats(const storage::LabelId &label) {
+  std::vector<LabelId> deleted_indexes;
+  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+    if (it->first == label) {
+      deleted_indexes.push_back(it->first);
+      it = stats_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  return deleted_indexes;
+}
+
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   if (value < rhs.value) {
     return true;
@@ -814,8 +848,7 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
 /*
 Iterate over all property-label pairs and deletes if label from the index is equal to label parameter.
 */
-std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStatsForLabel(
-    const storage::LabelId &label) {
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStats(const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   for (auto it = stats_.cbegin(); it != stats_.cend();) {
     if (it->first.first == label) {
@@ -837,14 +870,14 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats(
   return deleted_indexes;
 }
 
-void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                                       const IndexStats &stats) {
-  stats_[{label, property}] = stats;
+void LabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
+                                       const storage::LabelPropertyIndexStats &stats) {
+  stats_[key] = stats;
 }
 
-std::optional<IndexStats> LabelPropertyIndex::GetIndexStats(const storage::LabelId &label,
-                                                            const storage::PropertyId &property) const {
-  if (auto it = stats_.find({label, property}); it != stats_.end()) {
+std::optional<storage::LabelPropertyIndexStats> LabelPropertyIndex::GetIndexStats(
+    const std::pair<storage::LabelId, storage::PropertyId> &key) const {
+  if (auto it = stats_.find(key); it != stats_.end()) {
     return it->second;
   }
   return {};
