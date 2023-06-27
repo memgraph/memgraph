@@ -2943,7 +2943,10 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_t
 int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
-  return memgraph::query::MustAbort(*graph->ctx) ? 1 : 0;
+  auto const reason = memgraph::query::MustAbort(*graph->ctx);
+  // TODO: should we expose the reasons to the C API, ATM its a boolean response
+  //       would ABI break the C++ API which is built on this
+  return reason == memgraph::query::AbortReason::NO_ABORT ? 0 : 1;
 }
 
 namespace memgraph::query::procedure {
