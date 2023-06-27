@@ -39,7 +39,9 @@ class QueryPlanTest : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
   AstStorage storage;
 
-  void TearDown() override {
+  void TearDown() override { CleanStorageDirs(); }
+
+  void CleanStorageDirs() {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -91,7 +93,8 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
 
   auto check = [&](bool accumulate) {
     this->db.reset(nullptr);
-    this->db = std::make_unique<TypeParam>();
+    this->CleanStorageDirs();
+    this->db = std::make_unique<TypeParam>(this->config);
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto prop = dba.NameToProperty("x");
@@ -142,8 +145,8 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
   // to get correct results we need to advance the command
   auto check = [&](bool advance) {
-    this->TearDown();
     this->db.reset();
+    this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
