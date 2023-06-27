@@ -447,34 +447,34 @@ TYPED_TEST(ExpressionEvaluatorTest, MapProjectionIndexing) {
     // Legal indexing.
     auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
                                                                 this->storage.template Create<PrimitiveLiteral>("a"));
-    auto value = Eval(op);
+    auto value = this->Eval(op);
     EXPECT_EQ(value.ValueInt(), 1);
   }
   {
     // Legal indexing; property created by PropertyLookup of a non-existent map variable key
     auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
                                                                 this->storage.template Create<PrimitiveLiteral>("y"));
-    auto value = Eval(op);
+    auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Legal indexing, non-existing property.
     auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
                                                                 this->storage.template Create<PrimitiveLiteral>("z"));
-    auto value = Eval(op);
+    auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Wrong key type.
     auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
                                                                 this->storage.template Create<PrimitiveLiteral>(42));
-    EXPECT_THROW(Eval(op), QueryRuntimeException);
+    EXPECT_THROW(this->Eval(op), QueryRuntimeException);
   }
   {
     // Indexing with Null.
     auto *op = this->storage.template Create<SubscriptOperator>(
         map_projection_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
-    auto value = Eval(op);
+    auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
 }
@@ -494,7 +494,7 @@ TYPED_TEST(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupBefore) {
 
   auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
                                                               this->storage.template Create<PrimitiveLiteral>("x"));
-  auto value = Eval(op);
+  auto value = this->Eval(op);
   EXPECT_EQ(value.ValueInt(), 1);
 }
 
@@ -513,7 +513,7 @@ TYPED_TEST(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupAfter) {
 
   auto *op = this->storage.template Create<SubscriptOperator>(map_projection_literal,
                                                               this->storage.template Create<PrimitiveLiteral>("x"));
-  auto value = Eval(op);
+  auto value = this->Eval(op);
   EXPECT_EQ(value.ValueInt(), 1);
 }
 
@@ -1374,8 +1374,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Map) {
   this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
-  EXPECT_EQ(Value(this->prop_age).ValueInt(), 10);
-  EXPECT_TRUE(Value(this->prop_height).IsNull());
+  EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
+  EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
 
 template <typename StorageType>
@@ -1392,7 +1392,7 @@ class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest<St
 
   auto Value() {
     auto *op = this->storage.template Create<AllPropertiesLookup>(identifier);
-    return Eval(op);
+    return this->Eval(op);
   }
 };
 

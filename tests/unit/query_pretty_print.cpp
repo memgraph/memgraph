@@ -90,10 +90,11 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
 
   // map {literalEntry: 10, variableSelector: a, .map, .*}
   auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
-      {storage.GetPropertyIx("literalEntry"), LITERAL(10)},
-      {storage.GetPropertyIx("variableSelector"), IDENT("a")},
-      {storage.GetPropertyIx("propertySelector"), PROPERTY_LOOKUP("map", PROPERTY_PAIR("hello"))},
-      {storage.GetPropertyIx("allPropertiesSelector"), ALL_PROPERTIES_LOOKUP("map")}};
+      {this->storage.GetPropertyIx("literalEntry"), LITERAL(10)},
+      {this->storage.GetPropertyIx("variableSelector"), IDENT("a")},
+      {this->storage.GetPropertyIx("propertySelector"),
+       PROPERTY_LOOKUP(this->dba, "map", PROPERTY_PAIR(this->dba, "hello"))},
+      {this->storage.GetPropertyIx("allPropertiesSelector"), ALL_PROPERTIES_LOOKUP("map")}};
   EXPECT_EQ(ToString(MAP_PROJECTION(IDENT("map"), elements)),
             "(Identifier \"map\"){\"allPropertiesSelector\": .*, \"literalEntry\": 10, \"propertySelector\": "
             "(PropertyLookup (Identifier \"map\") \"hello\"), \"variableSelector\": (Identifier \"a\")}");

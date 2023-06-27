@@ -704,9 +704,9 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
                    .HasError());
 
-  ASSERT_EQ(main_mem_store->GetReplicationRole(), memgraph::storage::InMemoryStorage::ReplicationRole::MAIN);
-  ASSERT_EQ(replica_mem_store1->GetReplicationRole(), memgraph::storage::InMemoryStorage::ReplicationRole::REPLICA);
-  ASSERT_EQ(replica_mem_store2->GetReplicationRole(), memgraph::storage::InMemoryStorage::ReplicationRole::REPLICA);
+  ASSERT_EQ(main_mem_store->GetReplicationRole(), memgraph::storage::replication::ReplicationRole::MAIN);
+  ASSERT_EQ(replica_mem_store1->GetReplicationRole(), memgraph::storage::replication::ReplicationRole::REPLICA);
+  ASSERT_EQ(replica_mem_store2->GetReplicationRole(), memgraph::storage::replication::ReplicationRole::REPLICA);
 
   const auto replicas_info = main_mem_store->ReplicasInfo();
   ASSERT_EQ(replicas_info.size(), 2);
