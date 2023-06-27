@@ -63,7 +63,7 @@ class SessionInterface {
    *
    * @return std::string
    */
-  virtual std::string GetDB() const = 0;
+  virtual std::string GetID() const = 0;
 
   /**
    * @brief Gets called on database change.
@@ -77,7 +77,7 @@ class SessionInterface {
    *
    * @return true on success
    */
-  virtual bool OnDelete(const std::string &) = 0;
+  virtual bool IsUsing(const std::string &) = 0;
 };
 #endif
 

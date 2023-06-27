@@ -286,6 +286,13 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
+  try {
+    // Configure can throw.
+    session.Configure(extra.ValueMap());
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
 #ifdef MG_ENTERPRISE
   spdlog::debug("[Run - {}] '{}'", session.GetID(), query.ValueString());
 #else

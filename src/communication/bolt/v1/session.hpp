@@ -26,6 +26,7 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
@@ -33,119 +34,6 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
-
-template <typename T>
-/**
- * @brief High level session interface concept.
- */
-concept HLImpl = requires(T v) {
-  { v.Interpret({}, {}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
-  { v.Pull({}, {}, {}) } -> std::same_as<std::map<std::string, Value>>;
-  { v.Discard({}, {}) } -> std::same_as<std::map<std::string, Value>>;
-  { v.BeginTransaction({}) } -> std::same_as<void>;
-  { v.CommitTransaction() } -> std::same_as<void>;
-  { v.RollbackTransaction() } -> std::same_as<void>;
-  { v.Abort() } -> std::same_as<void>;
-  { v.Authenticate({}, {}) } -> std::same_as<bool>;
-  { v.GetServerNameForInit() } -> std::same_as<std::optional<std::string>>;
-};
-
-#ifdef MG_ENTERPRISE
-/**
- * @brief Handles multiple high-level session instances.
- *
- * Each bolt::Session needs to have a high-level session instance (@ref SessionHL).
- * This hl session implements the core APIs (like: Interpret, Pull, etc.).
- * With multi-tenancy, one Bolt Session can support multiple hl sessions (one per used database).
- * Here we handle the multiple hl instances and their addition/deletion.
- *
- * @note about session concurency: Set and Del are called from the session context handler (singleton) and are
- * exclusive. GetImpl is called during normal operation, but it is safe, since the Set can be called only from the
- * session itself. Del can be called at any time, but the id_ (set during Set) protects the current_ ref.
- *
- * @tparam T high-level implementation's type
- */
-template <typename T>
-class MultiSessionHandler {
- public:
-  /**
-   * @brief Construct a new Multi Session Handler object
-   *
-   * @param id unique identifier of the instance (usually the database name)
-   * @param p unique_ptr to the high-level session instance (the handler needs to have at least one at any time)
-   */
-  MultiSessionHandler(const std::string &id, std::unique_ptr<T> &&p)
-      : id_(id), all_({std::make_pair(id, std::move(p))}), current_(all_[id]) {}
-  ~MultiSessionHandler() = default;
-
-  MultiSessionHandler(const MultiSessionHandler &) = delete;
-  MultiSessionHandler &operator=(const MultiSessionHandler &) = delete;
-  MultiSessionHandler(MultiSessionHandler &&) noexcept = delete;
-  MultiSessionHandler &operator=(MultiSessionHandler &&) noexcept = delete;
-
-  /**
-   * @brief Set the current high-level implementation object
-   *
-   * @tparam TArgs types of arguments to pass to T's constructor
-   * @param id unique identifier of the instance (usually the database name)
-   * @param args arguments forwarded to the high-level implementation constructor
-   * @return true on success
-   */
-  template <typename... TArgs>
-  dbms::SetForResult SetImpl(std::string id, TArgs &&...args) {
-    if (id.empty()) {
-      return dbms::SetForResult::FAIL;
-    }
-    if (id == id_) {
-      return dbms::SetForResult::ALREADY_SET;
-    }
-    auto &ptr = all_[id];
-    if (ptr == nullptr) {
-      ptr = std::make_shared<T>(std::forward<TArgs>(args)...);
-    }
-    current_ = ptr;
-    id_ = id;
-    return dbms::SetForResult::SUCCESS;
-  }
-
-  /**
-   * @brief Delete a high-level implementation object
-   *
-   * @param id unique identifier of the instance (usually the database name)
-   * @return true on success
-   * @return false if using the instance
-   */
-  bool DelImpl(std::string id) {
-    if (id == id_) return false;
-    if (auto itr = all_.find(id); itr != all_.end()) {
-      all_.erase(itr);
-    }
-    return true;
-  }
-
-  /**
-   * @brief Get the current unique id identifying the high-level implementation.
-   *
-   * @return std::string
-   */
-  std::string GetID() const { return id_; }
-
- protected:
-  /**
-   * @brief Get the current high-level implementation object
-   *
-   * @return std::shared_ptr<T>
-   */
-  std::shared_ptr<T> GetImpl() { return current_; }
-
- private:
-  std::string id_;  //!< identifier of the current high-level implementation
-  std::unordered_map<std::string, std::shared_ptr<T>>
-      all_;  //!< map of all hl implementations used @note a single implementation can be used at a time, but multiple
-             //!< are ready for fast switching in case of a query spanning multiple databases
-  std::shared_ptr<T> current_;  //!< currently used hl implementation
-};
-#endif
 
 /**
  * Bolt Session Exception
@@ -165,16 +53,16 @@ class SessionException : public utils::BasicException {
  * @tparam TInputStream type of input stream that will be used
  * @tparam TOutputStream type of output stream that will be used
  */
-template <typename TInputStream, typename TOutputStream, HLImpl TSession>
+template <typename TInputStream, typename TOutputStream>
 #ifdef MG_ENTERPRISE
-class Session : public MultiSessionHandler<TSession>
+class Session : public dbms::SessionInterface
 #else
 class Session
 #endif
 {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
-  using HLImplT = TSession;
+
   /**
    * @brief Construct a new Session object
    *
@@ -182,28 +70,19 @@ class Session
    * @param output_stream stream to write to
    * @param impl a default high-level implementation to use (has to be defined)
    */
-  Session(TInputStream *input_stream, TOutputStream *output_stream, std::unique_ptr<TSession> &&impl)
-      :
-#ifdef MG_ENTERPRISE
-        MultiSessionHandler<TSession>(dbms::kDefaultDB, std::move(impl)),
-#else
-        pimpl_(std::move(impl)),
-#endif
-        input_stream_(*input_stream),
-        output_stream_(*output_stream),
-        session_uuid_(utils::GenerateUUID()) {
-  }
+  Session(TInputStream *input_stream, TOutputStream *output_stream)
+      : input_stream_(*input_stream), output_stream_(*output_stream), session_uuid_(utils::GenerateUUID()) {}
 
   /**
    * Process the given `query` with `params`.
    * @return A pair which contains list of headers and qid which is set only
    * if an explicit transaction was started.
    */
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
+  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
-    return GetImpl()->Interpret(query, params, metadata, session_uuid_);
-  }
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) = 0;
+
+  virtual void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) = 0;
 
   /**
    * Put results of the processed query in the `encoder`.
@@ -213,9 +92,7 @@ class Session
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
-    return GetImpl()->Pull(encoder, n, qid);
-  }
+  virtual std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -225,28 +102,21 @@ class Session
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) {
-    return GetImpl()->Discard(n, qid);
-  }
+  virtual std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &params) {
-    return GetImpl()->BeginTransaction(params);
-  }
-  void CommitTransaction() { return GetImpl()->CommitTransaction(); }
-  void RollbackTransaction() { return GetImpl()->RollbackTransaction(); }
+  virtual void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &params) = 0;
+  virtual void CommitTransaction() = 0;
+  virtual void RollbackTransaction() = 0;
 
   /** Aborts currently running query. */
-  void Abort() { return GetImpl()->Abort(); }
+  virtual void Abort() = 0;
 
   /** Return `true` if the user was successfully authenticated. */
-  bool Authenticate(const std::string &username, const std::string &password) {
-    return GetImpl()->Authenticate(username, password);
-  }
+  virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
-  std::optional<std::string> GetServerNameForInit() { return GetImpl()->GetServerNameForInit(); }
-
+  virtual std::optional<std::string> GetServerNameForInit() = 0;
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
@@ -308,18 +178,6 @@ class Session
     }
   }
 
-  std::string UUID() const { return session_uuid_; }
-
- private:
-#ifdef MG_ENTERPRISE
-  using MultiSessionHandler<TSession>::GetImpl;
-#else
-  std::unique_ptr<HLImplT> &GetImpl() { return pimpl_; }
-
-  std::unique_ptr<HLImplT> pimpl_;  //!< pointer to the high-level implementation
-#endif
-
- public:
   // TODO: Rethink if there is a way to hide some members. At the momement all of them are public.
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
@@ -339,6 +197,11 @@ class Session
   };
 
   Version version_;
+
+  virtual std::string GetID() const = 0;
+  std::string UUID() const { return session_uuid_; }
+
+  // virtual dbms::SetForResult SwitchDB(const std::string &db_name) = 0;
 
  private:
   void ClientFailureInvalidData() {

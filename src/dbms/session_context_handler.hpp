@@ -216,27 +216,24 @@ class SessionContextHandler {
     }
     // Check if db exists
     try {
-      (void)Get_(db_name);
-    } catch (SessionContextException &) {
-      return DeleteError::NON_EXISTENT;
-    }
-    // Check if a session is using the db
-    for (const auto &[_, s] : sessions_) {
-      if (s.GetDB() == db_name) {
+      auto sc = Get_(db_name);
+      // Check if a session is using the db
+      for (auto &[_, s] : sessions_) {
+        if (s.IsUsing(db_name)) {
+          // TODO Handle
+          return DeleteError::USING;
+        }
+      }
+      if (!sc.interpreter_context->interpreters->empty()) {
         return DeleteError::USING;
       }
-    }
-    // High level handlers
-    for (auto &[_, s] : sessions_) {
-      if (!s.OnDelete(db_name)) {
-        // TODO Handle
-        return DeleteError::FAIL;
-      }
+    } catch (SessionContextException &) {
+      return DeleteError::NON_EXISTENT;
     }
     // Low level handlers
     const auto storage_path = StorageDir_(db_name);
     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
-    if (!interp_handler_.Delete(db_name) /*|| !auth_handler_.Delete(db_name)*/ || !storage_handler_.Delete(db_name)) {
+    if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
       return DeleteError::FAIL;
     }
     // Remove from durability list
@@ -289,7 +286,7 @@ class SessionContextHandler {
    */
   std::string Current(const std::string &uuid) const {
     std::shared_lock<LockT> rd(lock_);
-    return sessions_.at(uuid).GetDB();
+    return sessions_.at(uuid).GetID();
   }
 
  private:

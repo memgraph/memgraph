@@ -42,9 +42,12 @@ class TestInterface : public memgraph::dbms::SessionInterface {
     on_delete_ = on_delete;
   }
   std::string UUID() const override { return std::to_string(id_); }
-  std::string GetDB() const override { return db_; }
+  std::string GetID() const override { return db_; }
   memgraph::dbms::SetForResult OnChange(const std::string &name) override { return on_change_(name); }
-  bool OnDelete(const std::string &name) override { return on_delete_(name); }
+  bool IsUsing(const std::string &name) override {
+    on_delete_(name);
+    return name == db_;
+  }
 
   static int id;
   int id_;
@@ -268,6 +271,7 @@ TEST(DBMS_Handler, Delete) {
       [&ti1_on_change_, &ti1](const std::string &name) -> memgraph::dbms::SetForResult {
         ti1_on_change_ = true;
         ti1.db_ = name;
+
         return memgraph::dbms::SetForResult::SUCCESS;
       },
       [&](const std::string &name) -> bool {
@@ -304,12 +308,6 @@ TEST(DBMS_Handler, Delete) {
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
   }
   {
-    auto del = sch.Delete("sc3");
-    ASSERT_TRUE(del.HasError()) << (int)del.GetError();
-    ASSERT_EQ(del.GetError(), memgraph::dbms::DeleteError::FAIL);
-  }
-  {
-    // delete ti0 so it doesn't fail
     ASSERT_TRUE(sch.Delete(ti0));
     auto del = sch.Delete("sc3");
     ASSERT_FALSE(del.HasError());
