@@ -415,7 +415,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, &transaction_, view)) {
-      spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
       LoadVertexToLabelIndexCache(utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
                                   utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
                                   CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
@@ -567,11 +566,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     auto prop_value = GetVertexProperty(vertex, property, &transaction_, view);
     if (VertexHasLabel(vertex, label, &transaction_, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      if (prop_value.IsInt()) {
-        spdlog::debug("Added to prop index value from main storage: {}", prop_value.ValueInt());
-      } else if (prop_value.IsDouble()) {
-        spdlog::debug("Added to prop index value from main storage: {}", prop_value.ValueDouble());
-      }
       LoadVertexToLabelPropertyIndexCache(
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
@@ -590,11 +584,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     auto prop_value = properties.GetProperty(property);
     if (key_str.starts_with(utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property)) &&
         !utils::Contains(gids, curr_gid) && IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      if (prop_value.IsInt()) {
-        spdlog::debug("Added to prop index value from label-property storage: {}", prop_value.ValueInt());
-      } else if (prop_value.IsDouble()) {
-        spdlog::debug("Added to prop index value from label-property storage: {}", prop_value.ValueDouble());
-      }
       LoadVertexToLabelPropertyIndexCache(
           index_it->key(), index_it->value(),
           CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
@@ -1238,13 +1227,9 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     /// TODO: expose temporal coupling
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-      spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
-                    utils::SerializeIdType(vertex.gid));
       if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
         return StorageDataManipulationError{SerializationError{}};
       }
-    } else {
-      spdlog::debug("No old disk key found for vertex {}", utils::SerializeIdType(vertex.gid));
     }
 
     if (!WriteVertexToDisk(vertex)) {
@@ -1265,13 +1250,9 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
       if (config_.properties_on_edges) {
         if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
-          spdlog::debug("Found old disk key {} for edge {}", maybe_old_disk_key.value(),
-                        utils::SerializeIdType(edge.ptr->gid));
           if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
             return StorageDataManipulationError{SerializationError{}};
           }
-        } else {
-          spdlog::debug("No old disk key found for edge {}", utils::SerializeIdType(edge.ptr->gid));
         }
       }
 

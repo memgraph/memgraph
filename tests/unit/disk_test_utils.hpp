@@ -38,15 +38,6 @@ void RemoveRocksDbDirs(const std::string &testName) {
   std::filesystem::remove_all("rocksdb_" + testName + "_id_name_mapper");
   std::filesystem::remove_all("rocksdb_" + testName + "_durability");
   std::filesystem::remove_all("rocksdb_" + testName + "_wal");
-
-  std::filesystem::remove_all("rocksdb_main_storage");
-  std::filesystem::remove_all("rocksdb_label_index");
-  std::filesystem::remove_all("rocksdb_label_property_index");
-  std::filesystem::remove_all("rocksdb_unique_constraints");
-  std::filesystem::remove_all("rocksdb_name_id_mapper");
-  std::filesystem::remove_all("rocksdb_id_name_mapper");
-  std::filesystem::remove_all("rocksdb_durability");
-  std::filesystem::remove_all("rocksdb_wal");
 }
 
 uint64_t GetRealNumberOfEntriesInRocksDB(rocksdb::TransactionDB *disk_storage) {

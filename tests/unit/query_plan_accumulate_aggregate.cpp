@@ -142,6 +142,7 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
   // to get correct results we need to advance the command
   auto check = [&](bool advance) {
+    this->TearDown();
     this->db.reset();
     this->db = std::make_unique<TypeParam>();
     auto storage_dba = this->db->Access();
