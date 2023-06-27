@@ -204,6 +204,15 @@ struct PreparedQuery {
   plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
+/**
+ * Holds data for the Query which is extra
+ * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
+ */
+struct QueryExtras {
+  std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+  std::optional<int64_t> tx_timeout;
+};
+
 class Interpreter;
 
 /**
@@ -279,8 +288,7 @@ class Interpreter final {
    * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username,
-                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+                        const std::string *username, QueryExtras const &extras = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -324,7 +332,7 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
-  void BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata = {});
+  void BeginTransaction(QueryExtras const &extras = {});
 
   std::optional<uint64_t> GetTransactionId() const;
 
@@ -419,8 +427,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper,
-                                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);

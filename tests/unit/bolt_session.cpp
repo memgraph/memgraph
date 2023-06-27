@@ -42,8 +42,11 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, Value> &metadata) override {
-    if (!metadata.empty()) md_ = metadata;
+      const std::map<std::string, Value> &extra) override {
+    if (extra.contains("tx_metadata")) {
+      auto const &metadata = extra.at("tx_metadata").ValueMap();
+      if (!metadata.empty()) md_ = metadata;
+    }
     if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
       return {{"result_name"}, {}};
@@ -91,7 +94,12 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
 
-  void BeginTransaction(const std::map<std::string, Value> &metadata) override { md_ = metadata; }
+  void BeginTransaction(const std::map<std::string, Value> &extra) override {
+    if (extra.contains("tx_metadata")) {
+      auto const &metadata = extra.at("tx_metadata").ValueMap();
+      if (!metadata.empty()) md_ = metadata;
+    }
+  }
   void CommitTransaction() override { md_.clear(); }
   void RollbackTransaction() override { md_.clear(); }
 
