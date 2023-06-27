@@ -144,7 +144,7 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   auto check = [&](bool advance) {
     this->TearDown();
     this->db.reset();
-    this->db = std::make_unique<TypeParam>();
+    this->db = std::make_unique<TypeParam>(this->config);
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     SymbolTable symbol_table;
