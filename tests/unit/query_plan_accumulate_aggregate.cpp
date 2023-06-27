@@ -79,7 +79,7 @@ class QueryPlanTest : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+
 TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, Accumulate) {
