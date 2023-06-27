@@ -106,10 +106,13 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &) override {}
   std::string GetID() const override { return ""; }
+
+#ifdef MG_ENTERPRISE
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     return memgraph::dbms::SetForResult::SUCCESS;
   }
   bool IsUsing(const std::string &) override { return false; }
+#endif
 
  private:
   std::string query_;

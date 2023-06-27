@@ -41,6 +41,7 @@
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/session_context.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
@@ -57,7 +58,6 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
-#include "session_context.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -526,7 +526,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     auto db() { return session_context.db.get(); }
     auto interp() { return interpreter.get(); }
     auto auth() const { return session_context.auth; }
+#ifdef MG_ENTERPRISE
     auto audit_log() const { return session_context.audit_log; }
+#endif
     auto run_id() const { return session_context.run_id; }
 
    private:
@@ -535,15 +537,23 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     bool defunct_;
   };
 
-  SessionHL(memgraph::dbms::SessionContextHandler &sc_handler,
-            const memgraph::communication::v2::ServerEndpoint &endpoint,
-            memgraph::communication::v2::InputStream *input_stream,
-            memgraph::communication::v2::OutputStream *output_stream,
-            const std::string &default_db = memgraph::dbms::kDefaultDB)
+  SessionHL(
+#ifdef MG_ENTERPRISE
+      memgraph::dbms::SessionContextHandler &sc_handler,
+#else
+      memgraph::dbms::SessionContext sc,
+#endif
+      const memgraph::communication::v2::ServerEndpoint &endpoint,
+      memgraph::communication::v2::InputStream *input_stream, memgraph::communication::v2::OutputStream *output_stream,
+      const std::string &default_db = memgraph::dbms::kDefaultDB)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
+#ifdef MG_ENTERPRISE
         sc_handler_(sc_handler),
         current_(sc_handler_.Get(default_db)),
+#else
+        current_(sc),
+#endif
         auth_(current_.auth()),
 #ifdef MG_ENTERPRISE
         audit_log_(current_.audit_log()),
@@ -551,10 +561,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         endpoint_(endpoint),
         run_id_(current_.run_id()) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
+#ifdef MG_ENTERPRISE
     Setup(current_);
+#endif
   }
 
-  ~SessionHL() override { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
+  ~SessionHL() { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
 
   SessionHL(const SessionHL &) = delete;
   SessionHL &operator=(const SessionHL &) = delete;
@@ -562,6 +574,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   SessionHL &operator=(SessionHL &&) = delete;
 
   void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) override {
+#ifdef MG_ENTERPRISE
     try {
       const auto db = memgraph::glue::ToPropertyValue(run_time_info.at("db")).ValueString();
       TemporaryUseDB(db);
@@ -570,6 +583,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       Setup(current_);
       temporary_.reset();
     }
+#endif
   }
 
   using TEncoder = memgraph::communication::bolt::Encoder<
@@ -679,11 +693,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     return current_.db()->id() == db_name || (temporary_ && temporary_->db()->id() == db_name) ||
            (defunct_ && defunct_->db()->id() == db_name);
   }
-
-  // std::string GetID() const override { return db_->id(); }
-#else
 #endif
-  std::string GetID() const { return db_->id(); }
+
+  std::string GetID() const override { return db_->id(); }
 
  private:
   template <typename TStream>
@@ -725,6 +737,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       throw memgraph::communication::bolt::ClientError(e.what());
     }
   }
+
+#ifdef MG_ENTERPRISE
   void TemporaryUseDB(std::string db) {
     if (db == current_.db()->id()) {
       // Use the default sc
@@ -742,6 +756,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     interpreter_ = cntx.interp();
     db_ = cntx.db();
   }
+#endif
 
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
@@ -777,8 +792,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     const memgraph::storage::Storage *db_;
   };
 
+#ifdef MG_ENTERPRISE
   memgraph::dbms::SessionContextHandler &sc_handler_;
-
+#endif
   ContextWrapper current_;
   std::optional<ContextWrapper> temporary_;
   std::optional<ContextWrapper> defunct_;
@@ -1055,12 +1071,30 @@ int main(int argc, char **argv) {
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
-  auto session_context = memgraph::dbms::Init(db_config, interp_config, FLAGS_auth_user_or_role_name_regex);
+
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
+                                                                                                     "auth"};
+  memgraph::glue::AuthQueryHandler auth_handler(&auth_, FLAGS_auth_user_or_role_name_regex);
+  memgraph::glue::AuthChecker auth_checker{&auth_};
+  auto session_context = memgraph::dbms::Init(db_config, interp_config, &auth_, &auth_handler, &auth_checker);
+
+  // Handle users passed via arguments
+  auto *maybe_username = std::getenv(kMgUser);
+  auto *maybe_password = std::getenv(kMgPassword);
+  auto *maybe_pass_file = std::getenv(kMgPassfile);
+  if (maybe_username && maybe_password) {
+    auth_handler.CreateUser(maybe_username, maybe_password);
+  } else if (maybe_pass_file) {
+    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+    if (!username.empty() && !password.empty()) {
+      auth_handler.CreateUser(username, password);
+    }
+  }
 #endif
 
+  auto *auth = session_context.auth;
   auto &db = *session_context.db;
   auto &interpreter_context = *session_context.interpreter_context;
-  auto *auth = session_context.auth;
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
