@@ -1,0 +1,14 @@
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "batched-procedures-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Batched procedures read"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/batched_procedures/procedures/"
+    args: ["batched_procedures/simple_read.py"]
+    <<: *template_cluster

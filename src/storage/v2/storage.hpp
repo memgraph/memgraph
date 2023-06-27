@@ -39,6 +39,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
@@ -49,6 +50,7 @@
 #include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -186,8 +188,6 @@ struct StorageInfo {
   uint64_t memory_usage;
   uint64_t disk_usage;
 };
-
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
 class Storage final {
  public:
@@ -467,8 +467,9 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-  bool LockPath();
-  bool UnlockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
+  utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
+  utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
 
@@ -491,7 +492,7 @@ class Storage final {
 
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
-  ReplicationRole GetReplicationRole() const;
+  replication::ReplicationRole GetReplicationRole() const;
 
   struct TimestampInfo {
     uint64_t current_timestamp_of_replica;
@@ -508,11 +509,12 @@ class Storage final {
 
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  void FreeMemory();
+  void FreeMemory(std::unique_lock<utils::RWLock> main_guard = {});
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  IsolationLevel GetIsolationLevel() const noexcept;
 
   void SetStorageMode(StorageMode storage_mode);
 
@@ -541,7 +543,7 @@ class Storage final {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage();
+  void CollectGarbage(std::unique_lock<utils::RWLock> main_guard = {});
 
   bool InitializeWalFile();
   void FinalizeWalFile();
@@ -554,9 +556,11 @@ class Storage final {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
+  void RestoreReplicationRole();
+
   void RestoreReplicas();
 
-  bool ShouldStoreAndRestoreReplicas() const;
+  bool ShouldStoreAndRestoreReplicationState() const;
 
   // Main storage lock.
   //
@@ -613,6 +617,10 @@ class Storage final {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  // Flags to inform CollectGarbage that it needs to do the more expensive full scans
+  std::atomic<bool> gc_full_scan_vertices_delete_ = false;
+  std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
   // Durability
   std::filesystem::path snapshot_directory_;
@@ -677,7 +685,7 @@ class Storage final {
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
 };
 
 }  // namespace memgraph::storage

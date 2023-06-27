@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,13 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "csv/parsing.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "utils/csv_parsing.hpp"
-
 #include "utils/string.hpp"
 
-class CsvReaderTest : public ::testing::TestWithParam<const char *> {
+#include <boost/iostreams/filter/bzip2.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
+
+using namespace memgraph::csv;
+
+enum class CompressionMethod : uint8_t {
+  NONE,
+  GZip,
+  BZip2,
+};
+
+struct TestParam {
+  const char *newline;
+  CompressionMethod compressionMethod;
+};
+
+class CsvReaderTest : public ::testing::TestWithParam<TestParam> {
  protected:
   const std::filesystem::path csv_directory{std::filesystem::temp_directory_path() / "csv_testing"};
 
@@ -41,8 +57,9 @@ class CsvReaderTest : public ::testing::TestWithParam<const char *> {
 namespace {
 class FileWriter {
  public:
-  explicit FileWriter(const std::filesystem::path path, std::string newline = "\n") : newline_{std::move(newline)} {
-    stream_.open(path);
+  explicit FileWriter(std::filesystem::path path, std::string newline, CompressionMethod compressionMethod)
+      : newline_{std::move(newline)}, compressionMethod_{compressionMethod}, path_{std::move(path)} {
+    stream_.open(path_);
   }
 
   FileWriter(const FileWriter &) = delete;
@@ -51,7 +68,25 @@ class FileWriter {
   FileWriter(FileWriter &&) = delete;
   FileWriter &operator=(FileWriter &&) = delete;
 
-  void Close() { stream_.close(); }
+  void Close() {
+    stream_.close();
+    if (compressionMethod_ == CompressionMethod::NONE) return;
+
+    auto input = std::ifstream{path_, std::ios::binary};
+    auto tmp_path = std::filesystem::path{path_.string() + ".gz"};
+    auto output = std::ofstream{tmp_path, std::ios::binary | std::ios::trunc};
+
+    boost::iostreams::filtering_ostream stream;
+    if (compressionMethod_ == CompressionMethod::GZip) stream.push(boost::iostreams::gzip_compressor());
+    if (compressionMethod_ == CompressionMethod::BZip2) stream.push(boost::iostreams::bzip2_compressor());
+    stream.push(output);
+    stream << input.rdbuf();
+    input.close();
+    stream.reset();
+    output.close();
+    std::filesystem::remove(path_);
+    std::filesystem::rename(tmp_path, path_);
+  }
 
   size_t WriteLine(const std::string_view line) {
     if (!stream_.is_open()) {
@@ -67,6 +102,8 @@ class FileWriter {
  private:
   std::ofstream stream_;
   std::string newline_;
+  CompressionMethod compressionMethod_;
+  std::filesystem::path path_;
 };
 
 std::string CreateRow(const std::vector<std::string> &columns, const std::string_view delim) {
@@ -86,7 +123,7 @@ auto ToPmrColumns(const std::vector<std::string> &columns) {
 TEST_P(CsvReaderTest, CommaDelimiter) {
   // create a file with a single valid row;
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   const std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, ","));
@@ -100,8 +137,8 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
   memgraph::utils::pmr::string delimiter{",", mem};
   memgraph::utils::pmr::string quote{"\"", mem};
 
-  memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+  Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -109,7 +146,7 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
 
 TEST_P(CsvReaderTest, SemicolonDelimiter) {
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -123,8 +160,8 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -135,7 +172,7 @@ TEST_P(CsvReaderTest, SkipBad) {
   // missing closing quote);
   // the last row is valid;
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -156,8 +193,8 @@ TEST_P(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+    const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
 
     auto parsed_row = reader.GetNextRow(mem);
     ASSERT_EQ(*parsed_row, ToPmrColumns(columns_good));
@@ -168,10 +205,10 @@ TEST_P(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = memgraph::csv::Reader(filepath, cfg, mem);
+    const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    auto reader = Reader(FileCsvSource{filepath}, cfg, mem);
 
-    EXPECT_THROW(reader.GetNextRow(mem), memgraph::csv::CsvReadException);
+    EXPECT_THROW(reader.GetNextRow(mem), CsvReadException);
   }
 }
 
@@ -179,7 +216,7 @@ TEST_P(CsvReaderTest, AllRowsValid) {
   // create a file with all rows valid;
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -195,8 +232,8 @@ TEST_P(CsvReaderTest, AllRowsValid) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCsvSource{filepath}, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow(mem)) {
@@ -208,7 +245,7 @@ TEST_P(CsvReaderTest, SkipAllRows) {
   // create a file with all rows invalid (containing a string with a missing closing quote);
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -224,8 +261,8 @@ TEST_P(CsvReaderTest, SkipAllRows) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCsvSource{filepath}, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, std::nullopt);
@@ -233,7 +270,7 @@ TEST_P(CsvReaderTest, SkipAllRows) {
 
 TEST_P(CsvReaderTest, WithHeader) {
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -251,8 +288,8 @@ TEST_P(CsvReaderTest, WithHeader) {
 
   const bool with_header = true;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
+  auto reader = Reader(FileCsvSource{filepath}, cfg);
 
   const auto pmr_header = ToPmrColumns(header);
   ASSERT_EQ(reader.GetHeader(), pmr_header);
@@ -268,7 +305,7 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
   // string spanning two lines;
   // parser should return two valid rows
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -287,8 +324,8 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCsvSource{filepath}, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(first_row));
@@ -302,7 +339,7 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   // create a file with all rows valid;
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath, GetParam());
+  auto writer = FileWriter(filepath, GetParam().newline, GetParam().compressionMethod);
 
   memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
@@ -319,8 +356,8 @@ TEST_P(CsvReaderTest, EmptyColumns) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  const Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = Reader(FileCsvSource{filepath}, cfg);
 
   for (const auto &expected_row : expected_rows) {
     const auto pmr_expected_row = ToPmrColumns(expected_row);
@@ -330,4 +367,8 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(NewlineParameterizedTest, CsvReaderTest, ::testing::Values("\n", "\r\n"));
+INSTANTIATE_TEST_CASE_P(NewlineParameterizedTest, CsvReaderTest,
+                        ::testing::Values(TestParam{"\n", CompressionMethod::NONE},
+                                          TestParam{"\r\n", CompressionMethod::NONE},
+                                          TestParam{"\n", CompressionMethod::GZip},
+                                          TestParam{"\n", CompressionMethod::BZip2}));

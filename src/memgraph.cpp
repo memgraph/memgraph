@@ -34,13 +34,16 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "audit/log.hpp"
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
+#include "http_handlers/metrics.hpp"
 #include "license/license.hpp"
 #include "license/license_sender.hpp"
 #include "py/py.hpp"
@@ -96,10 +99,6 @@
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
 
-#ifdef MG_ENTERPRISE
-#include "audit/log.hpp"
-#endif
-
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
@@ -113,11 +112,17 @@ DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server shou
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(monitoring_address, "0.0.0.0",
               "IP address on which the websocket server for Memgraph monitoring should listen.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(metrics_address, "0.0.0.0",
+              "IP address on which the Memgraph server for exposing metrics should listen.");
 DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port on which the websocket server for Memgraph monitoring should listen.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
@@ -465,32 +470,35 @@ struct SessionData {
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
-void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path
-#ifdef MG_ENTERPRISE
-                         ,
-                         memgraph::audit::Log *audit_log
-#endif
-) {
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path,
+                         memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx);
   std::ifstream file(cypherl_file_path);
-  if (file.is_open()) {
-    std::string line;
-    while (std::getline(file, line)) {
-      if (!line.empty()) {
-        auto results = interpreter.Prepare(line, {}, {});
-        memgraph::query::DiscardValueResultStream stream;
-        interpreter.Pull(&stream, {}, results.qid);
 
-#ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-          audit_log->Record("", "", line, {});
-        }
-#endif
+  if (!file.is_open()) {
+    spdlog::trace("Could not find init file {}", cypherl_file_path);
+    return;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    if (!line.empty()) {
+      auto results = interpreter.Prepare(line, {}, {});
+      memgraph::query::DiscardValueResultStream stream;
+      interpreter.Pull(&stream, {}, results.qid);
+
+      if (audit_log) {
+        audit_log->Record("", "", line, {});
       }
     }
-    file.close();
   }
+
+  file.close();
 }
+
+namespace memgraph::metrics {
+extern const Event ActiveBoltSessions;
+}  // namespace memgraph::metrics
 
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
@@ -509,26 +517,41 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
   ~BoltSession() override {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>::TEncoder;
 
-  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+    for (const auto &[key, bolt_value] : metadata) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
+    }
+    interpreter_.BeginTransaction(metadata_pv);
+  }
 
   void CommitTransaction() override { interpreter_.CommitTransaction(); }
 
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params) override {
+      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+    for (const auto &[key, bolt_param] : params) {
+      params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
+    }
+    for (const auto &[key, bolt_md] : metadata) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+    }
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();
@@ -540,7 +563,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username);
+      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
@@ -672,6 +695,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 };
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+using MonitoringServerT =
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<SessionData>, SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -866,7 +891,7 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = true,
+                     .restore_replication_state_on_startup = true,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
@@ -916,10 +941,12 @@ int main(int argc, char **argv) {
   interpreter_context.auth_checker = &auth_checker;
 
   if (!FLAGS_init_file.empty()) {
-    spdlog::info("Running init file.");
+    spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    } else {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file);
     }
 #else
     InitFromCypherlFile(interpreter_context, FLAGS_init_file);
@@ -981,8 +1008,9 @@ int main(int argc, char **argv) {
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
-      for (size_t i = 0; i < EventCounter::End(); ++i) {
-        ret[EventCounter::GetName(i)] = EventCounter::global_counters[i].load(std::memory_order_relaxed);
+      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
+        ret[memgraph::metrics::GetCounterName(i)] =
+            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
       }
       return ret;
     });
@@ -998,6 +1026,43 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
+  MonitoringServerT metrics_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
+
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Handler for regular termination signals
+    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+      metrics_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  } else {
+    // Handler for regular termination signals
+    auto shutdown = [&websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  }
+#else
   // Handler for regular termination signals
   auto shutdown = [&websocket_server, &server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -1007,19 +1072,29 @@ int main(int argc, char **argv) {
     // connections we tell the execution engine to stop processing all pending
     // queries.
     memgraph::query::Shutdown(&interpreter_context);
+
     websocket_server.Shutdown();
   };
 
   InitSignalHandlers(shutdown);
+#endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.Start();
+  }
+#endif
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+    } else {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
     }
 #else
     InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
@@ -1028,6 +1103,11 @@ int main(int argc, char **argv) {
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.AwaitShutdown();
+  }
+#endif
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 

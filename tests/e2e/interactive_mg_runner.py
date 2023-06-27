@@ -34,16 +34,16 @@ import atexit
 import logging
 import os
 import subprocess
-from argparse import ArgumentParser
-from pathlib import Path
+import sys
 import tempfile
 import time
-import sys
+from argparse import ArgumentParser
 from inspect import signature
+from pathlib import Path
 
 import yaml
-from memgraph import MemgraphInstanceRunner
-from memgraph import extract_bolt_port
+
+from memgraph import MemgraphInstanceRunner, extract_bolt_port
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -104,7 +104,7 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
-def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory):
+def _start_instance(name, args, log_file, setup_queries, use_ssl, procdir, data_directory):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
     ), "If this raises, you are trying to start an instance with the same name than one already running."
@@ -120,10 +120,7 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_direct
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
 
-    mg_instance.start(args=binary_args)
-    for query in queries:
-        mg_instance.query(query)
-
+    mg_instance.start(args=binary_args, setup_queries=setup_queries)
     assert mg_instance.is_running(), "An error occured after starting Memgraph instance: application stopped running."
 
 
