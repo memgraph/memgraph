@@ -729,7 +729,8 @@ struct mgp_type {
 };
 
 struct ProcedureInfo {
-  bool is_write = false;
+  bool is_write{false};
+  bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };
 struct mgp_proc {
@@ -739,6 +740,33 @@ struct mgp_proc {
   /// @throw std::length_error
   mgp_proc(const char *name, mgp_proc_cb cb, memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
       : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, mgp_proc_cb cb, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory),
+        cb(cb),
+        initializer(initializer),
+        cleanup(cleanup),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        info(info) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           std::function<void(mgp_list *, mgp_graph *, mgp_memory *)> initializer, std::function<void()> cleanup,
+           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory),
+        cb(cb),
+        initializer(initializer),
+        cleanup(cleanup),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -757,6 +785,8 @@ struct mgp_proc {
   mgp_proc(const mgp_proc &other, memgraph::utils::MemoryResource *memory)
       : name(other.name, memory),
         cb(other.cb),
+        initializer(other.initializer),
+        cleanup(other.cleanup),
         args(other.args, memory),
         opt_args(other.opt_args, memory),
         results(other.results, memory),
@@ -765,6 +795,8 @@ struct mgp_proc {
   mgp_proc(mgp_proc &&other, memgraph::utils::MemoryResource *memory)
       : name(std::move(other.name), memory),
         cb(std::move(other.cb)),
+        initializer(other.initializer),
+        cleanup(other.cleanup),
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
         results(std::move(other.results), memory),
@@ -782,6 +814,13 @@ struct mgp_proc {
   memgraph::utils::pmr::string name;
   /// Entry-point for the procedure.
   std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+
+  /// Initializer for batched procedure.
+  std::optional<std::function<void(mgp_list *, mgp_graph *, mgp_memory *)>> initializer;
+
+  /// Dtor for batched procedure.
+  std::optional<std::function<void()>> cleanup;
+
   /// Required, positional arguments as a (name, type) pair.
   memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *>>
       args;
