@@ -3446,7 +3446,8 @@ inline mgp_type *Return::GetMGPType() const {
 
 // do not enter
 namespace detail {
-void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters, const std::vector<Return> &returns) {
+inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
+                                   const std::vector<Return> &returns) {
   for (const auto &parameter : parameters) {
     const auto *parameter_name = parameter.name.data();
     if (!parameter.optional) {
