@@ -1545,31 +1545,32 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
   using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
-
-  std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> label_property_counter;
-  std::map<LPIndex, uint64_t> vertex_degree_counter;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
-    if (labels[0] != kAsterisk) {
-      for (auto it = index_info.cbegin(); it != index_info.cend();) {
-        if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(*it)) == labels.end()) {
-          it = index_info.erase(it);
-        } else {
-          ++it;
-        }
+    if (labels[0] == kAsterisk) {
+      return;
+    }
+
+    for (auto it = index_info.cbegin(); it != index_info.cend();) {
+      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(*it)) == labels.end()) {
+        it = index_info.erase(it);
+      } else {
+        ++it;
       }
     }
   };
 
   auto erase_not_specified_label_property_indices = [&labels, execution_db_accessor](auto &index_info) {
-    if (labels[0] != kAsterisk) {
-      for (auto it = index_info.cbegin(); it != index_info.cend();) {
-        if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
-          it = index_info.erase(it);
-        } else {
-          ++it;
-        }
+    if (labels[0] == kAsterisk) {
+      return;
+    }
+
+    for (auto it = index_info.cbegin(); it != index_info.cend();) {
+      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
+        it = index_info.erase(it);
+      } else {
+        ++it;
       }
     }
   };
@@ -1592,14 +1593,15 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                         no_vertices > 0 ? static_cast<double>(total_degree) / static_cast<double>(no_vertices) : 0;
                     auto index_stats = storage::LabelIndexStats{.count = no_vertices, .avg_degree = average_degree};
                     execution_db_accessor->SetIndexStats(label_id, index_stats);
-                    label_stats.emplace_back(std::make_pair(label_id, index_stats));
+                    label_stats.emplace_back(label_id, index_stats);
                   });
 
     return label_stats;
   };
 
-  auto populate_label_property_stats = [&label_property_counter, &vertex_degree_counter, execution_db_accessor,
-                                        view](auto &index_info) {
+  auto populate_label_property_stats = [execution_db_accessor, view](auto &index_info) {
+    std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> label_property_counter;
+    std::map<LPIndex, uint64_t> vertex_degree_counter;
     // Iterate over all label property indexed vertices
     std::for_each(
         index_info.begin(), index_info.end(),
@@ -1647,11 +1649,13 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return label_property_stats;
   };
 
-  std::vector<storage::LabelId> label_indices_info = execution_db_accessor->ListAllIndices().label;
+  auto index_info = execution_db_accessor->ListAllIndices();
+
+  std::vector<storage::LabelId> label_indices_info = index_info.label;
   erase_not_specified_label_indices(label_indices_info);
   auto label_stats = populate_label_stats(label_indices_info);
 
-  std::vector<LPIndex> label_property_indices_info = execution_db_accessor->ListAllIndices().label_property;
+  std::vector<LPIndex> label_property_indices_info = index_info.label_property;
   erase_not_specified_label_property_indices(label_property_indices_info);
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 
