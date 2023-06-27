@@ -2269,9 +2269,14 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       main_guard.unlock();
       if (interpreter_context->interpreters->size() > 1) {
         throw utils::BasicException(
-            fmt::format("You cannot switch from in-memory storage to on-disk storage when there are "
-                        "multiple sessions active. Please close all other sessions and try again. {}",
-                        interpreter_context->interpreters->size()));
+            "You cannot switch from in-memory storage to on-disk storage when there are "
+            "multiple sessions active. Please close all other sessions and try again. If you are using Memgraph Lab, "
+            "please start mgconsole "
+            "and run the STORAGE MODE ON_DISK_TRANSACTIONAL there first. Memgraph Lab is using multiple sessions to "
+            "run queries in parallel "
+            "so it is currently impossible to switch to on-disk storage while the Lab is running. After you switch "
+            "from the mgconsole, you can "
+            "continue to use Memgraph Lab as you wish.");
       }
 
       auto db_config = interpreter_context->db->config_;
