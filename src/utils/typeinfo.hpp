@@ -39,6 +39,7 @@ enum class TypeId : uint64_t {
   FILTER,
   PRODUCE,
   DELETE,
+  DELETE_BULK,
   SET_PROPERTY,
   SET_PROPERTIES,
   SET_LABELS,

@@ -105,6 +105,7 @@ class ConstructNamedPath;
 class Filter;
 class Produce;
 class Delete;
+class DeleteBulk;
 class SetProperty;
 class SetProperties;
 class SetLabels;
@@ -135,7 +136,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, DeleteBulk>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1155,6 +1156,60 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    private:
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
+  };
+};
+
+/// Operator for deleting vertices and edges in bulk.
+///
+/// Has a flag for using DETACH DELETE when deleting vertices.
+class DeleteBulk : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DeleteBulk() {}
+
+  DeleteBulk(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions,
+             bool detach_);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::vector<Expression *> expressions_;
+  /// Whether the vertex should be detached before deletion. If not detached,
+  ///            and has connections, an error is raised when deleting edges.
+  bool detach_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<DeleteBulk>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->expressions_.resize(expressions_.size());
+    for (auto i = 0; i < expressions_.size(); ++i) {
+      object->expressions_[i] = expressions_[i] ? expressions_[i]->Clone(storage) : nullptr;
+    }
+    object->detach_ = detach_;
+    return object;
+  }
+
+ private:
+  class DeleteBulkCursor : public Cursor {
+   public:
+    DeleteBulkCursor(const DeleteBulk &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const DeleteBulk &self_;
+    const UniqueCursorPtr input_cursor_;
+    std::vector<EdgeAccessor> edges_for_deletion{};
+    std::vector<VertexAccessor> nodes_for_deletion{};
+    std::vector<VertexAccessor> nodes_for_detach_deletion{};
   };
 };
 

@@ -595,6 +595,12 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
                                             config_, true);
 }
 
+Result<std::optional<bool>> Storage::Accessor::DeleteBulk(std::vector<EdgeAccessor> edges_for_deletion,
+                                                          std::vector<VertexAccessor> vertices_for_deletion,
+                                                          std::vector<VertexAccessor> vertices_for_detach_deletion) {
+  return std::make_optional<bool>(true);
+}
+
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
@@ -2208,7 +2214,6 @@ bool Storage::SetMainReplicationRole() {
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-
   MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
             "Only main instance can register a replica!");
   spdlog::trace("Registering replica...");
@@ -2275,7 +2280,6 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 }
 
 bool Storage::UnregisterReplica(const std::string &name) {
-
   spdlog::trace("Unregistering replica...");
   MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
             "Only main instance can unregister a replica!");

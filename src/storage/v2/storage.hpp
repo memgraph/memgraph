@@ -329,6 +329,10 @@ class Storage final {
       return DeleteIndexStatsForIndex<LabelId>(storage_->indices_.label_index, labels);
     }
 
+    Result<std::optional<bool>> DeleteBulk(std::vector<EdgeAccessor> edges_for_deletion,
+                                           std::vector<VertexAccessor> vertices_for_deletion,
+                                           std::vector<VertexAccessor> vertices_for_detach_deletion);
+
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);

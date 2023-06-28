@@ -406,6 +406,39 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
+  storage::Result<std::optional<bool>> DeleteBulk(std::vector<EdgeAccessor> edges_for_deletion,
+                                                  std::vector<VertexAccessor> nodes_for_deletion,
+                                                  std::vector<VertexAccessor> nodes_for_detach_deletion) {
+    std::vector<storage::EdgeAccessor> edges_for_deletion_impl;
+    edges_for_deletion_impl.reserve(edges_for_deletion.size());
+    std::vector<storage::VertexAccessor> nodes_for_deletion_impl;
+    nodes_for_deletion_impl.reserve(nodes_for_deletion.size());
+    std::vector<storage::VertexAccessor> nodes_for_detach_deletion_impl;
+    nodes_for_detach_deletion_impl.reserve(nodes_for_detach_deletion.size());
+
+    for (const auto &i : edges_for_deletion) {
+      edges_for_deletion_impl.push_back(i.impl_);
+    }
+    for (const auto &i : nodes_for_deletion) {
+      nodes_for_deletion_impl.push_back(i.impl_);
+    }
+    for (const auto &i : nodes_for_detach_deletion) {
+      nodes_for_detach_deletion_impl.push_back(i.impl_);
+    }
+
+    auto res = accessor_->DeleteBulk(edges_for_deletion_impl, nodes_for_deletion_impl, nodes_for_detach_deletion_impl);
+    if (res.HasError()) {
+      return res.GetError();
+    }
+
+    const auto &value = res.GetValue();
+    if (!value) {
+      return std::optional<bool>{};
+    }
+
+    return std::make_optional<bool>(true);
+  }
+
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
   storage::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }

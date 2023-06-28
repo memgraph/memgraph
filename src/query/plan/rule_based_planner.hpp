@@ -389,7 +389,7 @@ class RuleBasedPlanner {
     if (auto *create = utils::Downcast<Create>(clause)) {
       return GenCreate(*create, std::move(input_op), symbol_table, bound_symbols);
     } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
-      return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
+      return std::make_unique<plan::DeleteBulk>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
       return std::make_unique<plan::SetProperty>(std::move(input_op), GetProperty(set->property_lookup_->property_),
                                                  set->property_lookup_, set->expression_);
