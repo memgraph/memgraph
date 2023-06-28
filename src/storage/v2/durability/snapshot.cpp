@@ -302,7 +302,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
   for (uint64_t i = 0; i < vertices_count; ++i) {
     if (i > 0 && i % five_percent_chunk == 0) {
       percentage_delta += 5;
-      spdlog::debug("Recovered {}% vertices.", percentage_delta);
+      spdlog::info("Recovered {}% vertices.", percentage_delta);
       if (percentage_delta != 100) spdlog::debug("Started to recover vertex set <{} - {}>", i, i + five_percent_chunk);
     }
 
@@ -432,7 +432,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
   for (uint64_t i = 0; i < vertices_count; ++i) {
     if (i > 0 && i % five_percent_chunk == 0) {
       percentage_delta += 5;
-      spdlog::debug("Recovered {}% vertices connectivity.", percentage_delta);
+      spdlog::info("Recovered {}% vertices connectivity.", percentage_delta);
       if (percentage_delta != 100)
         spdlog::debug("Started to recover vertex connectivity set <{} - {}>", i, i + five_percent_chunk);
     }
