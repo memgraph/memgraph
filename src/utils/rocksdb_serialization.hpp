@@ -271,6 +271,7 @@ inline std::string SerializeEdge(storage::Gid src_vertex_gid, storage::Gid dest_
 
 /// TODO: (andi): This can potentially be a problem on big-endian machines.
 inline void PutFixed64(std::string *dst, uint64_t value) {
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   dst->append(const_cast<const char *>(reinterpret_cast<char *>(&value)), sizeof(value));
 }
 

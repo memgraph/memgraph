@@ -259,6 +259,7 @@ class InMemoryStorage final : public Storage {
     /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
+    // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
