@@ -26,8 +26,8 @@ class NameIdMapper {
     std::string name;
     uint64_t id;
 
-    bool operator<(const MapNameToId &other) { return name < other.name; }
-    bool operator==(const MapNameToId &other) { return name == other.name; }
+    bool operator<(const MapNameToId &other) const { return name < other.name; }
+    bool operator==(const MapNameToId &other) const { return name == other.name; }
 
     bool operator<(const std::string_view other) const { return name < other; }
     bool operator==(const std::string_view other) const { return name == other; }
@@ -37,14 +37,21 @@ class NameIdMapper {
     uint64_t id;
     std::string name;
 
-    bool operator<(const MapIdToName &other) { return id < other.id; }
-    bool operator==(const MapIdToName &other) { return id == other.id; }
+    bool operator<(const MapIdToName &other) const { return id < other.id; }
+    bool operator==(const MapIdToName &other) const { return id == other.id; }
 
-    bool operator<(uint64_t other) { return id < other; }
-    bool operator==(uint64_t other) { return id == other; }
+    bool operator<(uint64_t other) const { return id < other; }
+    bool operator==(uint64_t other) const { return id == other; }
   };
 
  public:
+  explicit NameIdMapper() = default;
+
+  NameIdMapper(const NameIdMapper &) = delete;
+  NameIdMapper &operator=(const NameIdMapper &) = delete;
+  NameIdMapper(NameIdMapper &&) = delete;
+  NameIdMapper &operator=(NameIdMapper &&) = delete;
+
   virtual ~NameIdMapper() = default;
 
   /// @throw std::bad_alloc if unable to insert a new mapping

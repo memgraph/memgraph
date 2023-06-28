@@ -51,8 +51,8 @@ class AllVerticesIterable final {
         constraints_(constraints),
         config_(config) {}
 
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+  Iterator begin() { return {this, vertices_accessor_.begin()}; }
+  Iterator end() { return {this, vertices_accessor_.end()}; }
 };
 
 }  // namespace memgraph::storage

@@ -447,6 +447,7 @@ struct mgp_vertex {
   mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
   mgp_vertex(mgp_vertex &&other) : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
@@ -501,6 +502,7 @@ struct mgp_edge {
   mgp_edge(mgp_edge &&other, memgraph::utils::MemoryResource *memory)
       : memory(other.memory), impl(other.impl), from(std::move(other.from), memory), to(std::move(other.to), memory) {}
 
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
   mgp_edge(mgp_edge &&other)
       : memory(other.memory), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
 
@@ -664,6 +666,7 @@ struct mgp_edges_iterator {
   mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory)
       : memory(memory), source_vertex(v, memory) {}
 
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
   mgp_edges_iterator(mgp_edges_iterator &&other)
       : memory(other.memory),
         source_vertex(std::move(other.source_vertex)),

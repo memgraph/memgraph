@@ -25,7 +25,7 @@ struct IndexPersistenceError {};
 struct ConstraintsPersistenceError {};
 
 struct SerializationError {};
-inline bool operator==(const SerializationError &, const SerializationError &) { return true; }
+inline bool operator==(const SerializationError & /*err1*/, const SerializationError & /*err2*/) { return true; }
 
 using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError, SerializationError>;
 

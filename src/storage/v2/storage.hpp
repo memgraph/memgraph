@@ -144,6 +144,7 @@ class Storage {
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
+    // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
 
@@ -188,13 +189,13 @@ class Storage {
     return name_id_mapper_->IdToName(edge_type.AsUint());
   }
 
-  LabelId NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_->NameToId(name)); }
+  LabelId NameToLabel(const std::string_view name) const { return LabelId::FromUint(name_id_mapper_->NameToId(name)); }
 
-  PropertyId NameToProperty(const std::string_view name) {
+  PropertyId NameToProperty(const std::string_view name) const {
     return PropertyId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  EdgeTypeId NameToEdgeType(const std::string_view name) {
+  EdgeTypeId NameToEdgeType(const std::string_view name) const {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 

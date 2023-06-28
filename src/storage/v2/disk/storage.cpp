@@ -1256,9 +1256,11 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
     }
 
     /// TODO: andi don't ignore the return value
-    disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
-    disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_);
-    disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_);
+    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
+        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
+        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
 
     for (auto &edge_entry : vertex.out_edges) {
       EdgeRef edge = std::get<2>(edge_entry);
@@ -1335,9 +1337,11 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       }
 
       /// TODO: andi don't ignore the return value
-      disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
-      disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_);
-      disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_);
+      if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
+          !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
+          !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
+        return StorageDataManipulationError{SerializationError{}};
+      }
 
       for (auto &edge_entry : vertex.out_edges) {
         EdgeRef edge = std::get<2>(edge_entry);
@@ -1403,7 +1407,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
   return vertices_for_constraints;
 }
 
-/// TODO: andi solve default argument warning
+// NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");

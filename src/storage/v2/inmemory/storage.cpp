@@ -605,6 +605,7 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
                                           &storage_->indices_, &storage_->constraints_, config_, true);
 }
 
+// NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");

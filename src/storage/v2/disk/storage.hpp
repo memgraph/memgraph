@@ -68,22 +68,23 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateVertexCount() const override;
 
-    uint64_t ApproximateVertexCount(LabelId label) const override { return 10; }
+    uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
 
-    uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override { return 10; }
+    uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const override { return 10; }
 
-    uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
+    uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
+                                    const PropertyValue & /*value*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                    const std::optional<utils::Bound<PropertyValue>> &lower,
-                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+    uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
+                                    const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
+                                    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
       return 10;
     }
 
-    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                     const storage::PropertyId &property) const override {
+    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId & /*label*/,
+                                                     const storage::PropertyId & /*property*/) const override {
       return {};
     }
 
@@ -92,12 +93,12 @@ class DiskStorage final : public Storage {
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
-        const std::span<std::string> labels) override {
+        const std::span<std::string> /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
-    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                       const IndexStats &stats) override {
+    void SetIndexStats(const storage::LabelId & /*label*/, const storage::PropertyId & /*property*/,
+                       const IndexStats & /*stats*/) override {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
@@ -135,6 +136,7 @@ class DiskStorage final : public Storage {
       return disk_storage->ListAllConstraints();
     }
 
+    // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
@@ -274,7 +276,7 @@ class DiskStorage final : public Storage {
 
   StorageInfo GetInfo() const override;
 
-  void FreeMemory(std::unique_lock<utils::RWLock>) override {}
+  void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

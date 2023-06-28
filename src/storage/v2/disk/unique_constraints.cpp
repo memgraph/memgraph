@@ -305,7 +305,7 @@ void DiskUniqueConstraints::UpdateOnAddLabel(LabelId added_label, const Vertex &
 }
 
 std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::ListConstraints() const {
-  return std::vector<std::pair<LabelId, std::set<PropertyId>>>(constraints_.begin(), constraints_.end());
+  return {constraints_.begin(), constraints_.end()};
 }
 
 void DiskUniqueConstraints::Clear() {

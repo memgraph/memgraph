@@ -300,6 +300,7 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
   }
 }
 
+/// NOLINTNEXTLINE(bugprone-exception-escape)
 inline bool operator<(const PropertyValue &first, const PropertyValue &second) noexcept {
   if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
   switch (first.type()) {
@@ -330,6 +331,7 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
   }
 }
 
+/// NOLINTNEXTLINE(bugprone-exception-escape)
 inline bool operator>(const PropertyValue &first, const PropertyValue &second) noexcept { return second < first; }
 
 inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {

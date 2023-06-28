@@ -17,8 +17,6 @@
 #include <numeric>
 #include <string>
 
-#include <rocksdb/db.h>
-
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
@@ -40,7 +38,7 @@ inline bool SerializedVertexHasLabels(const std::string &labels) { return !label
 
 template <typename Collection>
 inline std::vector<std::string> TransformIDsToString(const Collection &labels) {
-  std::vector<std::string> transformed_labels;
+  std::vector<std::string> transformed_labels{};
   std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
                  [](const auto &label) { return SerializeIdType(label); });
   return transformed_labels;

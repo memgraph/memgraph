@@ -201,6 +201,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 // contained in a `PropertyValue`. Note that numbers (integers and doubles) are
 // treated as the same "type" in `PropertyValue`.
 const PropertyValue kSmallestBool = PropertyValue(false);
+// NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
 const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
 const PropertyValue kSmallestString = PropertyValue("");
@@ -322,16 +323,16 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
 InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Iterable::begin() {
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
-  if (!bounds_valid_) return Iterator(this, index_accessor_.end());
+  if (!bounds_valid_) return {this, index_accessor_.end()};
   auto index_iterator = index_accessor_.begin();
   if (lower_bound_) {
     index_iterator = index_accessor_.find_equal_or_greater(lower_bound_->value());
   }
-  return Iterator(this, index_iterator);
+  return {this, index_iterator};
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Iterable::end() {
-  return Iterator(this, index_accessor_.end());
+  return {this, index_accessor_.end()};
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
@@ -346,16 +347,17 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, Prope
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
   if (!value.IsNull()) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
-  } else {
-    // The value `Null` won't ever appear in the index because it indicates that
-    // the property shouldn't exist. Instead, this value is used as an indicator
-    // to estimate the average number of equal elements in the list (for any
-    // given value).
-    return acc.estimate_average_number_of_equals(
-        [](const auto &first, const auto &second) { return first.value == second.value; },
-        utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
   }
+  // The value `Null` won't ever appear in the index because it indicates that
+  // the property shouldn't exist. Instead, this value is used as an indicator
+  // to estimate the average number of equal elements in the list (for any
+  // given value).
+  return acc.estimate_average_number_of_equals(
+      [](const auto &first, const auto &second) { return first.value == second.value; },
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
@@ -364,6 +366,7 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
@@ -414,8 +417,8 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction) {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return Iterable(it->second.access(), label, property, lower_bound, upper_bound, view, transaction, indices_,
-                  constraints_, config_);
+  return {it->second.access(), label,    property,     lower_bound, upper_bound, view,
+          transaction,         indices_, constraints_, config_};
 }
 
 }  // namespace memgraph::storage
