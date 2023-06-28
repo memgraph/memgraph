@@ -13,6 +13,7 @@
 
 #include <thread>
 
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -225,12 +226,20 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
+  uint64_t five_percent_chunk = edges_count / 20;
+  uint64_t percentage_delta = 0;
+  spdlog::debug("Started to recover edge set from 0 to {} vertices.", 0 + five_percent_chunk);
   for (uint64_t i = 0; i < edges_count; ++i) {
+    if (i > 0 && i % five_percent_chunk == 0) {
+      percentage_delta += 5;
+      spdlog::info("Recovered {}% of edges.", percentage_delta);
+      if (percentage_delta != 100) spdlog::debug("Started to recover edge set <{} - {}>", i, i + five_percent_chunk);
+    }
+
     {
       const auto marker = snapshot.ReadMarker();
       if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Invalid snapshot data!");
     }
-
     // Read edge GID.
     auto gid = snapshot.ReadUint();
     if (!gid) throw RecoveryFailure("Invalid snapshot data!");
@@ -238,7 +247,6 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
     last_edge_gid = *gid;
 
     if (items.properties_on_edges) {
-      spdlog::debug("Recovering edge {} with properties.", *gid);
       auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
       if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
 
@@ -271,7 +279,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
       }
     }
   }
-  spdlog::info("Partial edges are recovered.");
+  spdlog::info("Process of recovering {} edges is finished.", edges_count);
 }
 
 // Returns the gid of the last recovered vertex
@@ -287,7 +295,17 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
   uint64_t last_vertex_gid = 0;
   spdlog::info("Recovering {} vertices.", vertices_count);
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
+  uint64_t five_percent_chunk = vertices_count / 20;
+  uint64_t percentage_delta = 0;
+  spdlog::debug("Started to recover vertices set from 0 to {} vertices.", 0 + five_percent_chunk);
+
   for (uint64_t i = 0; i < vertices_count; ++i) {
+    if (i > 0 && i % five_percent_chunk == 0) {
+      percentage_delta += 5;
+      spdlog::debug("Recovered {}% vertices.", percentage_delta);
+      if (percentage_delta != 100) spdlog::debug("Started to recover vertex set <{} - {}>", i, i + five_percent_chunk);
+    }
+
     {
       auto marker = snapshot.ReadMarker();
       if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
@@ -300,12 +318,10 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
       throw RecoveryFailure("Invalid snapshot data!");
     }
     last_vertex_gid = *gid;
-    spdlog::debug("Recovering vertex {}.", *gid);
     auto [it, inserted] = vertex_acc.insert(Vertex{Gid::FromUint(*gid), nullptr});
     if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
 
     // Recover labels.
-    spdlog::trace("Recovering labels for vertex {}.", *gid);
     {
       auto labels_size = snapshot.ReadUint();
       if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
@@ -319,7 +335,6 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     }
 
     // Recover properties.
-    spdlog::trace("Recovering properties for vertex {}.", *gid);
     {
       auto props_size = snapshot.ReadUint();
       if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
@@ -362,7 +377,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
       if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
     }
   }
-  spdlog::info("Partial vertices are recovered.");
+  spdlog::info("Process of recovering {} vertices is finished.", vertices_count);
 
   return last_vertex_gid;
 }
@@ -411,7 +426,17 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
+  uint64_t five_percent_chunk = vertices_count / 20;
+  uint64_t percentage_delta = 0;
+  spdlog::debug("Started to recover connectivity for vertices 0 to {} vertices.", 0 + five_percent_chunk);
   for (uint64_t i = 0; i < vertices_count; ++i) {
+    if (i > 0 && i % five_percent_chunk == 0) {
+      percentage_delta += 5;
+      spdlog::debug("Recovered {}% vertices connectivity.", percentage_delta);
+      if (percentage_delta != 100)
+        spdlog::debug("Started to recover vertex connectivity set <{} - {}>", i, i + five_percent_chunk);
+    }
+
     auto &vertex = *vertex_it;
     {
       auto marker = snapshot.ReadMarker();
@@ -446,7 +471,6 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
     // Recover in edges.
     {
-      spdlog::trace("Recovering inbound edges for vertex {}.", vertex.gid.AsUint());
       auto in_size = snapshot.ReadUint();
       if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
       vertex.in_edges.reserve(*in_size);
@@ -483,7 +507,6 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
     // Recover out edges.
     {
-      spdlog::trace("Recovering outbound edges for vertex {}.", vertex.gid.AsUint());
       auto out_size = snapshot.ReadUint();
       if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
       vertex.out_edges.reserve(*out_size);
@@ -521,7 +544,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
     }
     ++vertex_it;
   }
-  spdlog::info("Partial connectivities are recovered.");
+  spdlog::info("Process of recovering connectivity for {} vertices is finished.", vertices_count);
+
   return {edge_count, highest_edge_gid, first_vertex_gid};
 }
 
