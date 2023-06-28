@@ -113,15 +113,24 @@ class Storage {
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
-    virtual std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                             const storage::PropertyId &property) const = 0;
+    virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() = 0;
+    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+        const storage::LabelId &label, const storage::PropertyId &property) const = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(std::span<std::string> labels) = 0;
+    virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                               const IndexStats &stats) = 0;
+                               const LabelPropertyIndexStats &stats) = 0;
+
+    virtual std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() = 0;
+
+    virtual std::vector<LabelId> ClearLabelIndexStats() = 0;
+
+    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
+        std::span<std::string> labels) = 0;
+
+    virtual std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> labels) = 0;
 
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) = 0;
 

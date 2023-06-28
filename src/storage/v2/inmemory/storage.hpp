@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
@@ -144,31 +146,73 @@ class InMemoryStorage final : public Storage {
           label, property, lower, upper);
     }
 
-    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                     const storage::PropertyId &property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->GetIndexStats(label, property);
+    template <typename TResult, typename TIndex, typename TIndexKey>
+    std::optional<TResult> GetIndexStatsForIndex(TIndex *index, TIndexKey &&key) const {
+      return index->GetIndexStats(key);
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ClearIndexStats();
+    std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
+      return GetIndexStatsForIndex<storage::LabelIndexStats>(
+          static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label);
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
-        const std::span<std::string> labels) override {
-      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
-        std::vector<std::pair<LabelId, PropertyId>> loc_results =
-            static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->DeleteIndexStatsForLabel(
-                NameToLabel(label_str));
-        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
-                               std::make_move_iterator(loc_results.end()));
-      });
-      return deleted_indexes;
+    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                  const storage::PropertyId &property) const override {
+      return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(
+          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
+          std::make_pair(label, property));
+    }
+
+    template <typename TIndex, typename TIndexKey, typename TIndexStats>
+    void SetIndexStatsForIndex(TIndex *index, TIndexKey &&key, TIndexStats &stats) const {
+      index->SetIndexStats(key, stats);
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override {
+      SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
     }
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                       const IndexStats &stats) override {
-      static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->SetIndexStats(label, property, stats);
+                       const LabelPropertyIndexStats &stats) override {
+      SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
+                            std::make_pair(label, property), stats);
+    }
+
+    template <typename TResult, typename TIndex>
+    std::vector<TResult> ClearIndexStatsForIndex(TIndex *index) const {
+      return index->ClearIndexStats();
+    }
+
+    std::vector<LabelId> ClearLabelIndexStats() override {
+      return ClearIndexStatsForIndex<LabelId>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()));
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() override {
+      return ClearIndexStatsForIndex<std::pair<LabelId, PropertyId>>(
+          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()));
+    }
+
+    template <typename TResult, typename TIndex>
+    std::vector<TResult> DeleteIndexStatsForIndex(TIndex *index, const std::span<std::string> labels) {
+      std::vector<TResult> deleted_indexes;
+
+      for (const auto &label : labels) {
+        std::vector<TResult> loc_results = index->DeleteIndexStats(NameToLabel(label));
+        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
+                               std::make_move_iterator(loc_results.end()));
+      }
+      return deleted_indexes;
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
+        const std::span<std::string> labels) override {
+      return DeleteIndexStatsForIndex<std::pair<LabelId, PropertyId>>(
+          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), labels);
+    }
+
+    std::vector<LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) override {
+      return DeleteIndexStatsForIndex<LabelId>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()),
+                                               labels);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise

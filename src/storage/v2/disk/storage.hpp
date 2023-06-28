@@ -83,22 +83,38 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
-    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId & /*label*/,
-                                                     const storage::PropertyId & /*property*/) const override {
+    std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
+    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+        const storage::LabelId & /*label*/, const storage::PropertyId & /*property*/) const override {
+      return {};
+    }
+
+    std::vector<LabelId> ClearLabelIndexStats() override {
       throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
+    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() override {
+      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
+    }
+
+    std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> labels) override {
+      throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
         const std::span<std::string> /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
+    void SetIndexStats(const storage::LabelId & /*label*/, const LabelIndexStats & /*stats*/) override {
+      throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+    }
+
     void SetIndexStats(const storage::LabelId & /*label*/, const storage::PropertyId & /*property*/,
-                       const IndexStats & /*stats*/) override {
+                       const LabelPropertyIndexStats & /*stats*/) override {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 

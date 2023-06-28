@@ -16,6 +16,11 @@
 
 namespace memgraph::storage {
 
+struct LabelIndexStats {
+  uint64_t count;
+  double avg_degree;
+};
+
 using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
@@ -96,8 +101,17 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   Iterable Vertices(LabelId label, View view, Transaction *transaction);
 
+  void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
+
+  std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const;
+
+  std::vector<LabelId> ClearIndexStats();
+
+  std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
+
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::map<LabelId, storage::LabelIndexStats> stats_;
 };
 
 }  // namespace memgraph::storage

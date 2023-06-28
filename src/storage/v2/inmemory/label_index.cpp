@@ -155,4 +155,38 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View vi
   return {it->second.access(), label, view, transaction, indices_, constraints_, config_};
 }
 
+void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
+  stats_[label] = stats;
+}
+
+std::optional<LabelIndexStats> InMemoryLabelIndex::GetIndexStats(const storage::LabelId &label) const {
+  if (auto it = stats_.find(label); it != stats_.end()) {
+    return it->second;
+  }
+  return {};
+}
+
+std::vector<LabelId> InMemoryLabelIndex::ClearIndexStats() {
+  std::vector<LabelId> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
+  return deleted_indexes;
+}
+
+std::vector<LabelId> InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
+  std::vector<LabelId> deleted_indexes;
+  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+    if (it->first == label) {
+      deleted_indexes.push_back(it->first);
+      it = stats_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  return deleted_indexes;
+}
+
 }  // namespace memgraph::storage

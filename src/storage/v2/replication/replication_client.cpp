@@ -119,7 +119,7 @@ void InMemoryStorage::ReplicationClient::InitializeClient() {
   }
 
   current_commit_timestamp = response.current_commit_timestamp;
-  spdlog::trace("Current timestamp on replica: {}", current_commit_timestamp);
+  spdlog::trace("Current timestamp on replica {}: {}", name_, current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}", storage_->last_commit_timestamp_.load());
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
     spdlog::debug("Replica '{}' up to date", name_);

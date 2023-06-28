@@ -75,7 +75,7 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, parameters_);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, symbol_table_, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -202,7 +202,7 @@ TEST_F(QueryCostEstimator, SubqueryCartesian) {
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> subquery = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   MakeOp<memgraph::query::plan::Apply>(input, subquery, true);
-  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices);
+  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices + no_vertices);
 }
 
 TEST_F(QueryCostEstimator, UnitSubquery) {

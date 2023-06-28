@@ -440,22 +440,36 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
-  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                   const storage::PropertyId &property) const {
+  std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
+    return accessor_->GetIndexStats(label);
+  }
+
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                const storage::PropertyId &property) const {
     return accessor_->GetIndexStats(label, property);
   }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> ClearIndexStats() {
-    return accessor_->ClearIndexStats();
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> ClearLabelPropertyIndexStats() {
+    return accessor_->ClearLabelPropertyIndexStats();
   }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteIndexStatsForLabels(
+  std::vector<storage::LabelId> ClearLabelIndexStats() { return accessor_->ClearLabelIndexStats(); }
+
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
       const std::span<std::string> labels) {
-    return accessor_->DeleteIndexStatsForLabels(labels);
+    return accessor_->DeleteLabelPropertyIndexStats(labels);
+  }
+
+  std::vector<storage::LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) {
+    return accessor_->DeleteLabelIndexStats(labels);
+  }
+
+  void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
+    accessor_->SetIndexStats(label, stats);
   }
 
   void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::IndexStats &stats) {
+                     const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, property, stats);
   }
 

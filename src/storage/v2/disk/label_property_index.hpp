@@ -57,16 +57,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
-  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override;
-
-  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label) override;
-
-  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::IndexStats &stats) override;
-
-  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                   const storage::PropertyId &property) const override;
-
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadIndexInfo(const std::vector<std::string> &keys);
@@ -75,7 +65,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
       entries_for_deletion;
   std::set<std::pair<LabelId, PropertyId>> index_;
-  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 

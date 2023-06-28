@@ -379,7 +379,7 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearInd
   return deleted_indexes;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStatsForLabel(
+std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   for (auto it = stats_.cbegin(); it != stats_.cend();) {
@@ -393,14 +393,14 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIn
   return deleted_indexes;
 }
 
-void InMemoryLabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                                               const IndexStats &stats) {
-  stats_[{label, property}] = stats;
+void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
+                                               const LabelPropertyIndexStats &stats) {
+  stats_[key] = stats;
 }
 
-std::optional<IndexStats> InMemoryLabelPropertyIndex::GetIndexStats(const storage::LabelId &label,
-                                                                    const storage::PropertyId &property) const {
-  if (auto it = stats_.find({label, property}); it != stats_.end()) {
+std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
+    const std::pair<storage::LabelId, storage::PropertyId> &key) const {
+  if (auto it = stats_.find(key); it != stats_.end()) {
     return it->second;
   }
   return {};

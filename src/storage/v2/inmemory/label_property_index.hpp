@@ -15,6 +15,11 @@
 
 namespace memgraph::storage {
 
+struct LabelPropertyIndexStats {
+  uint64_t count, distinct_values_count;
+  double statistic, avg_group_size, avg_degree;
+};
+
 /// TODO: andi. Too many copies, extract at one place
 using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
@@ -113,15 +118,15 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
-  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override;
+  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
 
-  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label) override;
+  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStats(const storage::LabelId &label);
 
-  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::IndexStats &stats) override;
+  void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
+                     const storage::LabelPropertyIndexStats &stats);
 
-  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                   const storage::PropertyId &property) const override;
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const std::pair<storage::LabelId, storage::PropertyId> &key) const;
 
   void RunGC();
 
@@ -130,7 +135,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
+  std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
 };
 
 }  // namespace memgraph::storage

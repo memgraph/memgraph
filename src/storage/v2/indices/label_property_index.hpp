@@ -17,10 +17,6 @@
 
 namespace memgraph::storage {
 
-struct IndexStats {
-  double statistic, avg_group_size;
-};
-
 class LabelPropertyIndex {
  public:
   LabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
@@ -54,18 +50,7 @@ class LabelPropertyIndex {
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
-  virtual std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() = 0;
-
-  virtual std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label) = 0;
-
-  virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                             const storage::IndexStats &stats) = 0;
-
-  virtual std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                           const storage::PropertyId &property) const = 0;
-
  protected:
-  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config config_;

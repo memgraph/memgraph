@@ -1270,4 +1270,11 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "m")));
   symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 11);
+
+  // MATCH (n) CALL { MATCH (s) RETURN s } RETURN n UNION MATCH (n) CALL { MATCH (s) RETURN s } RETURN n
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("s"))), RETURN("s")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")),
+                UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n"))));
+  symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 13);
 }
