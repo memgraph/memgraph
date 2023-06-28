@@ -106,15 +106,18 @@ VerticesIterable::Iterator VerticesIterable::end() {
 }
 
 VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it) : type_(Type::ALL) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
   new (&all_it_) AllVerticesIterable::Iterator(std::move(it));
 }
 
 VerticesIterable::Iterator::Iterator(InMemoryLabelIndex::Iterable::Iterator it) : type_(Type::BY_LABEL_IN_MEMORY) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
   new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(it));
 }
 
 VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator it)
     : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
   new (&in_memory_by_label_property_it_) InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(it));
 }
 
@@ -133,6 +136,7 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
   }
 }
 
+// NOLINTNEXTLINE(cert-oop54-cpp)
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const VerticesIterable::Iterator &other) {
   Destroy();
   type_ = other.type_;
@@ -154,13 +158,16 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
 VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
       break;
     case Type::BY_LABEL_IN_MEMORY:
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(other.in_memory_by_label_it_));
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_by_label_property_it_)
+          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
       break;
   }
@@ -171,13 +178,16 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
   type_ = other.type_;
   switch (other.type_) {
     case Type::ALL:
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
       break;
     case Type::BY_LABEL_IN_MEMORY:
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(other.in_memory_by_label_it_));
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_by_label_property_it_)
+          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
       break;
   }
