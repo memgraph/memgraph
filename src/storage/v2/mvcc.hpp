@@ -106,12 +106,14 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
                                            transaction->command_id);
 }
 
+/// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
                                            old_disk_key);
 }
 
+/// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key) {
   transaction->EnsureCommitTimestampExists();

@@ -167,7 +167,12 @@ class DiskStorage final : public Storage {
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckConstraintsAndFlushMainMemoryCache();
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushMainMemoryCache();
+
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushIndexCache();
+
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
+        const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
     bool WriteVertexToDisk(const Vertex &vertex);
     bool WriteEdgeToDisk(EdgeRef edge, const std::string &serializedEdgeKey);

@@ -152,18 +152,15 @@ disk_cluster: &disk_cluster
         - "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;"
       validation_queries: []
 
-
-
-
 workloads:
-  - name: "test-compare-mock" # should be the same as the python file
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/mock_api/procedures/"
-    args: ["mock_api/test_compare_mock.py"]
-    <<: *compare_mock
-
   - name: "test-compare-mock on disk" # should be the same as the python file
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/mock_api/procedures/"
     args: ["mock_api/test_compare_mock.py"]
     <<: *disk_cluster
+
+  - name: "test-compare-mock" # should be the same as the python file
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/mock_api/procedures/"
+    args: ["mock_api/test_compare_mock.py"]
+    <<: *compare_mock
