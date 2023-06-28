@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,14 +20,14 @@
 
 namespace memgraph::storage {
 
-class NameIdMapper final {
+class NameIdMapper {
  private:
   struct MapNameToId {
     std::string name;
     uint64_t id;
 
-    bool operator<(const MapNameToId &other) { return name < other.name; }
-    bool operator==(const MapNameToId &other) { return name == other.name; }
+    bool operator<(const MapNameToId &other) const { return name < other.name; }
+    bool operator==(const MapNameToId &other) const { return name == other.name; }
 
     bool operator<(const std::string_view other) const { return name < other; }
     bool operator==(const std::string_view other) const { return name == other; }
@@ -37,16 +37,25 @@ class NameIdMapper final {
     uint64_t id;
     std::string name;
 
-    bool operator<(const MapIdToName &other) { return id < other.id; }
-    bool operator==(const MapIdToName &other) { return id == other.id; }
+    bool operator<(const MapIdToName &other) const { return id < other.id; }
+    bool operator==(const MapIdToName &other) const { return id == other.id; }
 
-    bool operator<(uint64_t other) { return id < other; }
-    bool operator==(uint64_t other) { return id == other; }
+    bool operator<(uint64_t other) const { return id < other; }
+    bool operator==(uint64_t other) const { return id == other; }
   };
 
  public:
+  explicit NameIdMapper() = default;
+
+  NameIdMapper(const NameIdMapper &) = delete;
+  NameIdMapper &operator=(const NameIdMapper &) = delete;
+  NameIdMapper(NameIdMapper &&) = delete;
+  NameIdMapper &operator=(NameIdMapper &&) = delete;
+
+  virtual ~NameIdMapper() = default;
+
   /// @throw std::bad_alloc if unable to insert a new mapping
-  uint64_t NameToId(const std::string_view name) {
+  virtual uint64_t NameToId(const std::string_view name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
     uint64_t id;
@@ -83,14 +92,22 @@ class NameIdMapper final {
   // Currently, we never delete anything from the `utils::SkipList` so the
   // references will always be valid. If you change this class to remove unused
   // names, be sure to change the signature of this function.
-  const std::string &IdToName(uint64_t id) const {
+  virtual const std::string &IdToName(uint64_t id) {
+    auto maybe_name = MaybeIdToName(id);
+    MG_ASSERT(maybe_name.has_value(), "Trying to get a name for an invalid ID!");
+    return maybe_name.value();
+  }
+
+ protected:
+  std::optional<std::reference_wrapper<const std::string>> MaybeIdToName(uint64_t id) const {
     auto id_to_name_acc = id_to_name_.access();
     auto result = id_to_name_acc.find(id);
-    MG_ASSERT(result != id_to_name_acc.end(), "Trying to get a name for an invalid ID!");
+    if (result == id_to_name_acc.end()) {
+      return std::nullopt;
+    }
     return result->name;
   }
 
- private:
   std::atomic<uint64_t> counter_{0};
   utils::SkipList<MapNameToId> name_to_id_;
   utils::SkipList<MapIdToName> id_to_name_;

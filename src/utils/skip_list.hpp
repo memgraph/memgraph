@@ -21,13 +21,17 @@
 #include <random>
 #include <utility>
 
+#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
+#include "utils/stat.hpp"
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -345,9 +349,6 @@ class SkipListGc final {
   MemoryResource *GetMemoryResource() const { return memory_; }
 
   void Clear() {
-#ifndef NDEBUG
-    MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
-#endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
     while (head != nullptr) {
@@ -890,7 +891,7 @@ class SkipList final {
   MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
 
   /// This function removes all elements from the list.
-  /// NOTE: The function *isn't* thread-safe. It must be called while there are
+  /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
   void clear() {
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);

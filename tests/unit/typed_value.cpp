@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,19 +20,25 @@
 
 #include "gtest/gtest.h"
 
+#include "disk_test_utils.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
 
+template <typename StorageType>
 class AllTypesFixture : public testing::Test {
  protected:
+  const std::string testSuite = "typed_value";
+
   std::vector<TypedValue> values_;
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config_)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
 
   void SetUp() override {
     values_.emplace_back(TypedValue());
@@ -49,15 +55,20 @@ class AllTypesFixture : public testing::Test {
                                                            {"e", TypedValue()}});
     auto vertex = dba.InsertVertex();
     values_.emplace_back(vertex);
-    auto edge = *dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
-    values_.emplace_back(edge);
+    auto edge = dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
+    values_.emplace_back(*edge);
     values_.emplace_back(memgraph::query::Path(dba.InsertVertex()));
     memgraph::query::Graph graph{memgraph::utils::NewDeleteResource()};
     graph.InsertVertex(vertex);
-    graph.InsertEdge(edge);
+    graph.InsertEdge(*edge);
     values_.emplace_back(std::move(graph));
   }
+
+  void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(AllTypesFixture, StorageTypes);
 
 void EXPECT_PROP_FALSE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool()); }
 
@@ -168,12 +179,12 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
 }
 
-TEST_F(AllTypesFixture, Less) {
+TYPED_TEST(AllTypesFixture, Less) {
   // 'Less' is legal only between numerics, Null and strings.
   auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
   auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
-  for (TypedValue &a : values_) {
-    for (TypedValue &b : values_) {
+  for (TypedValue &a : this->values_) {
+    for (TypedValue &b : this->values_) {
       if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
       if (is_string_compatible(a) && is_string_compatible(b)) continue;
       // Comparison should raise an exception. Cast to (void) so the compiler
@@ -183,7 +194,7 @@ TEST_F(AllTypesFixture, Less) {
   }
 
   // legal_type < Null = Null
-  for (TypedValue &value : values_) {
+  for (TypedValue &value : this->values_) {
     if (!(value.IsNumeric() || value.type() == TypedValue::Type::String)) continue;
     EXPECT_PROP_ISNULL(value < TypedValue());
     EXPECT_PROP_ISNULL(TypedValue() < value);
@@ -239,7 +250,8 @@ TEST(TypedValue, UnaryPlus) {
   EXPECT_THROW(+TypedValue("something"), TypedValueException);
 }
 
-class TypedValueArithmeticTest : public AllTypesFixture {
+template <typename StorageType>
+class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
  protected:
   /**
    * Performs a series of tests on properties of all types. The tests
@@ -271,8 +283,8 @@ class TypedValueArithmeticTest : public AllTypesFixture {
       }
     };
 
-    for (const TypedValue &a : values_) {
-      for (const TypedValue &b : values_) {
+    for (const TypedValue &a : this->values_) {
+      for (const TypedValue &b : this->values_) {
         if (always_valid(a) || always_valid(b)) continue;
         if (valid(a) && valid(b)) continue;
         EXPECT_THROW(op(a, b), TypedValueException);
@@ -281,15 +293,17 @@ class TypedValueArithmeticTest : public AllTypesFixture {
     }
 
     // null resulting ops
-    for (const TypedValue &value : values_) {
+    for (const TypedValue &value : this->values_) {
       EXPECT_PROP_ISNULL(op(value, TypedValue()));
       EXPECT_PROP_ISNULL(op(TypedValue(), value));
     }
   }
 };
 
-TEST_F(TypedValueArithmeticTest, Sum) {
-  ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
+TYPED_TEST_CASE(TypedValueArithmeticTest, StorageTypes);
+
+TYPED_TEST(TypedValueArithmeticTest, Sum) {
+  this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
 
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).ValueInt(), 5);
@@ -329,8 +343,8 @@ TEST_F(TypedValueArithmeticTest, Sum) {
                TypedValueException);
 }
 
-TEST_F(TypedValueArithmeticTest, Difference) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a - b; });
+TYPED_TEST(TypedValueArithmeticTest, Difference) {
+  this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a - b; });
 
   // difference of props of the same type
   EXPECT_EQ((TypedValue(2) - TypedValue(3)).ValueInt(), -1);
@@ -358,10 +372,10 @@ TEST_F(TypedValueArithmeticTest, Difference) {
                TypedValueException);
 }
 
-TEST_F(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(memgraph::utils::Duration(1))); }
+TYPED_TEST(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(memgraph::utils::Duration(1))); }
 
-TEST_F(TypedValueArithmeticTest, Divison) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
+TYPED_TEST(TypedValueArithmeticTest, Divison) {
+  this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
   EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
 
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(2), TypedValue(5));
@@ -374,8 +388,8 @@ TEST_F(TypedValueArithmeticTest, Divison) {
   EXPECT_FLOAT_EQ((TypedValue(10.0) / TypedValue(4)).ValueDouble(), 2.5);
 }
 
-TEST_F(TypedValueArithmeticTest, Multiplication) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a * b; });
+TYPED_TEST(TypedValueArithmeticTest, Multiplication) {
+  this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a * b; });
 
   EXPECT_PROP_EQ(TypedValue(10) * TypedValue(2), TypedValue(20));
   EXPECT_FLOAT_EQ((TypedValue(12.5) * TypedValue(6.6)).ValueDouble(), 12.5 * 6.6);
@@ -383,8 +397,8 @@ TEST_F(TypedValueArithmeticTest, Multiplication) {
   EXPECT_FLOAT_EQ((TypedValue(10.2) * TypedValue(4)).ValueDouble(), 10.2 * 4);
 }
 
-TEST_F(TypedValueArithmeticTest, Modulo) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
+TYPED_TEST(TypedValueArithmeticTest, Modulo) {
+  this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
   EXPECT_THROW(TypedValue(1) % TypedValue(0), TypedValueException);
 
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(2), TypedValue(0));
@@ -397,7 +411,8 @@ TEST_F(TypedValueArithmeticTest, Modulo) {
   EXPECT_FLOAT_EQ((TypedValue(10.0) % TypedValue(4)).ValueDouble(), 2.0);
 }
 
-class TypedValueLogicTest : public AllTypesFixture {
+template <typename StorageType>
+class TypedValueLogicTest : public AllTypesFixture<StorageType> {
  protected:
   /**
    * Logical operations (logical and, or) are only legal on bools
@@ -408,8 +423,8 @@ class TypedValueLogicTest : public AllTypesFixture {
    * @param op The logical operation to test.
    */
   void TestLogicalThrows(std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
-    for (const auto &p1 : values_) {
-      for (const auto &p2 : values_) {
+    for (const auto &p1 : this->values_) {
+      for (const auto &p2 : this->values_) {
         // skip situations when both p1 and p2 are either bool or null
         auto p1_ok = p1.type() == TypedValue::Type::Bool || p1.IsNull();
         auto p2_ok = p2.type() == TypedValue::Type::Bool || p2.IsNull();
@@ -421,8 +436,10 @@ class TypedValueLogicTest : public AllTypesFixture {
   }
 };
 
-TEST_F(TypedValueLogicTest, LogicalAnd) {
-  TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
+TYPED_TEST_CASE(TypedValueLogicTest, StorageTypes);
+
+TYPED_TEST(TypedValueLogicTest, LogicalAnd) {
+  this->TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
 
   EXPECT_PROP_ISNULL(TypedValue() && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue() && TypedValue(false), TypedValue(false));
@@ -430,8 +447,8 @@ TEST_F(TypedValueLogicTest, LogicalAnd) {
   EXPECT_PROP_EQ(TypedValue(false) && TypedValue(true), TypedValue(false));
 }
 
-TEST_F(TypedValueLogicTest, LogicalOr) {
-  TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
+TYPED_TEST(TypedValueLogicTest, LogicalOr) {
+  this->TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
 
   EXPECT_PROP_ISNULL(TypedValue() || TypedValue(false));
   EXPECT_PROP_EQ(TypedValue() || TypedValue(true), TypedValue(true));
@@ -439,8 +456,8 @@ TEST_F(TypedValueLogicTest, LogicalOr) {
   EXPECT_PROP_EQ(TypedValue(false) || TypedValue(true), TypedValue(true));
 }
 
-TEST_F(TypedValueLogicTest, LogicalXor) {
-  TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
+TYPED_TEST(TypedValueLogicTest, LogicalXor) {
+  this->TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
 
   EXPECT_PROP_ISNULL(TypedValue() && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(true), TypedValue(false));
@@ -450,10 +467,10 @@ TEST_F(TypedValueLogicTest, LogicalXor) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(AllTypesFixture, ConstructionWithMemoryResource) {
+TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue> values_with_custom_memory;
-  for (const auto &value : values_) {
+  for (const auto &value : this->values_) {
     EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_constructed_value(value, &monotonic_memory);
     EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
@@ -464,10 +481,10 @@ TEST_F(AllTypesFixture, ConstructionWithMemoryResource) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(AllTypesFixture, AssignmentWithMemoryResource) {
+TYPED_TEST(AllTypesFixture, AssignmentWithMemoryResource) {
   std::vector<TypedValue> values_with_default_memory;
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
-  for (const auto &value : values_) {
+  for (const auto &value : this->values_) {
     EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_assigned_value(&monotonic_memory);
     copy_assigned_value = value;
@@ -480,10 +497,10 @@ TEST_F(AllTypesFixture, AssignmentWithMemoryResource) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
+TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue, memgraph::utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
-  for (const auto &value : values_) {
+  for (const auto &value : this->values_) {
     EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(value);
     const auto &copy_constructed_value = values_with_custom_memory.back();

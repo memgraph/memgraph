@@ -1395,6 +1395,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
             is_visible = true;
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             is_visible = false;
             break;
@@ -1517,7 +1518,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write label indices.
     {
-      auto label = indices->label_index.ListIndices();
+      auto label = indices->label_index_->ListIndices();
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
@@ -1526,7 +1527,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write label+property indices.
     {
-      auto label_property = indices->label_property_index.ListIndices();
+      auto label_property = indices->label_property_index_->ListIndices();
       snapshot.WriteUint(label_property.size());
       for (const auto &item : label_property) {
         write_mapping(item.first);
@@ -1542,7 +1543,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write existence constraints.
     {
-      auto existence = ListExistenceConstraints(*constraints);
+      auto existence = constraints->existence_constraints_->ListConstraints();
       snapshot.WriteUint(existence.size());
       for (const auto &item : existence) {
         write_mapping(item.first);
@@ -1552,7 +1553,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write unique constraints.
     {
-      auto unique = constraints->unique_constraints.ListConstraints();
+      auto unique = constraints->unique_constraints_->ListConstraints();
       snapshot.WriteUint(unique.size());
       for (const auto &item : unique) {
         write_mapping(item.first);

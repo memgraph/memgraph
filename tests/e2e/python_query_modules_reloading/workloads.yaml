@@ -5,6 +5,14 @@ test_reload_query_module: &test_reload_query_module
       log_file: "py-query-modules-reloading-e2e.log"
       setup_queries: []
       validation_queries: []
+disk_test_reload_query_module: &disk_test_reload_query_module
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
+      log_file: "py-query-modules-reloading-e2e.log"
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
+      validation_queries: []
+
 
 workloads:
   - name: "test-reload-query-module" # should be the same as the python file
@@ -12,3 +20,8 @@ workloads:
     proc: "tests/e2e/python_query_modules_reloading/procedures/"
     args: ["python_query_modules_reloading/test_reload_query_module.py"]
     <<: *test_reload_query_module
+  - name: "test-reload-query-module on disk" # should be the same as the python file
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/python_query_modules_reloading/procedures/"
+    args: ["python_query_modules_reloading/test_reload_query_module.py"]
+    <<: *disk_test_reload_query_module
