@@ -28,6 +28,7 @@
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
 
 namespace memgraph {
