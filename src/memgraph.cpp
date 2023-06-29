@@ -566,7 +566,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
   }
 
-  ~SessionHL() { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
+  ~SessionHL() override { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
 
   SessionHL(const SessionHL &) = delete;
   SessionHL &operator=(const SessionHL &) = delete;
