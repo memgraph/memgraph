@@ -24,8 +24,8 @@ namespace memgraph::storage {
 
 class EdgeAccessor;
 class Storage;
-struct Indices;
 struct Constraints;
+struct Indices;
 
 class VertexAccessor final {
  private:
@@ -106,7 +106,6 @@ class VertexAccessor final {
   }
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
- private:
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;

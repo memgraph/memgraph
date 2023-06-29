@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -101,6 +101,7 @@ Marker VertexActionToMarker(Delta::Action action) {
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   switch (action) {
+    case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
       return Marker::DELTA_VERTEX_CREATE;
     case Delta::Action::RECREATE_OBJECT:
@@ -491,6 +492,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Config::Ite
   encoder->WriteUint(timestamp);
   std::lock_guard<utils::SpinLock> guard(vertex.lock);
   switch (delta.action) {
+    case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
     case Delta::Action::RECREATE_OBJECT: {
       encoder->WriteMarker(VertexActionToMarker(delta.action));
@@ -558,6 +560,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
       break;
     }
+    case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
     case Delta::Action::RECREATE_OBJECT:
       // These actions are already encoded in vertex *_OUT_EDGE actions. Also,

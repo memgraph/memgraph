@@ -50,7 +50,7 @@ struct MetricsResponse {
 template <typename TSessionData>
 class MetricsService {
  public:
-  explicit MetricsService(TSessionData *data) : db_(data->db) {}
+  explicit MetricsService(TSessionData *data) : db_(data->interpreter_context->db.get()) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();

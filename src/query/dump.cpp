@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -482,6 +482,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
       // If we have a saved iterable from a previous pull
       // we need to use the same iterable
       if (!maybe_edge_iterable) {
+        dba_->PrefetchOutEdges(vertex);
         maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;

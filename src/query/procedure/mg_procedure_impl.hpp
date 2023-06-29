@@ -435,28 +435,24 @@ struct mgp_vertex {
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_vertex>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<memgraph::query::VertexAccessor>);
-
-  mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(v), graph(graph) {}
 
-  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph,
-             memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(v), graph(graph) {}
 
-  mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
-  mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
-  mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
+  mgp_vertex(mgp_vertex &&other) : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
     return std::visit(
-        memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
+        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &impl) { return impl; },
                                     [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
         this->impl);
   }
@@ -486,33 +482,28 @@ struct mgp_edge {
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_edge>;
 
-  // Hopefully EdgeAccessor copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<memgraph::query::EdgeAccessor>);
-
   static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
 
-  mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::VertexAccessor &from_v,
-           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory) noexcept
+           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::SubgraphVertexAccessor &from_v,
            const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory) noexcept
+           memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
 
-  mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), from(other.from, memory), to(other.to, memory) {}
 
-  mgp_edge(mgp_edge &&other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edge(mgp_edge &&other, memgraph::utils::MemoryResource *memory)
       : memory(other.memory), impl(other.impl), from(std::move(other.from), memory), to(std::move(other.to), memory) {}
 
-  mgp_edge(mgp_edge &&other) noexcept
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
+  mgp_edge(mgp_edge &&other)
       : memory(other.memory), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -671,14 +662,12 @@ struct mgp_properties_iterator {
 
 struct mgp_edges_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_edges_iterator>;
-  // Hopefully mgp_vertex copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &, memgraph::utils::MemoryResource *>);
 
-  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory)
       : memory(memory), source_vertex(v, memory) {}
 
-  mgp_edges_iterator(mgp_edges_iterator &&other) noexcept
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
+  mgp_edges_iterator(mgp_edges_iterator &&other)
       : memory(other.memory),
         source_vertex(std::move(other.source_vertex)),
         in(std::move(other.in)),

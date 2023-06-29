@@ -88,7 +88,6 @@ class EdgeAccessor final {
   }
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
- private:
   EdgeRef edge_;
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
