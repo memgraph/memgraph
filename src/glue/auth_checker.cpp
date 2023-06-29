@@ -110,7 +110,7 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
 
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                   const std::string &db_name) {
+                                   const std::string &db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
   if (!db_name.empty() && !user.db_access().Contains(db_name)) {
     return false;

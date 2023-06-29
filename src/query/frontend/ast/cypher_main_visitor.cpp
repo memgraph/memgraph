@@ -1255,7 +1255,7 @@ antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(MemgraphCypher::UserOrRoleN
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
   auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
@@ -1265,7 +1265,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitDropRole(MemgraphCypher::DropRoleContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_ROLE;
   auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
@@ -1275,7 +1275,7 @@ antlrcpp::Any CypherMainVisitor::visitDropRole(MemgraphCypher::DropRoleContext *
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitShowRoles(MemgraphCypher::ShowRolesContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_ROLES;
   return auth;
 }
@@ -1284,7 +1284,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoles(MemgraphCypher::ShowRolesContext
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (ctx->password) {
@@ -1300,7 +1300,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserConte
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_PASSWORD;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
@@ -1314,7 +1314,7 @@ antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordCon
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitDropUser(MemgraphCypher::DropUserContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
@@ -1324,7 +1324,7 @@ antlrcpp::Any CypherMainVisitor::visitDropUser(MemgraphCypher::DropUserContext *
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitShowUsers(MemgraphCypher::ShowUsersContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS;
   return auth;
 }
@@ -1333,7 +1333,7 @@ antlrcpp::Any CypherMainVisitor::visitShowUsers(MemgraphCypher::ShowUsersContext
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
@@ -1344,7 +1344,7 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
@@ -1354,7 +1354,7 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivilegeContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->grantPrivilegesList()) {
@@ -1376,7 +1376,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivilegeContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegesList()) {
@@ -1436,7 +1436,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilegesList(MemgraphCypher::GrantP
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->revokePrivilegesList()) {
@@ -1565,7 +1565,7 @@ antlrcpp::Any CypherMainVisitor::visitEntityType(MemgraphCypher::EntityTypeConte
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   return auth;
@@ -1575,7 +1575,7 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleForUserContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
@@ -1585,7 +1585,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
   auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
@@ -1595,7 +1595,7 @@ antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsers
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUser(MemgraphCypher::GrantDatabaseToUserContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_DATABASE_TO_USER;
   auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
@@ -1606,7 +1606,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUser(MemgraphCypher::GrantD
  * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitRevokeDatabaseFromUser(MemgraphCypher::RevokeDatabaseFromUserContext *ctx) {
-  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_DATABASE_FROM_USER;
   auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));

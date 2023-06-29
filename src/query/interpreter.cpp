@@ -516,7 +516,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
-      callback.fn = [auth, database, username] {
+      callback.fn = [auth, database, username] {  // NOLINT
 #ifdef MG_ENTERPRISE
         if (!auth->GrantDatabaseToUser(database, username)) {
           throw utils::BasicException("Failed to grant database {} to user {}.", database, username);
@@ -526,7 +526,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
-      callback.fn = [auth, database, username] {
+      callback.fn = [auth, database, username] {  // NOLINT
 #ifdef MG_ENTERPRISE
         if (!auth->RevokeDatabaseFromUser(database, username)) {
           throw utils::BasicException("Failed to revoke database {} from user {}.", database, username);

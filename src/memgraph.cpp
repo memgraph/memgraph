@@ -545,7 +545,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
       const memgraph::communication::v2::ServerEndpoint &endpoint,
       memgraph::communication::v2::InputStream *input_stream, memgraph::communication::v2::OutputStream *output_stream,
-      const std::string &default_db = memgraph::dbms::kDefaultDB)
+      const std::string &default_db = memgraph::dbms::kDefaultDB)  // NOLINT
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
 #ifdef MG_ENTERPRISE
