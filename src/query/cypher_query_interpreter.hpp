@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,7 +108,6 @@ struct ParsedQuery {
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cacheable{true};
-  bool has_all_shortest{false};
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
