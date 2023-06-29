@@ -73,6 +73,13 @@ class Session
   Session(TInputStream *input_stream, TOutputStream *output_stream)
       : input_stream_(*input_stream), output_stream_(*output_stream), session_uuid_(utils::GenerateUUID()) {}
 
+  virtual ~Session() = default;
+
+  Session(const Session &) = delete;
+  Session &operator=(const Session &) = delete;
+  Session(Session &&) noexcept = delete;
+  Session &operator=(Session &&) noexcept = delete;
+
   /**
    * Process the given `query` with `params`.
    * @return A pair which contains list of headers and qid which is set only
