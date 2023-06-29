@@ -46,13 +46,6 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
 
   TypedValue *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
 
-  // TypedValue *Visit(NamedExpression &named_expression) override {
-  //   const auto &symbol = symbol_table_->at(named_expression);
-  //   auto *value = named_expression.expression_->Accept(*this);
-  //   frame_->at(symbol) = std::move(*value);
-  //   return &frame_->at(symbol);
-  // }
-
   UNSUCCESSFUL_VISIT(NamedExpression);
   UNSUCCESSFUL_VISIT(OrOperator);
   UNSUCCESSFUL_VISIT(XorOperator);
@@ -917,13 +910,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
-  Frame *frame_;
-  const SymbolTable *symbol_table_;
-  const EvaluationContext *ctx_;
-  DbAccessor *dba_;
-  // which switching approach should be used when evaluating
-  storage::View view_;
-
  private:
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
@@ -981,6 +967,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   storage::LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
+  Frame *frame_;
+  const SymbolTable *symbol_table_;
+  const EvaluationContext *ctx_;
+  DbAccessor *dba_;
+  // which switching approach should be used when evaluating
+  storage::View view_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

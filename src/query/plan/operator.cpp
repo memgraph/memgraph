@@ -2411,8 +2411,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW);
-    // ReferenceExpressionEvaluator referenceExpressionEvaluator(&frame, &context.symbol_table,
-    // &context.evaluation_context);
+
     for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
 
     return true;
@@ -3480,10 +3479,6 @@ class AggregateCursor : public Cursor {
       }
 
       TypedValue input_value = input_expr_ptr->Accept(*evaluator);
-
-      // ReferenceExpressionEvaluator reference_expression_evaluator(evaluator->frame_, evaluator->symbol_table_,
-      // evaluator->ctx_); TypedValue *input_value2 = input_expr_ptr->Accept(reference_expression_evaluator); TypedValue
-      // &input_value = *input_value2;
 
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;

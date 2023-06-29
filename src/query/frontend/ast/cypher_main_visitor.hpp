@@ -942,7 +942,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   struct QueryInfo {
     bool is_cacheable{true};
     bool has_load_csv{false};
-    bool has_all_shortest{false};
   };
 
   const auto &GetQueryInfo() const { return query_info_; }
