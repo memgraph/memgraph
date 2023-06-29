@@ -555,6 +555,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) override;
 
   /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitGrantDatabaseToUser(MemgraphCypher::GrantDatabaseToUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitRevokeDatabaseFromUser(MemgraphCypher::RevokeDatabaseFromUserContext *ctx) override;
+
+  /**
    * @return Return*
    */
   antlrcpp::Any visitCypherReturn(MemgraphCypher::CypherReturnContext *ctx) override;

@@ -322,6 +322,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
+  std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
 #ifdef MG_ENTERPRISE
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges =
@@ -335,11 +336,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
 
-  static const std::unordered_set enterprise_only_methods{
-      AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
-      AuthQuery::Action::CLEAR_ROLE,        AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::DENY_PRIVILEGE,
-      AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
-      AuthQuery::Action::SHOW_ROLE_FOR_USER};
+  static const std::unordered_set enterprise_only_methods{AuthQuery::Action::CREATE_ROLE,
+                                                          AuthQuery::Action::DROP_ROLE,
+                                                          AuthQuery::Action::SET_ROLE,
+                                                          AuthQuery::Action::CLEAR_ROLE,
+                                                          AuthQuery::Action::GRANT_PRIVILEGE,
+                                                          AuthQuery::Action::DENY_PRIVILEGE,
+                                                          AuthQuery::Action::REVOKE_PRIVILEGE,
+                                                          AuthQuery::Action::SHOW_PRIVILEGES,
+                                                          AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                                                          AuthQuery::Action::SHOW_ROLE_FOR_USER,
+                                                          AuthQuery::Action::GRANT_DATABASE_TO_USER,
+                                                          AuthQuery::Action::REVOKE_DATABASE_FROM_USER};
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
@@ -505,6 +513,26 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
           rows.emplace_back(std::vector<TypedValue>{username});
         }
         return rows;
+      };
+      return callback;
+    case AuthQuery::Action::GRANT_DATABASE_TO_USER:
+      callback.fn = [auth, database, username] {
+#ifdef MG_ENTERPRISE
+        if (!auth->GrantDatabaseToUser(database, username)) {
+          throw utils::BasicException("Failed to grant database {} to user {}.", database, username);
+        }
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
+      callback.fn = [auth, database, username] {
+#ifdef MG_ENTERPRISE
+        if (!auth->RevokeDatabaseFromUser(database, username)) {
+          throw utils::BasicException("Failed to revoke database {} from user {}.", database, username);
+        }
+#endif
+        return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     default:

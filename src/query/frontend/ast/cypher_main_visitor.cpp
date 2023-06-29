@@ -1591,6 +1591,28 @@ antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsers
   return auth;
 }
 
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUser(MemgraphCypher::GrantDatabaseToUserContext *ctx) {
+  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_DATABASE_TO_USER;
+  auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitRevokeDatabaseFromUser(MemgraphCypher::RevokeDatabaseFromUserContext *ctx) {
+  AuthQuery *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::REVOKE_DATABASE_FROM_USER;
+  auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  return auth;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnContext *ctx) {
   auto *return_clause = storage_->Create<Return>();
   return_clause->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));

@@ -2776,7 +2776,9 @@ class AuthQuery : public memgraph::query::Query {
     REVOKE_PRIVILEGE,
     SHOW_PRIVILEGES,
     SHOW_ROLE_FOR_USER,
-    SHOW_USERS_FOR_ROLE
+    SHOW_USERS_FOR_ROLE,
+    GRANT_DATABASE_TO_USER,
+    REVOKE_DATABASE_FROM_USER
   };
 
   enum class Privilege {
@@ -2818,6 +2820,7 @@ class AuthQuery : public memgraph::query::Query {
   std::string role_;
   std::string user_or_role_;
   memgraph::query::Expression *password_{nullptr};
+  std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
@@ -2831,6 +2834,7 @@ class AuthQuery : public memgraph::query::Query {
     object->role_ = role_;
     object->user_or_role_ = user_or_role_;
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
+    object->database_ = database_;
     object->privileges_ = privileges_;
     object->label_privileges_ = label_privileges_;
     object->edge_type_privileges_ = edge_type_privileges_;
@@ -2839,7 +2843,7 @@ class AuthQuery : public memgraph::query::Query {
 
  protected:
   AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, Expression *password,
-            std::vector<Privilege> privileges,
+            std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges)
       : action_(action),
@@ -2847,6 +2851,7 @@ class AuthQuery : public memgraph::query::Query {
         role_(role),
         user_or_role_(user_or_role),
         password_(password),
+        database_(database),
         privileges_(privileges),
         label_privileges_(label_privileges),
         edge_type_privileges_(edge_type_privileges) {}

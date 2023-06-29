@@ -23,7 +23,7 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
-UNAUTHORIZED_ERROR = "You are not authorized to execute this query! Please " "contact your database administrator."
+UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\."
 
 
 def wait_for_server(port, delay=0.1):

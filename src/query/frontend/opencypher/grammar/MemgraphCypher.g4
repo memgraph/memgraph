@@ -160,8 +160,8 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
-          | grantDB
-          | revokeDB
+          | grantDatabaseToUser
+          | revokeDatabaseFromUser
           ;
 
 replicationQuery : setReplicationRole
@@ -274,9 +274,9 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
-grantDB : GRANT DATABASE db=databaseNameOrStar TO USER user=symbolicName ;
+grantDatabaseToUser : GRANT DATABASE db=databaseNameOrStar TO USER user=symbolicName ;
 
-revokeDB : REVOKE DATABASE db=databaseNameOrStar FROM USER user=symbolicName ;
+revokeDatabaseFromUser : REVOKE DATABASE db=databaseNameOrStar FROM USER user=symbolicName ;
 
 privilege : CREATE
           | DELETE
