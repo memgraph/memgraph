@@ -29,6 +29,8 @@ class TestAuthHandler : public memgraph::query::AuthQueryHandler {
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override { return true; }
   bool DropUser(const std::string &username) override { return true; }
   void SetPassword(const std::string &username, const std::optional<std::string> &password) override {}
+  bool RevokeDatabaseFromUser(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
+  bool GrantDatabaseToUser(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
   bool CreateRole(const std::string &rolename) override { return true; }
   bool DropRole(const std::string &rolename) override { return true; }
   std::vector<memgraph::query::TypedValue> GetUsernames() override { return {}; }
@@ -58,8 +60,9 @@ class TestAuthHandler : public memgraph::query::AuthQueryHandler {
 
 class TestAuthChecker : public memgraph::query::AuthChecker {
  public:
-  bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const override {
+  bool IsUserAuthorized(const std::optional<std::string> & /*username*/,
+                        const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
+                        const std::string & /*db*/) const override {
     return true;
   }
 

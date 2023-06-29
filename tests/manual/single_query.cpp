@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
   memgraph::query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(&db);
-  auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);
+  auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);

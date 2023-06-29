@@ -627,11 +627,17 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
     try {
       auto result = interpreter_->Prepare(query, params_pv, username, metadata_pv, UUID());
-      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+      const std::string db_name = result.db ? *result.db : "";
+      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
         interpreter_->Abort();
+        if (db_name.empty()) {
+          throw memgraph::communication::bolt::ClientError(
+              "You are not authorized to execute this query! Please contact your database administrator.");
+        }
         throw memgraph::communication::bolt::ClientError(
-            "You are not authorized to execute this query! Please contact "
-            "your database administrator.");
+            "You are not authorized to execute this query on database \"{}\"! Please contact your database "
+            "administrator.",
+            db_name);
       }
       return {result.headers, result.qid};
 
@@ -659,7 +665,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Abort() override { interpreter_->Abort(); }
 
   // Called during Init
-  // TODO: Handle multi-db once the user cen set which DB to use at login (also a todo)
+  // During Init, the user cannot choose the landing DB (switch is done during query execution)
   bool Authenticate(const std::string &username, const std::string &password) override {
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
@@ -676,6 +682,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
 #ifdef MG_ENTERPRISE
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
+    MultiDatabaseAuth(db_name);
     if (state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
       if (db_name != current_.db()->id()) {
         defunct_.emplace(std::move(current_));
@@ -689,9 +696,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     return memgraph::dbms::SetForResult::FAIL;
   }
 
-  bool IsUsing(const std::string &db_name) override {
-    return current_.db()->id() == db_name || (temporary_ && temporary_->db()->id() == db_name) ||
-           (defunct_ && defunct_->db()->id() == db_name);
+  bool OnDelete(const std::string &db_name) override {
+    MG_ASSERT(current_.db()->id() != db_name && (!temporary_ || temporary_->db()->id() != db_name) &&
+                  (!defunct_ || defunct_->db()->id() != db_name),
+              "Trying to delete a database while still in use.");
+    return true;
   }
 #endif
 
@@ -726,6 +735,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         decoded_summary.emplace("run_id", *run_id);
       }
 
+      // Clean up previous session (session gets defunct when switching between databases)
       if (defunct_) {
         defunct_.reset();
       }
@@ -740,6 +750,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
 #ifdef MG_ENTERPRISE
   void TemporaryUseDB(std::string db) {
+    MultiDatabaseAuth(db);
     if (db == current_.db()->id()) {
       // Use the default sc
       Setup(current_);
@@ -755,6 +766,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Setup(ContextWrapper &cntx) {
     interpreter_ = cntx.interp();
     db_ = cntx.db();
+  }
+
+  void MultiDatabaseAuth(const std::string &db) {
+    if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, {}, db)) {
+      throw memgraph::communication::bolt::ClientError(
+          "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
+    }
   }
 #endif
 

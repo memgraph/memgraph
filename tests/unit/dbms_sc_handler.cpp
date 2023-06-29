@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <system_error>
-#include "global.hpp"
 #ifdef MG_ENTERPRISE
 
 #include <gmock/gmock.h>
@@ -18,6 +17,7 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "dbms/session_context_handler.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -44,10 +44,7 @@ class TestInterface : public memgraph::dbms::SessionInterface {
   std::string UUID() const override { return std::to_string(id_); }
   std::string GetID() const override { return db_; }
   memgraph::dbms::SetForResult OnChange(const std::string &name) override { return on_change_(name); }
-  bool IsUsing(const std::string &name) override {
-    on_delete_(name);
-    return name == db_;
-  }
+  bool OnDelete(const std::string &name) override { return on_delete_(name); }
 
   static int id;
   int id_;
@@ -255,7 +252,6 @@ TEST(DBMS_Handler, Delete) {
       "memgraph",
       [&ti0_on_change_](const std::string &name) -> memgraph::dbms::SetForResult {
         ti0_on_change_ = true;
-        std::cout << name << " != sc1 " << (name != "sc3") << std::endl;
         if (name != "sc3") return memgraph::dbms::SetForResult::SUCCESS;
         return memgraph::dbms::SetForResult::FAIL;
       },
@@ -268,15 +264,14 @@ TEST(DBMS_Handler, Delete) {
   bool ti1_on_delete_ = false;
   TestInterface ti1(
       "sc1",
-      [&ti1_on_change_, &ti1](const std::string &name) -> memgraph::dbms::SetForResult {
+      [&](const std::string &name) -> memgraph::dbms::SetForResult {
         ti1_on_change_ = true;
         ti1.db_ = name;
-
         return memgraph::dbms::SetForResult::SUCCESS;
       },
       [&](const std::string &name) -> bool {
         ti1_on_delete_ = true;
-        return true;
+        return ti1.db_ != name;
       });
 
   ASSERT_TRUE(sch.Register(ti0));
@@ -293,7 +288,8 @@ TEST(DBMS_Handler, Delete) {
   {
     // ti1 is using sc1
     auto del = sch.Delete("sc1");
-    ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::USING);
+    ASSERT_TRUE(del.HasError());
+    ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::USING);
   }
   {
     ASSERT_EQ(sch.SetFor(ti1.UUID(), "memgraph"), memgraph::dbms::SetForResult::SUCCESS);

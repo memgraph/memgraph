@@ -111,7 +111,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     return memgraph::dbms::SetForResult::SUCCESS;
   }
-  bool IsUsing(const std::string &) override { return false; }
+  bool OnDelete(const std::string &) override { return true; }
 #endif
 
  private:

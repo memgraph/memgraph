@@ -23,6 +23,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -2341,7 +2342,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   bool hasTransactionManagementPrivilege = interpreter_context->auth_checker->IsUserAuthorized(
-      username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT});
+      username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, "");
 
   Callback callback;
   switch (transaction_query->action_) {
@@ -2826,7 +2827,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             }
             return std::nullopt;
           },
-          RWType::W};
+          RWType::W,
+          ""  // No target DB possible
+      };
 
     case MultiDatabaseQuery::Action::USE:
       return PreparedQuery{
@@ -2852,7 +2855,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                   res = "Failed to start using " + db_name;
                   break;
               }
-            } catch (...) {
+            } catch (std::out_of_range &) {
               res = db_name + " does not exist.";
             }
 
@@ -2863,7 +2866,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             }
             return std::nullopt;
           },
-          RWType::NONE};
+          RWType::NONE,
+          query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
       return PreparedQuery{
@@ -2906,7 +2910,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             }
             return std::nullopt;
           },
-          RWType::W};
+          RWType::W,
+          query->db_name_};
   }
 #else
   throw QueryException("Query not supported.");
@@ -2946,7 +2951,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         }
         return std::nullopt;
       },
-      RWType::NONE};
+      RWType::NONE,
+      ""  // No target DB
+  };
 #else
   throw QueryException("Query not supported.");
 #endif
@@ -3183,7 +3190,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw QueryException("Write query forbidden on the replica!");
     }
 
-    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
+    // Set the target db to the current db (some queries have different target from the current db)
+    if (!query_execution->prepared_query->db) query_execution->prepared_query->db = interpreter_context_->db->id();
+
+    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
+            query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(query_execution_ptr);

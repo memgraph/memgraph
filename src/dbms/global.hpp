@@ -77,7 +77,7 @@ class SessionInterface {
    *
    * @return true on success
    */
-  virtual bool IsUsing(const std::string &) = 0;
+  virtual bool OnDelete(const std::string &) = 0;
 };
 #endif
 

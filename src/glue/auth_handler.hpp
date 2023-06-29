@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,12 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   bool DropUser(const std::string &username) override;
 
   void SetPassword(const std::string &username, const std::optional<std::string> &password) override;
+
+#ifdef MG_ENTERPRISE
+  bool RevokeDatabaseFromUser(const std::string &db, const std::string &username) override;
+
+  bool GrantDatabaseToUser(const std::string &db, const std::string &username) override;
+#endif
 
   bool CreateRole(const std::string &rolename) override;
 

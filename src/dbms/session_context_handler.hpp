@@ -218,17 +218,18 @@ class SessionContextHandler {
     try {
       auto sc = Get_(db_name);
       // Check if a session is using the db
-      for (auto &[_, s] : sessions_) {
-        if (s.IsUsing(db_name)) {
-          // TODO Handle
-          return DeleteError::USING;
-        }
-      }
       if (!sc.interpreter_context->interpreters->empty()) {
         return DeleteError::USING;
       }
     } catch (SessionContextException &) {
       return DeleteError::NON_EXISTENT;
+    }
+    // High level handlers
+    for (auto &[_, s] : sessions_) {
+      if (!s.OnDelete(db_name)) {
+        // TODO Handle
+        return DeleteError::USING;
+      }
     }
     // Low level handlers
     const auto storage_path = StorageDir_(db_name);
@@ -236,6 +237,8 @@ class SessionContextHandler {
     if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
       return DeleteError::FAIL;
     }
+    // Remove from auth
+    auth_->Lock()->DeleteDatabase(db_name);
     // Remove from durability list
     if (durability_) durability_->Delete(db_name);
     // Delete disk storage (TODO: Add a config to enable/disable this)
