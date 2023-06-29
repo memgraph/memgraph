@@ -310,6 +310,12 @@ class VerticesIterable final {
   }
 };
 
+struct DeleteBulkInfo {
+  std::vector<EdgeAccessor> edges;
+  std::vector<VertexAccessor> nodes;
+  bool detach;
+};
+
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -406,27 +412,20 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
-  storage::Result<std::optional<bool>> DeleteBulk(std::vector<EdgeAccessor> edges_for_deletion,
-                                                  std::vector<VertexAccessor> nodes_for_deletion,
-                                                  std::vector<VertexAccessor> nodes_for_detach_deletion) {
-    std::vector<storage::EdgeAccessor> edges_for_deletion_impl;
-    edges_for_deletion_impl.reserve(edges_for_deletion.size());
-    std::vector<storage::VertexAccessor> nodes_for_deletion_impl;
-    nodes_for_deletion_impl.reserve(nodes_for_deletion.size());
-    std::vector<storage::VertexAccessor> nodes_for_detach_deletion_impl;
-    nodes_for_detach_deletion_impl.reserve(nodes_for_detach_deletion.size());
+  storage::Result<std::optional<bool>> DeleteBulk(const DeleteBulkInfo &info) {
+    std::vector<storage::EdgeAccessor> edges_impl;
+    edges_impl.reserve(info.edges.size());
+    std::vector<storage::VertexAccessor> nodes_impl;
 
-    for (const auto &i : edges_for_deletion) {
-      edges_for_deletion_impl.push_back(i.impl_);
+    for (const auto &i : info.edges) {
+      edges_impl.push_back(i.impl_);
     }
-    for (const auto &i : nodes_for_deletion) {
-      nodes_for_deletion_impl.push_back(i.impl_);
-    }
-    for (const auto &i : nodes_for_detach_deletion) {
-      nodes_for_detach_deletion_impl.push_back(i.impl_);
+    for (const auto &i : info.nodes) {
+      nodes_impl.push_back(i.impl_);
     }
 
-    auto res = accessor_->DeleteBulk(edges_for_deletion_impl, nodes_for_deletion_impl, nodes_for_detach_deletion_impl);
+    auto res = accessor_->DeleteBulk(
+        storage::DeleteBulkInfo{.edges = std::move(edges_impl), .nodes = std::move(nodes_impl), .detach = info.detach});
     if (res.HasError()) {
       return res.GetError();
     }

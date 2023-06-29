@@ -595,9 +595,120 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
                                             config_, true);
 }
 
-Result<std::optional<bool>> Storage::Accessor::DeleteBulk(std::vector<EdgeAccessor> edges_for_deletion,
-                                                          std::vector<VertexAccessor> vertices_for_deletion,
-                                                          std::vector<VertexAccessor> vertices_for_detach_deletion) {
+Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &info) {
+  // operate only on vertices
+  // make sure they are in the same transaction
+  // lock all vertices and prepare for write
+  // unlock
+
+  std::set<Vertex *> nodes_to_delete;
+
+  std::set<Vertex *> deffered_incoming;
+  std::set<Vertex *> deffered_outgoing;
+  std::set<EdgeRef> edge_refs_incoming;
+  std::set<EdgeRef> edge_refs_outgoing;
+  std::set<Vertex *> deffered;
+
+  // aggregate more info
+  for (const auto &vertex : info.nodes) {
+    MG_ASSERT(vertex.transaction_ == &transaction_,
+              "VertexAccessor must be from the same transaction as the storage "
+              "accessor when deleting a vertex!");
+    auto *vertex_ptr = vertex.vertex_;
+
+    {
+      std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+
+      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+
+      if (vertex_ptr->deleted) {
+        // TODO: Address this
+        continue;
+      }
+    }
+
+    nodes_to_delete.insert(vertex_ptr);
+  }
+
+  {
+    // delete from nodes to delete the edges
+    for (auto *vertex_ptr : nodes_to_delete) {
+      for (const auto &item : vertex_ptr->in_edges) {
+        auto [edge_type, from_vertex, edge] = item;
+        if (!nodes_to_delete.contains(from_vertex)) {
+          deffered_outgoing.insert(from_vertex);
+          edge_refs_outgoing.insert(edge);
+          deffered.insert(from_vertex);
+        }
+      }
+      for (const auto &item : vertex_ptr->out_edges) {
+        auto [edge_type, to_vertex, edge] = item;
+        if (!nodes_to_delete.contains(to_vertex)) {
+          deffered_incoming.insert(to_vertex);
+          edge_refs_incoming.insert(edge);
+          deffered.insert(to_vertex);
+        }
+      }
+    }
+
+    std::vector<std::lock_guard<utils::SpinLock>> guards;
+    for (auto *vp : nodes_to_delete) {
+      guards.emplace_back(vp->lock);
+    }
+    for (auto *vp : deffered) {
+      guards.emplace_back(vp->lock);
+    }
+
+    for (auto *vp : nodes_to_delete) {
+      vp->in_edges.clear();
+      vp->out_edges.clear();
+    }
+  }
+
+  for (auto *vertex : deffered_incoming) {
+    const auto begin = vertex->in_edges.begin();
+    const auto end = vertex->in_edges.end();
+    const auto mid = std::partition(begin, end, [&edge_refs_incoming](auto &subject) {
+      auto [edge_type, from_vertex, edge] = subject;
+      return edge_refs_incoming.contains(edge);
+    });
+
+    vertex->in_edges.erase(mid, end);
+  }
+  for (auto *vertex : deffered_outgoing) {
+    const auto begin = vertex->out_edges.begin();
+    const auto end = vertex->out_edges.end();
+    const auto mid = std::partition(begin, end, [&edge_refs_outgoing](auto subject) {
+      auto [edge_type, to_vertex, edge] = subject;
+      return edge_refs_outgoing.contains(edge);
+    });
+
+    vertex->out_edges.erase(mid, end);
+  }
+
+  // delete nodes to delete
+  for (const auto &vertex : info.nodes) {
+    auto *vertex_ptr = vertex.vertex_;
+    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+
+    // We need to check again for serialization errors because we unlocked the
+    // vertex. Some other transaction could have modified the vertex in the
+    // meantime if we didn't have any edges to delete.
+
+    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+
+    MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+
+    CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+    vertex_ptr->deleted = true;
+
+    // Need to inform the next CollectGarbage call that there are some
+    // non-transactional deletions that need to be collected
+    if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      storage_->gc_full_scan_vertices_delete_ = true;
+    }
+  }
+
   return std::make_optional<bool>(true);
 }
 

@@ -1207,9 +1207,8 @@ class DeleteBulk : public memgraph::query::plan::LogicalOperator {
    private:
     const DeleteBulk &self_;
     const UniqueCursorPtr input_cursor_;
-    std::vector<EdgeAccessor> edges_for_deletion{};
-    std::vector<VertexAccessor> nodes_for_deletion{};
-    std::vector<VertexAccessor> nodes_for_detach_deletion{};
+    std::vector<EdgeAccessor> edge_buffer{};
+    std::vector<VertexAccessor> node_buffer{};
   };
 };
 

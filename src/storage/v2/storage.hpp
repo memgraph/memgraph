@@ -189,6 +189,12 @@ struct StorageInfo {
   uint64_t disk_usage;
 };
 
+struct DeleteBulkInfo {
+  std::vector<EdgeAccessor> edges;
+  std::vector<VertexAccessor> nodes;
+  bool detach;
+};
+
 class Storage final {
  public:
   /// @throw std::system_error
@@ -329,9 +335,7 @@ class Storage final {
       return DeleteIndexStatsForIndex<LabelId>(storage_->indices_.label_index, labels);
     }
 
-    Result<std::optional<bool>> DeleteBulk(std::vector<EdgeAccessor> edges_for_deletion,
-                                           std::vector<VertexAccessor> vertices_for_deletion,
-                                           std::vector<VertexAccessor> vertices_for_detach_deletion);
+    Result<std::optional<bool>> DeleteBulk(const DeleteBulkInfo &info);
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
