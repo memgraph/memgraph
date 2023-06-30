@@ -79,7 +79,21 @@ memgraph::query::InterpreterConfig default_conf{};
 class TestHandler {
 } test_handler;
 
-TEST(DBMS_Interp, New) {
+class DBMS_Interp : public ::testing::Test {
+ protected:
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+ private:
+  void Clear() {
+    if (std::filesystem::exists(storage_directory)) {
+      std::filesystem::remove_all(storage_directory);
+    }
+  }
+};
+
+TEST_F(DBMS_Interp, New) {
   memgraph::dbms::InterpContextHandler<TestHandler> ih;
   memgraph::storage::Storage db;
   TestAuthHandler ah;
@@ -124,7 +138,7 @@ TEST(DBMS_Interp, New) {
   }
 }
 
-TEST(DBMS_Interp, Get) {
+TEST_F(DBMS_Interp, Get) {
   memgraph::dbms::InterpContextHandler<TestHandler> ih;
   TestAuthHandler ah;
   TestAuthChecker ac;
@@ -149,7 +163,7 @@ TEST(DBMS_Interp, Get) {
   ASSERT_FALSE(ih.Get(" ic2"));
 }
 
-TEST(DBMS_Interp, Delete) {
+TEST_F(DBMS_Interp, Delete) {
   memgraph::dbms::InterpContextHandler<TestHandler> ih;
   TestAuthHandler ah;
   TestAuthChecker ac;

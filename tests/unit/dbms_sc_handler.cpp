@@ -61,12 +61,15 @@ class TestEnvironment : public ::testing::Environment {
  public:
   static memgraph::dbms::SessionContextHandler *get() { return ptr_.get(); }
 
-  // Initialise the timestamp.
   void SetUp() override {
-    // Clean storage directory
-    // if (std::filesystem::exists(storage_directory))
-    //   for (const auto &entry : std::filesystem::directory_iterator(storage_directory))
-    //     std::filesystem::remove_all(entry.path());
+    // Clean storage directory (running multiple parallel test, run only if the first process)
+    if (std::filesystem::exists(storage_directory)) {
+      memgraph::utils::OutputFile lock_file_handle_;
+      lock_file_handle_.Open(storage_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+      if (lock_file_handle_.AcquireLock()) {
+        std::filesystem::remove_all(storage_directory);
+      }
+    }
     ptr_ = std::make_unique<memgraph::dbms::SessionContextHandler>(
         audit_log,
         memgraph::dbms::SessionContextHandler::Config{

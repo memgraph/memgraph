@@ -66,6 +66,11 @@ startup_config_dict = {
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
+    "data_recover_on_startup": (
+        "false",
+        "false",
+        "Controls whether the database recovers persisted data on startup.",
+    ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",
@@ -133,11 +138,6 @@ startup_config_dict = {
         "The number of edges and vertices stored in a batch in a snapshot file.",
     ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
-    "storage_recover_on_startup": (
-        "false",
-        "false",
-        "Controls whether the storage recovers persisted data on startup.",
-    ),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "0",
