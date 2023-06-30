@@ -97,11 +97,10 @@ TEST(DBMS_Handler, Init) {
   for (const auto &dir : dirs) ASSERT_TRUE(std::filesystem::exists(storage_directory / dir));
   const auto db_path = storage_directory / "databases" / memgraph::dbms::kDefaultDB;
   ASSERT_TRUE(std::filesystem::exists(db_path));
-  for (const auto &dir : dirs) {
-    std::error_code ec;
-    const auto test_link = std::filesystem::read_symlink(db_path / dir, ec);
-    ASSERT_TRUE(!ec && test_link == "../../" + dir);
-  }
+  std::error_code ec;
+  const auto test_link = std::filesystem::read_symlink(db_path, ec);
+  ASSERT_TRUE(!ec);
+  ASSERT_EQ(test_link, "..");
 }
 
 TEST(DBMS_HandlerDeath, InitSameDir) {
