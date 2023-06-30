@@ -118,30 +118,30 @@ class SessionContextHandler {
               root);
 
     // Clear auth database since we are not recovering
-    if (!recovery_on_startup) {
-      const auto &auth_dir = root / "auth";
-      // Backup if auth present
-      if (utils::DirExists(auth_dir)) {
-        auto backup_dir = root / storage::durability::kBackupDirectory;
-        std::error_code error_code;
-        utils::EnsureDirOrDie(backup_dir);
-        std::error_code ec;
-        const auto now = std::chrono::system_clock::now();
-        std::ostringstream os;
-        os << now.time_since_epoch().count();
-        std::filesystem::rename(auth_dir, backup_dir / ("auth-" + os.str()), ec);
-        MG_ASSERT(!ec, "Couldn't backup auth directory because of: {}", ec.message());
-        spdlog::warn(
-            "Since Memgraph was not supposed to recover on startup the authentication files will be "
-            "overwritten. To prevent important data loss, Memgraph has stored those files into .backup directory "
-            "inside the storage directory.");
-      }
+    // if (!recovery_on_startup) {
+    //   const auto &auth_dir = root / "auth";
+    //   // Backup if auth present
+    //   if (utils::DirExists(auth_dir)) {
+    //     auto backup_dir = root / storage::durability::kBackupDirectory;
+    //     std::error_code error_code;
+    //     utils::EnsureDirOrDie(backup_dir);
+    //     std::error_code ec;
+    //     const auto now = std::chrono::system_clock::now();
+    //     std::ostringstream os;
+    //     os << now.time_since_epoch().count();
+    //     std::filesystem::rename(auth_dir, backup_dir / ("auth-" + os.str()), ec);
+    //     MG_ASSERT(!ec, "Couldn't backup auth directory because of: {}", ec.message());
+    //     spdlog::warn(
+    //         "Since Memgraph was not supposed to recover on startup the authentication files will be "
+    //         "overwritten. To prevent important data loss, Memgraph has stored those files into .backup directory "
+    //         "inside the storage directory.");
+    //   }
 
-      // Clear
-      if (std::filesystem::exists(auth_dir)) {
-        std::filesystem::remove_all(auth_dir);
-      }
-    }
+    //   // Clear
+    //   if (std::filesystem::exists(auth_dir)) {
+    //     std::filesystem::remove_all(auth_dir);
+    //   }
+    // }
 
     // Lazy initialization of auth_
     auth_ = std::make_unique<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>>(root / "auth");

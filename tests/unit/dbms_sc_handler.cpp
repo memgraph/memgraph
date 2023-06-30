@@ -23,7 +23,7 @@
 #include "glue/auth_handler.hpp"
 #include "query/config.hpp"
 
-std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler"};
+std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_sc_handler"};
 
 memgraph::storage::Config storage_conf{
     .durability = {
