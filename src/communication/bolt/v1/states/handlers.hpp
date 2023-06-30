@@ -287,7 +287,6 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
-    // Configure can throw.
     session.Configure(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -522,7 +521,7 @@ State HandleRoute(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleLogOff() {
-  // Not arguments sent, the user just needs to reauthenticate
+  // No arguments sent, the user just needs to reauthenticate
   return State::Init;
 }
 }  // namespace memgraph::communication::bolt

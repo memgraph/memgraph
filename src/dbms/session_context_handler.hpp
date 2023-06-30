@@ -12,10 +12,12 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ostream>
 #include <system_error>
 #include <unordered_map>
 
@@ -27,6 +29,7 @@
 #include "query/interpreter.hpp"
 #include "session_context.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage_handler.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -85,8 +88,9 @@ class SessionContextHandler {
    *
    * @param audit_log pointer to the audit logger (ENTERPRISE only)
    * @param configs storage and interpreter configurations
+   * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool tenant_recovery)
+  SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool recovery_on_startup)
       : lock_{utils::RWLock::Priority::READ},
         initialized_{false},
         default_configs_(configs),
@@ -113,6 +117,32 @@ class SessionContextHandler {
               "process!",
               root);
 
+    // Clear auth database since we are not recovering
+    if (!recovery_on_startup) {
+      const auto &auth_dir = root / "auth";
+      // Backup if auth present
+      if (utils::DirExists(auth_dir)) {
+        auto backup_dir = root / storage::durability::kBackupDirectory;
+        std::error_code error_code;
+        utils::EnsureDirOrDie(backup_dir);
+        std::error_code ec;
+        const auto now = std::chrono::system_clock::now();
+        std::ostringstream os;
+        os << now.time_since_epoch().count();
+        std::filesystem::rename(auth_dir, backup_dir / ("auth-" + os.str()), ec);
+        MG_ASSERT(!ec, "Couldn't backup auth directory because of: {}", ec.message());
+        spdlog::warn(
+            "Since Memgraph was not supposed to recover on startup the authentication files will be "
+            "overwritten. To prevent important data loss, Memgraph has stored those files into .backup directory "
+            "inside the storage directory.");
+      }
+
+      // Clear
+      if (std::filesystem::exists(auth_dir)) {
+        std::filesystem::remove_all(auth_dir);
+      }
+    }
+
     // Lazy initialization of auth_
     auth_ = std::make_unique<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>>(root / "auth");
     configs.glue_auth(auth_.get(), auth_handler_, auth_checker_);
@@ -128,7 +158,7 @@ class SessionContextHandler {
 
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
 
-    if (tenant_recovery) {
+    if (recovery_on_startup) {
       for (const auto &[name, sts] : *durability_) {
         if (name == kDefaultDB) continue;  // Already set
         spdlog::info("Restoring database {}.", name);
@@ -170,14 +200,40 @@ class SessionContextHandler {
    *
    * @param uuid unique session identifier
    * @param db_name unique database name
-   * @return true on success
-   * @throws if uuid unknown or OnChange throws
+   * @return SetForResult enum
+   * @throws std::out_of_range if uuid unknown or OnChange throws
    */
   SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
     (void)Get_(db_name);  // throw if db doesn't exist (TODO: Better to pass it via OnChange - but injecting dependency)
     auto &s = sessions_.at(uuid);
     return s.OnChange(db_name);
+  }
+
+  /**
+   * @brief Set the undelying database from a session itself. SessionContext handler.
+   *
+   * @param db_name unique database name
+   * @param handler function that gets called in place with the appropriate SessionContext
+   * @return SetForResult enum
+   */
+  template <typename THandler>
+  requires std::invocable<THandler, SessionContext> SetForResult SetInPlace(const std::string &db_name,
+                                                                            THandler handler) {
+    std::shared_lock<LockT> rd(lock_);
+    return handler(Get_(db_name));
+  }
+
+  /**
+   * @brief Call void handler under a shared lock.
+   *
+   * @param handler function that gets called in place
+   */
+  template <typename THandler>
+  requires std::invocable<THandler>
+  void CallInPlace(THandler handler) {
+    std::shared_lock<LockT> rd(lock_);
+    handler();
   }
 
   /**
@@ -376,33 +432,20 @@ class SessionContextHandler {
       // Recreate the dbms layout for the default db and symlink to the root
       const auto dir = StorageDir_(kDefaultDB);
       MG_ASSERT(dir, "Failed to find storage path.");
-      const auto main_dir = *dir / "databases" / kDefaultDB;
+      const auto main_dir = *dir / "databases";
+      const auto to_root = std::filesystem::relative(*dir, main_dir);
 
-      if (!std::filesystem::exists(main_dir)) {
-        std::filesystem::create_directory(main_dir);
-      }
-
-      // Some directories are redundant (skip those)
-      const std::vector<std::string> skip{".lock",    "audit_log", "databases", "internal_modules",
-                                          "settings", kDefaultDB};
-
-      // Symlink to root dir
-      for (auto const &item : std::filesystem::directory_iterator{*dir}) {
-        const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
-        if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
-        const auto link = main_dir / dir_name;
-        const auto to = std::filesystem::relative(item.path(), main_dir);
-        if (!std::filesystem::exists(link)) {
-          std::filesystem::create_directory_symlink(to, link);
-        } else {  // Check existing link
-          std::error_code ec;
-          const auto test_link = std::filesystem::read_symlink(link, ec);
-          if (ec || test_link != to) {
-            MG_ASSERT(false,
-                      "Memgraph storage directory incompatible with new version.\n"
-                      "Please use a clean directory or remove \"{}\" and try again.",
-                      link.string());
-          }
+      const auto link = main_dir / kDefaultDB;
+      if (!std::filesystem::exists(link)) {
+        std::filesystem::create_directory_symlink(to_root, link);
+      } else {  // Check existing link
+        std::error_code ec;
+        const auto test_link = std::filesystem::read_symlink(link, ec);
+        if (ec || test_link != to_root) {
+          MG_ASSERT(false,
+                    "Memgraph storage directory incompatible with new version.\n"
+                    "Please use a clean directory or remove \"{}\" and try again.",
+                    link.string());
         }
       }
     }
@@ -427,7 +470,7 @@ class SessionContextHandler {
       }
       // }
     }
-    throw SessionContextException("Tried to retrieve an unknown database.");
+    throw SessionContextException("Tried to retrieve an unknown database \"{}\".", name);
   }
 
   // Should storage objects ever be deleted?
@@ -437,7 +480,8 @@ class SessionContextHandler {
   utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
   StorageHandler storage_handler_;        //!< multi-tenancy storage handler
   InterpContextHandler<SessionContextHandler> interp_handler_;  //!< multi-tenancy interpreter handler
-  // AuthContextHandler auth_handler_; //!< multi-tenancy authorization handler (currently we use a single global auth)
+  // AuthContextHandler auth_handler_; //!< multi-tenancy authorization handler (currently we use a single global
+  // auth)
   std::unique_ptr<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>> auth_;
   std::unique_ptr<query::AuthQueryHandler> auth_handler_;
   std::unique_ptr<query::AuthChecker> auth_checker_;

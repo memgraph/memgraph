@@ -41,6 +41,7 @@
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "dbms/session_context.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -156,6 +157,10 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(data_recover_on_startup, false, "Controls whether the database recovers persisted data on startup.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
@@ -173,8 +178,11 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
+
+// storage_recover_on_startup deprecated; use data_recover_on_startup instead
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_recover_on_startup, false, "Controls whether the storage recovers persisted data on startup.");
+DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
+                   "Controls whether the storage recovers persisted data on startup.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "
@@ -220,15 +228,6 @@ DEFINE_bool(telemetry_enabled, false,
             "running system (CPU and memory information) and information about "
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
-
-// Multi-tenant flags
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(tenant_recover_on_startup, false,
-                   "Controls whether the previous tenants get created on startup."
-                   "Note: storage configuration dictates whether individual tenants recover their data (see "
-                   "--storage-recover-on-startup).");
-#endif
 
 // Streams flags
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -523,13 +522,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return *this;
     }
 
-    auto db() { return session_context.db.get(); }
-    auto interp() { return interpreter.get(); }
-    auto auth() const { return session_context.auth; }
+    auto *db() { return session_context.db.get(); }
+    auto *interp() { return interpreter.get(); }
+    auto *auth() const { return session_context.auth; }
 #ifdef MG_ENTERPRISE
-    auto audit_log() const { return session_context.audit_log; }
+    auto *audit_log() const { return session_context.audit_log; }
 #endif
     auto run_id() const { return session_context.run_id; }
+    bool defunct() const { return defunct_; }
 
    private:
     memgraph::dbms::SessionContext session_context;
@@ -575,13 +575,31 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) override {
 #ifdef MG_ENTERPRISE
-    try {
-      const auto db = memgraph::glue::ToPropertyValue(run_time_info.at("db")).ValueString();
-      TemporaryUseDB(db);
-    } catch (std::out_of_range &) {
-      // No database specified in query (use default)
-      Setup(current_);
-      temporary_.reset();
+    std::string db;
+    if (run_time_info.contains("db")) {
+      db = memgraph::glue::ToPropertyValue(run_time_info.at("db")).ValueString();
+    }
+
+    // Check if the underlying database needs to be updated
+    if (db.empty() || db == current_.db()->id()) {
+      if (temporary_.has_value()) {
+        // Update if no db or the default db specified and the temporary db was used in the previous query
+        sc_handler_.CallInPlace([this]() mutable {
+          Setup(current_);
+          temporary_.reset();
+        });
+      }
+    } else if (!temporary_ || db != temporary_->db()->id()) {
+      // Update if non default db specified or the temporary db is different
+      sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
+        const auto &db = new_sc.db->id();
+        MultiDatabaseAuth(db);
+        ContextWrapper tmp(new_sc);
+        Setup(tmp);
+        temporary_.reset();
+        temporary_ = std::move(tmp);
+        return memgraph::dbms::SetForResult::SUCCESS;
+      });
     }
 #endif
   }
@@ -687,8 +705,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       if (db_name != current_.db()->id()) {
         defunct_.emplace(std::move(current_));
         current_ = ContextWrapper(sc_handler_.Get(db_name));
-        defunct_->Defunct();
         Setup(current_);
+        defunct_->Defunct();
         return memgraph::dbms::SetForResult::SUCCESS;
       }
       return memgraph::dbms::SetForResult::ALREADY_SET;
@@ -698,7 +716,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   bool OnDelete(const std::string &db_name) override {
     MG_ASSERT(current_.db()->id() != db_name && (!temporary_ || temporary_->db()->id() != db_name) &&
-                  (!defunct_ || defunct_->db()->id() != db_name),
+                  (!defunct_ || defunct_->defunct()),
               "Trying to delete a database while still in use.");
     return true;
   }
@@ -749,20 +767,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
 #ifdef MG_ENTERPRISE
-  void TemporaryUseDB(std::string db) {
-    MultiDatabaseAuth(db);
-    if (db == current_.db()->id()) {
-      // Use the default sc
-      Setup(current_);
-      temporary_.reset();
-    } else if (!temporary_ || db != temporary_->db()->id()) {
-      // Used a different temporary during the previous execution
-      temporary_.emplace(sc_handler_.Get(db));
-      Setup(*temporary_);
-    }
-    // Temporary already set
-  }
-
   void Setup(ContextWrapper &cntx) {
     interpreter_ = cntx.interp();
     db_ = cntx.db();
@@ -1022,7 +1026,7 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
-                     .recover_on_startup = FLAGS_storage_recover_on_startup,
+                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
@@ -1085,7 +1089,7 @@ int main(int argc, char **argv) {
            }
          }
        }},
-      FLAGS_tenant_recover_on_startup);
+      FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
