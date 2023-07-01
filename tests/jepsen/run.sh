@@ -49,6 +49,13 @@ PRINT_CONTEXT
 
 if [ ! -d "$script_dir/jepsen" ]; then
     git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+    if [ "$JEPSEN_VERSION" == "v0.3.0" ]; then
+        if [ -f "$script_dir/jepsen_0.3.0.patch" ]; then
+            cd "$script_dir/jepsen"
+            git apply "$script_dir/jepsen_0.3.0.patch"
+            cd "$script_dir"
+        fi
+    fi
 fi
 
 if [ "$#" -lt 1 ]; then
@@ -72,6 +79,7 @@ case $1 in
     cluster-up)
         "$script_dir/jepsen/docker/bin/up" --daemon
     ;;
+
     # Run tests against the specified Memgraph binary.
     test)
         shift
