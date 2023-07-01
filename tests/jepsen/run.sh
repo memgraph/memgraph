@@ -45,7 +45,6 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/nu
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
-PRINT_CONTEXT
 
 if [ ! -d "$script_dir/jepsen" ]; then
     git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
@@ -68,16 +67,21 @@ fi
 # functionalities inside this script won't be needed because each node clones
 # the public repo.
 case $1 in
-    help)
-        HELP_EXIT
-    ;;
     # Start Jepsen Docker cluster of 5 nodes. To configure the cluster please
     # take a look under jepsen/docker/docker-compose.yml.
     # NOTE: If you delete the jepsen folder where docker config is located,
     # the current cluster is broken because it relies on the folder. That can
     # happen easiliy because the jepsen folder is git ignored.
     cluster-up)
+        PRINT_CONTEXT
         "$script_dir/jepsen/docker/bin/up" --daemon
+    ;;
+
+    mgbuild)
+        PRINT_CONTEXT
+        echo ""
+        echo "TODO(gitbuda): Build memgraph for Debian 10 via memgraph/memgraph-builder"
+        exit 1
     ;;
 
     # Run tests against the specified Memgraph binary.
@@ -116,6 +120,7 @@ case $1 in
             esac
         done
 
+        PRINT_CONTEXT
         # Copy Memgraph binary, handles both cases, when binary is a sym link
         # or a regular file.
         binary_path="$MEMGRAPH_BINARY_PATH"
@@ -199,7 +204,8 @@ case $1 in
             exit "$jepsen_run_exit_status"
         fi
     ;;
+
     *)
-    HELP_EXIT
+        HELP_EXIT
     ;;
 esac
