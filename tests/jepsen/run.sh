@@ -195,6 +195,8 @@ case $1 in
         INFO "Jepsen run DONE. END_TIME: $end_time"
         set -e
 
+        # TODO(gitbuda): Print last ~100 lines from /jepsen/memgraph/store/latest/jepsen.log + logs from each memgraph node.
+
         # Pack all test workload runs between start and end time.
         all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
         all_workload_run_folders=""
