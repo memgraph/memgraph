@@ -94,7 +94,7 @@ function install_custom_maven() {
   MVNVERSION="$1"
   MVNINSTALLDIR="/opt/apache-maven-$MVNVERSION"
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
-    curl -L0 "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
+    curl -LO "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
     tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
   fi
   echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
