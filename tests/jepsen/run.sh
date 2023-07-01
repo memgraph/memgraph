@@ -4,9 +4,11 @@ set -Eeuo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 MEMGRAPH_BINARY_PATH="../../build/memgraph"
-# NOTE: On Ubuntu 22.04 0.3.2 uses non-existing docker compose --compatibility flag.
-# NOTE: On Ubuntu 22.04 0.3.1 seems to be working.
-JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.0}"
+# NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
+# NOTE: On Ubuntu 22.04 v0.3.2 uses non-existing docker compose --compatibility flag.
+# NOTE: On Ubuntu 22.04 v0.3.0 and v0.3.1 seems to be runnable.
+# TODO(gitbuda): Make sure Memgraph can be testes with Jepsen >= 0.3.0
+JEPSEN_VERSION="${JEPSEN_VERSION:-0.2.4}"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
@@ -77,6 +79,23 @@ case $1 in
         "$script_dir/jepsen/docker/bin/up" --daemon
     ;;
 
+    cluster-cleanup)
+        ps=$(docker ps --filter name=jepsen* --filter status=running -q)
+        if [[ ! -z ${ps} ]]; then
+            echo "Killing ${ps}"
+            docker rm -f ${ps}
+            imgs=$(docker images "jepsen*" -q)
+            if [[ ! -z ${imgs} ]]; then
+                echo "Removing ${imgs}"
+                docker images "jepsen*" -q | xargs docker image rmi -f
+            else
+                echo "No Jepsen images detected!"
+            fi
+        else
+            echo "No Jepsen containers detected!"
+        fi
+    ;;
+
     mgbuild)
         PRINT_CONTEXT
         echo ""
@@ -144,7 +163,7 @@ case $1 in
         done
 
         # Copy test files into the control node.
-        docker exec jepsen-control mkdir -p /jepsen/memgraph
+        docker exec jepsen-control mkdir -p /jepsen/memgraph/store
         docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
         docker cp "$script_dir/test/." jepsen-control:/jepsen/memgraph/test/
         docker cp "$script_dir/resources/." jepsen-control:/jepsen/memgraph/resources/
