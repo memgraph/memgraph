@@ -187,7 +187,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges)) {
+  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges, "")) {
     throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
   }
   return trigger_plan_;

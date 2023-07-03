@@ -28,8 +28,22 @@ memgraph::storage::Config default_conf(std::string name = "") {
               .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
 }
 
+class DBMS_Storage : public ::testing::Test {
+ protected:
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+ private:
+  void Clear() {
+    if (std::filesystem::exists(storage_directory)) {
+      std::filesystem::remove_all(storage_directory);
+    }
+  }
+};
+
 #ifdef MG_ENTERPRISE
-TEST(DBMS_Storage, New) {
+TEST_F(DBMS_Storage, New) {
   memgraph::dbms::StorageHandler sh;
   { ASSERT_FALSE(sh.GetConfig("db1")); }
   {
@@ -62,7 +76,7 @@ TEST(DBMS_Storage, New) {
   ASSERT_EQ(all[2], "db4");
 }
 
-TEST(DBMS_Storage, Get) {
+TEST_F(DBMS_Storage, Get) {
   memgraph::dbms::StorageHandler sh;
 
   auto db1 = sh.New("db1", default_conf("db1"));
@@ -86,7 +100,7 @@ TEST(DBMS_Storage, Get) {
   ASSERT_FALSE(sh.Get(" db3"));
 }
 
-TEST(DBMS_Storage, Delete) {
+TEST_F(DBMS_Storage, Delete) {
   memgraph::dbms::StorageHandler sh;
 
   auto db1 = sh.New("db1", default_conf("db1"));
@@ -121,7 +135,7 @@ TEST(DBMS_Storage, Delete) {
   }
 }
 
-TEST(DBMS_Storage, DeleteAndRecover) {
+TEST_F(DBMS_Storage, DeleteAndRecover) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::dbms::StorageHandler sh;
 

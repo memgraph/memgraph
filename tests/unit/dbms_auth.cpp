@@ -20,7 +20,20 @@
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_auth"};
 
-TEST(DBMS_Auth, New) {
+class DBMS_Auth : public ::testing::Test {
+ protected:
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+ private:
+  void Clear() {
+    if (!std::filesystem::exists(storage_directory)) return;
+    std::filesystem::remove_all(storage_directory);
+  }
+};
+
+TEST_F(DBMS_Auth, New) {
   memgraph::dbms::AuthContextHandler ah;
   {
     // Clean new
@@ -52,7 +65,7 @@ TEST(DBMS_Auth, New) {
   }
 }
 
-TEST(DBMS_Auth, Get) {
+TEST_F(DBMS_Auth, Get) {
   memgraph::dbms::AuthContextHandler ah;
 
   ASSERT_FALSE(ah.Get("auth1"));
@@ -66,7 +79,7 @@ TEST(DBMS_Auth, Get) {
   ASSERT_TRUE(ah.Get("auth3"));
 }
 
-TEST(DBMS_Auth, Delete) {
+TEST_F(DBMS_Auth, Delete) {
   memgraph::dbms::AuthContextHandler ah;
 
   ASSERT_FALSE(ah.Delete("auth1"));

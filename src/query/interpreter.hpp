@@ -74,6 +74,16 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetPassword(const std::string &username, const std::optional<std::string> &password) = 0;
 
+#ifdef MG_ENTERPRISE
+  /// Return true if access revoked successfully
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool RevokeDatabaseFromUser(const std::string &db, const std::string &username) = 0;
+
+  /// Return true if access granted successfully
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool GrantDatabaseToUser(const std::string &db, const std::string &username) = 0;
+#endif
+
   /// Return false if the role already exists.
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool CreateRole(const std::string &rolename) = 0;
@@ -199,6 +209,7 @@ struct PreparedQuery {
   std::vector<AuthQuery::Privilege> privileges;
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
+  std::optional<std::string> db{};
 };
 
 class Interpreter;
@@ -257,6 +268,7 @@ class Interpreter final {
     std::vector<std::string> headers;
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
+    std::optional<std::string> db;
   };
 
   std::optional<std::string> username_;

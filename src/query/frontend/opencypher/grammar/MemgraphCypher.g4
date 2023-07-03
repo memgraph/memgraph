@@ -160,6 +160,8 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
+          | grantDatabaseToUser
+          | revokeDatabaseFromUser
           ;
 
 replicationQuery : setReplicationRole
@@ -210,6 +212,10 @@ streamQuery : checkStream
             | stopAllStreams
             | showStreams
             ;
+
+databaseName : symbolicName ;
+
+databaseNameOrStar : databaseName | '*' ;
 
 settingQuery : setSetting
              | showSetting
@@ -268,6 +274,10 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
+grantDatabaseToUser : GRANT DATABASE db=databaseNameOrStar TO USER user=symbolicName ;
+
+revokeDatabaseFromUser : REVOKE DATABASE db=databaseNameOrStar FROM USER user=symbolicName ;
+
 privilege : CREATE
           | DELETE
           | MATCH
@@ -291,7 +301,8 @@ privilege : CREATE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
           | STORAGE_MODE
-          | MULTI_TENANT
+          | MULTI_DATABASE_EDIT
+          | MULTI_DATABASE_USE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -450,8 +461,6 @@ multiDatabaseQuery : createDatabase
                    | useDatabase
                    | dropDatabase
                    ;
-
-databaseName : symbolicName ;
 
 createDatabase : CREATE DATABASE databaseName ;
 

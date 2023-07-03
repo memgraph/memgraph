@@ -63,7 +63,7 @@ class SessionInterface {
    *
    * @return std::string
    */
-  virtual std::string GetDB() const = 0;
+  virtual std::string GetID() const = 0;
 
   /**
    * @brief Gets called on database change.

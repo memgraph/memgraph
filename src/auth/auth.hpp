@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -154,6 +154,36 @@ class Auth final {
    * @throw AuthException if unable to load user data.
    */
   std::vector<User> AllUsersForRole(const std::string &rolename) const;
+
+#ifdef MG_ENTERPRISE
+  /**
+   * @brief Revoke access to individual database for a user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name);
+
+  /**
+   * @brief Grant access to individual database for a user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  bool GrantDatabaseToUser(const std::string &db, const std::string &name);
+
+  /**
+   * @brief Delete a database from all users.
+   *
+   * @param db name of the database to delete
+   * @throw AuthException if unable to read data
+   */
+  void DeleteDatabase(const std::string &db);
+#endif
 
  private:
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,

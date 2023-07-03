@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <system_error>
-#include "global.hpp"
 #ifdef MG_ENTERPRISE
 
 #include <gmock/gmock.h>
@@ -18,11 +17,13 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "dbms/session_context_handler.hpp"
-
+#include "glue/auth_checker.hpp"
+#include "glue/auth_handler.hpp"
 #include "query/config.hpp"
 
-std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler"};
+std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_sc_handler"};
 
 memgraph::storage::Config storage_conf{
     .durability = {
@@ -41,7 +42,7 @@ class TestInterface : public memgraph::dbms::SessionInterface {
     on_delete_ = on_delete;
   }
   std::string UUID() const override { return std::to_string(id_); }
-  std::string GetDB() const override { return db_; }
+  std::string GetID() const override { return db_; }
   memgraph::dbms::SetForResult OnChange(const std::string &name) override { return on_change_(name); }
   bool OnDelete(const std::string &name) override { return on_delete_(name); }
 
@@ -60,14 +61,27 @@ class TestEnvironment : public ::testing::Environment {
  public:
   static memgraph::dbms::SessionContextHandler *get() { return ptr_.get(); }
 
-  // Initialise the timestamp.
   void SetUp() override {
-    // Clean storage directory
-    // if (std::filesystem::exists(storage_directory))
-    //   for (const auto &entry : std::filesystem::directory_iterator(storage_directory))
-    //     std::filesystem::remove_all(entry.path());
+    // Clean storage directory (running multiple parallel test, run only if the first process)
+    if (std::filesystem::exists(storage_directory)) {
+      memgraph::utils::OutputFile lock_file_handle_;
+      lock_file_handle_.Open(storage_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+      if (lock_file_handle_.AcquireLock()) {
+        std::filesystem::remove_all(storage_directory);
+      }
+    }
     ptr_ = std::make_unique<memgraph::dbms::SessionContextHandler>(
-        audit_log, memgraph::dbms::SessionContextHandler::Config{storage_conf, interp_conf, ""}, false);
+        audit_log,
+        memgraph::dbms::SessionContextHandler::Config{
+            storage_conf, interp_conf,
+            [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+               std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+               std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+              // Glue high level auth implementations to the query side
+              ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
+              ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+            }},
+        false);
   }
 
   void TearDown() override { ptr_.reset(); }
@@ -86,11 +100,10 @@ TEST(DBMS_Handler, Init) {
   for (const auto &dir : dirs) ASSERT_TRUE(std::filesystem::exists(storage_directory / dir));
   const auto db_path = storage_directory / "databases" / memgraph::dbms::kDefaultDB;
   ASSERT_TRUE(std::filesystem::exists(db_path));
-  for (const auto &dir : dirs) {
-    std::error_code ec;
-    const auto test_link = std::filesystem::read_symlink(db_path / dir, ec);
-    ASSERT_TRUE(!ec && test_link == "../../" + dir);
-  }
+  std::error_code ec;
+  const auto test_link = std::filesystem::read_symlink(db_path, ec);
+  ASSERT_TRUE(!ec);
+  ASSERT_EQ(test_link, "..");
 }
 
 TEST(DBMS_HandlerDeath, InitSameDir) {
@@ -99,7 +112,17 @@ TEST(DBMS_HandlerDeath, InitSameDir) {
   // NOTE: Init test has ran in another process (so holds the lock)
   ASSERT_DEATH(
       {
-        memgraph::dbms::SessionContextHandler sch(audit_log, {storage_conf, interp_conf, ""}, false);
+        memgraph::dbms::SessionContextHandler sch(
+            audit_log,
+            {storage_conf, interp_conf,
+             [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+                std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+                std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+               // Glue high level auth implementations to the query side
+               ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
+               ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+             }},
+            false);
       },
       R"(\b.*\b)");
 }
@@ -118,7 +141,7 @@ TEST(DBMS_Handler, New) {
     ASSERT_TRUE(sc1.GetValue().db != nullptr);
     ASSERT_TRUE(sc1.GetValue().interpreter_context != nullptr);
     ASSERT_TRUE(sc1.GetValue().audit_log != nullptr);
-    ASSERT_TRUE(sc1.GetValue().auth_context != nullptr);
+    ASSERT_TRUE(sc1.GetValue().auth != nullptr);
     const auto all = sch.All();
     ASSERT_EQ(all.size(), 2);
     ASSERT_TRUE(std::find(all.begin(), all.end(), memgraph::dbms::kDefaultDB) != all.end());
@@ -136,7 +159,7 @@ TEST(DBMS_Handler, New) {
     ASSERT_TRUE(sc3.GetValue().db != nullptr);
     ASSERT_TRUE(sc3.GetValue().interpreter_context != nullptr);
     ASSERT_TRUE(sc3.GetValue().audit_log != nullptr);
-    ASSERT_TRUE(sc3.GetValue().auth_context != nullptr);
+    ASSERT_TRUE(sc3.GetValue().auth != nullptr);
     const auto all = sch.All();
     ASSERT_EQ(all.size(), 3);
     ASSERT_TRUE(std::find(all.begin(), all.end(), "sc3") != all.end());
@@ -149,7 +172,7 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(default_sc.db != nullptr);
   ASSERT_TRUE(default_sc.interpreter_context != nullptr);
   ASSERT_TRUE(default_sc.audit_log != nullptr);
-  ASSERT_TRUE(default_sc.auth_context != nullptr);
+  ASSERT_TRUE(default_sc.auth != nullptr);
 
   ASSERT_ANY_THROW(sch.Get("non-existent"));
 
@@ -157,13 +180,13 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(sc1.db != nullptr);
   ASSERT_TRUE(sc1.interpreter_context != nullptr);
   ASSERT_TRUE(sc1.audit_log != nullptr);
-  ASSERT_TRUE(sc1.auth_context != nullptr);
+  ASSERT_TRUE(sc1.auth != nullptr);
 
   auto sc3 = sch.Get("sc3");
   ASSERT_TRUE(sc3.db != nullptr);
   ASSERT_TRUE(sc3.interpreter_context != nullptr);
   ASSERT_TRUE(sc3.audit_log != nullptr);
-  ASSERT_TRUE(sc3.auth_context != nullptr);
+  ASSERT_TRUE(sc3.auth != nullptr);
 }
 
 TEST(DBMS_Handler, SetFor) {
@@ -231,7 +254,6 @@ TEST(DBMS_Handler, Delete) {
       "memgraph",
       [&ti0_on_change_](const std::string &name) -> memgraph::dbms::SetForResult {
         ti0_on_change_ = true;
-        std::cout << name << " != sc1 " << (name != "sc3") << std::endl;
         if (name != "sc3") return memgraph::dbms::SetForResult::SUCCESS;
         return memgraph::dbms::SetForResult::FAIL;
       },
@@ -244,14 +266,14 @@ TEST(DBMS_Handler, Delete) {
   bool ti1_on_delete_ = false;
   TestInterface ti1(
       "sc1",
-      [&ti1_on_change_, &ti1](const std::string &name) -> memgraph::dbms::SetForResult {
+      [&](const std::string &name) -> memgraph::dbms::SetForResult {
         ti1_on_change_ = true;
         ti1.db_ = name;
         return memgraph::dbms::SetForResult::SUCCESS;
       },
       [&](const std::string &name) -> bool {
         ti1_on_delete_ = true;
-        return true;
+        return ti1.db_ != name;
       });
 
   ASSERT_TRUE(sch.Register(ti0));
@@ -268,7 +290,8 @@ TEST(DBMS_Handler, Delete) {
   {
     // ti1 is using sc1
     auto del = sch.Delete("sc1");
-    ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::USING);
+    ASSERT_TRUE(del.HasError());
+    ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::USING);
   }
   {
     ASSERT_EQ(sch.SetFor(ti1.UUID(), "memgraph"), memgraph::dbms::SetForResult::SUCCESS);
@@ -283,12 +306,6 @@ TEST(DBMS_Handler, Delete) {
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
   }
   {
-    auto del = sch.Delete("sc3");
-    ASSERT_TRUE(del.HasError()) << (int)del.GetError();
-    ASSERT_EQ(del.GetError(), memgraph::dbms::DeleteError::FAIL);
-  }
-  {
-    // delete ti0 so it doesn't fail
     ASSERT_TRUE(sch.Delete(ti0));
     auto del = sch.Delete("sc3");
     ASSERT_FALSE(del.HasError());

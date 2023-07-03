@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8,6 +8,8 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+#include <regex>
 
 #include <gflags/gflags.h>
 
@@ -47,8 +49,9 @@ int main(int argc, char **argv) {
     try {
       client.Execute(query, {});
     } catch (const memgraph::communication::bolt::ClientQueryException &e) {
+      std::regex re(FLAGS_failure_message);
       if (!FLAGS_check_failure) {
-        if (!FLAGS_failure_message.empty() && e.what() == FLAGS_failure_message) {
+        if (!FLAGS_failure_message.empty() && std::regex_match(e.what(), re)) {
           LOG_FATAL(
               "The query should have succeeded or failed with an error "
               "message that isn't equal to '{}' but it failed with that error "
@@ -58,7 +61,7 @@ int main(int argc, char **argv) {
         continue;
       }
       if (FLAGS_should_fail) {
-        if (!FLAGS_failure_message.empty() && e.what() != FLAGS_failure_message) {
+        if (!FLAGS_failure_message.empty() && !std::regex_match(e.what(), re)) {
           LOG_FATAL(
               "The query should have failed with an error message of '{}'' but "
               "instead it failed with '{}'",
