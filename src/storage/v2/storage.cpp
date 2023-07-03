@@ -596,20 +596,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 }
 
 Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &info) {
-  // operate only on vertices
-  // make sure they are in the same transaction
-  // lock all vertices and prepare for write
-  // unlock
-
   std::set<Vertex *> nodes_to_delete;
-
-  std::set<Vertex *> deffered_incoming;
-  std::set<Vertex *> deffered_outgoing;
-  std::set<EdgeRef> edge_refs_incoming;
-  std::set<EdgeRef> edge_refs_outgoing;
-  std::set<Vertex *> deffered;
-
-  // aggregate more info
   for (const auto &vertex : info.nodes) {
     MG_ASSERT(vertex.transaction_ == &transaction_,
               "VertexAccessor must be from the same transaction as the storage "
@@ -622,7 +609,6 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
       if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
       if (vertex_ptr->deleted) {
-        // TODO: Address this
         continue;
       }
     }
@@ -630,65 +616,121 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
     nodes_to_delete.insert(vertex_ptr);
   }
 
-  {
-    // delete from nodes to delete the edges
-    for (auto *vertex_ptr : nodes_to_delete) {
-      for (const auto &item : vertex_ptr->in_edges) {
-        auto [edge_type, from_vertex, edge] = item;
-        if (!nodes_to_delete.contains(from_vertex)) {
-          deffered_outgoing.insert(from_vertex);
-          edge_refs_outgoing.insert(edge);
-          deffered.insert(from_vertex);
-        }
-      }
-      for (const auto &item : vertex_ptr->out_edges) {
-        auto [edge_type, to_vertex, edge] = item;
-        if (!nodes_to_delete.contains(to_vertex)) {
-          deffered_incoming.insert(to_vertex);
-          edge_refs_incoming.insert(edge);
-          deffered.insert(to_vertex);
-        }
-      }
+  auto try_adding_deffered_vertex = [&nodes_to_delete](auto &deffered_vertices, auto &deffered_edges, auto &item) {
+    auto [edge_type, opposing_vertex, edge] = item;
+    if (!nodes_to_delete.contains(opposing_vertex)) {
+      deffered_vertices.insert(opposing_vertex);
+      deffered_edges.insert(edge);
     }
+  };
 
-    std::vector<std::lock_guard<utils::SpinLock>> guards;
-    for (auto *vp : nodes_to_delete) {
-      guards.emplace_back(vp->lock);
+  std::set<Vertex *> deffered_incoming;
+  std::set<Vertex *> deffered_outgoing;
+  std::set<EdgeRef> edge_refs_incoming;
+  std::set<EdgeRef> edge_refs_outgoing;
+  for (auto *vertex_ptr : nodes_to_delete) {
+    for (const auto &item : vertex_ptr->in_edges) {
+      try_adding_deffered_vertex(deffered_outgoing, edge_refs_outgoing, item);
     }
-    for (auto *vp : deffered) {
-      guards.emplace_back(vp->lock);
-    }
-
-    for (auto *vp : nodes_to_delete) {
-      vp->in_edges.clear();
-      vp->out_edges.clear();
+    for (const auto &item : vertex_ptr->out_edges) {
+      try_adding_deffered_vertex(deffered_outgoing, edge_refs_outgoing, item);
     }
   }
 
-  for (auto *vertex : deffered_incoming) {
-    const auto begin = vertex->in_edges.begin();
-    const auto end = vertex->in_edges.end();
-    const auto mid = std::partition(begin, end, [&edge_refs_incoming](auto &subject) {
-      auto [edge_type, from_vertex, edge] = subject;
-      return edge_refs_incoming.contains(edge);
+  auto delete_last_edge = [this](auto *vertex_ptr, auto *collection, auto delta,
+                                 auto reverse_delta) -> Result<std::optional<bool>> {
+    auto [edge_type, opposing_vertex, edge_ref] = *collection->rbegin();
+    std::unique_lock<utils::SpinLock> guard;
+    if (config_.properties_on_edges) {
+      auto edge_ptr = edge_ref.ptr;
+      guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+
+      if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+
+      // if (edge_ptr->deleted) return std::make_optional<bool>(true);
+    }
+
+    std::unique_lock<utils::SpinLock> guard_vertex(vertex_ptr->lock, std::defer_lock);
+    std::unique_lock<utils::SpinLock> guard_opposing_vertex(opposing_vertex->lock, std::defer_lock);
+
+    if (vertex_ptr->gid < opposing_vertex->gid) {
+      guard_vertex.lock();
+      guard_opposing_vertex.lock();
+    } else if (vertex_ptr->gid > opposing_vertex->gid) {
+      guard_opposing_vertex.lock();
+      guard_vertex.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_vertex.lock();
+    }
+
+    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+
+    if (opposing_vertex != vertex_ptr) {
+      if (!PrepareForWrite(&transaction_, opposing_vertex)) return Error::SERIALIZATION_ERROR;
+      MG_ASSERT(!opposing_vertex->deleted, "Invalid database state!");
+    }
+
+    collection->pop_back();
+    if (config_.properties_on_edges) {
+      auto *edge_ptr = edge_ref.ptr;
+      CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
+      edge_ptr->deleted = true;
+
+      // Need to inform the next CollectGarbage call that there are some
+      // non-transactional deletions that need to be collected
+      if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+        storage_->gc_full_scan_edges_delete_ = true;
+      }
+    }
+
+    CreateAndLinkDelta(&transaction_, opposing_vertex, delta, edge_type, vertex_ptr, edge_ref);
+    CreateAndLinkDelta(&transaction_, vertex_ptr, reverse_delta, edge_type, opposing_vertex, edge_ref);
+    storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+    return std::make_optional<bool>(true);
+  };
+
+  auto erase_contained_edges = [](auto *vertex_ptr, auto &collection, auto &set_for_erasure) {
+    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+
+    const auto begin = collection.begin();
+    const auto end = collection.end();
+    const auto mid = std::partition(begin, end, [&set_for_erasure](auto &edge) {
+      auto [edge_type, from_vertex, edge_ref] = edge;
+      return set_for_erasure.contains(edge_ref);
     });
 
-    vertex->in_edges.erase(mid, end);
-  }
-  for (auto *vertex : deffered_outgoing) {
-    const auto begin = vertex->out_edges.begin();
-    const auto end = vertex->out_edges.end();
-    const auto mid = std::partition(begin, end, [&edge_refs_outgoing](auto subject) {
-      auto [edge_type, to_vertex, edge] = subject;
-      return edge_refs_outgoing.contains(edge);
-    });
+    collection.erase(mid, end);
+  };
 
-    vertex->out_edges.erase(mid, end);
+  // delete from nodes to delete the edges
+  for (auto *vertex_ptr : nodes_to_delete) {
+    while (!vertex_ptr->in_edges.empty()) {
+      auto maybe_error =
+          delete_last_edge(vertex_ptr, &vertex_ptr->in_edges, Delta::AddOutEdgeTag(), Delta::AddInEdgeTag());
+      if (maybe_error.HasError()) {
+        return maybe_error;
+      }
+    }
+    while (!vertex_ptr->out_edges.empty()) {
+      auto maybe_error =
+          delete_last_edge(vertex_ptr, &vertex_ptr->out_edges, Delta::AddInEdgeTag(), Delta::AddInEdgeTag());
+      if (maybe_error.HasError()) {
+        return maybe_error;
+      }
+    }
   }
 
-  // delete nodes to delete
-  for (const auto &vertex : info.nodes) {
-    auto *vertex_ptr = vertex.vertex_;
+  for (auto *vertex_ptr : deffered_incoming) {
+    erase_contained_edges(vertex_ptr, vertex_ptr->in_edges, edge_refs_incoming);
+  }
+  for (auto *vertex_ptr : deffered_outgoing) {
+    erase_contained_edges(vertex_ptr, vertex_ptr->out_edges, edge_refs_outgoing);
+  }
+
+  for (auto *vertex_ptr : nodes_to_delete) {
     std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
     // We need to check again for serialization errors because we unlocked the
