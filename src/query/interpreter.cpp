@@ -2838,6 +2838,11 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                 case dbms::NewError::EXISTS:
                   res = db_name + " already exists.";
                   break;
+                case dbms::NewError::DEFUNCT:
+                  res = db_name +
+                        " is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                        "Memgraph.";
+                  break;
                 case dbms::NewError::GENERIC:
                   res = "Failed while creating " + db_name;
                   break;

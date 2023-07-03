@@ -28,6 +28,7 @@ enum class DeleteError : uint8_t {
 enum class NewError : uint8_t {
   NO_CONFIGS,
   EXISTS,
+  DEFUNCT,
   GENERIC,
 };
 

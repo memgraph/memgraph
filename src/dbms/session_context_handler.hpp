@@ -28,6 +28,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "session_context.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage_handler.hpp"
@@ -280,29 +281,42 @@ class SessionContextHandler {
     } catch (SessionContextException &) {
       return DeleteError::NON_EXISTENT;
     }
+
     // High level handlers
     for (auto &[_, s] : sessions_) {
       if (!s.OnDelete(db_name)) {
-        // TODO Handle
-        return DeleteError::USING;
+        spdlog::error("Partial failure while deleting database \"{}\".", db_name);
+        defunct_dbs_.emplace(db_name);
+        return DeleteError::FAIL;
       }
     }
+
     // Low level handlers
     const auto storage_path = StorageDir_(db_name);
     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
     if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
+      spdlog::error("Partial failure while deleting database \"{}\".", db_name);
+      defunct_dbs_.emplace(db_name);
       return DeleteError::FAIL;
     }
+
     // Remove from auth
     auth_->Lock()->DeleteDatabase(db_name);
     // Remove from durability list
     if (durability_) durability_->Delete(db_name);
+
     // Delete disk storage (TODO: Add a config to enable/disable this)
     std::error_code ec;
     (void)std::filesystem::remove_all(*storage_path, ec);
     if (ec) {
+      spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
+      defunct_dbs_.emplace(db_name);
       return DeleteError::DISK_FAIL;
     }
+
+    // Delete from defunct_dbs_ in case a second delete call was successful
+    defunct_dbs_.erase(db_name);
+
     return {};  // Success
   }
 
@@ -423,6 +437,12 @@ class SessionContextHandler {
     MG_ASSERT(auth_handler_, "No high level AuthQueryHandler has been supplied.");
     MG_ASSERT(auth_checker_, "No high level AuthChecker has been supplied.");
 
+    if (defunct_dbs_.contains(name)) {
+      spdlog::warn("Failed to  generate database due to the unknown state of the previously defunct database \"{}\".",
+                   name);
+      return NewError::DEFUNCT;
+    }
+
     auto new_storage = storage_handler_.New(name, storage_config);
     if (new_storage.HasValue()) {
       // auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
@@ -437,11 +457,20 @@ class SessionContextHandler {
         if (durability_) durability_->Put(name, "ok");
         return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_.get(), audit_log_};
       }
-      // TODO: Handler partial success
+      // Partial error: Clear storage and exit
+      spdlog::warn("Partial failure while generating new database.");
+      new_storage.GetValue().reset();
+      if (!storage_handler_.Delete(name)) {
+        spdlog::error(
+            "Failed to handle partial error while generating new database \"{}\". Database might be in an unknown "
+            "state!",
+            name);
+      }
       return new_interp.GetError();
       // }
       // return new_auth.GetError();
     }
+    // Error: Nothing to clear
     return new_storage.GetError();
   }
 
@@ -516,6 +545,8 @@ class SessionContextHandler {
   memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
   std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+
+  std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
 
  public:
   using InterpContextT = decltype(interp_handler_)::InterpContextT;

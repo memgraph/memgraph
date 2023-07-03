@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <system_error>
+#include "query/interpreter.hpp"
 #ifdef MG_ENTERPRISE
 
 #include <gmock/gmock.h>
@@ -252,7 +253,7 @@ TEST(DBMS_Handler, Delete) {
   bool ti0_on_delete_ = false;
   TestInterface ti0(
       "memgraph",
-      [&ti0_on_change_](const std::string &name) -> memgraph::dbms::SetForResult {
+      [&](const std::string &name) -> memgraph::dbms::SetForResult {
         ti0_on_change_ = true;
         if (name != "sc3") return memgraph::dbms::SetForResult::SUCCESS;
         return memgraph::dbms::SetForResult::FAIL;
@@ -291,9 +292,10 @@ TEST(DBMS_Handler, Delete) {
     // ti1 is using sc1
     auto del = sch.Delete("sc1");
     ASSERT_TRUE(del.HasError());
-    ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::USING);
+    ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::FAIL);
   }
   {
+    // Delete ti1 so delete will succeed
     ASSERT_EQ(sch.SetFor(ti1.UUID(), "memgraph"), memgraph::dbms::SetForResult::SUCCESS);
     auto del = sch.Delete("sc1");
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
@@ -301,7 +303,19 @@ TEST(DBMS_Handler, Delete) {
     ASSERT_TRUE(del2.HasError() && del2.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
-    ASSERT_TRUE(sch.New("sc1").HasValue());
+    // Using based on the active interpreters
+    auto new_sc = sch.New("sc1");
+    ASSERT_TRUE(new_sc.HasValue()) << (int)new_sc.GetError();
+    auto sc = sch.Get("sc1");
+    memgraph::query::Interpreter interpreter(sc.interpreter_context.get());
+    sc.interpreter_context->interpreters.WithLock([&](auto &interpreters) { interpreters.insert(&interpreter); });
+    auto del = sch.Delete("sc1");
+    ASSERT_TRUE(del.HasError());
+    ASSERT_EQ(del.GetError(), memgraph::dbms::DeleteError::USING);
+    sc.interpreter_context->interpreters.WithLock([&](auto &interpreters) { interpreters.erase(&interpreter); });
+  }
+  {
+    // Interpreter deactivated, so we should be able to delete
     auto del = sch.Delete("sc1");
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
   }
