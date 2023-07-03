@@ -66,6 +66,8 @@ class Handler {
 
   bool Has(const std::string &name) const { return items_.find(name) != items_.end(); }
 
+  auto begin() { return items_.begin(); }
+  auto end() { return items_.end(); }
   auto cbegin() const { return items_.cbegin(); }
   auto cend() const { return items_.cend(); }
 

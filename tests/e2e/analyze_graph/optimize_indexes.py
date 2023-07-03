@@ -20,13 +20,13 @@ from common import connect, execute_and_fetch_all
 
 @pytest.fixture(scope="function")
 def multi_db(request, connect):
-    yield connect
     cursor = connect.cursor()
     if request.param:
         execute_and_fetch_all(cursor, "CREATE DATABASE clean")
         execute_and_fetch_all(cursor, "USE DATABASE clean")
         execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     pass
+    yield connect
 
 
 @pytest.mark.parametrize("multi_db", [False, True], indirect=True)

@@ -8,7 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-// TODO: Check if comment above is ok
+
 #pragma once
 
 #include <algorithm>
@@ -346,6 +346,32 @@ class SessionContextHandler {
   std::string Current(const std::string &uuid) const {
     std::shared_lock<LockT> rd(lock_);
     return sessions_.at(uuid).GetID();
+  }
+
+  /**
+   * @brief Restore triggers for all currently defined databases.
+   * @note: Triggers can execute query procedures, so we need to reload the modules first and then the triggers
+   */
+  void RestoreTriggers() {
+    std::lock_guard<LockT> wr(lock_);
+    for (auto ic_itr = interp_handler_.begin(); ic_itr != interp_handler_.end(); ++ic_itr) {
+      auto ic = ic_itr->second.get();
+      auto storage_accessor = ic->db->Access();
+      auto dba = memgraph::query::DbAccessor{&storage_accessor};
+      ic->trigger_store.RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+    }
+  }
+
+  /**
+   * @brief Restore streams of all currently defined databases.
+   * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
+   */
+  void RestoreStreams() {
+    std::lock_guard<LockT> wr(lock_);
+    for (auto ic_itr = interp_handler_.begin(); ic_itr != interp_handler_.end(); ++ic_itr) {
+      auto ic = ic_itr->second.get();
+      ic->streams.RestoreStreams();
+    }
   }
 
  private:

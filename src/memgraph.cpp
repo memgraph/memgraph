@@ -554,6 +554,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #else
         current_(sc),
 #endif
+        db_(current_.db()),
+        interpreter_(current_.interp()),
         auth_(current_.auth()),
 #ifdef MG_ENTERPRISE
         audit_log_(current_.audit_log()),
@@ -561,9 +563,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         endpoint_(endpoint),
         run_id_(current_.run_id()) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
-#ifdef MG_ENTERPRISE
-    Setup(current_);
-#endif
   }
 
   ~SessionHL() override { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
@@ -1134,6 +1133,10 @@ int main(int argc, char **argv) {
 #endif
   }
 
+#ifdef MG_ENTERPRISE
+  sc_handler.RestoreTriggers();
+  sc_handler.RestoreStreams();
+#else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
@@ -1145,6 +1148,7 @@ int main(int argc, char **argv) {
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
+#endif
 
   ServerContext context;
   std::string service_name = "Bolt";
