@@ -637,8 +637,7 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
     }
   }
 
-  auto delete_last_edge = [this](auto *vertex_ptr, auto *collection, auto delta,
-                                 auto reverse_delta) -> Result<std::optional<bool>> {
+  auto delete_last_edge = [this](auto *vertex_ptr, auto *collection, auto delta) -> Result<std::optional<bool>> {
     auto [edge_type, opposing_vertex, edge_ref] = *collection->rbegin();
     std::unique_lock<utils::SpinLock> guard;
     if (config_.properties_on_edges) {
@@ -653,6 +652,7 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
     std::unique_lock<utils::SpinLock> guard_vertex(vertex_ptr->lock, std::defer_lock);
     std::unique_lock<utils::SpinLock> guard_opposing_vertex(opposing_vertex->lock, std::defer_lock);
 
+    // Obtain the locks by `gid` order to avoid lock cycles.
     if (vertex_ptr->gid < opposing_vertex->gid) {
       guard_vertex.lock();
       guard_opposing_vertex.lock();
@@ -685,21 +685,25 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
       }
     }
 
-    CreateAndLinkDelta(&transaction_, opposing_vertex, delta, edge_type, vertex_ptr, edge_ref);
-    CreateAndLinkDelta(&transaction_, vertex_ptr, reverse_delta, edge_type, opposing_vertex, edge_ref);
+    CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
     storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
     return std::make_optional<bool>(true);
   };
 
-  auto erase_contained_edges = [](auto *vertex_ptr, auto &collection, auto &set_for_erasure) {
+  auto erase_contained_edges = [this](auto *vertex_ptr, auto &collection, auto &set_for_erasure, auto delta) {
     std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
     const auto begin = collection.begin();
     const auto end = collection.end();
-    const auto mid = std::partition(begin, end, [&set_for_erasure](auto &edge) {
-      auto [edge_type, from_vertex, edge_ref] = edge;
-      return set_for_erasure.contains(edge_ref);
+    const auto mid = std::partition(begin, end, [this, &set_for_erasure, vertex_ptr, delta](auto &edge) {
+      auto [edge_type, opposing_vertex, edge_ref] = edge;
+
+      if (set_for_erasure.contains(edge_ref)) {
+        CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
+        return true;
+      }
+      return false;
     });
 
     collection.erase(mid, end);
@@ -708,15 +712,13 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
   // delete from nodes to delete the edges
   for (auto *vertex_ptr : nodes_to_delete) {
     while (!vertex_ptr->in_edges.empty()) {
-      auto maybe_error =
-          delete_last_edge(vertex_ptr, &vertex_ptr->in_edges, Delta::AddOutEdgeTag(), Delta::AddInEdgeTag());
+      auto maybe_error = delete_last_edge(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag());
       if (maybe_error.HasError()) {
         return maybe_error;
       }
     }
     while (!vertex_ptr->out_edges.empty()) {
-      auto maybe_error =
-          delete_last_edge(vertex_ptr, &vertex_ptr->out_edges, Delta::AddInEdgeTag(), Delta::AddInEdgeTag());
+      auto maybe_error = delete_last_edge(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag());
       if (maybe_error.HasError()) {
         return maybe_error;
       }
@@ -724,10 +726,10 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
   }
 
   for (auto *vertex_ptr : deffered_incoming) {
-    erase_contained_edges(vertex_ptr, vertex_ptr->in_edges, edge_refs_incoming);
+    erase_contained_edges(vertex_ptr, vertex_ptr->in_edges, edge_refs_incoming, Delta::AddOutEdgeTag());
   }
   for (auto *vertex_ptr : deffered_outgoing) {
-    erase_contained_edges(vertex_ptr, vertex_ptr->out_edges, edge_refs_outgoing);
+    erase_contained_edges(vertex_ptr, vertex_ptr->out_edges, edge_refs_outgoing, Delta::AddInEdgeTag());
   }
 
   for (auto *vertex_ptr : nodes_to_delete) {
