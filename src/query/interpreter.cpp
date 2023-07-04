@@ -347,7 +347,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
                                                           AuthQuery::Action::SHOW_USERS_FOR_ROLE,
                                                           AuthQuery::Action::SHOW_ROLE_FOR_USER,
                                                           AuthQuery::Action::GRANT_DATABASE_TO_USER,
-                                                          AuthQuery::Action::REVOKE_DATABASE_FROM_USER};
+                                                          AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
+                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES};
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
@@ -533,6 +534,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         }
 #endif
         return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
+      callback.header = {"grants", "denies"};
+      callback.fn = [auth, username] {  // NOLINT
+        std::vector<std::vector<TypedValue>> res;
+#ifdef MG_ENTERPRISE
+        res = auth->GetDatabasePrivileges(username);
+#endif
+        return res;
       };
       return callback;
     default:

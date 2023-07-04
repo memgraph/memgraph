@@ -83,6 +83,8 @@ MAIN                    : M A I N ;
 MODE                    : M O D E ;
 MODULE_READ             : M O D U L E UNDERSCORE R E A D ;
 MODULE_WRITE            : M O D U L E UNDERSCORE W R I T E ;
+MULTI_DATABASE_EDIT     : M U L T I UNDERSCORE D A T A B A S E UNDERSCORE E D I T ;
+MULTI_DATABASE_USE      : M U L T I UNDERSCORE D A T A B A S E UNDERSCORE U S E ;
 NEXT                    : N E X T ;
 NO                      : N O ;
 NOTHING                 : N O T H I N G ;

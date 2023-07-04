@@ -1510,6 +1510,16 @@ antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListC
 }
 
 /**
+ * @return std::vector<std::string>
+ */
+antlrcpp::Any CypherMainVisitor::visitWildcardName(MemgraphCypher::WildcardNameContext *ctx) {
+  if (ctx->symbolicName()) {
+    return ctx->symbolicName()->accept(this);
+  }
+  return std::string("*");
+}
+
+/**
  * @return AuthQuery::Privilege
  */
 antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext *ctx) {
@@ -1597,7 +1607,7 @@ antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsers
 antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUser(MemgraphCypher::GrantDatabaseToUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_DATABASE_TO_USER;
-  auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
 }
@@ -1608,7 +1618,17 @@ antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUser(MemgraphCypher::GrantD
 antlrcpp::Any CypherMainVisitor::visitRevokeDatabaseFromUser(MemgraphCypher::RevokeDatabaseFromUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_DATABASE_FROM_USER;
-  auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowDatabasePrivileges(MemgraphCypher::ShowDatabasePrivilegesContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_DATABASE_PRIVILEGES;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
 }

@@ -299,6 +299,10 @@ class Databases final {
    */
   bool Contains(const std::string &db) const;
 
+  bool GetAllowAll() const { return allow_all_; }
+  const std::set<std::string> &GetGrants() const { return grants_dbs_; }
+  const std::set<std::string> &GetDenies() const { return denies_dbs_; }
+
   nlohmann::json Serialize() const;
   /// @throw AuthException if unable to deserialize.
   static Databases Deserialize(const nlohmann::json &data);

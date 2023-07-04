@@ -82,6 +82,10 @@ class AuthQueryHandler {
   /// Return true if access granted successfully
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool GrantDatabaseToUser(const std::string &db, const std::string &username) = 0;
+
+  /// Returns database access rights for the user
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) = 0;
 #endif
 
   /// Return false if the role already exists.

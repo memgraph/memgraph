@@ -516,8 +516,8 @@ void Databases::DenyAll() {
   denies_dbs_.clear();
 }
 
-bool Databases::Contains(const std::string &db) const {
-  return (allow_all_ && !denies_dbs_.contains(db)) || grants_dbs_.contains(db);
+[[nodiscard]] bool Databases::Contains(const std::string &db) const {
+  return !denies_dbs_.contains(db) && (allow_all_ || grants_dbs_.contains(db));
 }
 
 nlohmann::json Databases::Serialize() const {
