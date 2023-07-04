@@ -277,6 +277,7 @@ class Interpreter final {
   std::optional<std::string> username_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
+  std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
   /**

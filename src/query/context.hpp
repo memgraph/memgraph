@@ -85,7 +85,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
-  utils::AsyncTimer timer;
+  std::shared_ptr<utils::AsyncTimer> timer;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
@@ -102,7 +102,7 @@ inline auto MustAbort(const ExecutionContext &context) noexcept -> AbortReason {
   if (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) {
     return AbortReason::SHUTDOWN;
   }
-  if (context.timer.IsExpired()) {
+  if (context.timer && context.timer->IsExpired()) {
     return AbortReason::TIMEOUT;
   }
   return AbortReason::NO_ABORT;
