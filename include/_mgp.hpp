@@ -703,7 +703,7 @@ inline void proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_typ
   MgInvokeVoid(mgp_proc_add_deprecated_result, proc, name, type);
 }
 
-inline bool must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
+inline int must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
 
 // mgp_result
 

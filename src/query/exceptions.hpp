@@ -112,10 +112,16 @@ class QueryRuntimeException : public QueryException {
   using QueryException::QueryException;
 };
 
-enum AbortReason : uint8_t {
+enum class AbortReason : uint8_t {
   NO_ABORT = 0,
+
+  // transaction has been requested to terminate, ie. "TERMINATE TRANSACTIONS ..."
   TERMINATED = 1,
+
+  // server is gracefully shutting down
   SHUTDOWN = 2,
+
+  // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
   TIMEOUT = 3,
 };
 

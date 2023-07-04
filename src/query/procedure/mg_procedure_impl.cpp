@@ -2944,9 +2944,17 @@ int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
   auto const reason = memgraph::query::MustAbort(*graph->ctx);
-  // TODO: should we expose the reasons to the C API, ATM its a boolean response
-  //       would ABI break the C++ API which is built on this
-  return reason == memgraph::query::AbortReason::NO_ABORT ? 0 : 1;
+  // NOTE: deliberately decoupled to avoid accidental ABI breaks
+  switch (reason) {
+    case memgraph::query::AbortReason::TERMINATED:
+      return 1;
+    case memgraph::query::AbortReason::SHUTDOWN:
+      return 2;
+    case memgraph::query::AbortReason::TIMEOUT:
+      return 3;
+    case memgraph::query::AbortReason::NO_ABORT:
+      return 0;
+  }
 }
 
 namespace memgraph::query::procedure {
