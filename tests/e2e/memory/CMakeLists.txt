@@ -17,4 +17,6 @@ function(copy_memory_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_memory_e2e_python_files(common.py)
-copy_memory_e2e_python_files(memory_limit_pid.py)
+copy_memory_e2e_python_files(memory_limit_write.py)
+copy_memory_e2e_python_files(memory_limit_read.py)
+copy_memory_e2e_python_files(memory_limit_delete.py)

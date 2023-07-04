@@ -33,7 +33,17 @@ workloads:
     proc: "tests/e2e/memory/procedures/"
     <<: *template_cluster
 
-  - name: "Memory limit pid"
+  - name: "Memory limit write"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["memory/memory_limit_pid.py"]
+    args: ["memory/memory_limit_write.py"]
+    <<: *template_cluster
+
+  - name: "Memory limit read"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/memory_limit_read.py"]
+    <<: *template_cluster
+
+  - name: "Memory limit delete"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/memory_limit_read.py"]
     <<: *template_cluster

@@ -16,6 +16,9 @@ import typing
 import mgclient
 import pytest
 
+MEMORY_LIMIT = 1024  # MB check if workloads.yaml --memory-limit is properly configured.
+THRESHOLD = 0.01  # 1% of memory limit, defines the acceptable overdrive threshold for memory usage.
+
 
 def get_memgraph_pid() -> str:
     command = f"pgrep memgraph"
@@ -32,7 +35,7 @@ def get_memgraph_pid() -> str:
 
 
 def read_pid_peak_memory_in_MB(pid: str) -> int:
-    command = f"grep ^VmPeak /proc/{pid}/status"
+    command = f"grep ^VmHWM /proc/{pid}/status"
     output = subprocess.check_output(command, shell=True).decode("utf-8").strip()
     process_peak_memory = output.split(":")[1].strip().split(" ")[0]
     return int(process_peak_memory) / 1024

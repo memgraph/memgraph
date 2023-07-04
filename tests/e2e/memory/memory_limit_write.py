@@ -4,13 +4,10 @@ import time
 
 import common
 import pytest
-from common import connect
-
-MEMORY_LIMIT = 1024  # MB
-THRESHOLD = 0.01  # 1% of memory limit
+from common import MEMORY_LIMIT, THRESHOLD, connect
 
 
-def test_memgraph_memory_limit_via_pid(connect):
+def test_memgraph_memory_limit_write(connect):
     memgraph_pid = common.get_memgraph_pid()
     start_time = time.time()
     end_time = start_time + 30
@@ -47,6 +44,7 @@ def test_memgraph_memory_limit_via_pid(connect):
                             of memory limit threshold, total {MEMORY_LIMIT_WITH_THRESHOLD}. Peak Memgraph
                             memory usage: {memgraph_peak_memory_usage_mb} MB."""
     else:
+        print(f"Memory limit not exceeded, peak memory usage: {memgraph_peak_memory_usage_mb} MB")
         assert True
 
 
