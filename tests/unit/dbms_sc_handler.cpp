@@ -82,7 +82,7 @@ class TestEnvironment : public ::testing::Environment {
               ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
               ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
             }},
-        false);
+        false, true);
   }
 
   void TearDown() override { ptr_.reset(); }
@@ -123,7 +123,7 @@ TEST(DBMS_HandlerDeath, InitSameDir) {
                ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
                ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
              }},
-            false);
+            false, true);
       },
       R"(\b.*\b)");
 }

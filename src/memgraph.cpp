@@ -222,6 +222,12 @@ DEFINE_uint64(storage_recovery_thread_count,
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_delete_on_drop, true,
+            "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.");
+#endif
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
@@ -1088,7 +1094,7 @@ int main(int argc, char **argv) {
            }
          }
        }},
-      FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup);
+      FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup, FLAGS_storage_delete_on_drop);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else

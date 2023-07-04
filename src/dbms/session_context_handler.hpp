@@ -47,16 +47,6 @@ namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
 
-/**
- * SessionContext Exception
- *
- * Used to indicate that something went wrong while handling multiple sessions.
- */
-class SessionContextException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-};
-
 using DeleteResult = utils::BasicResult<DeleteError>;
 
 /**
@@ -87,11 +77,12 @@ class SessionContextHandler {
    * @param configs storage and interpreter configurations
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool recovery_on_startup)
+  SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool recovery_on_startup, bool delete_on_drop)
       : lock_{utils::RWLock::Priority::READ},
         default_configs_(configs),
         run_id_{utils::GenerateUUID()},
-        audit_log_(&audit_log) {
+        audit_log_(&audit_log),
+        delete_on_drop_(delete_on_drop) {
     const auto &root = configs.storage_config.durability.storage_directory;
     utils::EnsureDirOrDie(root);
     // Verify that the user that started the process is the same user that is
@@ -180,7 +171,7 @@ class SessionContextHandler {
    *
    * @param name
    * @return SessionContext
-   * @throw SessionContextException unknown database
+   * @throw UnknownDatabase if getting unknown database
    */
   SessionContext Get(const std::string &name) {
     std::shared_lock<LockT> rd(lock_);
@@ -274,7 +265,7 @@ class SessionContextHandler {
       if (!sc.interpreter_context->interpreters->empty()) {
         return DeleteError::USING;
       }
-    } catch (SessionContextException &) {
+    } catch (UnknownDatabase &) {
       return DeleteError::NON_EXISTENT;
     }
 
@@ -301,16 +292,18 @@ class SessionContextHandler {
     // Remove from durability list
     if (durability_) durability_->Delete(db_name);
 
-    // Delete disk storage (TODO: Add a config to enable/disable this)
-    std::error_code ec;
-    (void)std::filesystem::remove_all(*storage_path, ec);
-    if (ec) {
-      spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
-      defunct_dbs_.emplace(db_name);
-      return DeleteError::DISK_FAIL;
+    // Delete disk storage
+    if (delete_on_drop_) {
+      std::error_code ec;
+      (void)std::filesystem::remove_all(*storage_path, ec);
+      if (ec) {
+        spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
+        defunct_dbs_.emplace(db_name);
+        return DeleteError::DISK_FAIL;
+      }
     }
 
-    // Delete from defunct_dbs_ in case a second delete call was successful
+    // Delete from defunct_dbs_ (in case a second delete call was successful)
     defunct_dbs_.erase(db_name);
 
     return {};  // Success
@@ -509,7 +502,7 @@ class SessionContextHandler {
    *
    * @param name
    * @return SessionContext
-   * @throw SessionContextException unknown database
+   * @throw UnknownDatabase unknown database
    */
   SessionContext Get_(const std::string &name) {
     auto storage = storage_handler_.Get(name);
@@ -543,7 +536,7 @@ class SessionContextHandler {
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
 
   std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
-
+  bool delete_on_drop_;                //!< Flag defining if dropping storage also deletes its directory
  public:
   using InterpContextT = decltype(interp_handler_)::InterpContextT;
 };
