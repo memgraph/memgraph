@@ -11,3 +11,10 @@ target_link_libraries(memgraph__e2e__memory__limit_global_alloc gflags mgclient 
 add_executable(memgraph__e2e__memory__limit_global_alloc_proc memory_limit_global_alloc_proc.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_global_alloc_proc gflags mgclient mg-utils mg-io Threads::Threads)
 
+
+function(copy_memory_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(memory ${FILE_NAME})
+endfunction()
+
+copy_memory_e2e_python_files(common.py)
+copy_memory_e2e_python_files(memory_limit_pid.py)

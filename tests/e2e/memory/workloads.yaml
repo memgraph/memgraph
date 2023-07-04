@@ -2,14 +2,14 @@ bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--memory-limit=1000", "--storage-gc-cycle-sec=180", "--log-level=TRACE"]
+      args: ["--bolt-port", *bolt_port, "--memory-limit=1024", "--storage-gc-cycle-sec=180", "--log-level=TRACE"]
       log_file: "memory-e2e.log"
       setup_queries: []
       validation_queries: []
 disk_cluster: &disk_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--memory-limit=1000", "--storage-gc-cycle-sec=180", "--log-level=TRACE"]
+      args: ["--bolt-port", *bolt_port, "--memory-limit=1024", "--storage-gc-cycle-sec=180", "--log-level=TRACE"]
       log_file: "memory-e2e.log"
       setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
       validation_queries: []
@@ -31,4 +31,9 @@ workloads:
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
     proc: "tests/e2e/memory/procedures/"
+    <<: *template_cluster
+
+  - name: "Memory limit pid"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/memory_limit_pid.py"]
     <<: *template_cluster
