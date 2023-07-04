@@ -2886,22 +2886,22 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            try {
-              const auto set = sc_handler.SetFor(session_uuid, db_name);
-              switch (set) {
-                case dbms::SetForResult::SUCCESS:
-                  res = "Using " + db_name;
-                  break;
-                case dbms::SetForResult::ALREADY_SET:
-                  res = "Already using " + db_name;
-                  break;
-                case dbms::SetForResult::FAIL:
-                  res = "Failed to start using " + db_name;
-                  break;
-              }
-            } catch (std::out_of_range &) {
-              res = db_name + " does not exist.";
+            // try {
+            const auto set = sc_handler.SetFor(session_uuid, db_name);
+            switch (set) {
+              case dbms::SetForResult::SUCCESS:
+                res = "Using " + db_name;
+                break;
+              case dbms::SetForResult::ALREADY_SET:
+                res = "Already using " + db_name;
+                break;
+              case dbms::SetForResult::FAIL:
+                res = "Failed to start using " + db_name;
+                break;
             }
+            // } catch (std::out_of_range &) {
+            //   res = db_name + " does not exist.";
+            // }
 
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));

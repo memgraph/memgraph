@@ -18,6 +18,7 @@
 #include <mutex>
 #include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <system_error>
 #include <unordered_map>
 
@@ -59,7 +60,7 @@ class SessionContextException : public utils::BasicException {
 using DeleteResult = utils::BasicResult<DeleteError>;
 
 /**
- * @brief Multi-tenancy handler of session contexts. @note singleton
+ * @brief Multi-database session contexts handler.
  */
 class SessionContextHandler {
  public:
@@ -69,11 +70,6 @@ class SessionContextHandler {
   // using InterpConfigT = query::InterpreterConfig;
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, SessionContext>;
-
-  SessionContextHandler(const SessionContextHandler &) = delete;
-  SessionContextHandler &operator=(const SessionContextHandler &) = delete;
-  SessionContextHandler(SessionContextHandler &&) = delete;
-  SessionContextHandler &operator=(SessionContextHandler &&) = delete;
 
   struct Config {
     StorageConfigT storage_config;           //!< Storage configuration
@@ -93,13 +89,9 @@ class SessionContextHandler {
    */
   SessionContextHandler(memgraph::audit::Log &audit_log, Config configs, bool recovery_on_startup)
       : lock_{utils::RWLock::Priority::READ},
-        initialized_{false},
         default_configs_(configs),
         run_id_{utils::GenerateUUID()},
         audit_log_(&audit_log) {
-    // std::lock_guard<LockT> wr(lock_);
-    // MG_ASSERT(!initialized_, "Tried to reinitialize SessionContextHandler.");
-
     const auto &root = configs.storage_config.durability.storage_directory;
     utils::EnsureDirOrDie(root);
     // Verify that the user that started the process is the same user that is
@@ -118,6 +110,7 @@ class SessionContextHandler {
               "process!",
               root);
 
+    // TODO: Figure out if this is needed/wanted
     // Clear auth database since we are not recovering
     // if (!recovery_on_startup) {
     //   const auto &auth_dir = root / "auth";
@@ -157,8 +150,10 @@ class SessionContextHandler {
     utils::EnsureDirOrDie(durability_dir);
     durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 
+    // Generate the default database
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
 
+    // Recover previous databases
     if (recovery_on_startup) {
       for (const auto &[name, sts] : *durability_) {
         if (name == kDefaultDB) continue;  // Already set
@@ -167,11 +162,7 @@ class SessionContextHandler {
         spdlog::info("Database {} restored.", name);
       }
     }
-
-    initialized_ = true;
   }
-
-  ~SessionContextHandler() {}
 
   /**
    * @brief Create a new SessionContext associated with the "name" database
@@ -202,13 +193,18 @@ class SessionContextHandler {
    * @param uuid unique session identifier
    * @param db_name unique database name
    * @return SetForResult enum
-   * @throws std::out_of_range if uuid unknown or OnChange throws
+   * @throws UnknownDatabase, UnknownSession or anything OnChange throws
    */
   SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
-    (void)Get_(db_name);  // throw if db doesn't exist (TODO: Better to pass it via OnChange - but injecting dependency)
-    auto &s = sessions_.at(uuid);
-    return s.OnChange(db_name);
+    (void)Get_(
+        db_name);  // throws if db doesn't exist (TODO: Better to pass it via OnChange - but injecting dependency)
+    try {
+      auto &s = sessions_.at(uuid);
+      return s.OnChange(db_name);
+    } catch (std::out_of_range &) {
+      throw UnknownSession("Unknown session \"{}\"", uuid);
+    }
   }
 
   /**
@@ -368,8 +364,9 @@ class SessionContextHandler {
    */
   void RestoreTriggers() {
     std::lock_guard<LockT> wr(lock_);
-    for (auto ic_itr = interp_handler_.begin(); ic_itr != interp_handler_.end(); ++ic_itr) {
-      auto ic = ic_itr->second.get();
+    for (auto &ic_itr : interp_handler_) {
+      auto ic = ic_itr.second.get();
+      spdlog::debug("Restoring trigger for database \"{}\"", ic->db->id());
       auto storage_accessor = ic->db->Access();
       auto dba = memgraph::query::DbAccessor{&storage_accessor};
       ic->trigger_store.RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
@@ -382,21 +379,20 @@ class SessionContextHandler {
    */
   void RestoreStreams() {
     std::lock_guard<LockT> wr(lock_);
-    for (auto ic_itr = interp_handler_.begin(); ic_itr != interp_handler_.end(); ++ic_itr) {
-      auto ic = ic_itr->second.get();
+    for (auto &ic_itr : interp_handler_) {
+      auto ic = ic_itr.second.get();
+      spdlog::debug("Restoring streams for database \"{}\"", ic->db->id());
       ic->streams.RestoreStreams();
     }
   }
 
  private:
   std::optional<std::filesystem::path> StorageDir_(const std::string &name) const {
-    try {
-      const auto conf = storage_handler_.GetConfig(name);
-      if (conf) {
-        return conf->durability.storage_directory;
-      }
-    } catch (std::out_of_range &) {
+    const auto conf = storage_handler_.GetConfig(name);
+    if (conf) {
+      return conf->durability.storage_directory;
     }
+    spdlog::debug("Failed to find storage dir for database \"{}\"", name);
     return {};
   }
 
@@ -421,6 +417,7 @@ class SessionContextHandler {
       storage.durability.storage_directory /= storage_subdir;
       return New_(name, storage, default_configs_->interp_config);
     }
+    spdlog::info("Trying to generate session context without any configurations.");
     return NewError::NO_CONFIGS;
   }
 
@@ -438,7 +435,7 @@ class SessionContextHandler {
     MG_ASSERT(auth_checker_, "No high level AuthChecker has been supplied.");
 
     if (defunct_dbs_.contains(name)) {
-      spdlog::warn("Failed to  generate database due to the unknown state of the previously defunct database \"{}\".",
+      spdlog::warn("Failed to generate database due to the unknown state of the previously defunct database \"{}\".",
                    name);
       return NewError::DEFUNCT;
     }
@@ -525,15 +522,14 @@ class SessionContextHandler {
       }
       // }
     }
-    throw SessionContextException("Tried to retrieve an unknown database \"{}\".", name);
+    throw UnknownDatabase("Tried to retrieve an unknown database \"{}\".", name);
   }
 
   // Should storage objects ever be deleted?
-  mutable LockT lock_;                    //!< protective lock
-  std::atomic_bool initialized_;          //!< initialized flag (safeguard against multiple init calls)
-  std::filesystem::path lock_file_path_;  //!< Lock file protecting the main storage
-  utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
-  StorageHandler storage_handler_;        //!< multi-tenancy storage handler
+  mutable LockT lock_;                                          //!< protective lock
+  std::filesystem::path lock_file_path_;                        //!< Lock file protecting the main storage
+  utils::OutputFile lock_file_handle_;                          //!< Handler the lock (crash if already open)
+  StorageHandler storage_handler_;                              //!< multi-tenancy storage handler
   InterpContextHandler<SessionContextHandler> interp_handler_;  //!< multi-tenancy interpreter handler
   // AuthContextHandler auth_handler_; //!< multi-tenancy authorization handler (currently we use a single global
   // auth)

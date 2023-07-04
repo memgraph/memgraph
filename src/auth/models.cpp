@@ -485,7 +485,6 @@ bool operator==(const Role &first, const Role &second) {
 void Databases::Add(const std::string &db) {
   if (allow_all_) {
     grants_dbs_.clear();
-    denies_dbs_.clear();
     allow_all_ = false;
   }
   grants_dbs_.emplace(db);

@@ -133,28 +133,16 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   const auto &grants = db.GetGrants();
   const auto &denies = db.GetDenies();
 
-  std::vector<memgraph::query::TypedValue> res_grants;
+  std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
   if (allows) {
-    res_grants.emplace_back("*");
+    res.emplace_back("*");
   } else {
     std::vector<memgraph::query::TypedValue> grants_vec(grants.cbegin(), grants.cend());
-    res_grants.emplace_back(grants_vec);
-    // res_grants.reserve(grants.size());
-    // for (const auto &g : grants) {
-    // }
+    res.emplace_back(grants_vec);
   }
-
-  // std::vector<memgraph::query::TypedValue> res_denies;
   std::vector<memgraph::query::TypedValue> denies_vec(denies.cbegin(), denies.cend());
-  res_grants.emplace_back(denies_vec);
-  // res_denies.reserve(denies.size());
-  // for (const auto &d : denies) {
-  //   res_denies.emplace_back(d);
-  // }
-
-  // std::vector<std::vector<memgraph::query::TypedValue>> res;
-  // return res;
-  return {{res_grants}};
+  res.emplace_back(denies_vec);
+  return {res};
 }
 
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
