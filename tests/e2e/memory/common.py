@@ -9,10 +9,40 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import subprocess
+import sys
 import typing
 
 import mgclient
 import pytest
+
+
+def get_memgraph_pid() -> str:
+    command = f"pgrep memgraph"
+    try:
+        output = subprocess.check_output(command, shell=True).decode("utf-8").strip()
+        output = output.split("\n")
+        if len(output) > 1:
+            print(f"Multiple Memgraph processes running: {output}", file=sys.stderr)
+            exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"Exception: {e}", file=sys.stderr)
+        exit(1)
+    return output[0]
+
+
+def read_pid_peak_memory_in_MB(pid: str) -> int:
+    command = f"grep ^VmPeak /proc/{pid}/status"
+    output = subprocess.check_output(command, shell=True).decode("utf-8").strip()
+    process_peak_memory = output.split(":")[1].strip().split(" ")[0]
+    return int(process_peak_memory) / 1024
+
+
+def read_pid_current_memory_in_MB(pid: str) -> int:
+    command = f"ps -p {pid} -o rss="
+    output = subprocess.check_output(command, shell=True)
+    current_memory_usage = int(output.decode("utf-8").strip()) / 1024
+    return current_memory_usage
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:

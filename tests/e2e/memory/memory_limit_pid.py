@@ -2,41 +2,45 @@ import subprocess
 import sys
 import time
 
+import common
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect
 
 MEMORY_LIMIT = 1024  # MB
 THRESHOLD = 0.01  # 1% of memory limit
 
 
-def test_memgraph_memory_control_via_pid(connect):
-    memgraph_pid = subprocess.check_output(["pgrep", "memgraph"]).decode("utf-8").strip()
+def test_memgraph_memory_limit_via_pid(connect):
+    memgraph_pid = common.get_memgraph_pid()
     start_time = time.time()
     end_time = start_time + 30
 
     cursor = connect.cursor()
     counter = 0
+    # Take a memory sample before the test
+    current_memory_usage = common.read_pid_current_memory_in_MB(memgraph_pid)
+    memgraph_peak_memory_usage_mb = common.read_pid_peak_memory_in_MB(memgraph_pid)
+
+    # Create nodes until the memory limit is reached (Exception is thrown)
     try:
         while True:
-            command = f"ps -p {memgraph_pid} -o rss="
-            output = subprocess.check_output(command, shell=True)
-            current_memory_usage = int(output.decode("utf-8").strip()) / 1024
-            print(
-                f"Nodes created {counter * 10000} Current memory usage of process {memgraph_pid} (memgraph): {current_memory_usage} MB"
-            )
-            execute_and_fetch_all(cursor, "FOREACH (i IN range(0,10000) | CREATE (:Node {id: i}));")
+            common.execute_and_fetch_all(cursor, "FOREACH (i IN range(0,100000) | CREATE (:Node {id: i}));")
+            current_memory_usage = common.read_pid_current_memory_in_MB(memgraph_pid)
+            memgraph_peak_memory_usage_mb = common.read_pid_peak_memory_in_MB(memgraph_pid)
+            print(f"Nodes created {(counter * 100000):,} current memory usage of Memgraph: {current_memory_usage} MB")
+            print(f"Current peak memory usage of Memgraph: {memgraph_peak_memory_usage_mb} MB")
             counter += 1
             if time.time() > end_time:
                 print("Time limit exceeded, breaking loop.", file=sys.stderr)
                 break
     except Exception as e:
         print(f"Exception: {e}", file=sys.stderr)
+        if "Memory limit exceeded" not in str(e):
+            assert False, f"Unexpected exception: {e}, test not valid!"
         pass
 
-    command = f"grep ^VmPeak /proc/{memgraph_pid}/status"
-    output = subprocess.check_output(command, shell=True).decode("utf-8").strip()
-    process_peak_memory = output.split(":")[1].strip().split(" ")[0]
-    memgraph_peak_memory_usage_mb = int(process_peak_memory) / 1024
+    current_memory_usage = common.read_pid_current_memory_in_MB(memgraph_pid)
+    memgraph_peak_memory_usage_mb = common.read_pid_peak_memory_in_MB(memgraph_pid)
     MEMORY_LIMIT_WITH_THRESHOLD = MEMORY_LIMIT + (MEMORY_LIMIT * THRESHOLD)
     if memgraph_peak_memory_usage_mb > MEMORY_LIMIT_WITH_THRESHOLD:
         assert False, f"""Memgraph peak memory usage is greater than memory limit {MEMORY_LIMIT} MB + 1%
