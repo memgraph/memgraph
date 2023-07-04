@@ -7,7 +7,7 @@ import pytest
 from common import MEMORY_LIMIT, THRESHOLD, connect
 
 
-def test_memgraph_memory_limit_read(connect):
+def test_memgraph_memory_limit_delete(connect):
     memgraph_pid = common.get_memgraph_pid()
     start_time = time.time()
     end_time = start_time + 30
@@ -43,8 +43,8 @@ def test_memgraph_memory_limit_read(connect):
 
     # Run memory intensive query
     try:
-        print("Running memory intensive query...")
-        common.execute_and_fetch_all(cursor, "MATCH path=(n)-[e]-(m) RETURN path;")
+        print("Running delete query")
+        common.execute_and_fetch_all(cursor, "MATCH n DETACH DELETE n;")
     except Exception as e:
         print(f"Exception: {e}", file=sys.stderr)
         if "Memory limit exceeded" not in str(e):
