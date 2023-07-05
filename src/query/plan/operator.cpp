@@ -2737,6 +2737,18 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
 
   auto result =
       dba.DeleteBulk(DeleteBulkInfo{.edges = std::move(edge_buffer), .nodes = std::move(node_buffer), self_.detach_});
+  if (result.HasError()) {
+    switch (result.GetError()) {
+      case storage::Error::SERIALIZATION_ERROR:
+        throw TransactionSerializationException();
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw RemoveAttachedVertexException();
+      case storage::Error::DELETED_OBJECT:
+      case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Unexpected error when deleting a node.");
+    }
+  }
 
   return false;
 }

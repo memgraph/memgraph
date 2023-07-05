@@ -743,6 +743,10 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
 
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
+    if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) {
+      return Error::VERTEX_HAS_EDGES;
+    }
+
     CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
     vertex_ptr->deleted = true;
 
