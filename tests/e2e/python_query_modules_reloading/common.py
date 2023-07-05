@@ -14,6 +14,16 @@ import typing
 import mgclient
 
 
+def switch_db(cursor):
+    execute_and_fetch_all(cursor, "USE DATABASE clean;")
+
+
+def create_multi_db(cursor):
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(cursor, "DROP DATABASE clean;")
+    execute_and_fetch_all(cursor, "CREATE DATABASE clean;")
+
+
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()

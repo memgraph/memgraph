@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/core.h>
 #include <gflags/gflags.h>
 #include <mgclient.hpp>
 
@@ -40,16 +41,51 @@ auto GetVertexCount(std::unique_ptr<mg::Client> &client) {
   return row[0].ValueInt();
 }
 
-void CleanDatabase() {
-  auto client = GetClient();
+void CleanDatabase(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("MATCH (n) DETACH DELETE n;"));
   client->DiscardAll();
+}
+
+void SetupCleanDB() {
+  auto client = GetClient();
+  MG_ASSERT(client->Execute("USE DATABASE memgraph;"));
+  client->DiscardAll();
+  MG_ASSERT(client->Execute("DROP DATABASE clean;"));
+  client->DiscardAll();
+  MG_ASSERT(client->Execute("CREATE DATABASE clean;"));
+  client->DiscardAll();
+  MG_ASSERT(client->Execute("USE DATABASE clean;"));
+  client->DiscardAll();
+  CleanDatabase(client);
+}
+
+void SwitchToDB(const std::string &name, std::unique_ptr<mg::Client> &client) {
+  MG_ASSERT(client->Execute(fmt::format("USE DATABASE {};", name)));
+  client->DiscardAll();
+}
+
+void SwitchToCleanDB(std::unique_ptr<mg::Client> &client) { SwitchToDB("clean", client); }
+
+void SwitchToSameDB(std::unique_ptr<mg::Client> &main, std::unique_ptr<mg::Client> &client) {
+  MG_ASSERT(main->Execute("SHOW DATABASES;"));
+  auto dbs = main->FetchAll();
+  MG_ASSERT(dbs, "Failed to show databases");
+  for (const auto &elem : *dbs) {
+    MG_ASSERT(elem.size(), "Show databases wrong output");
+    const auto &active = elem[1].ValueString();
+    if (active == "*") {
+      const auto &name = elem[0].ValueString();
+      SwitchToDB(std::string(name), client);
+      break;
+    }
+  }
 }
 
 void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
   spdlog::info("Verifying SNAPSHOT ISOLATION");
 
   auto creator = GetClient();
+  SwitchToSameDB(client, creator);
 
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
@@ -76,13 +112,14 @@ void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
             "at a later point.",
             current_vertex_count, 0);
   MG_ASSERT(client->CommitTransaction());
-  CleanDatabase();
+  CleanDatabase(creator);
 }
 
 void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
   spdlog::info("Verifying READ COMMITTED");
 
   auto creator = GetClient();
+  SwitchToSameDB(client, creator);
 
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
@@ -108,13 +145,14 @@ void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
             "from a committed transaction",
             current_vertex_count, vertex_count);
   MG_ASSERT(client->CommitTransaction());
-  CleanDatabase();
+  CleanDatabase(creator);
 }
 
 void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
   spdlog::info("Verifying READ UNCOMMITTED");
 
   auto creator = GetClient();
+  SwitchToSameDB(client, creator);
 
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
@@ -139,17 +177,22 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
             "from a different transaction",
             current_vertex_count, vertex_count);
   MG_ASSERT(client->CommitTransaction());
-  CleanDatabase();
+  CleanDatabase(creator);
 }
 
 inline constexpr std::array isolation_levels{std::pair{"SNAPSHOT ISOLATION", &TestSnapshotIsolation},
                                              std::pair{"READ COMMITTED", &TestReadCommitted},
                                              std::pair{"READ UNCOMMITTED", &TestReadUncommitted}};
 
-void TestGlobalIsolationLevel() {
+void TestGlobalIsolationLevel(bool mdb = false) {
   spdlog::info("\n\n----Test global isolation levels----\n");
   auto first_client = GetClient();
   auto second_client = GetClient();
+
+  if (mdb) {
+    SwitchToCleanDB(first_client);
+    SwitchToCleanDB(second_client);
+  }
 
   for (const auto &[isolation_level, verification_function] : isolation_levels) {
     spdlog::info("--------------------------");
@@ -163,11 +206,17 @@ void TestGlobalIsolationLevel() {
   }
 }
 
-void TestSessionIsolationLevel() {
+void TestSessionIsolationLevel(bool mdb = false) {
   spdlog::info("\n\n----Test session isolation levels----\n");
 
   auto global_client = GetClient();
   auto session_client = GetClient();
+
+  if (mdb) {
+    SwitchToCleanDB(global_client);
+    SwitchToCleanDB(session_client);
+  }
+
   for (const auto &[global_isolation_level, global_verification_function] : isolation_levels) {
     spdlog::info("Setting global isolation level to {}", global_isolation_level);
     MG_ASSERT(global_client->Execute(fmt::format("SET GLOBAL TRANSACTION ISOLATION LEVEL {}", global_isolation_level)));
@@ -190,11 +239,17 @@ void TestSessionIsolationLevel() {
 }
 
 // Priority of applying the isolation level from highest priority NEXT -> SESSION -> GLOBAL
-void TestNextIsolationLevel() {
+void TestNextIsolationLevel(bool mdb = false) {
   spdlog::info("\n\n----Test next isolation levels----\n");
 
   auto global_client = GetClient();
   auto session_client = GetClient();
+
+  if (mdb) {
+    SwitchToCleanDB(global_client);
+    SwitchToCleanDB(session_client);
+  }
+
   for (const auto &[global_isolation_level, global_verification_function] : isolation_levels) {
     spdlog::info("Setting global isolation level to {}", global_isolation_level);
     MG_ASSERT(global_client->Execute(fmt::format("SET GLOBAL TRANSACTION ISOLATION LEVEL {}", global_isolation_level)));
@@ -247,6 +302,15 @@ int main(int argc, char **argv) {
   TestGlobalIsolationLevel();
   TestSessionIsolationLevel();
   TestNextIsolationLevel();
+
+  // MultiDB tests
+  spdlog::info("--------------------------");
+  spdlog::info("---- RUNNING MULTI DB ----");
+  spdlog::info("--------------------------");
+  SetupCleanDB();
+  TestGlobalIsolationLevel(true);
+  TestSessionIsolationLevel(true);
+  TestNextIsolationLevel(true);
 
   return 0;
 }
