@@ -519,7 +519,7 @@ auto ToQueryExtras(memgraph::communication::bolt::Value const &extra) -> memgrap
     tx_timeout = it->second.ValueInt();
   }
 
-  return memgraph::query::QueryExtras{std::move(metadata_pv), std::move(tx_timeout)};
+  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout};
 }
 
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,

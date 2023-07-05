@@ -1026,7 +1026,7 @@ struct TxTimeout {
     // - zero timeout means no timeout
     if (value_ <= 0.0) value_.reset();
   };
-  operator bool() const { return value_.has_value(); }
+  explicit operator bool() const { return value_.has_value(); }
   double value() const { return *value_; }
 
  private:
@@ -1260,7 +1260,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout, InterpreterConfig con
     auto const as_seconds = double(*tx_timeout) / 1000;
     if (global_tx_timeout > 0.0) return TxTimeout{std::min(global_tx_timeout, as_seconds)};
     return TxTimeout{as_seconds};
-  } else if (global_tx_timeout > 0.0) {
+  }
+  if (global_tx_timeout > 0.0) {
     return TxTimeout{global_tx_timeout};
   }
   return TxTimeout{};
