@@ -34,6 +34,15 @@ def get_memgraph_pid() -> str:
     return output[0]
 
 
+def connect_heap_track_to_memgraph(pid) -> None:
+    command = f"heaptrack -p {pid} -o ./memgraph.heaptrack"
+    try:
+        subprocess.Popen(command, shell=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Exception: {e}", file=sys.stderr)
+        exit(1)
+
+
 def read_pid_peak_memory_in_MB(pid: str) -> int:
     command = f"grep ^VmHWM /proc/{pid}/status"
     output = subprocess.check_output(command, shell=True).decode("utf-8").strip()

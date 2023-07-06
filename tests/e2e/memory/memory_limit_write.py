@@ -9,11 +9,13 @@ from common import MEMORY_LIMIT, THRESHOLD, connect
 
 def test_memgraph_memory_limit_write(connect):
     memgraph_pid = common.get_memgraph_pid()
+    common.connect_heap_track_to_memgraph(memgraph_pid)
     start_time = time.time()
     end_time = start_time + 30
 
     cursor = connect.cursor()
     counter = 0
+
     # Take a memory sample before the test
     current_memory_usage = common.read_pid_current_memory_in_MB(memgraph_pid)
     memgraph_peak_memory_usage_mb = common.read_pid_peak_memory_in_MB(memgraph_pid)
