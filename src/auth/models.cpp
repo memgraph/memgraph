@@ -444,10 +444,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    if (!data["fine_grained_access_handler"].is_object()) {
-      throw AuthException("Couldn't load user data!");
+    FineGrainedAccessHandler fine_grained_access_handler;
+    // We can have an empty fine_grained if the user was created without a valid license
+    if (data["fine_grained_access_handler"].is_object()) {
+      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
     }
-    auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
     return {data["rolename"], permissions, std::move(fine_grained_access_handler)};
   }
 #endif
@@ -594,10 +595,11 @@ User User::Deserialize(const nlohmann::json &data) {
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    if (!data["fine_grained_access_handler"].is_object()) {
-      throw AuthException("Couldn't load user data!");
+    FineGrainedAccessHandler fine_grained_access_handler;
+    // We can have an empty fine_grained if the user was created without a valid license
+    if (data["fine_grained_access_handler"].is_object()) {
+      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
     }
-    auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
     return {data["username"], data["password_hash"], permissions, fine_grained_access_handler};
   }
 #endif
