@@ -695,6 +695,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
+#ifdef MG_ENTERPRISE
     if (user_.has_value()) {
       const auto &db = user_->db_access().GetDefault();
       // Check if the underlying database needs to be updated
@@ -703,6 +704,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
       }
     }
+#endif
     return user_.has_value();
   }
 
