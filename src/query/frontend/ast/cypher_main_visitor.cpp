@@ -1633,6 +1633,17 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabasePrivileges(MemgraphCypher::Sho
   return auth;
 }
 
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitSetMainDatabase(MemgraphCypher::SetMainDatabaseContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SET_MAIN_DATABASE;
+  auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  return auth;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnContext *ctx) {
   auto *return_clause = storage_->Create<Return>();
   return_clause->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));

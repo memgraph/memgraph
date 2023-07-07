@@ -387,6 +387,20 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
+
+bool AuthQueryHandler::SetMainDatabase(const std::string &db, const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user name.");
+  }
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) return false;
+    return locked_auth->SetMainDatabase(db, username);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
 #endif
 
 bool AuthQueryHandler::DropRole(const std::string &rolename) {

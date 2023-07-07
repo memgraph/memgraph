@@ -575,6 +575,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowDatabasePrivileges(MemgraphCypher::ShowDatabasePrivilegesContext *ctx) override;
 
   /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitSetMainDatabase(MemgraphCypher::SetMainDatabaseContext *ctx) override;
+
+  /**
    * @return Return*
    */
   antlrcpp::Any visitCypherReturn(MemgraphCypher::CypherReturnContext *ctx) override;

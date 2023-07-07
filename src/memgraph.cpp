@@ -695,6 +695,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
+    if (user_.has_value()) {
+      const auto &db = user_->db_access().GetDefault();
+      // Check if the underlying database needs to be updated
+      if (db != current_.db()->id()) {
+        const auto &res = sc_handler_.SetFor(UUID(), db);
+        return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
+      }
+    }
     return user_.has_value();
   }
 
@@ -706,17 +714,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     MultiDatabaseAuth(db_name);
-    if (state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
-      if (db_name != current_.db()->id()) {
-        defunct_.emplace(std::move(current_));
-        current_ = ContextWrapper(sc_handler_.Get(db_name));
-        Setup(current_);
-        defunct_->Defunct();
-        return memgraph::dbms::SetForResult::SUCCESS;
-      }
-      return memgraph::dbms::SetForResult::ALREADY_SET;
+    if (db_name != current_.db()->id()) {
+      defunct_.emplace(std::move(current_));
+      current_ = ContextWrapper(sc_handler_.Get(db_name));
+      Setup(current_);
+      defunct_->Defunct();
+      return memgraph::dbms::SetForResult::SUCCESS;
     }
-    return memgraph::dbms::SetForResult::FAIL;
+    return memgraph::dbms::SetForResult::ALREADY_SET;
   }
 
   bool OnDelete(const std::string &db_name) override {

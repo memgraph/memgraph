@@ -348,7 +348,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
                                                           AuthQuery::Action::SHOW_ROLE_FOR_USER,
                                                           AuthQuery::Action::GRANT_DATABASE_TO_USER,
                                                           AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
-                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES};
+                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
+                                                          AuthQuery::Action::SET_MAIN_DATABASE};
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
@@ -544,6 +545,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         res = auth->GetDatabasePrivileges(username);
 #endif
         return res;
+      };
+      return callback;
+    case AuthQuery::Action::SET_MAIN_DATABASE:
+      callback.fn = [auth, database, username] {  // NOLINT
+#ifdef MG_ENTERPRISE
+        if (!auth->SetMainDatabase(database, username)) {
+          throw utils::BasicException("Failed to set main database {} for user {}.", database, username);
+        }
+#endif
+        return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     default:

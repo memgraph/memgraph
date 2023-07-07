@@ -33,6 +33,7 @@ class TestAuthHandler : public memgraph::query::AuthQueryHandler {
   void SetPassword(const std::string & /*username*/, const std::optional<std::string> & /*password*/) override {}
   bool RevokeDatabaseFromUser(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
   bool GrantDatabaseToUser(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
+  bool SetMainDatabase(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string & /*user*/) override {
     return {};
   }

@@ -15,6 +15,7 @@
 
 #include <json/json.hpp>
 #include "dbms/constants.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
@@ -244,12 +245,7 @@ bool operator==(const Role &first, const Role &second);
 #ifdef MG_ENTERPRISE
 class Databases final {
  public:
-  Databases() : allow_all_(true) {}
-  explicit Databases(std::set<std::string> allow) : grants_dbs_(allow), allow_all_(false) {}
-  Databases(std::set<std::string> grant, std::set<std::string> deny)
-      : grants_dbs_(grant), denies_dbs_(deny), allow_all_(false) {}
-  Databases(bool allow_all, std::set<std::string> grant, std::set<std::string> deny)
-      : grants_dbs_(grant), denies_dbs_(deny), allow_all_(allow_all) {}
+  Databases() : allow_all_(true), default_db_(dbms::kDefaultDB) {}
 
   Databases(const Databases &) = default;
   Databases &operator=(const Databases &) = default;
@@ -292,6 +288,11 @@ class Databases final {
   void DenyAll();
 
   /**
+   * @brief Set the default database.
+   */
+  bool SetDefault(const std::string &db);
+
+  /**
    * @brief Checks if access is grated to the database.
    *
    * @param db name of the database
@@ -302,15 +303,21 @@ class Databases final {
   bool GetAllowAll() const { return allow_all_; }
   const std::set<std::string> &GetGrants() const { return grants_dbs_; }
   const std::set<std::string> &GetDenies() const { return denies_dbs_; }
+  const std::string &GetDefault() const;
 
   nlohmann::json Serialize() const;
   /// @throw AuthException if unable to deserialize.
   static Databases Deserialize(const nlohmann::json &data);
 
  private:
+  Databases(bool allow_all, std::set<std::string> grant, std::set<std::string> deny,
+            const std::string &default_db = dbms::kDefaultDB)
+      : grants_dbs_(grant), denies_dbs_(deny), allow_all_(allow_all), default_db_(default_db) {}
+
   std::set<std::string> grants_dbs_;  //!< set of databases with granted access
   std::set<std::string> denies_dbs_;  //!< set of databases with denied access
   bool allow_all_;                    //!< flag to allow access to everything (denied overrides this)
+  std::string default_db_;            //!< user's default database
 };
 #endif
 

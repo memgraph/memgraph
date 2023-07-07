@@ -44,6 +44,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   bool GrantDatabaseToUser(const std::string &db, const std::string &username) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) override;
+
+  bool SetMainDatabase(const std::string &db, const std::string &username) override;
 #endif
 
   bool CreateRole(const std::string &rolename) override;

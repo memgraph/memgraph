@@ -163,6 +163,7 @@ authQuery : createRole
           | grantDatabaseToUser
           | revokeDatabaseFromUser
           | showDatabasePrivileges
+          | setMainDatabase
           ;
 
 replicationQuery : setReplicationRole
@@ -280,6 +281,8 @@ grantDatabaseToUser : GRANT DATABASE db=wildcardName TO USER user=symbolicName ;
 revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM USER user=symbolicName ;
 
 showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR USER user=symbolicName ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR USER user=symbolicName ;
 
 privilege : CREATE
           | DELETE

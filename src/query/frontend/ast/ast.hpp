@@ -2779,7 +2779,8 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_USERS_FOR_ROLE,
     GRANT_DATABASE_TO_USER,
     REVOKE_DATABASE_FROM_USER,
-    SHOW_DATABASE_PRIVILEGES
+    SHOW_DATABASE_PRIVILEGES,
+    SET_MAIN_DATABASE,
   };
 
   enum class Privilege {

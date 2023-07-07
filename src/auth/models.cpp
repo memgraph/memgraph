@@ -515,8 +515,21 @@ void Databases::DenyAll() {
   denies_dbs_.clear();
 }
 
+bool Databases::SetDefault(const std::string &db) {
+  if (!Contains(db)) return false;
+  default_db_ = db;
+  return true;
+}
+
 [[nodiscard]] bool Databases::Contains(const std::string &db) const {
   return !denies_dbs_.contains(db) && (allow_all_ || grants_dbs_.contains(db));
+}
+
+const std::string &Databases::GetDefault() const {
+  if (!Contains(default_db_)) {
+    throw AuthException("No access to the set default database \"{}\".", default_db_);
+  }
+  return default_db_;
 }
 
 nlohmann::json Databases::Serialize() const {
@@ -524,6 +537,7 @@ nlohmann::json Databases::Serialize() const {
   data["grants"] = grants_dbs_;
   data["denies"] = denies_dbs_;
   data["allow_all"] = allow_all_;
+  data["default"] = default_db_;
   return data;
 }
 
@@ -531,10 +545,11 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load database data!");
   }
-  if (!data["grants"].is_structured() || !data["denies"].is_structured() || !data["allow_all"].is_boolean()) {
+  if (!data["grants"].is_structured() || !data["denies"].is_structured() || !data["allow_all"].is_boolean() ||
+      !data["default"].is_string()) {
     throw AuthException("Couldn't load database data!");
   }
-  return {data["allow_all"], data["grants"], data["denies"]};
+  return {data["allow_all"], data["grants"], data["denies"], data["default"]};
 }
 #endif
 
