@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::utils {
 
@@ -100,7 +101,10 @@ void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
 void MemoryTracker::Alloc(const int64_t size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
-  const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
+  const int64_t os_without_allocation =
+      OS_process_reported_memory_.load(std::memory_order_relaxed) - amount_.load(std::memory_order_relaxed);
+
+  const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed) + os_without_allocation;
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
@@ -114,10 +118,14 @@ void MemoryTracker::Alloc(const int64_t size) {
                     "use to {}, while the maximum allowed size for allocation is set to {}.",
                     GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   }
-
+  SetOsProcessReportedMemory(GetMemoryUsage());
   UpdatePeak(will_be);
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+
+void MemoryTracker::SetOsProcessReportedMemory(int64_t memory) {
+  OS_process_reported_memory_.store(memory, std::memory_order_relaxed);
+}
 
 }  // namespace memgraph::utils
