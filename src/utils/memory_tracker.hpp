@@ -62,7 +62,7 @@ class MemoryTracker final {
   void SetHardLimit(int64_t limit);
   void TryRaiseHardLimit(int64_t limit);
   void SetMaximumHardLimit(int64_t limit);
-  void SetOsProcessReportedMemory(int64_t memory);
+  void SetOsProcessReportedMemory(uint64_t memory);
 
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.

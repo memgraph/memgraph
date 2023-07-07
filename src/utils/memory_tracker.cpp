@@ -124,7 +124,7 @@ void MemoryTracker::Alloc(const int64_t size) {
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
 
-void MemoryTracker::SetOsProcessReportedMemory(int64_t memory) {
+void MemoryTracker::SetOsProcessReportedMemory(uint64_t memory) {
   OS_process_reported_memory_.store(memory, std::memory_order_relaxed);
 }
 
