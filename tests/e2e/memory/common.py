@@ -11,6 +11,7 @@
 
 import subprocess
 import sys
+import time
 import typing
 
 import mgclient
@@ -32,15 +33,6 @@ def get_memgraph_pid() -> str:
         print(f"Exception: {e}", file=sys.stderr)
         exit(1)
     return output[0]
-
-
-def connect_heap_track_to_memgraph(pid) -> None:
-    command = f"heaptrack -p {pid} -o ./memgraph.heaptrack"
-    try:
-        subprocess.Popen(command, shell=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Exception: {e}", file=sys.stderr)
-        exit(1)
 
 
 def read_pid_peak_memory_in_MB(pid: str) -> int:
