@@ -1191,10 +1191,20 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
+#ifdef MG_ENTERPRISE
+    telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
+      auto info = sc_handler.Info();
+      const auto &vertex_count = std::get<0>(info);
+      const auto &edge_count = std::get<1>(info);
+      const auto &db_count = std::get<2>(info);
+      return {{"vertices", vertex_count}, {"edges", edge_count}, {"databases", db_count}};
+    });
+#else
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
+#endif
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
       for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {

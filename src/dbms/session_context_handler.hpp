@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <concepts>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -337,6 +338,25 @@ class SessionContextHandler {
   std::vector<std::string> All() const {
     std::shared_lock<LockT> rd(lock_);
     return storage_handler_.All();
+  }
+
+  /**
+   * @brief Return the number of vertex across all databases.
+   *
+   * @return uint64_t
+   */
+  std::tuple<uint64_t, uint64_t, uint64_t> Info() const {
+    // TODO: Handle overflow
+    uint64_t nv = 0;
+    uint64_t ne = 0;
+    std::shared_lock<LockT> rd(lock_);
+    uint64_t ndb = std::distance(storage_handler_.cbegin(), storage_handler_.cend());
+    for (auto db = storage_handler_.cbegin(); db != storage_handler_.cend(); ++db) {
+      const auto &info = db->second.get()->GetInfo();
+      nv += info.vertex_count;
+      ne += info.edge_count;
+    }
+    return {nv, ne, ndb};
   }
 
   /**
