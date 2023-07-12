@@ -497,20 +497,33 @@ class SessionContextHandler {
       // Recreate the dbms layout for the default db and symlink to the root
       const auto dir = StorageDir_(kDefaultDB);
       MG_ASSERT(dir, "Failed to find storage path.");
-      const auto main_dir = *dir / "databases";
-      const auto to_root = std::filesystem::relative(*dir, main_dir);
+      const auto main_dir = *dir / "databases" / kDefaultDB;
 
-      const auto link = main_dir / kDefaultDB;
-      if (!std::filesystem::exists(link)) {
-        std::filesystem::create_directory_symlink(to_root, link);
-      } else {  // Check existing link
-        std::error_code ec;
-        const auto test_link = std::filesystem::read_symlink(link, ec);
-        if (ec || test_link != to_root) {
-          MG_ASSERT(false,
-                    "Memgraph storage directory incompatible with new version.\n"
-                    "Please use a clean directory or remove \"{}\" and try again.",
-                    link.string());
+      if (!std::filesystem::exists(main_dir)) {
+        std::filesystem::create_directory(main_dir);
+      }
+
+      // Some directories are redundant (skip those)
+      const std::vector<std::string> skip{".lock", "audit_log", "auth", "databases", "internal_modules", "settings"};
+      // TODO: Probably need to add a force list as well
+
+      // Symlink to root dir
+      for (auto const &item : std::filesystem::directory_iterator{*dir}) {
+        const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
+        if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
+        const auto link = main_dir / dir_name;
+        const auto to = std::filesystem::relative(item.path(), main_dir);
+        if (!std::filesystem::exists(link)) {
+          std::filesystem::create_directory_symlink(to, link);
+        } else {  // Check existing link
+          std::error_code ec;
+          const auto test_link = std::filesystem::read_symlink(link, ec);
+          if (ec || test_link != to) {
+            MG_ASSERT(false,
+                      "Memgraph storage directory incompatible with new version.\n"
+                      "Please use a clean directory or remove \"{}\" and try again.",
+                      link.string());
+          }
         }
       }
     }
