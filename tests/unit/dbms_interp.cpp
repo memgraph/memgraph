@@ -26,36 +26,42 @@ class TestAuthHandler : public memgraph::query::AuthQueryHandler {
  public:
   TestAuthHandler() = default;
 
-  bool CreateUser(const std::string &username, const std::optional<std::string> &password) override { return true; }
-  bool DropUser(const std::string &username) override { return true; }
-  void SetPassword(const std::string &username, const std::optional<std::string> &password) override {}
+  bool CreateUser(const std::string & /*username*/, const std::optional<std::string> & /*password*/) override {
+    return true;
+  }
+  bool DropUser(const std::string & /*username*/) override { return true; }
+  void SetPassword(const std::string & /*username*/, const std::optional<std::string> & /*password*/) override {}
   bool RevokeDatabaseFromUser(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
   bool GrantDatabaseToUser(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
-  bool CreateRole(const std::string &rolename) override { return true; }
-  bool DropRole(const std::string &rolename) override { return true; }
+  bool SetMainDatabase(const std::string & /*db*/, const std::string & /*username*/) override { return true; }
+  std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string & /*user*/) override {
+    return {};
+  }
+  bool CreateRole(const std::string & /*rolename*/) override { return true; }
+  bool DropRole(const std::string & /*rolename*/) override { return true; }
   std::vector<memgraph::query::TypedValue> GetUsernames() override { return {}; }
   std::vector<memgraph::query::TypedValue> GetRolenames() override { return {}; }
-  std::optional<std::string> GetRolenameForUser(const std::string &username) override { return {}; }
-  std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) override { return {}; }
-  void SetRole(const std::string &username, const std::string &rolename) override {}
+  std::optional<std::string> GetRolenameForUser(const std::string & /*username*/) override { return {}; }
+  std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string & /*rolename*/) override { return {}; }
+  void SetRole(const std::string &username, const std::string & /*rolename*/) override {}
   void ClearRole(const std::string &username) override {}
-  std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) override {
+  std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string & /*user_or_role*/) override {
     return {};
   }
   void GrantPrivilege(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::string & /*user_or_role*/, const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
+          & /*label_privileges*/,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges) override {}
-  void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {}
+          & /*edge_type_privileges*/) override {}
+  void DenyPrivilege(const std::string & /*user_or_role*/,
+                     const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/) override {}
   void RevokePrivilege(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::string & /*user_or_role*/, const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
+          & /*label_privileges*/,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges) override {}
+          & /*edge_type_privileges*/) override {}
 };
 
 class TestAuthChecker : public memgraph::query::AuthChecker {
@@ -67,7 +73,7 @@ class TestAuthChecker : public memgraph::query::AuthChecker {
   }
 
   std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const std::string &username, const memgraph::query::DbAccessor *db_accessor) const override {
+      const std::string & /*username*/, const memgraph::query::DbAccessor * /*db_accessor*/) const override {
     return {};
   }
 };

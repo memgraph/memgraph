@@ -525,6 +525,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
 
   /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitWildcardName(MemgraphCypher::WildcardNameContext *ctx) override;
+
+  /**
    * @return AuthQuery::FineGrainedPrivilege
    */
   antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
@@ -563,6 +568,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitRevokeDatabaseFromUser(MemgraphCypher::RevokeDatabaseFromUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowDatabasePrivileges(MemgraphCypher::ShowDatabasePrivilegesContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitSetMainDatabase(MemgraphCypher::SetMainDatabaseContext *ctx) override;
 
   /**
    * @return Return*

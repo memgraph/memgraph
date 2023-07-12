@@ -122,6 +122,29 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 }
 
 #ifdef MG_ENTERPRISE
+std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
+    const std::optional<memgraph::auth::User> &user) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !user) {
+    return {};
+  }
+
+  const auto &db = user->db_access();
+  const auto &allows = db.GetAllowAll();
+  const auto &grants = db.GetGrants();
+  const auto &denies = db.GetDenies();
+
+  std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
+  if (allows) {
+    res.emplace_back("*");
+  } else {
+    std::vector<memgraph::query::TypedValue> grants_vec(grants.cbegin(), grants.cend());
+    res.emplace_back(grants_vec);
+  }
+  std::vector<memgraph::query::TypedValue> denies_vec(denies.cbegin(), denies.cend());
+  res.emplace_back(denies_vec);
+  return {res};
+}
+
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
@@ -347,6 +370,37 @@ bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db, const std::str
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
+
+std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
+    const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
+  }
+  try {
+    auto locked_auth = auth_->ReadLock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+    return ShowDatabasePrivileges(user);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+bool AuthQueryHandler::SetMainDatabase(const std::string &db, const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user name.");
+  }
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) return false;
+    return locked_auth->SetMainDatabase(db, username);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
 #endif
 
 bool AuthQueryHandler::DropRole(const std::string &rolename) {
@@ -493,6 +547,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
 #ifdef MG_ENTERPRISE
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
+    std::vector<std::vector<memgraph::query::TypedValue>> database_grants;
 #endif
     auto user = locked_auth->GetUser(user_or_role);
     auto role = locked_auth->GetRole(user_or_role);

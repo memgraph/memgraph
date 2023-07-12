@@ -52,6 +52,11 @@ QUERIES = [
     ("CREATE INDEX ON :User (id)", {}),
 ]
 
+CREATE_DB_QUERIES = [
+    ("DROP DATABASE clean", {}),
+    ("CREATE DATABASE clean", {}),
+]
+
 
 def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -93,20 +98,30 @@ def execute_test(memgraph_binary, tester_binary):
         assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
     def execute_queries(queries):
-        for _, query, params in queries:
+        for db, query, params in queries:
             print(query, params)
-            args = [tester_binary, "--query", query, "--params-json", json.dumps(params)]
+            args = [tester_binary, "--query", query, "--use-db", db, "--params-json", json.dumps(params)]
             subprocess.run(args).check_returncode()
 
-    # TODO Generate query runs for multiple DBs
-    # Every new session lands in the default db, we mush change how the test runs
-    mt_queries = []
-    mt_queries += gen_mt_queries(QUERIES, DEFAULT_DB)
+    # Test default db
+    mt_queries = gen_mt_queries(QUERIES, DEFAULT_DB)
 
     # Execute all queries
     print("\033[1;36m~~ Starting query execution ~~\033[0m")
     execute_queries(mt_queries)
     print("\033[1;36m~~ Finished query execution ~~\033[0m\n")
+
+    # Test new db
+    print("\033[1;36m~~ Creating clean database ~~\033[0m")
+    mt_queries2 = gen_mt_queries(CREATE_DB_QUERIES, DEFAULT_DB)
+    execute_queries(mt_queries2)
+    print("\033[1;36m~~ Finished creating clean database ~~\033[0m\n")
+
+    # Execute all queries on clean database
+    mt_queries3 = gen_mt_queries(QUERIES, "clean")
+    print("\033[1;36m~~ Starting query execution on clean database ~~\033[0m")
+    execute_queries(mt_queries3)
+    print("\033[1;36m~~ Finished query execution on clean database ~~\033[0m\n")
 
     # Shutdown the memgraph binary
     memgraph.terminate()
@@ -131,10 +146,16 @@ def execute_test(memgraph_binary, tester_binary):
         for line in reader:
             timestamp, address, username, database, query, params = line
             params = json.loads(params)
+            if query.startswith("USE DATABASE"):
+                continue  # Skip all databases switching queries
             queries.append((database, query, params))
             print(database, query, params)
 
-        assert queries == mt_queries, "Logged queries don't match " "executed queries!"
+        # Combine all queries executed
+        all_queries = mt_queries
+        all_queries += mt_queries2
+        all_queries += mt_queries3
+        assert queries == all_queries, "Logged queries don't match " "executed queries!"
     print("\033[1;36m~~ Finished log verification ~~\033[0m\n")
 
 

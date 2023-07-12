@@ -353,6 +353,18 @@ void Auth::DeleteDatabase(const std::string &db) {
     }
   }
 }
+
+bool Auth::SetMainDatabase(const std::string &db, const std::string &name) {
+  auto user = GetUser(name);
+  if (user) {
+    if (!user->db_access().SetDefault(db)) {
+      throw AuthException("Couldn't set default database '{}' for user '{}'!", db, name);
+    }
+    SaveUser(*user);
+    return true;
+  }
+  return false;
+}
 #endif
 
 }  // namespace memgraph::auth

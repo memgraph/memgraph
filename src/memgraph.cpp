@@ -222,6 +222,12 @@ DEFINE_uint64(storage_recovery_thread_count,
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_delete_on_drop, true,
+            "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.");
+#endif
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
@@ -689,6 +695,16 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
+#ifdef MG_ENTERPRISE
+    if (user_.has_value()) {
+      const auto &db = user_->db_access().GetDefault();
+      // Check if the underlying database needs to be updated
+      if (db != current_.db()->id()) {
+        const auto &res = sc_handler_.SetFor(UUID(), db);
+        return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
+      }
+    }
+#endif
     return user_.has_value();
   }
 
@@ -700,17 +716,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     MultiDatabaseAuth(db_name);
-    if (state_ == memgraph::communication::bolt::State::Result) {  // Only during pull
-      if (db_name != current_.db()->id()) {
-        defunct_.emplace(std::move(current_));
-        current_ = ContextWrapper(sc_handler_.Get(db_name));
-        Setup(current_);
-        defunct_->Defunct();
-        return memgraph::dbms::SetForResult::SUCCESS;
-      }
-      return memgraph::dbms::SetForResult::ALREADY_SET;
+    if (db_name != current_.db()->id()) {
+      defunct_.emplace(std::move(current_));
+      current_ = ContextWrapper(sc_handler_.Get(db_name));
+      Setup(current_);
+      defunct_->Defunct();
+      return memgraph::dbms::SetForResult::SUCCESS;
     }
-    return memgraph::dbms::SetForResult::FAIL;
+    return memgraph::dbms::SetForResult::ALREADY_SET;
   }
 
   bool OnDelete(const std::string &db_name) override {
@@ -1088,7 +1101,7 @@ int main(int argc, char **argv) {
            }
          }
        }},
-      FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup);
+      FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup, FLAGS_storage_delete_on_drop);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
@@ -1178,10 +1191,20 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
+#ifdef MG_ENTERPRISE
+    telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
+      auto info = sc_handler.Info();
+      const auto &vertex_count = std::get<0>(info);
+      const auto &edge_count = std::get<1>(info);
+      const auto &db_count = std::get<2>(info);
+      return {{"vertices", vertex_count}, {"edges", edge_count}, {"databases", db_count}};
+    });
+#else
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
+#endif
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
       for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {

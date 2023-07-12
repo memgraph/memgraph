@@ -25,6 +25,7 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
 DEFINE_bool(check_failure, false, "Set to true to enable failure checking.");
 DEFINE_bool(should_fail, false, "Set to true to expect a failure.");
+DEFINE_bool(connection_should_fail, false, "Set to true to expect a connection failure.");
 DEFINE_string(failure_message, "", "Set to the expected failure message.");
 
 /**
@@ -42,14 +43,32 @@ int main(int argc, char **argv) {
   memgraph::communication::ClientContext context(FLAGS_use_ssl);
   memgraph::communication::bolt::Client client(context);
 
-  client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  std::regex re(FLAGS_failure_message);
+
+  try {
+    client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  } catch (const memgraph::communication::bolt::ClientFatalException &e) {
+    if (FLAGS_connection_should_fail) {
+      if (!FLAGS_failure_message.empty() && !std::regex_match(e.what(), re)) {
+        LOG_FATAL(
+            "The connection should have failed with an error message of '{}'' but "
+            "instead it failed with '{}'",
+            FLAGS_failure_message, e.what());
+      }
+      return 0;
+    } else {
+      LOG_FATAL(
+          "The connection shoudn't have failed but it failed with an "
+          "error message '{}'",
+          e.what());
+    }
+  }
 
   for (int i = 1; i < argc; ++i) {
     std::string query(argv[i]);
     try {
       client.Execute(query, {});
     } catch (const memgraph::communication::bolt::ClientQueryException &e) {
-      std::regex re(FLAGS_failure_message);
       if (!FLAGS_check_failure) {
         if (!FLAGS_failure_message.empty() && std::regex_match(e.what(), re)) {
           LOG_FATAL(

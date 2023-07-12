@@ -162,6 +162,8 @@ authQuery : createRole
           | showUsersForRole
           | grantDatabaseToUser
           | revokeDatabaseFromUser
+          | showDatabasePrivileges
+          | setMainDatabase
           ;
 
 replicationQuery : setReplicationRole
@@ -215,7 +217,7 @@ streamQuery : checkStream
 
 databaseName : symbolicName ;
 
-databaseNameOrStar : databaseName | '*' ;
+wildcardName : ASTERISK | symbolicName ;
 
 settingQuery : setSetting
              | showSetting
@@ -274,9 +276,13 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
-grantDatabaseToUser : GRANT DATABASE db=databaseNameOrStar TO USER user=symbolicName ;
+grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
 
-revokeDatabaseFromUser : REVOKE DATABASE db=databaseNameOrStar FROM USER user=symbolicName ;
+revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
 
 privilege : CREATE
           | DELETE

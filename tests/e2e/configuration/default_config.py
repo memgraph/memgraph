@@ -157,6 +157,11 @@ startup_config_dict = {
         "Issue a 'fsync' call after this amount of transactions are written to the WAL file. Set to 1 for fully synchronous operation.",
     ),
     "storage_wal_file_size_kib": ("20480", "20480", "Minimum file size of each WAL file."),
+    "storage_delete_on_drop": (
+        "true",
+        "true",
+        "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.",
+    ),
     "stream_transaction_conflict_retries": (
         "30",
         "30",

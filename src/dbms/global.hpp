@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <string>
 
+#include "utils/exceptions.hpp"
+
 namespace memgraph::dbms {
 
 enum class DeleteError : uint8_t {
@@ -36,6 +38,36 @@ enum class SetForResult : uint8_t {
   SUCCESS,
   ALREADY_SET,
   FAIL,
+};
+
+/**
+ * UnknownUser Exception
+ *
+ * Used to indicate that an unknown user was used.
+ */
+class UnknownUser : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
+
+/**
+ * UnknownSession Exception
+ *
+ * Used to indicate that an unknown session was used.
+ */
+class UnknownSession : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
+
+/**
+ * UnknownDatabase Exception
+ *
+ * Used to indicate that an unknown database was used.
+ */
+class UnknownDatabase : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
 };
 
 #ifdef MG_ENTERPRISE

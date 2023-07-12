@@ -183,6 +183,16 @@ class Auth final {
    * @throw AuthException if unable to read data
    */
   void DeleteDatabase(const std::string &db);
+
+  /**
+   * @brief Set main database for an individual user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  bool SetMainDatabase(const std::string &db, const std::string &name);
 #endif
 
  private:

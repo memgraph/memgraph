@@ -82,7 +82,7 @@ class TestEnvironment : public ::testing::Environment {
               ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
               ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
             }},
-        false);
+        false, true);
   }
 
   void TearDown() override { ptr_.reset(); }
@@ -97,14 +97,16 @@ using DBMS_HandlerDeath = DBMS_Handler;
 
 TEST(DBMS_Handler, Init) {
   // Check that the default db has been created successfully
-  std::vector<std::string> dirs = {"auth", "snapshots", "streams", "triggers", "wal"};
+  std::vector<std::string> dirs = {"snapshots", "streams", "triggers", "wal"};
   for (const auto &dir : dirs) ASSERT_TRUE(std::filesystem::exists(storage_directory / dir));
   const auto db_path = storage_directory / "databases" / memgraph::dbms::kDefaultDB;
   ASSERT_TRUE(std::filesystem::exists(db_path));
-  std::error_code ec;
-  const auto test_link = std::filesystem::read_symlink(db_path, ec);
-  ASSERT_TRUE(!ec);
-  ASSERT_EQ(test_link, "..");
+  for (const auto &dir : dirs) {
+    std::error_code ec;
+    const auto test_link = std::filesystem::read_symlink(db_path / dir, ec);
+    ASSERT_TRUE(!ec) << ec.message();
+    ASSERT_EQ(test_link, "../../" + dir);
+  }
 }
 
 TEST(DBMS_HandlerDeath, InitSameDir) {
@@ -123,7 +125,7 @@ TEST(DBMS_HandlerDeath, InitSameDir) {
                ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, "");
                ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
              }},
-            false);
+            false, true);
       },
       R"(\b.*\b)");
 }

@@ -347,7 +347,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
                                                           AuthQuery::Action::SHOW_USERS_FOR_ROLE,
                                                           AuthQuery::Action::SHOW_ROLE_FOR_USER,
                                                           AuthQuery::Action::GRANT_DATABASE_TO_USER,
-                                                          AuthQuery::Action::REVOKE_DATABASE_FROM_USER};
+                                                          AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
+                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
+                                                          AuthQuery::Action::SET_MAIN_DATABASE};
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
@@ -530,6 +532,26 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 #ifdef MG_ENTERPRISE
         if (!auth->RevokeDatabaseFromUser(database, username)) {
           throw utils::BasicException("Failed to revoke database {} from user {}.", database, username);
+        }
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
+      callback.header = {"grants", "denies"};
+      callback.fn = [auth, username] {  // NOLINT
+        std::vector<std::vector<TypedValue>> res;
+#ifdef MG_ENTERPRISE
+        res = auth->GetDatabasePrivileges(username);
+#endif
+        return res;
+      };
+      return callback;
+    case AuthQuery::Action::SET_MAIN_DATABASE:
+      callback.fn = [auth, database, username] {  // NOLINT
+#ifdef MG_ENTERPRISE
+        if (!auth->SetMainDatabase(database, username)) {
+          throw utils::BasicException("Failed to set main database {} for user {}.", database, username);
         }
 #endif
         return std::vector<std::vector<TypedValue>>();
@@ -2472,6 +2494,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
+            {TypedValue("name"), TypedValue(db->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
@@ -2875,22 +2898,22 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            try {
-              const auto set = sc_handler.SetFor(session_uuid, db_name);
-              switch (set) {
-                case dbms::SetForResult::SUCCESS:
-                  res = "Using " + db_name;
-                  break;
-                case dbms::SetForResult::ALREADY_SET:
-                  res = "Already using " + db_name;
-                  break;
-                case dbms::SetForResult::FAIL:
-                  res = "Failed to start using " + db_name;
-                  break;
-              }
-            } catch (std::out_of_range &) {
-              res = db_name + " does not exist.";
+            // try {
+            const auto set = sc_handler.SetFor(session_uuid, db_name);
+            switch (set) {
+              case dbms::SetForResult::SUCCESS:
+                res = "Using " + db_name;
+                break;
+              case dbms::SetForResult::ALREADY_SET:
+                res = "Already using " + db_name;
+                break;
+              case dbms::SetForResult::FAIL:
+                res = "Failed to start using " + db_name;
+                break;
             }
+            // } catch (std::out_of_range &) {
+            //   res = db_name + " does not exist.";
+            // }
 
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
@@ -2952,7 +2975,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        const std::string &session_uuid) {
+                                        const std::string &session_uuid, std::map<std::string, TypedValue> *summary,
+                                        DbAccessor *dba, utils::MemoryResource *execution_memory,
+                                        const std::string *username,
+                                        std::atomic<TransactionStatus> *transaction_status) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -2961,26 +2987,51 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   if (interpreter_context->db->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
+
+  Callback callback;
+
+  callback.header = {"Name", "Current"};
+  callback.fn = [session_uuid,
+                 &sc_handler = static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)
+                                   ->sc_handler_]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> status;
+    // Get all active dbs
+    auto all = sc_handler.All();
+    const auto in_use = sc_handler.Current(session_uuid);
+    std::sort(all.begin(), all.end());
+    status.reserve(all.size());
+    for (const auto &name : all) {
+      status.push_back({TypedValue(name), TypedValue("")});
+    }
+    // Update current db
+    auto it = std::lower_bound(
+        status.begin(), status.end(), std::vector<TypedValue>({TypedValue(in_use), TypedValue("")}),
+        [](const auto &lhs, const auto &rhs) { return lhs[0].ValueString().compare(rhs[0].ValueString()) < 0; });
+    MG_ASSERT(it != status.end() && std::string((*it)[0].ValueString()) == in_use, "Missing current database!");
+    (*it)[1] = "*";
+
+    return status;
+  };
+
+  SymbolTable symbol_table;
+  std::vector<Symbol> output_symbols;
+  for (const auto &column : callback.header) {
+    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
+  }
+
+  auto plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
+      std::make_unique<plan::OutputTable>(output_symbols,
+                                          [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
+      0.0, AstStorage{}, symbol_table));
+
+  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
+                                              execution_memory, StringPointerToOptional(username), transaction_status);
   return PreparedQuery{
-      {"Name", "Current"},
-      std::move(parsed_query.required_privileges),
-      [session_uuid,
-       &sc_handler =
-           static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
-          AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        std::vector<std::vector<TypedValue>> status;
-
-        auto all = sc_handler.All();
-        const auto in_use = sc_handler.Current(session_uuid);
-        std::sort(all.begin(), all.end());
-        status.reserve(all.size());
-        for (const auto &name : all) {
-          status.push_back({TypedValue(name), (name == in_use) ? TypedValue("*") : TypedValue("")});
-        }
-
-        auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::COMMIT;
+      callback.header, std::move(parsed_query.required_privileges),
+      [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
+       summary](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
+          return callback.should_abort_query ? QueryHandlerResult::ABORT : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       },
@@ -3203,7 +3254,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_,
                                                  interpreter_context_, session_uuid);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid);
+      prepared_query = PrepareShowDatabasesQuery(
+          std::move(parsed_query), interpreter_context_, session_uuid, &query_execution->summary,
+          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

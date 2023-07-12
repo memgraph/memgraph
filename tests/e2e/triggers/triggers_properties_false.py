@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,11 +43,6 @@ def test_create_on_create(ba_commit, multi_db):
         CREATE (n:CreatedEdge {{count: size(createdEdges)}})
     """
 
-    triggers_list = execute_and_fetch_all(cursor, "SHOW DATABASES")
-    print(triggers_list)
-    for trigger in triggers_list:
-        print(trigger[0])
-
     execute_and_fetch_all(cursor, QUERY_TRIGGER_CREATE)
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
@@ -67,6 +62,13 @@ def test_create_on_create(ba_commit, multi_db):
     assert len(created_edges) == 1
     # execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
     # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+
+    # check that there is no cross contamination between databases
+    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
+    if len(nodes) == 2:  # multi db mode
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        assert len(created_edges) == 0
 
 
 @pytest.mark.parametrize("multi_db", [False, True], indirect=True)
@@ -120,6 +122,13 @@ def test_create_on_delete(ba_commit, multi_db):
     assert len(deleted_edges) == 1
     # execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
     # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")``
+
+    # check that there is no cross contamination between databases
+    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
+    if len(nodes) == 2:  # multi db mode
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        assert len(created_edges) == 0
 
 
 # @pytest.mark.parametrize("multi_db", [False, True], indirect=True)
