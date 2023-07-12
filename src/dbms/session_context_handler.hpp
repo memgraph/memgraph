@@ -350,7 +350,7 @@ class SessionContextHandler {
     uint64_t nv = 0;
     uint64_t ne = 0;
     std::shared_lock<LockT> rd(lock_);
-    uint64_t ndb = std::distance(storage_handler_.cbegin(), storage_handler_.cend());
+    const uint64_t ndb = std::distance(storage_handler_.cbegin(), storage_handler_.cend());
     for (auto db = storage_handler_.cbegin(); db != storage_handler_.cend(); ++db) {
       const auto &info = db->second.get()->GetInfo();
       nv += info.vertex_count;
