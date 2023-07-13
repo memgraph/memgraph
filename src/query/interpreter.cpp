@@ -2827,7 +2827,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
-PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, bool in_explicit_db,
                                         InterpreterContext *interpreter_context, const std::string &session_uuid) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -2888,6 +2888,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       };
 
     case MultiDatabaseQuery::Action::USE:
+      if (in_explicit_db) {
+        throw QueryException("Database switching is prohibited if session explicitly defines the used database");
+      }
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
@@ -3251,7 +3254,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_,
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
                                                  interpreter_context_, session_uuid);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(

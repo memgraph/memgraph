@@ -535,7 +535,7 @@ class SessionContextHandler {
    *
    * @param name
    * @return SessionContext
-   * @throw UnknownDatabase unknown database
+   * @throw UnknownDatabase if trying to get unknown database
    */
   SessionContext Get_(const std::string &name) {
     auto storage = storage_handler_.Get(name);
