@@ -11,10 +11,12 @@
 
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include "utils/exceptions.hpp"
 
 namespace memgraph::utils {
 
@@ -43,7 +45,7 @@ struct SyncPtr {
    * @brief Destroy the synched pointer and wait for all copies to get destroyed.
    *
    */
-  ~SyncPtr() {
+  void DestroyAndSync() {
     ptr_.reset();
     SyncOnDelete();
   }
@@ -75,8 +77,12 @@ struct SyncPtr {
    *
    */
   void SyncOnDelete() {
+    // TODO: Make the timeout configurable
+    using namespace std::chrono_literals;
     std::unique_lock<std::mutex> lock(in_use_mtx_);
-    in_use_cv_.wait(lock, [this] { return !in_use_; });
+    if (!in_use_cv_.wait_for(lock, 1s, [this] { return !in_use_; })) {
+      throw utils::BasicException("Syncronization timeout!");
+    }
   }
 
   /**
@@ -143,8 +149,12 @@ class SyncPtr<TContext, void> {
    *
    */
   void SyncOnDelete() {
+    // TODO: Make the timeout configurable
+    using namespace std::chrono_literals;
     std::unique_lock<std::mutex> lock(in_use_mtx_);
-    in_use_cv_.wait(lock, [this] { return !in_use_; });
+    if (!in_use_cv_.wait_for(lock, 1s, [this] { return !in_use_; })) {
+      throw utils::BasicException("Syncronization timeout!");
+    }
   }
 
   /**

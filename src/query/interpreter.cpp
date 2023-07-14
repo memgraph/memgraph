@@ -2936,35 +2936,39 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            const auto success = sc_handler.Delete(db_name);
-            if (success.HasError()) {
-              switch (success.GetError()) {
-                case dbms::DeleteError::DEFAULT_DB:
-                  res = "Cannot delete the default database.";
-                  break;
-                case dbms::DeleteError::NON_EXISTENT:
-                  res = db_name + " does not exist.";
-                  break;
-                case dbms::DeleteError::USING:
-                  res = "Cannot delete " + db_name + ", it is currently being used.";
-                  break;
-                case dbms::DeleteError::FAIL:
-                  res = "Failed while deleting " + db_name;
-                  break;
-                case dbms::DeleteError::DISK_FAIL:
-                  res = "Failed to clean storage of " + db_name;
-                  break;
+            try {
+              const auto success = sc_handler.Delete(db_name);
+              if (success.HasError()) {
+                switch (success.GetError()) {
+                  case dbms::DeleteError::DEFAULT_DB:
+                    res = "Cannot delete the default database.";
+                    break;
+                  case dbms::DeleteError::NON_EXISTENT:
+                    res = db_name + " does not exist.";
+                    break;
+                  case dbms::DeleteError::USING:
+                    res = "Cannot delete " + db_name + ", it is currently being used.";
+                    break;
+                  case dbms::DeleteError::FAIL:
+                    res = "Failed while deleting " + db_name;
+                    break;
+                  case dbms::DeleteError::DISK_FAIL:
+                    res = "Failed to clean storage of " + db_name;
+                    break;
+                }
+              } else {
+                res = "Successfully deleted " + db_name;
               }
-            } else {
-              res = "Successfully deleted " + db_name;
-            }
 
-            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
+              status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+              auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+              if (pull_plan->Pull(stream, n)) {
+                return QueryHandlerResult::COMMIT;
+              }
+              return std::nullopt;
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
             }
-            return std::nullopt;
           },
           RWType::W,
           query->db_name_};

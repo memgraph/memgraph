@@ -90,6 +90,7 @@ class Handler {
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
+      itr->second.DestroyAndSync();
       items_.erase(itr);
       return true;
     }
