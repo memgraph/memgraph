@@ -53,7 +53,7 @@ void SetupCleanDB() {
   client->DiscardAll();
   try {
     client->Execute("DROP DATABASE clean;");
-  } catch (const memgraph::query::QueryRuntimeException &) {
+  } catch (const mg::ClientException &) {
     // In case clean doesn't exist
   }
   client->DiscardAll();
