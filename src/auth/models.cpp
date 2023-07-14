@@ -15,8 +15,10 @@
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
+#include "dbms/constants.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
@@ -686,10 +688,15 @@ User User::Deserialize(const nlohmann::json &data) {
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    if (!data["databases"].is_structured()) {
-      throw AuthException("Couldn't load user data!");
+    Databases db_access;
+    if (data["databases"].is_structured()) {
+      db_access = Databases::Deserialize(data["databases"]);
+    } else {
+      // Back-compatibility
+      spdlog::warn("User without specified database access. Given access to the default database.");
+      db_access.Add(dbms::kDefaultDB);
+      db_access.SetDefault(dbms::kDefaultDB);
     }
-    auto db_access = Databases::Deserialize(data["databases"]);
     if (!data["fine_grained_access_handler"].is_object()) {
       throw AuthException("Couldn't load user data!");
     }
