@@ -520,6 +520,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
     ContextWrapper &operator=(ContextWrapper &&in) noexcept {
       if (this != &in) {
+        Defunct();
         session_context = std::move(in.session_context);
         interpreter = std::move(in.interpreter);
         defunct_ = in.defunct_;
@@ -581,29 +582,33 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) override {
 #ifdef MG_ENTERPRISE
     std::string db;
+    bool update = false;
+    // Check if user explicitly defined the database to use
     if (run_time_info.contains("db")) {
-      db = memgraph::glue::ToPropertyValue(run_time_info.at("db")).ValueString();
+      const auto &db_info = run_time_info.at("db");
+      if (!db_info.IsString()) {
+        throw memgraph::communication::bolt::ClientError("Malformed database name.");
+      }
+      db = db_info.ValueString();
+      update = db != current_.db()->id();
+      interpreter_->in_explicit_db_ = true;
+    } else if (interpreter_->in_explicit_db_) {  // Just on a switch
+      db = GetDefaultDB();
+      update = db != current_.db()->id();
+      interpreter_->in_explicit_db_ = false;
     }
 
     // Check if the underlying database needs to be updated
-    if (db.empty() || db == current_.db()->id()) {
-      if (temporary_.has_value()) {
-        // Update if no db or the default db specified and the temporary db was used in the previous query
-        sc_handler_.CallInPlace([this]() mutable {
-          Setup(current_);
-          temporary_.reset();
-        });
-      }
-    } else if (!temporary_ || db != temporary_->db()->id()) {
-      // Update if non default db specified or the temporary db is different
+    if (update) {
       sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
-        const auto &db = new_sc.db->id();
-        MultiDatabaseAuth(db);
-        ContextWrapper tmp(new_sc);
-        Setup(tmp);
-        temporary_.reset();
-        temporary_ = std::move(tmp);
-        return memgraph::dbms::SetForResult::SUCCESS;
+        const auto &db_name = new_sc.db->id();
+        MultiDatabaseAuth(db_name);
+        try {
+          Update(ContextWrapper(new_sc));
+          return memgraph::dbms::SetForResult::SUCCESS;
+        } catch (memgraph::dbms::UnknownDatabase &e) {
+          throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", db_name);
+        }
       });
     }
 #endif
@@ -717,18 +722,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     MultiDatabaseAuth(db_name);
     if (db_name != current_.db()->id()) {
-      defunct_.emplace(std::move(current_));
-      current_ = ContextWrapper(sc_handler_.Get(db_name));
-      Setup(current_);
-      defunct_->Defunct();
+      UpdateAndDefunct(db_name);  // Done during Pull, so we cannot just replace the current db
       return memgraph::dbms::SetForResult::SUCCESS;
     }
     return memgraph::dbms::SetForResult::ALREADY_SET;
   }
 
   bool OnDelete(const std::string &db_name) override {
-    MG_ASSERT(current_.db()->id() != db_name && (!temporary_ || temporary_->db()->id() != db_name) &&
-                  (!defunct_ || defunct_->defunct()),
+    MG_ASSERT(current_.db()->id() != db_name && (!defunct_ || defunct_->defunct()),
               "Trying to delete a database while still in use.");
     return true;
   }
@@ -779,16 +780,54 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
 #ifdef MG_ENTERPRISE
-  void Setup(ContextWrapper &cntx) {
-    interpreter_ = cntx.interp();
-    db_ = cntx.db();
+  /**
+   * @brief Update setup to the new database.
+   *
+   * @param db_name name of the target database
+   * @throws UnknownDatabase if handler cannot get it
+   */
+  void UpdateAndDefunct(const std::string &db_name) { UpdateAndDefunct(ContextWrapper(sc_handler_.Get(db_name))); }
+
+  void UpdateAndDefunct(ContextWrapper &&cntxt) {
+    defunct_.emplace(std::move(current_));
+    Update(std::forward<ContextWrapper>(cntxt));
+    defunct_->Defunct();
   }
 
+  void Update(const std::string &db_name) {
+    ContextWrapper tmp(sc_handler_.Get(db_name));
+    Update(std::move(tmp));
+  }
+
+  void Update(ContextWrapper &&cntxt) {
+    current_ = std::move(cntxt);
+    interpreter_ = current_.interp();
+    db_ = current_.db();
+  }
+
+  /**
+   * @brief Authenticate user on passed database.
+   *
+   * @param db database to check against
+   * @throws bolt::ClientError when user is not authorized
+   */
   void MultiDatabaseAuth(const std::string &db) {
     if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, {}, db)) {
       throw memgraph::communication::bolt::ClientError(
           "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
     }
+  }
+
+  /**
+   * @brief Get the user's default database
+   *
+   * @return std::string
+   */
+  std::string GetDefaultDB() {
+    if (user_.has_value()) {
+      return user_->db_access().GetDefault();
+    }
+    return memgraph::dbms::kDefaultDB;
   }
 #endif
 
@@ -830,7 +869,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::dbms::SessionContextHandler &sc_handler_;
 #endif
   ContextWrapper current_;
-  std::optional<ContextWrapper> temporary_;
   std::optional<ContextWrapper> defunct_;
 
   const memgraph::storage::Storage *db_;
