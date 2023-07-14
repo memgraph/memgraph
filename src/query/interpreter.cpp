@@ -2896,7 +2896,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            memgraph::dbms::SetForResult set;
+            memgraph::dbms::SetForResult set = memgraph::dbms::SetForResult::SUCCESS;
 
             try {
               set = sc_handler.SetFor(session_uuid, db_name);
@@ -2934,9 +2934,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
-            std::string res;
 
-            memgraph::dbms::DeleteResult success;
+            memgraph::dbms::DeleteResult success{};
 
             try {
               success = sc_handler.Delete(db_name);
