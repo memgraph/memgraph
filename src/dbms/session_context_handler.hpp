@@ -571,7 +571,9 @@ class SessionContextHandler {
   std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
   bool delete_on_drop_;                //!< Flag defining if dropping storage also deletes its directory
  public:
-  using InterpContextT = decltype(interp_handler_)::InterpContextT;
+  static SessionContextHandler &ExtractSCH(query::InterpreterContext *interpreter_context) {
+    return static_cast<typename decltype(interp_handler_)::InterpContextT *>(interpreter_context)->sc_handler_;
+  }
 };
 
 #else
