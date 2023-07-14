@@ -13,6 +13,7 @@
 #include <gflags/gflags.h>
 #include <mgclient.hpp>
 
+#include "query/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
@@ -50,7 +51,11 @@ void SetupCleanDB() {
   auto client = GetClient();
   MG_ASSERT(client->Execute("USE DATABASE memgraph;"));
   client->DiscardAll();
-  MG_ASSERT(client->Execute("DROP DATABASE clean;"));
+  try {
+    client->Execute("DROP DATABASE clean;");
+  } catch (const mg::ClientException &) {
+    // In case clean doesn't exist
+  }
   client->DiscardAll();
   MG_ASSERT(client->Execute("CREATE DATABASE clean;"));
   client->DiscardAll();

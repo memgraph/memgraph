@@ -2886,16 +2886,14 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                   res = db_name + " already exists.";
                   break;
                 case dbms::NewError::DEFUNCT:
-                  res = db_name +
-                        " is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
-                        "Memgraph.";
-                  break;
+                  throw QueryRuntimeException(
+                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                      "Memgraph.",
+                      db_name);
                 case dbms::NewError::GENERIC:
-                  res = "Failed while creating " + db_name;
-                  break;
+                  throw QueryRuntimeException("Failed while creating {}", db_name);
                 case dbms::NewError::NO_CONFIGS:
-                  res = "No configuration found while trying to create " + db_name;
-                  break;
+                  throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
               }
             } else {
               res = "Successfully created database " + db_name;
@@ -2922,8 +2920,14 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                              std::vector<std::vector<TypedValue>> status;
                              std::string res;
 
-                             // try {
-                             const auto set = sc_handler.SetFor(session_uuid, db_name);
+                             memgraph::dbms::SetForResult set = memgraph::dbms::SetForResult::SUCCESS;
+
+                             try {
+                               set = sc_handler.SetFor(session_uuid, db_name);
+                             } catch (const utils::BasicException &e) {
+                               throw QueryRuntimeException(e.what());
+                             }
+
                              switch (set) {
                                case dbms::SetForResult::SUCCESS:
                                  res = "Using " + db_name;
@@ -2932,12 +2936,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                                  res = "Already using " + db_name;
                                  break;
                                case dbms::SetForResult::FAIL:
-                                 res = "Failed to start using " + db_name;
-                                 break;
+                                 throw QueryRuntimeException("Failed to start using {}", db_name);
                              }
-                             // } catch (std::out_of_range &) {
-                             //   res = db_name + " does not exist.";
-                             // }
 
                              status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
                              auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
@@ -2950,49 +2950,45 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                            query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
-      return PreparedQuery{{"STATUS"},
-                           std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, session_uuid, &sc_handler](
-                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                             std::vector<std::vector<TypedValue>> status;
-                             std::string res;
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, session_uuid, &sc_handler](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
 
-                             try {
-                               const auto success = sc_handler.Delete(db_name);
-                               if (success.HasError()) {
-                                 switch (success.GetError()) {
-                                   case dbms::DeleteError::DEFAULT_DB:
-                                     res = "Cannot delete the default database.";
-                                     break;
-                                   case dbms::DeleteError::NON_EXISTENT:
-                                     res = db_name + " does not exist.";
-                                     break;
-                                   case dbms::DeleteError::USING:
-                                     res = "Cannot delete " + db_name + ", it is currently being used.";
-                                     break;
-                                   case dbms::DeleteError::FAIL:
-                                     res = "Failed while deleting " + db_name;
-                                     break;
-                                   case dbms::DeleteError::DISK_FAIL:
-                                     res = "Failed to clean storage of " + db_name;
-                                     break;
-                                 }
-                               } else {
-                                 res = "Successfully deleted " + db_name;
-                               }
+            memgraph::dbms::DeleteResult success{};
 
-                               status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-                               auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-                               if (pull_plan->Pull(stream, n)) {
-                                 return QueryHandlerResult::COMMIT;
-                               }
-                               return std::nullopt;
-                             } catch (const utils::BasicException &e) {
-                               throw QueryRuntimeException(e.what());
-                             }
-                           },
-                           RWType::W,
-                           query->db_name_};
+            try {
+              success = sc_handler.Delete(db_name);
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            if (success.HasError()) {
+              switch (success.GetError()) {
+                case dbms::DeleteError::DEFAULT_DB:
+                  throw QueryRuntimeException("Cannot delete the default database.");
+                case dbms::DeleteError::NON_EXISTENT:
+                  throw QueryRuntimeException("{} does not exist.", db_name);
+                case dbms::DeleteError::USING:
+                  throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
+                case dbms::DeleteError::FAIL:
+                  throw QueryRuntimeException("Failed while deleting {}", db_name);
+                case dbms::DeleteError::DISK_FAIL:
+                  throw QueryRuntimeException("Failed to clean storage of {}", db_name);
+              }
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W,
+          query->db_name_};
   }
 #else
   throw QueryException("Query not supported.");

@@ -20,7 +20,10 @@ def switch_db(cursor):
 
 def create_multi_db(cursor):
     execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(cursor, "DROP DATABASE clean;")
+    try:
+        execute_and_fetch_all(cursor, "DROP DATABASE clean;")
+    except:
+        pass
     execute_and_fetch_all(cursor, "CREATE DATABASE clean;")
 
 
