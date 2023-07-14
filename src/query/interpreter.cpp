@@ -304,8 +304,12 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
-Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
+Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
                          DbAccessor *db_accessor) {
+  AuthQueryHandler *auth = interpreter_context->auth;
+#ifdef MG_ENTERPRISE
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+#endif
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -518,20 +522,30 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
-      callback.fn = [auth, database, username] {  // NOLINT
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
 #ifdef MG_ENTERPRISE
-        if (!auth->GrantDatabaseToUser(database, username)) {
-          throw utils::BasicException("Failed to grant database {} to user {}.", database, username);
+        try {
+          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          if (!auth->GrantDatabaseToUser(database, username)) {
+            throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
+          }
+        } catch (memgraph::dbms::UnknownDatabase &e) {
+          throw QueryRuntimeException(e.what());
         }
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
-      callback.fn = [auth, database, username] {  // NOLINT
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
 #ifdef MG_ENTERPRISE
-        if (!auth->RevokeDatabaseFromUser(database, username)) {
-          throw utils::BasicException("Failed to revoke database {} from user {}.", database, username);
+        try {
+          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          if (!auth->RevokeDatabaseFromUser(database, username)) {
+            throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
+          }
+        } catch (memgraph::dbms::UnknownDatabase &e) {
+          throw QueryRuntimeException(e.what());
         }
 #endif
         return std::vector<std::vector<TypedValue>>();
@@ -548,10 +562,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
-      callback.fn = [auth, database, username] {  // NOLINT
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
 #ifdef MG_ENTERPRISE
-        if (!auth->SetMainDatabase(database, username)) {
-          throw utils::BasicException("Failed to set main database {} for user {}.", database, username);
+        try {
+          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          if (!auth->SetMainDatabase(database, username)) {
+            throw QueryRuntimeException("Failed to set main database {} for user {}.", database, username);
+          }
+        } catch (memgraph::dbms::UnknownDatabase &e) {
+          throw QueryRuntimeException(e.what());
         }
 #endif
         return std::vector<std::vector<TypedValue>>();
@@ -1839,7 +1858,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, dba);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;
@@ -2842,16 +2861,15 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid,
-           &sc_handler =
-               static_cast<typename memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)
-                   ->sc_handler_](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, session_uuid, &sc_handler](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
@@ -2888,86 +2906,80 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       };
 
     case MultiDatabaseQuery::Action::USE:
-      return PreparedQuery{
-          {"STATUS"},
-          std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid,
-           &sc_handler =
-               static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            std::vector<std::vector<TypedValue>> status;
-            std::string res;
+      return PreparedQuery{{"STATUS"},
+                           std::move(parsed_query.required_privileges),
+                           [db_name = query->db_name_, session_uuid, &sc_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                             std::vector<std::vector<TypedValue>> status;
+                             std::string res;
 
-            // try {
-            const auto set = sc_handler.SetFor(session_uuid, db_name);
-            switch (set) {
-              case dbms::SetForResult::SUCCESS:
-                res = "Using " + db_name;
-                break;
-              case dbms::SetForResult::ALREADY_SET:
-                res = "Already using " + db_name;
-                break;
-              case dbms::SetForResult::FAIL:
-                res = "Failed to start using " + db_name;
-                break;
-            }
-            // } catch (std::out_of_range &) {
-            //   res = db_name + " does not exist.";
-            // }
+                             // try {
+                             const auto set = sc_handler.SetFor(session_uuid, db_name);
+                             switch (set) {
+                               case dbms::SetForResult::SUCCESS:
+                                 res = "Using " + db_name;
+                                 break;
+                               case dbms::SetForResult::ALREADY_SET:
+                                 res = "Already using " + db_name;
+                                 break;
+                               case dbms::SetForResult::FAIL:
+                                 res = "Failed to start using " + db_name;
+                                 break;
+                             }
+                             // } catch (std::out_of_range &) {
+                             //   res = db_name + " does not exist.";
+                             // }
 
-            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
-            }
-            return std::nullopt;
-          },
-          RWType::NONE,
-          query->db_name_};
+                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                             if (pull_plan->Pull(stream, n)) {
+                               return QueryHandlerResult::COMMIT;
+                             }
+                             return std::nullopt;
+                           },
+                           RWType::NONE,
+                           query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
-      return PreparedQuery{
-          {"STATUS"},
-          std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid,
-           &sc_handler =
-               static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)->sc_handler_](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            std::vector<std::vector<TypedValue>> status;
-            std::string res;
+      return PreparedQuery{{"STATUS"},
+                           std::move(parsed_query.required_privileges),
+                           [db_name = query->db_name_, session_uuid, &sc_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                             std::vector<std::vector<TypedValue>> status;
+                             std::string res;
 
-            const auto success = sc_handler.Delete(db_name);
-            if (success.HasError()) {
-              switch (success.GetError()) {
-                case dbms::DeleteError::DEFAULT_DB:
-                  res = "Cannot delete the default database.";
-                  break;
-                case dbms::DeleteError::NON_EXISTENT:
-                  res = db_name + " does not exist.";
-                  break;
-                case dbms::DeleteError::USING:
-                  res = "Cannot delete " + db_name + ", it is currently being used.";
-                  break;
-                case dbms::DeleteError::FAIL:
-                  res = "Failed while deleting " + db_name;
-                  break;
-                case dbms::DeleteError::DISK_FAIL:
-                  res = "Failed to clean storage of " + db_name;
-                  break;
-              }
-            } else {
-              res = "Successfully deleted " + db_name;
-            }
+                             const auto success = sc_handler.Delete(db_name);
+                             if (success.HasError()) {
+                               switch (success.GetError()) {
+                                 case dbms::DeleteError::DEFAULT_DB:
+                                   res = "Cannot delete the default database.";
+                                   break;
+                                 case dbms::DeleteError::NON_EXISTENT:
+                                   res = db_name + " does not exist.";
+                                   break;
+                                 case dbms::DeleteError::USING:
+                                   res = "Cannot delete " + db_name + ", it is currently being used.";
+                                   break;
+                                 case dbms::DeleteError::FAIL:
+                                   res = "Failed while deleting " + db_name;
+                                   break;
+                                 case dbms::DeleteError::DISK_FAIL:
+                                   res = "Failed to clean storage of " + db_name;
+                                   break;
+                               }
+                             } else {
+                               res = "Successfully deleted " + db_name;
+                             }
 
-            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
-            }
-            return std::nullopt;
-          },
-          RWType::W,
-          query->db_name_};
+                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                             if (pull_plan->Pull(stream, n)) {
+                               return QueryHandlerResult::COMMIT;
+                             }
+                             return std::nullopt;
+                           },
+                           RWType::W,
+                           query->db_name_};
   }
 #else
   throw QueryException("Query not supported.");
@@ -2988,12 +3000,11 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 
-  Callback callback;
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
 
+  Callback callback;
   callback.header = {"Name", "Current"};
-  callback.fn = [session_uuid,
-                 &sc_handler = static_cast<memgraph::dbms::SessionContextHandler::InterpContextT *>(interpreter_context)
-                                   ->sc_handler_]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [session_uuid, &sc_handler]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
     // Get all active dbs
     auto all = sc_handler.All();
