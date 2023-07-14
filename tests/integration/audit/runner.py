@@ -53,7 +53,6 @@ QUERIES = [
 ]
 
 CREATE_DB_QUERIES = [
-    ("DROP DATABASE clean", {}),
     ("CREATE DATABASE clean", {}),
 ]
 
