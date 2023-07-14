@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <exception>
 #include <map>
 #include <optional>
 #include <string>
