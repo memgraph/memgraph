@@ -80,6 +80,11 @@ case $1 in
     ;;
 
     cluster-cleanup)
+        docker_exec="docker exec jepsen-control bash -c"
+        $docker_exec "rm -rf /jepsen/memgraph/store/*"
+    ;;
+
+    cluster-dealloc)
         ps=$(docker ps --filter name=jepsen* --filter status=running -q)
         if [[ ! -z ${ps} ]]; then
             echo "Killing ${ps}"
