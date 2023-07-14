@@ -522,8 +522,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
 #ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
           const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
           if (!auth->GrantDatabaseToUser(database, username)) {
@@ -532,13 +532,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         } catch (memgraph::dbms::UnknownDatabase &e) {
           throw QueryRuntimeException(e.what());
         }
+#else
+      callback.fn = [] {
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
 #ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
           const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
           if (!auth->RevokeDatabaseFromUser(database, username)) {
@@ -547,6 +549,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         } catch (memgraph::dbms::UnknownDatabase &e) {
           throw QueryRuntimeException(e.what());
         }
+#else
+      callback.fn = [] {
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
@@ -554,16 +558,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
       callback.header = {"grants", "denies"};
       callback.fn = [auth, username] {  // NOLINT
-        std::vector<std::vector<TypedValue>> res;
 #ifdef MG_ENTERPRISE
-        res = auth->GetDatabasePrivileges(username);
+        return auth->GetDatabasePrivileges(username);
+#else
+        return std::vector<std::vector<TypedValue>>();
 #endif
-        return res;
       };
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
 #ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
           const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
           if (!auth->SetMainDatabase(database, username)) {
@@ -572,6 +576,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         } catch (memgraph::dbms::UnknownDatabase &e) {
           throw QueryRuntimeException(e.what());
         }
+#else
+      callback.fn = [] {
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
