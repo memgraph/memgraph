@@ -82,10 +82,8 @@ struct SyncPtr {
    *
    */
   void SyncOnDelete() {
-    // TODO: Make the timeout configurable
-    using namespace std::chrono_literals;
     std::unique_lock<std::mutex> lock(in_use_mtx_);
-    if (!in_use_cv_.wait_for(lock, 1s, [this] { return !in_use_; })) {
+    if (!in_use_cv_.wait_for(lock, timeout_, [this] { return !in_use_; })) {
       throw utils::BasicException("Syncronization timeout!");
     }
   }

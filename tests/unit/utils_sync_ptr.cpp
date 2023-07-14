@@ -157,7 +157,7 @@ TEST(SyncPtr, SyncWConfig) {
   ASSERT_FALSE(alive);
 }
 
-TEST(SyncPtr, Timeout) {
+TEST(SyncPtr, Timeout100ms) {
   std::atomic_bool alive{false};
   struct Test {
     Test(std::atomic_bool &alive) : alive_(alive) { alive_ = true; }
@@ -171,14 +171,125 @@ TEST(SyncPtr, Timeout) {
 
   memgraph::utils::SyncPtr<Test> sp(alive);
   using namespace std::chrono_literals;
-  sp.timeout(100ms);  // 10sec
+  sp.timeout(100ms);
 
   ASSERT_TRUE(alive);
 
   auto p = sp.get();
 
   ASSERT_TRUE(alive);
+
+  auto start_100ms = std::chrono::system_clock::now();
   ASSERT_THROW(sp.DestroyAndSync(), memgraph::utils::BasicException);
+  auto end_100ms = std::chrono::system_clock::now();
+  auto delta_100ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_100ms - start_100ms).count();
+  ASSERT_NEAR(delta_100ms, 100, 100);
+
+  p.reset();
+  ASSERT_FALSE(alive);
+}
+
+TEST(SyncPtr, Timeout567ms) {
+  std::atomic_bool alive{false};
+  struct Test {
+    Test(std::atomic_bool &alive) : alive_(alive) { alive_ = true; }
+    ~Test() { alive_ = false; }
+    std::atomic_bool &alive_;
+  };
+
+  std::thread th;
+
+  ASSERT_FALSE(alive);
+
+  memgraph::utils::SyncPtr<Test> sp(alive);
+  using namespace std::chrono_literals;
+  sp.timeout(567ms);
+
+  ASSERT_TRUE(alive);
+
+  auto p = sp.get();
+
+  ASSERT_TRUE(alive);
+
+  auto start = std::chrono::system_clock::now();
+  ASSERT_THROW(sp.DestroyAndSync(), memgraph::utils::BasicException);
+  auto end = std::chrono::system_clock::now();
+  auto delta_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  ASSERT_NEAR(delta_ms, 567, 100);
+
+  p.reset();
+  ASSERT_FALSE(alive);
+}
+
+TEST(SyncPtr, Timeout100msWConfig) {
+  std::atomic_bool alive{false};
+  struct Test {
+    Test(std::atomic_bool &alive) : alive_(alive) { alive_ = true; }
+    ~Test() { alive_ = false; }
+    std::atomic_bool &alive_;
+  };
+
+  struct TestConf {
+    TestConf(int i) : conf_(i) {}
+    int conf_;
+  };
+
+  std::thread th;
+
+  ASSERT_FALSE(alive);
+
+  memgraph::utils::SyncPtr<Test, TestConf> sp(0, alive);
+  using namespace std::chrono_literals;
+  sp.timeout(100ms);
+
+  ASSERT_TRUE(alive);
+
+  auto p = sp.get();
+
+  ASSERT_TRUE(alive);
+
+  auto start_100ms = std::chrono::system_clock::now();
+  ASSERT_THROW(sp.DestroyAndSync(), memgraph::utils::BasicException);
+  auto end_100ms = std::chrono::system_clock::now();
+  auto delta_100ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_100ms - start_100ms).count();
+  ASSERT_NEAR(delta_100ms, 100, 100);
+
+  p.reset();
+  ASSERT_FALSE(alive);
+}
+
+TEST(SyncPtr, Timeout567msWConfig) {
+  std::atomic_bool alive{false};
+  struct Test {
+    Test(std::atomic_bool &alive) : alive_(alive) { alive_ = true; }
+    ~Test() { alive_ = false; }
+    std::atomic_bool &alive_;
+  };
+
+  struct TestConf {
+    TestConf(int i) : conf_(i) {}
+    int conf_;
+  };
+
+  std::thread th;
+
+  ASSERT_FALSE(alive);
+
+  memgraph::utils::SyncPtr<Test, TestConf> sp(2, alive);
+  using namespace std::chrono_literals;
+  sp.timeout(567ms);
+
+  ASSERT_TRUE(alive);
+
+  auto p = sp.get();
+
+  ASSERT_TRUE(alive);
+
+  auto start = std::chrono::system_clock::now();
+  ASSERT_THROW(sp.DestroyAndSync(), memgraph::utils::BasicException);
+  auto end = std::chrono::system_clock::now();
+  auto delta_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  ASSERT_NEAR(delta_ms, 567, 100);
 
   p.reset();
   ASSERT_FALSE(alive);
