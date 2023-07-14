@@ -601,13 +601,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     // Check if the underlying database needs to be updated
     if (update) {
       sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
-        const auto &db = new_sc.db->id();
-        MultiDatabaseAuth(db);
+        const auto &db_name = new_sc.db->id();
+        MultiDatabaseAuth(db_name);
         try {
-          Update(db);
+          Update(ContextWrapper(new_sc));
           return memgraph::dbms::SetForResult::SUCCESS;
         } catch (memgraph::dbms::UnknownDatabase &e) {
-          throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", db);
+          throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", db_name);
         }
       });
     }
