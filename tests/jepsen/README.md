@@ -20,3 +20,13 @@ lein run test --workload large --node-configs resources/node-config.edn
 ```
 
 Logs are located under `jepsen-control:/jepsen/memgraph/store`.
+
+If you setup cluster manually go to jepsen-control Docker container and ssh to all cluster nodes to save their host keys in known_hosts.
+```
+docker exec -it jepsen-control bash
+ssh n1 -> yes -> exit
+ssh n2 -> yes -> exit
+ssh n3 -> yes -> exit
+ssh n4 -> yes -> exit
+ssh n5 -> yes -> exit
+```
