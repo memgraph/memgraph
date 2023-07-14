@@ -12,9 +12,11 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 
 #include <utils/sync_ptr.hpp>
+#include "utils/exceptions.hpp"
 
 using namespace std::chrono_literals;
 
@@ -28,18 +30,17 @@ TEST(SyncPtr, Basic) {
 
   ASSERT_FALSE(alive);
 
-  {
-    memgraph::utils::SyncPtr<Test> sp(alive);
-    ASSERT_TRUE(alive);
-    auto sp_copy1 = sp.get();
-    auto sp_copy2 = sp.get();
+  memgraph::utils::SyncPtr<Test> sp(alive);
+  ASSERT_TRUE(alive);
+  auto sp_copy1 = sp.get();
+  auto sp_copy2 = sp.get();
 
-    sp_copy1.reset();
-    ASSERT_TRUE(alive);
-    sp_copy2.reset();
-    ASSERT_TRUE(alive);
-  }
+  sp_copy1.reset();
+  ASSERT_TRUE(alive);
+  sp_copy2.reset();
+  ASSERT_TRUE(alive);
 
+  sp.DestroyAndSync();
   ASSERT_FALSE(alive);
 }
 
@@ -58,19 +59,18 @@ TEST(SyncPtr, BasicWConfig) {
 
   ASSERT_FALSE(alive);
 
-  {
-    memgraph::utils::SyncPtr<Test, TestConf> sp(123, alive);
-    ASSERT_TRUE(alive);
-    ASSERT_EQ(sp.config().conf_, 123);
-    auto sp_copy1 = sp.get();
-    auto sp_copy2 = sp.get();
+  memgraph::utils::SyncPtr<Test, TestConf> sp(123, alive);
+  ASSERT_TRUE(alive);
+  ASSERT_EQ(sp.config().conf_, 123);
+  auto sp_copy1 = sp.get();
+  auto sp_copy2 = sp.get();
 
-    sp_copy1.reset();
-    ASSERT_TRUE(alive);
-    sp_copy2.reset();
-    ASSERT_TRUE(alive);
-  }
+  sp_copy1.reset();
+  ASSERT_TRUE(alive);
+  sp_copy2.reset();
+  ASSERT_TRUE(alive);
 
+  sp.DestroyAndSync();
   ASSERT_FALSE(alive);
 }
 
@@ -86,8 +86,12 @@ TEST(SyncPtr, Sync) {
 
   ASSERT_FALSE(alive);
 
+  memgraph::utils::SyncPtr<Test> sp(alive);
+
   {
-    memgraph::utils::SyncPtr<Test> sp(alive);
+    using namespace std::chrono_literals;
+    sp.timeout(10000ms);  // 10sec
+
     ASSERT_TRUE(alive);
     auto sp_copy1 = sp.get();
     auto sp_copy2 = sp.get();
@@ -95,14 +99,18 @@ TEST(SyncPtr, Sync) {
     th = std::thread([&alive, p = sp.get()]() mutable {
       // Wait for a second and then release the pointer
       // SyncPtr will be destroyed in the mean time (and block)
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
       ASSERT_TRUE(alive);
       p.reset();
       ASSERT_FALSE(alive);
     });
-    ASSERT_TRUE(alive);
   }
+
+  ASSERT_TRUE(alive);
+  sp.DestroyAndSync();
+
   th.join();
+  ASSERT_FALSE(alive);
 }
 
 TEST(SyncPtr, SyncWConfig) {
@@ -122,8 +130,11 @@ TEST(SyncPtr, SyncWConfig) {
 
   ASSERT_FALSE(alive);
 
+  memgraph::utils::SyncPtr<Test, TestConf> sp(456, alive);
+
   {
-    memgraph::utils::SyncPtr<Test, TestConf> sp(456, alive);
+    using namespace std::chrono_literals;
+    sp.timeout(10000ms);  // 10sec
     ASSERT_TRUE(alive);
     ASSERT_EQ(sp.config().conf_, 456);
     auto sp_copy1 = sp.get();
@@ -132,12 +143,43 @@ TEST(SyncPtr, SyncWConfig) {
     th = std::thread([&alive, p = sp.get()]() mutable {
       // Wait for a second and then release the pointer
       // SyncPtr will be destroyed in the mean time (and block)
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
       ASSERT_TRUE(alive);
       p.reset();
       ASSERT_FALSE(alive);
     });
-    ASSERT_TRUE(alive);
   }
+
+  ASSERT_TRUE(alive);
+  sp.DestroyAndSync();
+
   th.join();
+  ASSERT_FALSE(alive);
+}
+
+TEST(SyncPtr, Timeout) {
+  std::atomic_bool alive{false};
+  struct Test {
+    Test(std::atomic_bool &alive) : alive_(alive) { alive_ = true; }
+    ~Test() { alive_ = false; }
+    std::atomic_bool &alive_;
+  };
+
+  std::thread th;
+
+  ASSERT_FALSE(alive);
+
+  memgraph::utils::SyncPtr<Test> sp(alive);
+  using namespace std::chrono_literals;
+  sp.timeout(100ms);  // 10sec
+
+  ASSERT_TRUE(alive);
+
+  auto p = sp.get();
+
+  ASSERT_TRUE(alive);
+  ASSERT_THROW(sp.DestroyAndSync(), memgraph::utils::BasicException);
+
+  p.reset();
+  ASSERT_FALSE(alive);
 }
