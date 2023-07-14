@@ -147,11 +147,18 @@ class SessionContextHandler {
 
     // Recover previous databases
     if (recovery_on_startup) {
-      for (const auto &[name, sts] : *durability_) {
+      for (const auto &[name, _] : *durability_) {
         if (name == kDefaultDB) continue;  // Already set
         spdlog::info("Restoring database {}.", name);
         MG_ASSERT(!New_(name).HasError(), "Failed while creating database {}.", name);
         spdlog::info("Database {} restored.", name);
+      }
+    } else {  // Clear databases from the durability list and auth
+      auto locked_auth = auth_->Lock();
+      for (const auto &[name, _] : *durability_) {
+        if (name == kDefaultDB) continue;
+        locked_auth->DeleteDatabase(name);
+        durability_->Delete(name);
       }
     }
   }
