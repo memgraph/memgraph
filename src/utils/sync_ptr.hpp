@@ -37,9 +37,16 @@ struct SyncPtr {
    */
   template <typename... TArgs>
   explicit SyncPtr(TConfig config, TArgs &&...args)
-      : in_use_(true),
+      : timeout_{1000},
         config_{config},
         ptr_{new TContext(std::forward<TArgs>(args)...), std::bind(&SyncPtr::OnDelete, this, std::placeholders::_1)} {}
+
+  ~SyncPtr() = default;
+
+  SyncPtr(const SyncPtr &) = delete;
+  SyncPtr &operator=(const SyncPtr &) = delete;
+  SyncPtr(SyncPtr &&) noexcept = delete;
+  SyncPtr &operator=(SyncPtr &&) noexcept = delete;
 
   /**
    * @brief Destroy the synched pointer and wait for all copies to get destroyed.
@@ -49,11 +56,6 @@ struct SyncPtr {
     ptr_.reset();
     SyncOnDelete();
   }
-
-  SyncPtr(const SyncPtr &) = delete;
-  SyncPtr &operator=(const SyncPtr &) = delete;
-  SyncPtr(SyncPtr &&) noexcept = delete;
-  SyncPtr &operator=(SyncPtr &&) noexcept = delete;
 
   /**
    * @brief Get (copy) the underlying shared pointer.
@@ -71,6 +73,9 @@ struct SyncPtr {
   TConfig config() { return config_; }
   const TConfig &config() const { return config_; }
 
+  void timeout(const std::chrono::milliseconds to) { timeout_ = to; }
+  std::chrono::milliseconds timeout() const { return timeout_; }
+
  private:
   /**
    * @brief Block until OnDelete gets called.
@@ -99,9 +104,10 @@ struct SyncPtr {
     in_use_cv_.notify_one();
   }
 
-  bool in_use_;                                //!< Flag used to signal sync
+  bool in_use_{true};                          //!< Flag used to signal sync
   mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
   mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
+  std::chrono::milliseconds timeout_;          //!< Synchronization timeout in ms
   TConfig config_;                             //!< Additional metadata associated with the context
   std::shared_ptr<TContext> ptr_;              //!< Pointer being synced
 };
@@ -118,22 +124,24 @@ class SyncPtr<TContext, void> {
    */
   template <typename... TArgs>
   explicit SyncPtr(TArgs &&...args)
-      : in_use_(true),
+      : timeout_{1000},
         ptr_{new TContext(std::forward<TArgs>(args)...), std::bind(&SyncPtr::OnDelete, this, std::placeholders::_1)} {}
 
-  /**
-   * @brief Destroy the synched pointer and wait for all copies to get destroyed.
-   *
-   */
-  ~SyncPtr() {
-    ptr_.reset();
-    SyncOnDelete();
-  }
+  ~SyncPtr() = default;
 
   SyncPtr(const SyncPtr &) = delete;
   SyncPtr &operator=(const SyncPtr &) = delete;
   SyncPtr(SyncPtr &&) noexcept = delete;
   SyncPtr &operator=(SyncPtr &&) noexcept = delete;
+
+  /**
+   * @brief Destroy the synched pointer and wait for all copies to get destroyed.
+   *
+   */
+  void DestroyAndSync() {
+    ptr_.reset();
+    SyncOnDelete();
+  }
 
   /**
    * @brief Get (copy) the underlying shared pointer.
@@ -143,16 +151,17 @@ class SyncPtr<TContext, void> {
   std::shared_ptr<TContext> get() { return ptr_; }
   std::shared_ptr<const TContext> get() const { return ptr_; }
 
+  void timeout(const std::chrono::milliseconds to) { timeout_ = to; }
+  std::chrono::milliseconds timeout() const { return timeout_; }
+
  private:
   /**
    * @brief Block until OnDelete gets called.
    *
    */
   void SyncOnDelete() {
-    // TODO: Make the timeout configurable
-    using namespace std::chrono_literals;
     std::unique_lock<std::mutex> lock(in_use_mtx_);
-    if (!in_use_cv_.wait_for(lock, 1s, [this] { return !in_use_; })) {
+    if (!in_use_cv_.wait_for(lock, timeout_, [this] { return !in_use_; })) {
       throw utils::BasicException("Syncronization timeout!");
     }
   }
@@ -171,9 +180,10 @@ class SyncPtr<TContext, void> {
     in_use_cv_.notify_one();
   }
 
-  bool in_use_;                                //!< Flag used to signal sync
+  bool in_use_{true};                          //!< Flag used to signal sync
   mutable std::mutex in_use_mtx_;              //!< Mutex used in the cv sync
   mutable std::condition_variable in_use_cv_;  //!< cv used to signal a sync
+  std::chrono::milliseconds timeout_;          //!< Synchronization timeout in ms
   std::shared_ptr<TContext> ptr_;              //!< Pointer being synced
 };
 
