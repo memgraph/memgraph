@@ -265,12 +265,11 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          # TODO(gitbuda): Setup mgclient and pymgclient properly.
           cd tests
           ./setup.sh
           source ve3/bin/activate
           cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory .
+          ./run.sh
 
       - name: Run stress test (plain)
         run: |

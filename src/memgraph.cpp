@@ -261,6 +261,8 @@ DEFINE_double(query_execution_timeout_sec, 600,
 DEFINE_uint64(replication_replica_check_frequency_sec, 1,
               "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
               "The MAIN instance allocates a new thread for each REPLICA.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
@@ -891,7 +893,7 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replication_state_on_startup = false,
+                     .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
