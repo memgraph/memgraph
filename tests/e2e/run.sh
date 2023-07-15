@@ -17,7 +17,7 @@ elif [ "$#" -eq 1 ]; then
   if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     print_help
   fi
-  python runner.py --workloads-root-directory . --workload-name "$1"
+  python3 runner.py --workloads-root-directory . --workload-name "$1"
 else
   print_help
 fi
