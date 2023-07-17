@@ -595,7 +595,13 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
                                             config_, true);
 }
 
-Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &info) {
+Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> Storage::Accessor::DeleteBulk(
+    const DeleteBulkInfo &info) {
+  using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+
+  std::vector<VertexAccessor> deleted_vertices;
+  std::vector<EdgeAccessor> deleted_edges;
+
   // Gather nodes for deletion
   std::set<Vertex *> nodes_to_delete;
   {
@@ -617,6 +623,8 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
 
       nodes_to_delete.insert(vertex_ptr);
     }
+
+    deleted_vertices.reserve(nodes_to_delete.size());
   }
 
   // Aggregate edges and nodes for partial deletion
@@ -624,14 +632,16 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
   std::set<Vertex *> partial_dest_vertices;
   std::set<EdgeRef> src_edge_refs;
   std::set<EdgeRef> dest_edge_refs;
+  auto total_edges_to_delete = 0;
   {
     if (info.detach) {
-      auto try_adding_partial_delete_vertices = [&nodes_to_delete](auto &partial_delete_vertices, auto &edge_refs,
-                                                                   auto &item) {
+      auto try_adding_partial_delete_vertices = [&nodes_to_delete, &total_edges_to_delete](
+                                                    auto &partial_delete_vertices, auto &edge_refs, auto &item) {
         auto [edge_type, opposing_vertex, edge] = item;
         if (!nodes_to_delete.contains(opposing_vertex)) {
           partial_delete_vertices.insert(opposing_vertex);
           edge_refs.insert(edge);
+          total_edges_to_delete++;
         }
       };
 
@@ -653,13 +663,16 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
 
         src_edge_refs.insert(edge_accessor.edge_);
         dest_edge_refs.insert(edge_accessor.edge_);
+        total_edges_to_delete++;
       }
     }
   }
+  deleted_edges.reserve(total_edges_to_delete);
 
   // Detach nodes which need to be deleted
   if (info.detach) {
-    auto clear_edges = [this](auto *vertex_ptr, auto *collection, auto delta) -> Result<std::optional<bool>> {
+    auto clear_edges = [this, &deleted_edges](auto *vertex_ptr, auto *collection, auto delta,
+                                              auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
       while (!collection->empty()) {
         auto [edge_type, opposing_vertex, edge_ref] = *collection->rbegin();
         std::unique_lock<utils::SpinLock> guard;
@@ -708,22 +721,29 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
           if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
             storage_->gc_full_scan_edges_delete_ = true;
           }
+
+          {
+            auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+            auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+            deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                                       &storage_->constraints_, config_, true);
+          }
         }
 
         CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
         storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
       }
 
-      return std::make_optional<bool>(true);
+      return std::make_optional<ReturnType>();
     };
 
     for (auto *vertex_ptr : nodes_to_delete) {
-      auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag());
+      auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), true);
       if (maybe_error.HasError()) {
         return maybe_error;
       }
 
-      maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag());
+      maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), false);
       if (maybe_error.HasError()) {
         return maybe_error;
       }
@@ -795,10 +815,13 @@ Result<std::optional<bool>> Storage::Accessor::DeleteBulk(const DeleteBulkInfo &
       if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
         storage_->gc_full_scan_vertices_delete_ = true;
       }
+
+      deleted_vertices.emplace_back(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                                    true);
     }
   }
 
-  return std::make_optional<bool>(true);
+  return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(

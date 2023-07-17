@@ -412,7 +412,10 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
-  storage::Result<std::optional<bool>> DeleteBulk(const DeleteBulkInfo &info) {
+  storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DeleteBulk(
+      const DeleteBulkInfo &info) {
+    using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+
     std::vector<storage::EdgeAccessor> edges_impl;
     edges_impl.reserve(info.edges.size());
     std::vector<storage::VertexAccessor> nodes_impl;
@@ -432,10 +435,23 @@ class DbAccessor final {
 
     const auto &value = res.GetValue();
     if (!value) {
-      return std::optional<bool>{};
+      return std::optional<ReturnType>{};
     }
 
-    return std::make_optional<bool>(true);
+    const auto &[vertices, edges] = *value;
+
+    std::vector<VertexAccessor> deleted_vertices;
+    std::vector<EdgeAccessor> deleted_edges;
+
+    deleted_vertices.reserve(vertices.size());
+    deleted_edges.reserve(edges.size());
+
+    std::transform(vertices.begin(), vertices.end(), std::back_inserter(deleted_vertices),
+                   [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
+    std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
+                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+
+    return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
   }
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
