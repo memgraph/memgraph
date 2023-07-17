@@ -225,8 +225,14 @@ case $1 in
         docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
         INFO "Test and results packing DONE."
 
-        # If the run has failed, this script also has to return non-zero status.
+        # If the run has failed, print latest logs + this script also has to return non-zero status.
         if [ "$jepsen_run_exit_status" -ne 0 ]; then
+            all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
+            for workload in $all_workloads; do
+                INFO "jepsen.log for $workload"
+                docker exec jepsen-control bash -c "tail -n 1000 /jepsen/memgraph/store/$workload/latest/jepsen.log"
+            done
+            ERROR "Jepsen FAILED"
             exit "$jepsen_run_exit_status"
         fi
     ;;
