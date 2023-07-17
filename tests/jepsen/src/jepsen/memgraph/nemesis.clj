@@ -36,7 +36,7 @@
        (apply concat)
        gen/mix
        (gen/stagger (:interval opts))
-       (gen/phases (gen/sleep 10))))
+       (gen/phases (gen/sleep 30))))
 
 (defn nemesis
   "Composite nemesis and generator"
