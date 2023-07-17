@@ -416,16 +416,16 @@ class DbAccessor final {
       const DeleteBulkInfo &info) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
-    std::vector<storage::EdgeAccessor> edges_impl;
-    edges_impl.reserve(info.edges.size());
     std::vector<storage::VertexAccessor> nodes_impl;
+    std::vector<storage::EdgeAccessor> edges_impl;
 
-    for (const auto &i : info.edges) {
-      edges_impl.push_back(i.impl_);
-    }
-    for (const auto &i : info.nodes) {
-      nodes_impl.push_back(i.impl_);
-    }
+    nodes_impl.reserve(info.nodes.size());
+    edges_impl.reserve(info.edges.size());
+
+    std::transform(info.nodes.begin(), info.nodes.end(), std::back_inserter(nodes_impl),
+                   [](const auto &node_info) { return node_info.impl_; });
+    std::transform(info.edges.begin(), info.edges.end(), std::back_inserter(edges_impl),
+                   [](const auto &edge_info) { return edge_info.impl_; });
 
     auto res = accessor_->DeleteBulk(
         storage::DeleteBulkInfo{.edges = std::move(edges_impl), .nodes = std::move(nodes_impl), .detach = info.detach});

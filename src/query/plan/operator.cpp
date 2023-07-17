@@ -2634,22 +2634,6 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
         }
 #endif
         edge_buffer.emplace_back(ea);
-        // auto maybe_value = dba.RemoveEdge(&ea);
-        // if (maybe_value.HasError()) {
-        //   switch (maybe_value.GetError()) {
-        //     case storage::Error::SERIALIZATION_ERROR:
-        //       throw TransactionSerializationException();
-        //     case storage::Error::DELETED_OBJECT:
-        //     case storage::Error::VERTEX_HAS_EDGES:
-        //     case storage::Error::PROPERTIES_DISABLED:
-        //     case storage::Error::NONEXISTENT_OBJECT:
-        //       throw QueryRuntimeException("Unexpected error when deleting an edge.");
-        //   }
-        // }
-        // context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += 1;
-        // if (context.trigger_context_collector && maybe_value.GetValue()) {
-        //   context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
-        // }
       }
     }
 
@@ -2667,57 +2651,6 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
           }
 #endif
           node_buffer.push_back(va);
-          // if (self_.detach_) {
-          //   // auto res = dba.DetachRemoveVertex(&va);
-          //   // if (res.HasError()) {
-          //   //   switch (res.GetError()) {
-          //   //     case storage::Error::SERIALIZATION_ERROR:
-          //   //       throw TransactionSerializationException();
-          //   //     case storage::Error::DELETED_OBJECT:
-          //   //     case storage::Error::VERTEX_HAS_EDGES:
-          //   //     case storage::Error::PROPERTIES_DISABLED:
-          //   //     case storage::Error::NONEXISTENT_OBJECT:
-          //   //       throw QueryRuntimeException("Unexpected error when deleting a node.");
-          //   //   }
-          //   // }
-
-          //   // context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-          //   // if (*res) {
-          //   //   context.execution_stats[ExecutionStats::Key::DELETED_EDGES] +=
-          //   //   static_cast<int64_t>((*res)->second.size());
-          //   // }
-          //   // std::invoke([&] {
-          //   //   if (!context.trigger_context_collector || !*res) {
-          //   //     return;
-          //   //   }
-
-          //   //   context.trigger_context_collector->RegisterDeletedObject((*res)->first);
-          //   //   if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-          //   //     return;
-          //   //   }
-          //   //   for (const auto &edge : (*res)->second) {
-          //   //     context.trigger_context_collector->RegisterDeletedObject(edge);
-          //   //   }
-          //   // });
-          // } else {
-          //   //   auto res = dba.RemoveVertex(&va);
-          //   //   if (res.HasError()) {
-          //   //     switch (res.GetError()) {
-          //   //       case storage::Error::SERIALIZATION_ERROR:
-          //   //         throw TransactionSerializationException();
-          //   //       case storage::Error::VERTEX_HAS_EDGES:
-          //   //         throw RemoveAttachedVertexException();
-          //   //       case storage::Error::DELETED_OBJECT:
-          //   //       case storage::Error::PROPERTIES_DISABLED:
-          //   //       case storage::Error::NONEXISTENT_OBJECT:
-          //   //         throw QueryRuntimeException("Unexpected error when deleting a node.");
-          //   //     }
-          //   //   }
-          //   //   context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-          //   //   if (context.trigger_context_collector && res.GetValue()) {
-          //   //     context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
-          //   //   }
-          // }
           break;
         }
 
@@ -2735,10 +2668,10 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
     return true;
   }
 
-  auto result =
+  auto res =
       dba.DeleteBulk(DeleteBulkInfo{.edges = std::move(edge_buffer), .nodes = std::move(node_buffer), self_.detach_});
-  if (result.HasError()) {
-    switch (result.GetError()) {
+  if (res.HasError()) {
+    switch (res.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
         throw TransactionSerializationException();
       case storage::Error::VERTEX_HAS_EDGES:
@@ -2749,6 +2682,28 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
         throw QueryRuntimeException("Unexpected error when deleting a node.");
     }
   }
+
+  if (*res) {
+    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += (*res)->first.size();
+    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += (*res)->second.size();
+  }
+
+  std::invoke([&] {
+    if (!context.trigger_context_collector || !*res) {
+      return;
+    }
+
+    for (const auto &node : (*res)->first) {
+      context.trigger_context_collector->RegisterDeletedObject(node);
+    }
+
+    if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+      return;
+    }
+    for (const auto &edge : (*res)->second) {
+      context.trigger_context_collector->RegisterDeletedObject(edge);
+    }
+  });
 
   return false;
 }
