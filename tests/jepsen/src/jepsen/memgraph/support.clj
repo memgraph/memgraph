@@ -15,17 +15,32 @@
 
 (defn start-node!
   [test node]
-  (cu/start-daemon!
-   {:logfile mglog
-    :pidfile mgpid
-    :chdir   mgdir}
-   (:local-binary test)
-   :--log-level "TRACE"
-   :--also-log-to-stderr
-   :--storage-recover-on-startup
-   :--storage-wal-enabled
-   :--storage-snapshot-interval-sec 300
-   :--storage-properties-on-edges))
+  (if (= node "n1")
+    ;; start main
+    (cu/start-daemon!
+     {:logfile mglog
+      :pidfile mgpid
+      :chdir   mgdir}
+    (:local-binary test)
+    :--log-level "TRACE"
+    :--also-log-to-stderr
+    :--storage-recover-on-startup
+    :--storage-wal-enabled
+    :--replication-restore-state-on-startup true
+    :--storage-snapshot-interval-sec 300
+    :--storage-properties-on-edges)
+    ;; start replica
+    (cu/start-daemon!
+     {:logfile mglog
+      :pidfile mgpid
+      :chdir   mgdir}
+    (:local-binary test)
+    :--log-level "TRACE"
+    :--also-log-to-stderr
+    :--storage-recover-on-startup
+    :--storage-wal-enabled
+    :--storage-snapshot-interval-sec 300
+    :--storage-properties-on-edges)))
 
 (defn stop-node!
   [test node]
