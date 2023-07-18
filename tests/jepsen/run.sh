@@ -63,6 +63,37 @@ if [ "$#" -lt 1 ]; then
     HELP_EXIT
 fi
 
+COPY_BINARIES() {
+   # Copy Memgraph binary, handles both cases, when binary is a sym link
+   # or a regular file.
+   binary_path="$MEMGRAPH_BINARY_PATH"
+   if [ -L "$binary_path" ]; then
+       binary_path=$(readlink "$binary_path")
+   fi
+   binary_name=$(basename -- "$binary_path")
+   for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+       jepsen_node_name="jepsen-n$iter"
+       docker_exec="docker exec $jepsen_node_name bash -c"
+       if [ "$binary_name" == "memgraph" ]; then
+         _binary_name="memgraph_tmp"
+       else
+         _binary_name="$binary_name"
+       fi
+       $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph"
+       docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
+       $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
+       $docker_exec "touch /opt/memgraph/memgraph.log"
+       INFO "Copying $binary_name to $jepsen_node_name DONE."
+   done
+   # Copy test files into the control node.
+   docker exec jepsen-control mkdir -p /jepsen/memgraph/store
+   docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
+   docker cp "$script_dir/test/." jepsen-control:/jepsen/memgraph/test/
+   docker cp "$script_dir/resources/." jepsen-control:/jepsen/memgraph/resources/
+   docker cp "$script_dir/project.clj" jepsen-control:/jepsen/memgraph/project.clj
+   INFO "Copying test files to jepsen-control DONE."
+}
+
 # Initialize testing context by copying source/binary files. Inside CI,
 # Memgraph is tested on a single machine cluster based on Docker containers.
 # Once these tests will be part of the official Jepsen repo, the majority of
@@ -145,38 +176,9 @@ case $1 in
         done
 
         PRINT_CONTEXT
-        # Copy Memgraph binary, handles both cases, when binary is a sym link
-        # or a regular file.
-        binary_path="$MEMGRAPH_BINARY_PATH"
-        if [ -L "$binary_path" ]; then
-            binary_path=$(readlink "$binary_path")
-        fi
-        binary_name=$(basename -- "$binary_path")
-        for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
-            jepsen_node_name="jepsen-n$iter"
-            docker_exec="docker exec $jepsen_node_name bash -c"
-            if [ "$binary_name" == "memgraph" ]; then
-              _binary_name="memgraph_tmp"
-            else
-              _binary_name="$binary_name"
-            fi
-            $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph"
-            docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
-            $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
-            $docker_exec "touch /opt/memgraph/memgraph.log"
-            INFO "Copying $binary_name to $jepsen_node_name DONE."
-        done
-
-        # Copy test files into the control node.
-        docker exec jepsen-control mkdir -p /jepsen/memgraph/store
-        docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
-        docker cp "$script_dir/test/." jepsen-control:/jepsen/memgraph/test/
-        docker cp "$script_dir/resources/." jepsen-control:/jepsen/memgraph/resources/
-        docker cp "$script_dir/project.clj" jepsen-control:/jepsen/memgraph/project.clj
-        INFO "Copying test files to jepsen-control DONE."
+        COPY_BINARIES
 
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
-
         # Run the test.
         # NOTE: docker exec -t is NOT ok because gh CI user does NOT have TTY.
         # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
@@ -199,8 +201,6 @@ case $1 in
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
         set -e
-
-        # TODO(gitbuda): Print last ~100 lines from /jepsen/memgraph/store/latest/jepsen.log + logs from each memgraph node.
 
         # Pack all test workload runs between start and end time.
         all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
