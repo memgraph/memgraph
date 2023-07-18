@@ -600,6 +600,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
                                           bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
+  // result of the operation
   std::vector<VertexAccessor> deleted_vertices;
   std::vector<EdgeAccessor> deleted_edges;
 
@@ -628,7 +629,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
     deleted_vertices.reserve(nodes_to_delete.size());
   }
 
-  // Aggregate edges and nodes for partial deletion
+  // Aggregate edges and nodes for partial deletion (edges of nodes which don't need deletion)
   std::set<Vertex *> partial_src_vertices;
   std::set<Vertex *> partial_dest_vertices;
   std::set<EdgeRef> src_edge_refs;
@@ -656,6 +657,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
       }
     }
 
+    // also add edges which we want to delete from the query
     for (const auto &edge_accessor : edges) {
       if (!nodes_to_delete.contains(edge_accessor.from_vertex_) &&
           !nodes_to_delete.contains(edge_accessor.to_vertex_)) {
@@ -672,10 +674,10 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
 
   // Detach nodes which need to be deleted
   if (detach) {
-    auto clear_edges = [this, &deleted_edges](auto *vertex_ptr, auto *collection, auto delta,
+    auto clear_edges = [this, &deleted_edges](auto *vertex_ptr, auto *edges_collection, auto delta,
                                               auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
-      while (!collection->empty()) {
-        auto [edge_type, opposing_vertex, edge_ref] = *collection->rbegin();
+      while (!edges_collection->empty()) {
+        auto [edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
         std::unique_lock<utils::SpinLock> guard;
         if (config_.properties_on_edges) {
           auto edge_ptr = edge_ref.ptr;
@@ -711,7 +713,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
           MG_ASSERT(!opposing_vertex->deleted, "Invalid database state!");
         }
 
-        collection->pop_back();
+        edges_collection->pop_back();
         if (config_.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
           CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
@@ -738,6 +740,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
       return std::make_optional<ReturnType>();
     };
 
+    // delete the in and out edges from the nodes we want to delete
     for (auto *vertex_ptr : nodes_to_delete) {
       auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), true);
       if (maybe_error.HasError()) {
@@ -751,13 +754,13 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
     }
   }
 
-  // Detach nodes which don't have to be deleted
+  // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
   {
-    auto erase_contained_edges = [this](auto *vertex_ptr, auto *collection, auto &set_for_erasure, auto delta) {
+    auto erase_contained_edges = [this](auto *vertex_ptr, auto *edges_collection, auto &set_for_erasure, auto delta) {
       std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
       auto mid = std::partition(
-          collection->begin(), collection->end(), [this, &set_for_erasure, vertex_ptr, delta](auto &edge) {
+          edges_collection->begin(), edges_collection->end(), [this, &set_for_erasure, vertex_ptr, delta](auto &edge) {
             auto [edge_type, opposing_vertex, edge_ref] = edge;
 
             if (set_for_erasure.contains(edge_ref)) {
@@ -765,6 +768,9 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
               if (config_.properties_on_edges) {
                 auto edge_ptr = edge_ref.ptr;
                 guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+
+                // this can happen only if we marked edges for deletion with no nodes,
+                // so the method detaching nodes will not do anything
                 if (!edge_ptr->deleted) {
                   CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
                   edge_ptr->deleted = true;
@@ -783,9 +789,10 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
             return true;
           });
 
-      collection->erase(mid, collection->end());
+      edges_collection->erase(mid, edges_collection->end());
     };
 
+    // remove edges from vertex collections which we aggregated for just detaching
     for (auto *vertex_ptr : partial_src_vertices) {
       erase_contained_edges(vertex_ptr, &vertex_ptr->out_edges, src_edge_refs, Delta::AddOutEdgeTag());
     }
@@ -793,6 +800,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
       erase_contained_edges(vertex_ptr, &vertex_ptr->in_edges, dest_edge_refs, Delta::AddInEdgeTag());
     }
 
+    // finally, delete the nodes
     for (auto *vertex_ptr : nodes_to_delete) {
       std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
