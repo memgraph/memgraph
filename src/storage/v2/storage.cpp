@@ -764,8 +764,8 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
   {
-    auto erase_contained_edges = [this, &mark_edge_as_deleted_func](auto *vertex_ptr, auto *edges_collection,
-                                                                    auto &set_for_erasure, auto delta) {
+    auto detach_non_deletable_nodes = [this, &mark_edge_as_deleted_func](auto *vertex_ptr, auto *edges_collection,
+                                                                         auto &set_for_erasure, auto delta) {
       std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
       auto mid =
@@ -793,10 +793,10 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
 
     // remove edges from vertex collections which we aggregated for just detaching
     for (auto *vertex_ptr : partial_src_vertices) {
-      erase_contained_edges(vertex_ptr, &vertex_ptr->out_edges, src_edge_refs, Delta::AddOutEdgeTag());
+      detach_non_deletable_nodes(vertex_ptr, &vertex_ptr->out_edges, src_edge_refs, Delta::AddOutEdgeTag());
     }
     for (auto *vertex_ptr : partial_dest_vertices) {
-      erase_contained_edges(vertex_ptr, &vertex_ptr->in_edges, dest_edge_refs, Delta::AddInEdgeTag());
+      detach_non_deletable_nodes(vertex_ptr, &vertex_ptr->in_edges, dest_edge_refs, Delta::AddInEdgeTag());
     }
 
     // finally, delete the nodes
