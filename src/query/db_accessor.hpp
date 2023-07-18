@@ -310,12 +310,6 @@ class VerticesIterable final {
   }
 };
 
-struct DeleteBulkInfo {
-  std::vector<EdgeAccessor> edges;
-  std::vector<VertexAccessor> nodes;
-  bool detach;
-};
-
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -413,22 +407,21 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DeleteBulk(
-      const DeleteBulkInfo &info) {
+      std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
     std::vector<storage::VertexAccessor> nodes_impl;
     std::vector<storage::EdgeAccessor> edges_impl;
 
-    nodes_impl.reserve(info.nodes.size());
-    edges_impl.reserve(info.edges.size());
+    nodes_impl.reserve(nodes.size());
+    edges_impl.reserve(edges.size());
 
-    std::transform(info.nodes.begin(), info.nodes.end(), std::back_inserter(nodes_impl),
+    std::transform(nodes.begin(), nodes.end(), std::back_inserter(nodes_impl),
                    [](const auto &node_info) { return node_info.impl_; });
-    std::transform(info.edges.begin(), info.edges.end(), std::back_inserter(edges_impl),
+    std::transform(edges.begin(), edges.end(), std::back_inserter(edges_impl),
                    [](const auto &edge_info) { return edge_info.impl_; });
 
-    auto res = accessor_->DeleteBulk(
-        storage::DeleteBulkInfo{.edges = std::move(edges_impl), .nodes = std::move(nodes_impl), .detach = info.detach});
+    auto res = accessor_->DeleteBulk(std::move(nodes_impl), std::move(edges_impl), detach);
     if (res.HasError()) {
       return res.GetError();
     }
@@ -438,17 +431,17 @@ class DbAccessor final {
       return std::optional<ReturnType>{};
     }
 
-    const auto &[vertices, edges] = *value;
+    const auto &[val_vertices, val_edges] = *value;
 
     std::vector<VertexAccessor> deleted_vertices;
     std::vector<EdgeAccessor> deleted_edges;
 
-    deleted_vertices.reserve(vertices.size());
-    deleted_edges.reserve(edges.size());
+    deleted_vertices.reserve(val_vertices.size());
+    deleted_edges.reserve(val_edges.size());
 
-    std::transform(vertices.begin(), vertices.end(), std::back_inserter(deleted_vertices),
+    std::transform(val_vertices.begin(), val_vertices.end(), std::back_inserter(deleted_vertices),
                    [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
-    std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
+    std::transform(val_edges.begin(), val_edges.end(), std::back_inserter(deleted_edges),
                    [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));

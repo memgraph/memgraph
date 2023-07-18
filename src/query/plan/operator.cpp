@@ -2599,30 +2599,37 @@ std::vector<Symbol> DeleteBulk::ModifiedSymbols(const SymbolTable &table) const 
 DeleteBulk::DeleteBulkCursor::DeleteBulkCursor(const DeleteBulk &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("DeleteBulk");
+void DeleteBulk::DeleteBulkCursor::UpdateBuffer(Frame &frame, ExecutionContext &context) {
+  // Delete should get the latest information, this way it is also possible
+  // to delete newly added nodes and edges.
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
 
-  auto &dba = *context.db_accessor;
-  if (input_cursor_->Pull(frame, context)) {
-    // Delete should get the latest information, this way it is also possible
-    // to delete newly added nodes and edges.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::NEW);
+  auto *pull_memory = context.evaluation_context.memory;
+  // collect expressions results so edges can get deleted before vertices
+  // this is necessary because an edge that gets deleted could block vertex
+  // deletion
+  utils::pmr::vector<TypedValue> expression_results(pull_memory);
+  expression_results.reserve(self_.expressions_.size());
+  for (Expression *expression : self_.expressions_) {
+    expression_results.emplace_back(expression->Accept(evaluator));
+  }
 
-    auto *pull_memory = context.evaluation_context.memory;
-    // collect expressions results so edges can get deleted before vertices
-    // this is necessary because an edge that gets deleted could block vertex
-    // deletion
-    utils::pmr::vector<TypedValue> expression_results(pull_memory);
-    expression_results.reserve(self_.expressions_.size());
-    for (Expression *expression : self_.expressions_) {
-      expression_results.emplace_back(expression->Accept(evaluator));
-    }
-
-    // delete edges first
-    for (TypedValue &expression_result : expression_results) {
-      if (MustAbort(context)) throw HintedAbortError();
-      if (expression_result.type() == TypedValue::Type::Edge) {
+  for (TypedValue &expression_result : expression_results) {
+    if (MustAbort(context)) throw HintedAbortError();
+    switch (expression_result.type()) {
+      case TypedValue::Type::Vertex: {
+        auto va = expression_result.ValueVertex();
+#ifdef MG_ENTERPRISE
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
+        }
+#endif
+        node_buffer.push_back(va);
+        break;
+      }
+      case TypedValue::Type::Edge: {
         auto ea = expression_result.ValueEdge();
 #ifdef MG_ENTERPRISE
         if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -2634,42 +2641,27 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
         }
 #endif
         edge_buffer.emplace_back(ea);
+        break;
       }
+      case TypedValue::Type::Null:
+        break;
+      // check we're not trying to delete anything except vertices and edges
+      default:
+        throw QueryRuntimeException("Only edges and vertices can be deleted.");
     }
+  }
+}
 
-    // delete vertices
-    for (TypedValue &expression_result : expression_results) {
-      if (MustAbort(context)) throw HintedAbortError();
-      switch (expression_result.type()) {
-        case TypedValue::Type::Vertex: {
-          auto va = expression_result.ValueVertex();
-#ifdef MG_ENTERPRISE
-          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-              !context.auth_checker->Has(va, storage::View::NEW,
-                                         query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-            throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
-          }
-#endif
-          node_buffer.push_back(va);
-          break;
-        }
+bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("DeleteBulk");
 
-        // skip Edges (already deleted) and Nulls (can occur in optional
-        // match)
-        case TypedValue::Type::Edge:
-        case TypedValue::Type::Null:
-          break;
-        // check we're not trying to delete anything except vertices and edges
-        default:
-          throw QueryRuntimeException("Only edges and vertices can be deleted.");
-      }
-    }
-
+  if (input_cursor_->Pull(frame, context)) {
+    UpdateBuffer(frame, context);
     return true;
   }
 
-  auto res =
-      dba.DeleteBulk(DeleteBulkInfo{.edges = std::move(edge_buffer), .nodes = std::move(node_buffer), self_.detach_});
+  auto &dba = *context.db_accessor;
+  auto res = dba.DeleteBulk(std::move(node_buffer), std::move(edge_buffer), self_.detach_);
   if (res.HasError()) {
     switch (res.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:

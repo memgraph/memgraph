@@ -1209,6 +1209,8 @@ class DeleteBulk : public memgraph::query::plan::LogicalOperator {
     const UniqueCursorPtr input_cursor_;
     std::vector<EdgeAccessor> edge_buffer{};
     std::vector<VertexAccessor> node_buffer{};
+
+    void UpdateBuffer(Frame &, ExecutionContext &);
   };
 };
 

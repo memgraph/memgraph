@@ -189,12 +189,6 @@ struct StorageInfo {
   uint64_t disk_usage;
 };
 
-struct DeleteBulkInfo {
-  std::vector<EdgeAccessor> edges;
-  std::vector<VertexAccessor> nodes;
-  bool detach;
-};
-
 class Storage final {
  public:
   /// @throw std::system_error
@@ -336,7 +330,7 @@ class Storage final {
     }
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DeleteBulk(
-        const DeleteBulkInfo &info);
+        std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach);
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc

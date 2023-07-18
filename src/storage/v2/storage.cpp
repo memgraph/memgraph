@@ -596,7 +596,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> Storage::Accessor::DeleteBulk(
-    const DeleteBulkInfo &info) {
+    std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
   std::vector<VertexAccessor> deleted_vertices;
@@ -605,7 +605,7 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
   // Gather nodes for deletion
   std::set<Vertex *> nodes_to_delete;
   {
-    for (const auto &vertex : info.nodes) {
+    for (const auto &vertex : nodes) {
       MG_ASSERT(vertex.transaction_ == &transaction_,
                 "VertexAccessor must be from the same transaction as the storage "
                 "accessor when deleting a vertex!");
@@ -634,7 +634,7 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
   std::set<EdgeRef> dest_edge_refs;
   auto total_edges_to_delete = 0;
   {
-    if (info.detach) {
+    if (detach) {
       auto try_adding_partial_delete_vertices = [&nodes_to_delete, &total_edges_to_delete](
                                                     auto &partial_delete_vertices, auto &edge_refs, auto &item) {
         auto [edge_type, opposing_vertex, edge] = item;
@@ -655,7 +655,7 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
       }
     }
 
-    for (const auto &edge_accessor : info.edges) {
+    for (const auto &edge_accessor : edges) {
       if (!nodes_to_delete.contains(edge_accessor.from_vertex_) &&
           !nodes_to_delete.contains(edge_accessor.to_vertex_)) {
         partial_src_vertices.insert(edge_accessor.from_vertex_);
@@ -670,7 +670,7 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
   deleted_edges.reserve(total_edges_to_delete);
 
   // Detach nodes which need to be deleted
-  if (info.detach) {
+  if (detach) {
     auto clear_edges = [this, &deleted_edges](auto *vertex_ptr, auto *collection, auto delta,
                                               auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
       while (!collection->empty()) {
