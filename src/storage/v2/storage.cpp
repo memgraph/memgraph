@@ -595,8 +595,9 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
                                             config_, true);
 }
 
-Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> Storage::Accessor::DeleteBulk(
-    std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
+Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
+Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges,
+                                          bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
   std::vector<VertexAccessor> deleted_vertices;

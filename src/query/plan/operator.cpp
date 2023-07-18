@@ -2661,7 +2661,7 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
   }
 
   auto &dba = *context.db_accessor;
-  auto res = dba.DeleteBulk(std::move(node_buffer), std::move(edge_buffer), self_.detach_);
+  auto res = dba.DetachDeleteVertexBulk(std::move(node_buffer), std::move(edge_buffer), self_.detach_);
   if (res.HasError()) {
     switch (res.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
