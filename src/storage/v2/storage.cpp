@@ -604,6 +604,21 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
   std::vector<VertexAccessor> deleted_vertices;
   std::vector<EdgeAccessor> deleted_edges;
 
+  // routine for deleting edges, please use this under the edge spin lock
+  auto mark_edge_as_deleted_func = [this](auto *edge_ptr) {
+    if (!edge_ptr->deleted) {
+      CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
+      edge_ptr->deleted = true;
+      storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+      // Need to inform the next CollectGarbage call that there are some
+      // non-transactional deletions that need to be collected
+      if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+        storage_->gc_full_scan_edges_delete_ = true;
+      }
+    }
+  };
+
   // Gather nodes for deletion
   std::set<Vertex *> nodes_to_delete;
   {
@@ -674,8 +689,9 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
 
   // Detach nodes which need to be deleted
   if (detach) {
-    auto clear_edges = [this, &deleted_edges](auto *vertex_ptr, auto *edges_collection, auto delta,
-                                              auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
+    auto clear_edges = [this, &deleted_edges, &mark_edge_as_deleted_func](
+                           auto *vertex_ptr, auto *edges_collection, auto delta,
+                           auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
       while (!edges_collection->empty()) {
         auto [edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
         std::unique_lock<utils::SpinLock> guard;
@@ -716,14 +732,7 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
         edges_collection->pop_back();
         if (config_.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
-          CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
-          edge_ptr->deleted = true;
-
-          // Need to inform the next CollectGarbage call that there are some
-          // non-transactional deletions that need to be collected
-          if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-            storage_->gc_full_scan_edges_delete_ = true;
-          }
+          mark_edge_as_deleted_func(edge_ptr);
 
           {
             auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
@@ -734,7 +743,6 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
         }
 
         CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-        storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
       }
 
       return std::make_optional<ReturnType>();
@@ -756,38 +764,29 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
   {
-    auto erase_contained_edges = [this](auto *vertex_ptr, auto *edges_collection, auto &set_for_erasure, auto delta) {
+    auto erase_contained_edges = [this, &mark_edge_as_deleted_func](auto *vertex_ptr, auto *edges_collection,
+                                                                    auto &set_for_erasure, auto delta) {
       std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
-      auto mid = std::partition(
-          edges_collection->begin(), edges_collection->end(), [this, &set_for_erasure, vertex_ptr, delta](auto &edge) {
-            auto [edge_type, opposing_vertex, edge_ref] = edge;
+      auto mid =
+          std::partition(edges_collection->begin(), edges_collection->end(),
+                         [this, &mark_edge_as_deleted_func, &set_for_erasure, vertex_ptr, delta](auto &edge) {
+                           auto [edge_type, opposing_vertex, edge_ref] = edge;
+                           if (set_for_erasure.contains(edge_ref)) {
+                             std::unique_lock<utils::SpinLock> guard;
+                             if (config_.properties_on_edges) {
+                               auto edge_ptr = edge_ref.ptr;
+                               guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+                               // this can happen only if we marked edges for deletion with no nodes,
+                               // so the method detaching nodes will not do anything
+                               mark_edge_as_deleted_func(edge_ptr);
+                             }
 
-            if (set_for_erasure.contains(edge_ref)) {
-              std::unique_lock<utils::SpinLock> guard;
-              if (config_.properties_on_edges) {
-                auto edge_ptr = edge_ref.ptr;
-                guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
-
-                // this can happen only if we marked edges for deletion with no nodes,
-                // so the method detaching nodes will not do anything
-                if (!edge_ptr->deleted) {
-                  CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
-                  edge_ptr->deleted = true;
-
-                  // Need to inform the next CollectGarbage call that there are some
-                  // non-transactional deletions that need to be collected
-                  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-                    storage_->gc_full_scan_edges_delete_ = true;
-                  }
-                }
-              }
-
-              CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-              return false;
-            }
-            return true;
-          });
+                             CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
+                             return false;
+                           }
+                           return true;
+                         });
 
       edges_collection->erase(mid, edges_collection->end());
     };
