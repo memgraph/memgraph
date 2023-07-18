@@ -59,7 +59,7 @@
                (throw (Exception. (str local-binary " is not there.")))))
         (info node "Memgraph binary is there" local-binary)
         (start-node! test node)
-        (Thread/sleep 2000))) ;; TODO(gitbuda): The sleep after Jepsen starting Memgraph is for sure questionable.
+        (Thread/sleep 5000))) ;; TODO(gitbuda): The sleep after Jepsen starting Memgraph is for sure questionable.
     (teardown! [_ test node]
       (info node "Tearing down Memgraph")
       (stop-node! test node)
