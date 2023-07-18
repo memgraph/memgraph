@@ -1,3 +1,15 @@
+class StorageModeConstants:
+    IN_MEMORY_TRANSACTIONAL = "IN_MEMORY_TRANSACTIONAL"
+    IN_MEMORY_ANALYTICAL = "IN_MEMORY_ANALYTICAL"
+    ON_DISK_TRANSACTIONAL = "ON_DISK_TRANSACTIONAL"
+
+
+class IsolationModeConstants:
+    READ_UNCOMMITED = "READ_UNCOMMITED"
+    READ_COMMITED = "READ_COMMITED"
+    SNAPSHOT_SERIALIZATION = "SNAPSHOT_SERIALIZATION"
+
+
 # dataset calibrated for running on Apollo (total 4min)
 # bipartite.py runs for approx. 30s
 # create_match.py runs for approx. 30s
