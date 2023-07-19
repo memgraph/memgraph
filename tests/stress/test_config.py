@@ -63,7 +63,7 @@ SMALL_DATASET = [
     #     DatasetConstants.MODE: [get_default_database_mode()],
     # },
     {
-        DatasetConstants.TEST: "new_stress_test.py",
+        DatasetConstants.TEST: "detach_delete_bipartite.py",
         DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
         DatasetConstants.TIMEOUT: 5,
         DatasetConstants.MODE: [get_default_database_mode()],
@@ -120,15 +120,15 @@ SMALL_DATASET = [
 # long_running runs for 8h
 LARGE_DATASET = (
     [
+        # {
+        #     DatasetConstants.TEST: "bipartite.py",
+        #     DatasetConstants.OPTIONS: ["--u-count", "300", "--v-count", "300"],
+        #     DatasetConstants.TIMEOUT: 30,
+        #     DatasetConstants.MODE: [get_default_database_mode()],
+        # },
         {
-            DatasetConstants.TEST: "bipartite.py",
-            DatasetConstants.OPTIONS: ["--u-count", "300", "--v-count", "300"],
-            DatasetConstants.TIMEOUT: 30,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-        {
-            DatasetConstants.TEST: "new_stress_test.py",
-            DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
+            DatasetConstants.TEST: "detach_delete_bipartite.py",
+            DatasetConstants.OPTIONS: ["--u-count", "100000", "--v-count", "100000"],
             DatasetConstants.TIMEOUT: 5,
             DatasetConstants.MODE: [get_default_database_mode()],
         },

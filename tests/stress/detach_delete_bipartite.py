@@ -21,15 +21,12 @@ import multiprocessing
 import time
 from argparse import Namespace as Args
 from functools import wraps
+from typing import Any, Callable
 
 from common import (
     OutputData,
-    SessionCache,
-    assert_equal,
-    batch,
     connection_argument_parser,
-    execute_till_success,
-    render,
+    execute_till_success_gqlalchemy,
 )
 from gqlalchemy import Memgraph
 
@@ -65,38 +62,10 @@ def parse_args() -> Args:
     return parser.parse_args()
 
 
-def create_u_v_edges(u):
-    """
-    Creates nodes and checks that all nodes were created.
-    create edges from one vertex in U set to all vertex of V set
-
-    :param worker_id: worker id
-
-    :return: tuple (worker_id, create execution time, time unit)
-    """
-    start_time = time.time()
-    session = SessionCache.argument_session(args)
-    no_failures = 0
-    match_u = "MATCH (u:U {id: %d})" % u
-    if args.edge_batching:
-        # TODO: try to randomize execution, the execution time should
-        # be smaller, add randomize flag
-        for v_id_batch in batch(range(args.v_count), args.edge_batch_size):
-            match_v = render(" MATCH (v{0}:V {{id: {0}}})", v_id_batch)
-            create_u = render(" CREATE (u)-[:R]->(v{0})", v_id_batch)
-            query = match_u + "".join(match_v) + "".join(create_u)
-            no_failures += execute_till_success(session, query)[1]
-    else:
-        no_failures += execute_till_success(session, match_u + " MATCH (v:V) CREATE (u)-[:R]->(v)")[1]
-
-    end_time = time.time()
-    return u, end_time - start_time, "s", no_failures
-
-
-def timed_function(name):
-    def actual_decorator(func):
+def timed_function(name) -> Callable:
+    def actual_decorator(func) -> Callable:
         @wraps(func)
-        def timed_wrapper(*args, **kwargs):
+        def timed_wrapper(*args, **kwargs) -> Any:
             start_time = time.time()
             result = func(*args, **kwargs)
             end_time = time.time()
@@ -109,44 +78,51 @@ def timed_function(name):
 
 
 @timed_function("cleanup_time")
-def clean_database():
+def clean_database() -> None:
     memgraph = Memgraph()
     memgraph.execute("MATCH (n) DETACH DELETE n")
 
 
+def create_indices() -> None:
+    memgraph = Memgraph()
+    memgraph.execute("CREATE INDEX ON :U")
+    memgraph.execute("CREATE INDEX ON :V")
+
+
+@timed_function("node_creation")
+def create_nodes(args: Args) -> None:
+    memgraph = Memgraph()
+    memgraph.execute(" ".join([f"CREATE (:U{{id: {i}}})" for i in range(args.u_count)]))
+    memgraph.execute(" ".join([f"CREATE (:V{{id: {i}}})" for i in range(args.v_count)]))
+
+
+def _create_edges(u):
+    start_time = time.time()
+    memgraph = Memgraph()
+    match_u = "MATCH (u:U {id: %d})" % u
+
+    _, no_failures = execute_till_success_gqlalchemy(memgraph, match_u + " MATCH (v:V) CREATE (u)-[:R]->(v)")
+
+    end_time = time.time()
+    return u, end_time - start_time, no_failures
+
+
+@timed_function("edge_creation")
+def create_edges(args):
+    # concurrent create execution
+    with multiprocessing.Pool(args.worker_count) as p:
+        for worker_id, create_time, no_failures in p.map(_create_edges, [i for i in range(args.u_count)]):
+            log.info(f"Worker ID: {worker_id}; Create time: {create_time}s with {no_failures} failures.")
+
+
 @timed_function("total_execution_time")
-def execution_handler(args: Args):
+def execution_handler(args: Args) -> None:
     clean_database()
     log.info("Database is clean.")
-    # # create indices
-    # session.run('CREATE INDEX ON :U').consume()
-    # session.run('CREATE INDEX ON :V').consume()
 
-    # # create U vertices
-    # for b in batch(render('CREATE (:U {{id: {}}})', range(args.u_count)),
-    #                args.vertex_batch_size):
-    #     session.run(" ".join(b)).consume()
-    # # create V vertices
-    # for b in batch(render('CREATE (:V {{id: {}}})', range(args.v_count)),
-    #                args.vertex_batch_size):
-    #     session.run(" ".join(b)).consume()
-    # vertices_create_end_time = time.time()
-    # output_data.add_measurement(
-    #     'vertices_create_time',
-    #     vertices_create_end_time - cleanup_end_time)
-    # log.info("All nodes created.")
-
-    # # concurrent create execution & tests
-    # with multiprocessing.Pool(args.worker_count) as p:
-    #     create_edges_start_time = time.time()
-    #     for worker_id, create_time, time_unit, no_failures in \
-    #             p.map(create_u_v_edges, [i for i in range(args.u_count)]):
-    #         log.info('Worker ID: %s; Create time: %s%s Failures: %s' %
-    #                  (worker_id, create_time, time_unit, no_failures))
-    #     create_edges_end_time = time.time()
-    #     output_data.add_measurement(
-    #         'edges_create_time',
-    #         create_edges_end_time - create_edges_start_time)
+    create_indices()
+    create_nodes(args)
+    create_edges(args)
 
 
 if __name__ == "__main__":
