@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <random>
 #include <string>
@@ -28,6 +29,7 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "csv/parsing.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
@@ -46,7 +48,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -4465,7 +4466,8 @@ namespace {
 
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
-                         utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
+                         utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
+                         const bool call_initializer = false) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4489,6 +4491,11 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   }
 
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
+  if (call_initializer) {
+    MG_ASSERT(proc.initializer);
+    mgp_memory initializer_memory{memory};
+    proc.initializer.value()(&proc_args, &graph, &initializer_memory);
+  }
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
@@ -4516,18 +4523,22 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
   UniqueCursorPtr input_cursor_;
-  mgp_result result_;
-  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
+  mgp_result *result_;
+  decltype(result_->rows.end()) result_row_it_{result_->rows.end()};
   size_t result_signature_size_{0};
+  bool stream_exhausted{true};
+  bool call_initializer{false};
+  std::optional<std::function<void()>> cleanup_{std::nullopt};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_->input_->MakeCursor(mem)),
         // result_ needs to live throughout multiple Pull evaluations, until all
-        // rows are produced. Therefore, we use the memory dedicated for the
-        // whole execution.
-        result_(nullptr, mem) {
+        // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
+        // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
+        result_(utils::Allocator<mgp_result>(self_->memory_resource)
+                    .new_object<mgp_result>(nullptr, self_->memory_resource)) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -4541,11 +4552,7 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    while (result_row_it_ == result_.rows.end()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
-      result_.signature = nullptr;
-      result_.rows.clear();
-      result_.error_msg.reset();
+    while (result_row_it_ == result_->rows.end()) {
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -4565,30 +4572,61 @@ class CallProcedureCursor : public Cursor {
                                     self_->procedure_name_, get_proc_type_str(self_->is_write_),
                                     get_proc_type_str(proc->info.is_write));
       }
+      if (!proc->info.is_batched) {
+        stream_exhausted = true;
+      }
+
+      if (stream_exhausted) {
+        if (!input_cursor_->Pull(frame, context)) {
+          if (proc->cleanup) {
+            proc->cleanup.value()();
+          }
+          return false;
+        }
+        stream_exhausted = false;
+        if (proc->initializer) {
+          call_initializer = true;
+          MG_ASSERT(proc->cleanup);
+          proc->cleanup.value()();
+        }
+      }
+      if (!cleanup_ && proc->cleanup) [[unlikely]] {
+        cleanup_.emplace(*proc->cleanup);
+      }
+      // Unpluging memory without calling destruct on each object since everything was allocated with this memory
+      // resource
+      self_->monotonic_memory.Release();
+      result_ =
+          utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_.signature = &proc->results;
-      // Use evaluation memory, as invoking a procedure is akin to a simple
-      // evaluation of an expression.
+      result_->signature = &proc->results;
+
+      // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
-      // generator like procedures which yield a new result on each invocation.
-      auto *memory = context.evaluation_context.memory;
+      // generator like procedures which yield a new result on new query calls.
+      auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          &result_);
+                          result_, call_initializer);
+
+      if (call_initializer) call_initializer = false;
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
-      result_signature_size_ = result_.signature->size();
-      result_.signature = nullptr;
-      if (result_.error_msg) {
-        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
+      result_signature_size_ = result_->signature->size();
+      result_->signature = nullptr;
+      if (result_->error_msg) {
+        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
-      result_row_it_ = result_.rows.begin();
+      result_row_it_ = result_->rows.begin();
+
+      stream_exhausted = result_row_it_ == result_->rows.end();
     }
 
     auto &values = result_row_it_->values;
@@ -4621,12 +4659,20 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    result_.rows.clear();
-    result_.error_msg.reset();
-    input_cursor_->Reset();
+    self_->monotonic_memory.Release();
+    result_ =
+        utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+    if (cleanup_) {
+      cleanup_.value()();
+    }
   }
 
-  void Shutdown() override {}
+  void Shutdown() override {
+    self_->monotonic_memory.Release();
+    if (cleanup_) {
+      cleanup_.value()();
+    }
+  }
 };
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
@@ -4776,7 +4822,7 @@ class LoadCsvCursor : public Cursor {
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
     return csv::Reader(
-        *maybe_file,
+        csv::CsvSource::Create(*maybe_file),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         utils::NewDeleteResource());
   }

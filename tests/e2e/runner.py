@@ -16,9 +16,8 @@ import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
 
-import yaml
-
 import interactive_mg_runner
+import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -49,6 +48,7 @@ def run(args):
         if args.workload_name is not None and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)
+
         # Setup.
         @atexit.register
         def cleanup():
@@ -66,10 +66,21 @@ def run(args):
         # Validation.
         if "cluster" in workload:
             for name, config in workload["cluster"].items():
-                for validation in config.get("validation_queries", []):
-                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
-                    data = mg_instance.query(validation["query"])[0][0]
+                mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+                # Explicitely check if there are validation queries and skip if
+                # nothing is to validate. If setup queries are dealing with
+                # users, any new connection requires auth details.
+                validation_queries = config.get("validation_queries", [])
+                if len(validation_queries) == 0:
+                    continue
+                # NOTE: If the setup quries create users AND there are some
+                # validation queries, the connection here has to get the right
+                # username/password.
+                conn = mg_instance.get_connection()
+                for validation in validation_queries:
+                    data = mg_instance.query(validation["query"], conn)[0][0]
                     assert data == validation["expected"]
+                conn.close()
         cleanup()
         log.info("%s PASSED.", workload_name)
 

@@ -2199,6 +2199,8 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
+  utils::MemoryResource *memory_resource = &monotonic_memory;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<CallProcedure>();

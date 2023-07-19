@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -436,7 +436,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
       if (it != node_id_map->end()) {
         if (FLAGS_skip_duplicate_nodes) {
           spdlog::warn(memgraph::utils::MessageWithLink("Skipping duplicate node with ID '{}'.", node_id,
-                                                        "https://memgr.ph/csv"));
+                                                        "https://memgr.ph/csv-import-tool"));
           return;
         } else {
           throw LoadException("Node with ID '{}' already exists", node_id);
@@ -529,7 +529,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
           spdlog::warn(memgraph::utils::MessageWithLink("Skipping bad relationship with START_ID '{}'.", node_id,
-                                                        "https://memgr.ph/csv"));
+                                                        "https://memgr.ph/csv-import-tool"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -547,7 +547,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
           spdlog::warn(memgraph::utils::MessageWithLink("Skipping bad relationship with END_ID '{}'.", node_id,
-                                                        "https://memgr.ph/csv"));
+                                                        "https://memgr.ph/csv-import-tool"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);

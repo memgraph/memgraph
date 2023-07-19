@@ -12,7 +12,10 @@
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, memgraph
+
+QUERY_PLAN = "QUERY PLAN"
+
 
 # E2E tests for checking query semantic
 # ------------------------------------
@@ -109,8 +112,8 @@ def test_analyze_full_graph(analyze_query, multi_db):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0, 0)
     # After analyzing graph, id1 index should be chosen because it has smaller average group size
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
@@ -145,8 +148,8 @@ def test_cardinality_different_avg_group_size_uniform_dist(multi_db):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -176,8 +179,8 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(multi_db
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -207,8 +210,8 @@ def test_large_diff_in_num_vertices_v1(multi_db):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -238,8 +241,8 @@ def test_large_diff_in_num_vertices_v2(multi_db):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -279,8 +282,8 @@ def test_same_avg_group_size_diff_distribution(multi_db):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0)
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -294,6 +297,195 @@ def test_same_avg_group_size_diff_distribution(multi_db):
     assert len(execute_and_fetch_all(cursor, "ANALYZE GRAPH DELETE STATISTICS")) == 2
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
+
+
+def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
+    memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node {id: i}));")
+    memgraph.execute("CREATE (:SuperNode {id: 1});")
+    memgraph.execute("CREATE INDEX ON :SuperNode(id);")
+    memgraph.execute("CREATE INDEX ON :SuperNode;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+
+    query = "explain match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);"
+    expected_explain = [
+        f" * EmptyResult",
+        f" * Merge",
+        f" |\\ On Match",
+        f" | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
+        f" | * Once",
+        f" |\\ On Create",
+        f" | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * Once",
+    ]
+
+    result_without_analysis = list(memgraph.execute_and_fetch(query))
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
+    assert expected_explain == result_without_analysis
+
+    memgraph.execute("analyze graph;")
+
+    expected_explain = [
+        x.replace(f" | * Expand (s)-[anon3:HAS_REL_TO]->(n)", f" | * Expand (n)<-[anon3:HAS_REL_TO]-(s)")
+        for x in expected_explain
+    ]
+
+    result_with_analysis = list(memgraph.execute_and_fetch(query))
+    result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
+
+    assert expected_explain == result_with_analysis
+
+
+def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgraph):
+    memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node {id: i}));")
+    memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node2 {id: i}));")
+    memgraph.execute("CREATE (:SuperNode {id: 1});")
+    memgraph.execute("CREATE INDEX ON :SuperNode(id);")
+    memgraph.execute("CREATE INDEX ON :SuperNode;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node2(id);")
+    memgraph.execute("CREATE INDEX ON :Node2;")
+
+    memgraph.execute("match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+    memgraph.execute("match (n:Node2) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+
+    query = (
+        "explain match (n:Node) match (s:SuperNode {id: 1}) call { with n, s merge (n)<-[:HAS_REL_TO]-(s) } return 1"
+    )
+    expected_explain = [
+        f" * Produce {{0}}",
+        f" * Accumulate",
+        f" * Accumulate",
+        f" * Apply",
+        f" |\\ ",
+        f" | * EmptyResult",
+        f" | * Merge",
+        f" | |\\ On Match",
+        f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
+        f" | | * Once",
+        f" | |\\ On Create",
+        f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | * Produce {{n, s}}",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * Once",
+    ]
+
+    result_without_analysis = list(memgraph.execute_and_fetch(query))
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
+    assert expected_explain == result_without_analysis
+
+    memgraph.execute("analyze graph;")
+
+    expected_explain = [
+        x.replace(f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)", f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)")
+        for x in expected_explain
+    ]
+    result_with_analysis = list(memgraph.execute_and_fetch(query))
+    result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
+
+    assert expected_explain == result_with_analysis
+
+
+def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph):
+    memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node {id: i}));")
+    memgraph.execute("FOREACH (i in range(1, 1000) | CREATE (:Node2 {id: i}));")
+    memgraph.execute("CREATE (:SuperNode {id: 1});")
+    memgraph.execute("CREATE INDEX ON :SuperNode(id);")
+    memgraph.execute("CREATE INDEX ON :SuperNode;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node2(id);")
+    memgraph.execute("CREATE INDEX ON :Node2;")
+
+    memgraph.execute("match (n:Node) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+    memgraph.execute("match (n:Node2) match (s:SuperNode {id: 1}) merge (n)<-[:HAS_REL_TO]-(s);")
+
+    query = "explain match (n:Node) match (s:SuperNode {id: 1}) call { with n, s merge (n)<-[:HAS_REL_TO]-(s) } return s union all match (n:Node) match (s:SuperNode {id: 1}) call { with n, s merge (n)<-[:HAS_REL_TO]-(s) } return s;"
+    expected_explain = [
+        f" * Union {{s : s}}",
+        f" |\\ ",
+        f" | * Produce {{s}}",
+        f" | * Accumulate",
+        f" | * Accumulate",
+        f" | * Apply",
+        f" | |\\ ",
+        f" | | * EmptyResult",
+        f" | | * Merge",
+        f" | | |\\ On Match",
+        f" | | | * Expand (s)-[anon7:HAS_REL_TO]->(n)",
+        f" | | | * Once",
+        f" | | |\\ On Create",
+        f" | | | * CreateExpand (n)<-[anon7:HAS_REL_TO]-(s)",
+        f" | | | * Once",
+        f" | | * Produce {{n, s}}",
+        f" | | * Once",
+        f" | * ScanAllByLabel (n :Node)",
+        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * Once",
+        f" * Produce {{s}}",
+        f" * Accumulate",
+        f" * Accumulate",
+        f" * Apply",
+        f" |\\ ",
+        f" | * EmptyResult",
+        f" | * Merge",
+        f" | |\\ On Match",
+        f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
+        f" | | * Once",
+        f" | |\\ On Create",
+        f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | * Produce {{n, s}}",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * Once",
+    ]
+
+    result_without_analysis = list(memgraph.execute_and_fetch(query))
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
+    assert expected_explain == result_without_analysis
+
+    memgraph.execute("analyze graph;")
+
+    expected_explain = [
+        x.replace(f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)", f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)")
+        for x in expected_explain
+    ]
+    expected_explain = [
+        x.replace(f" | | | * Expand (s)-[anon7:HAS_REL_TO]->(n)", f" | | | * Expand (n)<-[anon7:HAS_REL_TO]-(s)")
+        for x in expected_explain
+    ]
+    result_with_analysis = list(memgraph.execute_and_fetch(query))
+    result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
+
+    assert expected_explain == result_with_analysis
+
+
+def test_given_empty_graph_when_analyzing_graph_return_zero_degree(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node;")
+
+    label_stats = next(memgraph.execute_and_fetch("analyze graph;"))
+
+    expected_analysis = {
+        "label": "Node",
+        "property": None,
+        "num estimation nodes": 0,
+        "num groups": None,
+        "avg group size": None,
+        "chi-squared value": None,
+        "avg degree": 0.0,
+    }
+
+    assert set(label_stats) == set(expected_analysis)
 
 
 if __name__ == "__main__":

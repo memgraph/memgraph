@@ -74,6 +74,12 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
   if (utils::DirExists(snapshot_directory)) {
     for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
+      if (!utils::HasReadAccess(item.path())) {
+        spdlog::warn(
+            "Skipping snapshot file '{}' because it is not readable, check file ownership and read permissions!",
+            item.path());
+        continue;
+      }
       try {
         auto info = ReadSnapshotInfo(item.path());
         if (uuid.empty() || info.uuid == uuid) {

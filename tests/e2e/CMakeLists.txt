@@ -57,6 +57,8 @@ add_subdirectory(transaction_queue)
 add_subdirectory(mock_api)
 add_subdirectory(load_csv)
 add_subdirectory(init_file_flags)
+add_subdirectory(analytical_mode)
+add_subdirectory(batched_procedures)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
