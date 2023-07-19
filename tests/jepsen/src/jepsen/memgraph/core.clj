@@ -147,8 +147,6 @@
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
    [nil "--node-configs PATH" "Path to a file containing a list of node config."
-    :parse-fn #(-> % e/load-configuration)]
-   [nil "--node-config PATH" "Path to a file containing a single node config."
     :parse-fn #(-> % e/load-configuration)]])
 
 (defn single-test
@@ -157,9 +155,9 @@
   (let [workload (if (:workload opts)
                    (:workload opts)
                    (throw (Exception. "Workload undefined")))
-        node-config (if (:node-config opts)
-                      (first (merge-node-configurations (:nodes opts) (list (:node-config opts))))
-                      (throw (Exception. "Node config undefined")))
+        node-config (if (:node-configs opts)
+                      (first (merge-node-configurations (:nodes opts) (list (first (:node-configs opts)))))
+                      (throw (Exception. "Node configs undefined")))
         test-opts (assoc opts
                          :node-config node-config
                          :workload workload)]

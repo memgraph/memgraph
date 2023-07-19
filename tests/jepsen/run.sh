@@ -13,6 +13,7 @@ JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
+_JEPSEN_RUN_EXIT_STATUS=0
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
@@ -63,6 +64,42 @@ if [ "$#" -lt 1 ]; then
     HELP_EXIT
 fi
 
+PROCESS_ARGS() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        key="$1"
+        case $key in
+            --binary)
+                shift
+                MEMGRAPH_BINARY_PATH="$1"
+                shift
+            ;;
+            --ignore-run-stdout-logs)
+                CONTROL_LEIN_RUN_STDOUT_LOGS=0
+                shift
+            ;;
+            --ignore-run-stderr-logs)
+                CONTROL_LEIN_RUN_STDERR_LOGS=0
+                shift
+            ;;
+            --nodes-no)
+                shift
+                JEPSEN_ACTIVE_NODES_NO="$1"
+                shift
+            ;;
+            --run-args)
+                shift
+                CONTROL_LEIN_RUN_ARGS="$1"
+                shift
+            ;;
+            *)
+                ERROR "Unknown option $1."
+                HELP_EXIT
+            ;;
+        esac
+    done
+}
+
 COPY_BINARIES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
@@ -94,6 +131,59 @@ COPY_BINARIES() {
    INFO "Copying test files to jepsen-control DONE."
 }
 
+RUN_JEPSEN() {
+    __control_lein_run_args="$1"
+    # NOTE: docker exec -t is NOT ok because gh CI user does NOT have TTY.
+    # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
+    #       because some Jepsen config is there.
+    # To be able to archive the run result even if the run fails.
+    set +e
+    if [ "$CONTROL_LEIN_RUN_STDOUT_LOGS" -eq 0 ]; then
+        redirect_stdout_logs="/dev/null"
+    else
+        redirect_stdout_logs="/dev/stdout"
+    fi
+    if [ "$CONTROL_LEIN_RUN_STDERR_LOGS" -eq 0 ]; then
+        redirect_stderr_logs="/dev/null"
+    else
+        redirect_stderr_logs="/dev/stderr"
+    fi
+    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__control_lein_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
+    _JEPSEN_RUN_EXIT_STATUS=$?
+    set -e
+}
+
+PROCESS_RESULTS() {
+    start_time="$1"
+    end_time="$2"
+    INFO "Process results..."
+    # Print and pack all test workload runs between start and end time.
+    all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
+    all_workload_run_folders=""
+    for workload in $all_workloads; do
+        for time_folder in $(docker exec jepsen-control bash -c "ls /jepsen/memgraph/store/$workload"); do
+            if [[ "$time_folder" == "latest" ]]; then
+                continue
+            fi
+            # The early continue pattern here is nice because bash doesn't
+            # have >= for the string comparison (marginal values).
+            if [[ "$time_folder" < "$start_time" ]]; then
+                continue
+            fi
+            if [[ "$time_folder" > "$end_time" ]]; then
+                continue
+            fi
+            INFO "jepsen.log for $workload/$time_folder"
+            docker exec jepsen-control bash -c "tail -n 50 /jepsen/memgraph/store/$workload/$time_folder/jepsen.log"
+            all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/$time_folder"
+        done
+    done
+    INFO "Packing results..."
+    docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_workload_run_folders"
+    docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
+    INFO "Result processing (printing and packing) DONE."
+}
+
 # Initialize testing context by copying source/binary files. Inside CI,
 # Memgraph is tested on a single machine cluster based on Docker containers.
 # Once these tests will be part of the official Jepsen repo, the majority of
@@ -113,6 +203,7 @@ case $1 in
     cluster-cleanup)
         docker_exec="docker exec jepsen-control bash -c"
         $docker_exec "rm -rf /jepsen/memgraph/store/*"
+        # TODO(gitbuda): Clean also each node /opt/memgraph
     ;;
 
     cluster-dealloc)
@@ -139,101 +230,43 @@ case $1 in
         exit 1
     ;;
 
-    # Run tests against the specified Memgraph binary.
     test)
-        shift
-        while [[ $# -gt 0 ]]; do
-            key="$1"
-            case $key in
-                --binary)
-                    shift
-                    MEMGRAPH_BINARY_PATH="$1"
-                    shift
-                ;;
-                --ignore-run-stdout-logs)
-                    CONTROL_LEIN_RUN_STDOUT_LOGS=0
-                    shift
-                ;;
-                --ignore-run-stderr-logs)
-                    CONTROL_LEIN_RUN_STDERR_LOGS=0
-                    shift
-                ;;
-                --nodes-no)
-                    shift
-                    JEPSEN_ACTIVE_NODES_NO="$1"
-                    shift
-                ;;
-                --run-args)
-                    shift
-                    CONTROL_LEIN_RUN_ARGS="$1"
-                    shift
-                ;;
-                *)
-                    ERROR "Unknown option $1."
-                    HELP_EXIT
-                ;;
-            esac
-        done
-
+        PROCESS_ARGS "$@"
         PRINT_CONTEXT
         COPY_BINARIES
-
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
-        # Run the test.
-        # NOTE: docker exec -t is NOT ok because gh CI user does NOT have TTY.
-        # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
-        #       because some Jepsen config is there.
-        set +e
-        if [ "$CONTROL_LEIN_RUN_STDOUT_LOGS" -eq 0 ]; then
-            redirect_stdout_logs="/dev/null"
-        else
-            redirect_stdout_logs="/dev/stdout"
-        fi
-        if [ "$CONTROL_LEIN_RUN_STDERR_LOGS" -eq 0 ]; then
-            redirect_stderr_logs="/dev/null"
-        else
-            redirect_stderr_logs="/dev/stderr"
-        fi
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
-        # To be able to archive the run result even if the run fails.
-        jepsen_run_exit_status=$?
+        RUN_JEPSEN "$CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
-        set -e
+        PROCESS_RESULTS "$start_time" "$end_time"
+        # Exit if the jepsen run status is not 0
+        if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
+            ERROR "Jepsen FAILED" # important for the coder
+            exit "$_JEPSEN_RUN_EXIT_STATUS" # important for CI
+        fi
+    ;;
 
-        # Pack all test workload runs between start and end time.
-        all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
-        all_workload_run_folders=""
-        for workload in $all_workloads; do
-            for time_folder in $(docker exec jepsen-control bash -c "ls /jepsen/memgraph/store/$workload"); do
-                if [[ "$time_folder" == "latest" ]]; then
-                    continue
-                fi
-                # The early continue pattern here is nice because bash doesn't
-                # have >= for the string comparison (marginal values).
-                if [[ "$time_folder" < "$start_time" ]]; then
-                    continue
-                fi
-                if [[ "$time_folder" > "$end_time" ]]; then
-                    continue
-                fi
-                all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/$time_folder"
-            done
+    test-all-individually)
+        PROCESS_ARGS "$@"
+        PRINT_CONTEXT
+        INFO "NOTE: CONTROL_LEIN_RUN_ARGS ignored"
+        COPY_BINARIES
+        start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
+        INFO "Jepsen run in progress... START_TIME: $start_time"
+        for workload in "bank" "large"; do
+          RUN_JEPSEN "test --workload $workload --node-configs resources/node-config.edn"
+          if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
+            break
+          fi
         done
-        docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_workload_run_folders"
-        docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
-        INFO "Test and results packing DONE."
-
-        # If the run has failed, print latest logs + this script also has to return non-zero status.
-        if [ "$jepsen_run_exit_status" -ne 0 ]; then
-            all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
-            for workload in $all_workloads; do
-                INFO "jepsen.log for $workload"
-                docker exec jepsen-control bash -c "tail -n 1000 /jepsen/memgraph/store/$workload/latest/jepsen.log"
-            done
-            ERROR "Jepsen FAILED"
-            exit "$jepsen_run_exit_status"
+        end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
+        INFO "Jepsen run DONE. END_TIME: $end_time"
+        PROCESS_RESULTS "$start_time" "$end_time"
+        # Exit if the jepsen run status is not 0
+        if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
+            ERROR "Jepsen FAILED" # important for the coder
+            exit "$_JEPSEN_RUN_EXIT_STATUS" # important for CI
         fi
     ;;
 
