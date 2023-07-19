@@ -395,8 +395,9 @@ class List {
 
   /// @brief Returns the value at the given `index`.
   const Value operator[](size_t index) const;
+
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
   class Iterator {
    private:
@@ -492,9 +493,6 @@ class Map {
   /// @brief Returns the value at the given `key`.
   Value const At(std::string_view key) const;
 
-  /// @brief Returns type as string.
-  const std::string TypeString();
-
   class Iterator {
    public:
     friend class Map;
@@ -544,6 +542,8 @@ class Map {
   bool operator==(const Map &other) const;
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator!=(const Map &other) const;
+  /// @brief Returns type as string.
+  const std::string TypeString() const;
 
  private:
   mgp_map *ptr_;
@@ -605,9 +605,8 @@ class Node {
   bool operator==(const Node &other) const;
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator!=(const Node &other) const;
-
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_vertex *ptr_;
@@ -663,9 +662,8 @@ class Relationship {
   bool operator==(const Relationship &other) const;
   /// @exception std::runtime_error Relationship properties contain value(s) of unknown type.
   bool operator!=(const Relationship &other) const;
-
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_edge *ptr_;
@@ -714,9 +712,8 @@ class Path {
   bool operator==(const Path &other) const;
   /// @exception std::runtime_error Path contains element(s) with unknown value.
   bool operator!=(const Path &other) const;
-
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_path *ptr_;
@@ -776,7 +773,7 @@ class Date {
   bool operator<(const Date &other) const;
 
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_date *ptr_;
@@ -838,7 +835,7 @@ class LocalTime {
   bool operator<(const LocalTime &other) const;
 
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_local_time *ptr_;
@@ -906,7 +903,7 @@ class LocalDateTime {
   bool operator<(const LocalDateTime &other) const;
 
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_local_date_time *ptr_;
@@ -960,7 +957,7 @@ class Duration {
   bool operator<(const Duration &other) const;
 
   /// @brief Returns type as string.
-  const std::string TypeString();
+  const std::string TypeString() const;
 
  private:
   mgp_duration *ptr_;
@@ -1154,7 +1151,8 @@ class Value {
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
 
-  std::string TypeString() const;
+  /// @brief Returns type as string.
+  const std::string TypeString() const;
 
  private:
   mgp_value *ptr_;
@@ -1346,6 +1344,20 @@ enum class ProcedureType : uint8_t {
 inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
                          std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                          mgp_memory *memory);
+
+/// @brief Adds a batch procedure to the query module.
+/// @param callback - procedure callback
+/// @param initializer - procedure initializer
+/// @param cleanup - procedure cleanup
+/// @param name - procedure name
+/// @param proc_type - procedure type (read/write)
+/// @param parameters - procedure parameters
+/// @param returns - procedure return values
+/// @param module - the query module that the procedure is added to
+/// @param memory - access to memory
+inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                              std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
+                              std::vector<Return> returns, mgp_module *module, mgp_memory *memory);
 
 /// @brief Adds a function to the query module.
 /// @param callback - function callback
@@ -2162,7 +2174,7 @@ inline bool List::operator==(const List &other) const { return util::ListsEqual(
 
 inline bool List::operator!=(const List &other) const { return !(*this == other); }
 
-inline const std::string List::TypeString() { return "Type: List"; }
+inline const std::string List::TypeString() const { return "Type: List"; }
 
 // MapItem:
 
@@ -2322,7 +2334,7 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
 
-inline const std::string Map::TypeString() { return "Type: Map"; }
+inline const std::string Map::TypeString() const { return "Type: Map"; }
 
 /* #endregion */
 
@@ -2422,7 +2434,7 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 
 inline bool Node::operator!=(const Node &other) const { return !(*this == other); }
 
-inline const std::string Node::TypeString() { return "Type: Node"; }
+inline const std::string Node::TypeString() const { return "Type: Node"; }
 
 // Relationship:
 
@@ -2496,7 +2508,7 @@ inline bool Relationship::operator==(const Relationship &other) const {
 
 inline bool Relationship::operator!=(const Relationship &other) const { return !(*this == other); }
 
-inline const std::string Relationship::TypeString() { return "Type: Relationship"; }
+inline const std::string Relationship::TypeString() const { return "Type: Relationship"; }
 
 // Path:
 
@@ -2559,7 +2571,7 @@ inline bool Path::operator==(const Path &other) const { return util::PathsEqual(
 
 inline bool Path::operator!=(const Path &other) const { return !(*this == other); }
 
-inline const std::string Path::TypeString() { return "Type: Path"; }
+inline const std::string Path::TypeString() const { return "Type: Path"; }
 /* #endregion */
 
 /* #region Temporal types (Date, LocalTime, LocalDateTime, Duration) */
@@ -2655,8 +2667,7 @@ inline bool Date::operator<(const Date &other) const {
 
   return is_less;
 }
-
-inline const std::string Date::TypeString() { return "Type: Date"; }
+inline const std::string Date::TypeString() const { return "Type: Date"; }
 
 // LocalTime:
 
@@ -2755,8 +2766,7 @@ inline bool LocalTime::operator<(const LocalTime &other) const {
 
   return is_less;
 }
-
-inline const std::string LocalTime::TypeString() { return "Type: LocalTime"; }
+inline const std::string LocalTime::TypeString() const { return "Type: LocalTime"; }
 
 // LocalDateTime:
 
@@ -2870,8 +2880,7 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
 
   return is_less;
 }
-
-inline const std::string LocalDateTime::TypeString() { return "Type: LocalDateTime"; }
+inline const std::string LocalDateTime::TypeString() const { return "Type: LocalDateTime"; }
 
 // Duration:
 
@@ -2960,7 +2969,7 @@ inline bool Duration::operator<(const Duration &other) const {
   return is_less;
 }
 
-inline const std::string Duration::TypeString() { return "Type: Duration"; }
+inline const std::string Duration::TypeString() const { return "Type: Duration"; }
 
 /* #endregion */
 
@@ -3218,7 +3227,7 @@ inline bool Value::operator==(const Value &other) const { return util::ValuesEqu
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
-inline std::string Value::TypeString() const {
+inline const std::string Value::TypeString() const {
   if (Value::IsNull())
     return "Type: Null";
   else if (Value::IsBool())
@@ -3250,7 +3259,6 @@ inline std::string Value::TypeString() const {
   else
     return "Type: Unknown";
 }
-
 /* #endregion */
 
 /* #region Record */
@@ -3517,14 +3525,12 @@ inline mgp_type *Return::GetMGPType() const {
   return util::ToMGPType(type_);
 }
 
-void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
-                  std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
-                  mgp_memory *memory) {
-  auto proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
-                                                 : mgp::module_add_write_procedure(module, name.data(), callback);
-
+// do not enter
+namespace detail {
+inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
+                                   const std::vector<Return> &returns) {
   for (const auto &parameter : parameters) {
-    auto parameter_name = parameter.name.data();
+    const auto *parameter_name = parameter.name.data();
     if (!parameter.optional) {
       mgp::proc_add_arg(proc, parameter_name, parameter.GetMGPType());
     } else {
@@ -3533,18 +3539,35 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
   }
 
   for (const auto return_ : returns) {
-    auto return_name = return_.name.data();
-
+    const auto *return_name = return_.name.data();
     mgp::proc_add_result(proc, return_name, return_.GetMGPType());
   }
+}
+}  // namespace detail
+
+void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
+                  std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                  mgp_memory *memory) {
+  auto *proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
+                                                  : mgp::module_add_write_procedure(module, name.data(), callback);
+  detail::AddParamsReturnsToProc(proc, parameters, returns);
+}
+
+void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                       std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
+                       std::vector<Return> returns, mgp_module *module, mgp_memory *memory) {
+  auto *proc = (proc_type == ProcedureType::Read)
+                   ? mgp::module_add_batch_read_procedure(module, name.data(), callback, initializer, cleanup)
+                   : mgp::module_add_batch_write_procedure(module, name.data(), callback, initializer, cleanup);
+  detail::AddParamsReturnsToProc(proc, parameters, returns);
 }
 
 void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters, mgp_module *module,
                  mgp_memory *memory) {
-  auto func = mgp::module_add_function(module, name.data(), callback);
+  auto *func = mgp::module_add_function(module, name.data(), callback);
 
   for (const auto &parameter : parameters) {
-    auto parameter_name = parameter.name.data();
+    const auto *parameter_name = parameter.name.data();
 
     if (!parameter.optional) {
       mgp::func_add_arg(func, parameter_name, parameter.GetMGPType());
