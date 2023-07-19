@@ -81,6 +81,7 @@ def wait_for_server(port, delay=0.1) -> None:
 
 
 def start_memgraph(args: Args) -> Popen:
+    """Starts Memgraph and return the process"""
     cwd = os.path.dirname(args.memgraph)
     cmd = [
         args.memgraph,
@@ -118,6 +119,15 @@ def stop_memgraph(proc_mg: Popen) -> None:
 
 
 def run_test(args: Args, test: str, options: List[str], timeout: int, mode: DatabaseMode) -> float:
+    """Runs tests for a set of specific database configuration.
+
+    Args:
+        args: Arguments passed to the test
+        test: Test name
+        options: List of options specific for each test
+        timeout: Timeout in minutes
+        mode: DatabaseMode (storage mode & isolation level pair)
+    """
     print("Running test '{}'".format(test))
 
     binary = _find_test_binary(args, test)
