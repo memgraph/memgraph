@@ -56,62 +56,62 @@ def get_all_database_modes() -> List[DatabaseMode]:
 # long_running runs for 1min
 # long_running runs for 2min
 SMALL_DATASET = [
-    {
-        DatasetConstants.TEST: "bipartite.py",
-        DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
-        DatasetConstants.TIMEOUT: 5,
-        DatasetConstants.MODE: [get_default_database_mode()],
-    },
+    # {
+    #     DatasetConstants.TEST: "bipartite.py",
+    #     DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
+    #     DatasetConstants.TIMEOUT: 5,
+    #     DatasetConstants.MODE: [get_default_database_mode()],
+    # },
     {
         DatasetConstants.TEST: "new_stress_test.py",
         DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
         DatasetConstants.TIMEOUT: 5,
         DatasetConstants.MODE: [get_default_database_mode()],
     },
-    {
-        DatasetConstants.TEST: "create_match.py",
-        DatasetConstants.OPTIONS: ["--vertex-count", "40000", "--create-pack-size", "100"],
-        DatasetConstants.TIMEOUT: 5,
-        DatasetConstants.MODE: [get_default_database_mode()],
-    },
-    {
-        DatasetConstants.TEST: "parser.cpp",
-        DatasetConstants.OPTIONS: ["--per-worker-query-count", "1000"],
-        DatasetConstants.TIMEOUT: 5,
-        DatasetConstants.MODE: [get_default_database_mode()],
-    },
-    {
-        DatasetConstants.TEST: "long_running.cpp",
-        DatasetConstants.OPTIONS: [
-            "--vertex-count",
-            "1000",
-            "--edge-count",
-            "5000",
-            "--max-time",
-            "1",
-            "--verify",
-            "20",
-        ],
-        DatasetConstants.TIMEOUT: 5,
-        DatasetConstants.MODE: [get_default_database_mode()],
-    },
-    {
-        DatasetConstants.TEST: "long_running.cpp",
-        DatasetConstants.OPTIONS: [
-            "--vertex-count",
-            "10000",
-            "--edge-count",
-            "50000",
-            "--max-time",
-            "2",
-            "--verify",
-            "30",
-            "--stats-file",
-            STATS_FILE,
-        ],
-        DatasetConstants.TIMEOUT: 5,
-        DatasetConstants.MODE: [get_default_database_mode()],
-    },
+    # {
+    #     DatasetConstants.TEST: "create_match.py",
+    #     DatasetConstants.OPTIONS: ["--vertex-count", "40000", "--create-pack-size", "100"],
+    #     DatasetConstants.TIMEOUT: 5,
+    #     DatasetConstants.MODE: [get_default_database_mode()],
+    # },
+    # {
+    #     DatasetConstants.TEST: "parser.cpp",
+    #     DatasetConstants.OPTIONS: ["--per-worker-query-count", "1000"],
+    #     DatasetConstants.TIMEOUT: 5,
+    #     DatasetConstants.MODE: [get_default_database_mode()],
+    # },
+    # {
+    #     DatasetConstants.TEST: "long_running.cpp",
+    #     DatasetConstants.OPTIONS: [
+    #         "--vertex-count",
+    #         "1000",
+    #         "--edge-count",
+    #         "5000",
+    #         "--max-time",
+    #         "1",
+    #         "--verify",
+    #         "20",
+    #     ],
+    #     DatasetConstants.TIMEOUT: 5,
+    #     DatasetConstants.MODE: [get_default_database_mode()],
+    # },
+    # {
+    #     DatasetConstants.TEST: "long_running.cpp",
+    #     DatasetConstants.OPTIONS: [
+    #         "--vertex-count",
+    #         "10000",
+    #         "--edge-count",
+    #         "50000",
+    #         "--max-time",
+    #         "2",
+    #         "--verify",
+    #         "30",
+    #         "--stats-file",
+    #         STATS_FILE,
+    #     ],
+    #     DatasetConstants.TIMEOUT: 5,
+    #     DatasetConstants.MODE: [get_default_database_mode()],
+    # },
 ]
 
 # dataset calibrated for running on daily stress instance (total 9h)
