@@ -66,6 +66,8 @@ def parse_arguments() -> Args:
     parser.add_argument("--data-directory", default="")
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
     parser.add_argument("--large-dataset", action="store_const", const=True, default=False)
+    parser.add_argument("--small-dataset", action="store_const", const=True, default=False)
+    parser.add_argument("--specific-test", default="")
     parser.add_argument("--use-ssl", action="store_const", const=True, default=False)
     parser.add_argument("--verbose", action="store_const", const=True, default=False)
     return parser.parse_args()
@@ -184,7 +186,16 @@ def run_stress_test_suite(args: Args) -> Dict[str, float]:
         memgraph_proc.wait()
 
     runtimes = {}
+
+    if args.large_dataset and args.small_dataset:
+        raise Exception("Choose only a large dataset or a small dataset for stress testing!")
+
     dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
+    if args.specific_test:
+        dataset = [x for x in dataset if x[DatasetConstants.TEST] == args.specific_test]
+        if not len(dataset):
+            raise Exception("Specific dataset is not found for stress testing!")
+
     for test in dataset:
         if args.use_ssl:
             test[DatasetConstants.OPTIONS] += ["--use-ssl"]
