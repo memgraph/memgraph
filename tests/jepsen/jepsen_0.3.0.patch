@@ -1,0 +1,13 @@
+diff --git a/docker/control/Dockerfile b/docker/control/Dockerfile
+index 6b2d3c0e..195a7a60 100644
+--- a/docker/control/Dockerfile
++++ b/docker/control/Dockerfile
+@@ -7,7 +7,7 @@ ENV LEIN_ROOT true
+ # Jepsen dependencies
+ #
+ RUN apt-get -y -q update && \
+-    apt-get install -qy openjdk-17-jdk-headless \
++    apt-get install -qy ca-certificates-java openjdk-17-jdk-headless \
+     libjna-java \
+     vim \
+     emacs \

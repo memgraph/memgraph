@@ -187,4 +187,9 @@ startup_config_dict = {
         "Path to cypherl file that is used for configuring users and database schema before server starts.",
     ),
     "init_data_file": ("", "", "Path to cypherl file that is used for creating data after server starts."),
+    "replication_restore_state_on_startup": (
+        "false",
+        "false",
+        "Restore replication state on startup, e.g. recover replica",
+    ),
 }
