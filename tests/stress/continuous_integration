@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import argparse
-import atexit
+import copy
 import multiprocessing
 import os
 import subprocess
 import time
+from argparse import Namespace as Args
+from subprocess import Popen
+from typing import Dict, List
 
-from test_config import LARGE_DATASET, SMALL_DATASET
+from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -52,12 +54,12 @@ def generate_temporary_ssl_certs():
     )
 
 
-def remove_certificates(args):
+def remove_certificates() -> None:
     os.remove(KEY_FILE)
     os.remove(CERT_FILE)
 
 
-def parse_arguments():
+def parse_arguments() -> Args:
     # parse arguments
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
@@ -70,14 +72,14 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def wait_for_server(port, delay=0.1):
+def wait_for_server(port, delay=0.1) -> None:
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
     time.sleep(delay)
 
 
-def start_memgraph(args):
+def start_memgraph(args: Args) -> Popen:
     cwd = os.path.dirname(args.memgraph)
     cmd = [
         args.memgraph,
@@ -106,15 +108,14 @@ def start_memgraph(args):
     return memgraph_proc
 
 
-def stop_memgraph(proc_mg):
+def stop_memgraph(proc_mg: Popen) -> None:
     proc_mg.terminate()
     ret_mg = proc_mg.wait()
     if ret_mg != 0:
         raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
 
 
-# run test helper function
-def run_test(args, test, options, timeout, mode):
+def run_test(args: Args, test: str, options: List[str], timeout: int, mode: DatabaseMode) -> float:
     print("Running test '{}'".format(test))
 
     # find binary
@@ -141,7 +142,7 @@ def run_test(args, test, options, timeout, mode):
     return runtime
 
 
-def run_stress_test_suite(args):
+def run_stress_test_suite(args: Args) -> Dict[str, float]:
     def cleanup(memgraph_proc):
         if memgraph_proc.poll() != None:
             return
@@ -152,19 +153,25 @@ def run_stress_test_suite(args):
     dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
     for test in dataset:
         if args.use_ssl:
-            test["options"] += ["--use-ssl"]
+            test[DatasetConstants.OPTIONS] += ["--use-ssl"]
 
-        memgraph_proc = start_memgraph(args)
-        runtime = run_test(args, **test)
-        runtimes[os.path.splitext(test["test"])[0]] = runtime
+        for mode in test[DatasetConstants.MODE]:
+            test_run = copy.deepcopy(test)
 
-        stop_memgraph(memgraph_proc)
-        cleanup(memgraph_proc)
+            # Run for every specified combination of storage mode, serialization mode, etc (if extended)
+            test_run[DatasetConstants.MODE] = mode
+
+            memgraph_proc = start_memgraph(args)
+            runtime = run_test(args, **test_run)
+            runtimes[os.path.splitext(test[DatasetConstants.TEST])[0]] = runtime
+
+            stop_memgraph(memgraph_proc)
+            cleanup(memgraph_proc)
 
     return runtimes
 
 
-def write_stats(runtimes):
+def write_stats(runtimes: Dict[str, float]) -> None:
     # measurements
     measurements = ""
     for key, value in runtimes.items():
@@ -186,7 +193,7 @@ if __name__ == "__main__":
     runtimes = run_stress_test_suite(args)
 
     if args.use_ssl:
-        remove_certificates(args)
+        remove_certificates()
 
     write_stats(runtimes)
 
