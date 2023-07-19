@@ -13,23 +13,22 @@ class DatasetConstants:
 @dataclass
 class DatabaseMode:
     storage_mode: str
-    isolation_mode: str
+    isolation_level: str
 
 
 class StorageModeConstants:
     IN_MEMORY_TRANSACTIONAL = "IN_MEMORY_TRANSACTIONAL"
     IN_MEMORY_ANALYTICAL = "IN_MEMORY_ANALYTICAL"
-    ON_DISK_TRANSACTIONAL = "ON_DISK_TRANSACTIONAL"
 
     @classmethod
     def to_list(cls) -> List[str]:
-        return [cls.IN_MEMORY_TRANSACTIONAL, cls.IN_MEMORY_ANALYTICAL, cls.ON_DISK_TRANSACTIONAL]
+        return [cls.IN_MEMORY_TRANSACTIONAL, cls.IN_MEMORY_ANALYTICAL]
 
 
-class IsolationModeConstants:
-    READ_UNCOMMITED = "READ_UNCOMMITED"
-    READ_COMMITED = "READ_COMMITED"
-    SNAPSHOT_SERIALIZATION = "SNAPSHOT_SERIALIZATION"
+class IsolationLevelConstants:
+    SNAPSHOT_ISOLATION = "SNAPSHOT ISOLATION"
+    READ_COMMITED = "READ COMMITED"
+    READ_UNCOMMITED = "READ UNCOMMITED"
 
     @classmethod
     def to_list(cls) -> List[str]:
@@ -37,13 +36,13 @@ class IsolationModeConstants:
 
 
 def get_default_database_mode() -> DatabaseMode:
-    return DatabaseMode(StorageModeConstants.IN_MEMORY_TRANSACTIONAL, IsolationModeConstants.SNAPSHOT_SERIALIZATION)
+    return DatabaseMode(StorageModeConstants.IN_MEMORY_TRANSACTIONAL, IsolationLevelConstants.SNAPSHOT_ISOLATION)
 
 
 def get_all_database_modes() -> List[DatabaseMode]:
     return [
         DatabaseMode(x[0], x[1])
-        for x in itertools.product(StorageModeConstants.to_list(), IsolationModeConstants.to_list())
+        for x in itertools.product(StorageModeConstants.to_list(), IsolationLevelConstants.to_list())
     ]
 
 

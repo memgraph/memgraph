@@ -10,6 +10,7 @@ from argparse import Namespace as Args
 from subprocess import Popen
 from typing import Dict, List
 
+from gqlalchemy import Memgraph
 from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
 
 # paths
@@ -118,15 +119,9 @@ def stop_memgraph(proc_mg: Popen) -> None:
 def run_test(args: Args, test: str, options: List[str], timeout: int, mode: DatabaseMode) -> float:
     print("Running test '{}'".format(test))
 
-    # find binary
-    if test.endswith(".py"):
-        logging = "DEBUG" if args.verbose else "WARNING"
-        binary = [args.python, "-u", os.path.join(SCRIPT_DIR, test), "--logging", logging]
-    elif test.endswith(".cpp"):
-        exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
-        binary = [exe]
-    else:
-        raise Exception("Test '{}' binary not supported!".format(test))
+    binary = _find_test_binary(args, test)
+
+    _test_run_setup_database(mode)
 
     # start test
     cmd = binary + ["--worker-count", str(THREADS)] + options
@@ -140,6 +135,25 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
     print("    Done after {:.3f} seconds".format(runtime))
 
     return runtime
+
+
+def _test_run_setup_database(mode: DatabaseMode) -> None:
+    memgraph = Memgraph()
+
+    memgraph.execute(f"STORAGE MODE {mode.storage_mode}")
+    memgraph.execute(f"SET GLOBAL TRANSACTION ISOLATION LEVEL {mode.isolation_level}")
+
+
+def _find_test_binary(args: Args, test: str) -> List[str]:
+    if test.endswith(".py"):
+        logging = "DEBUG" if args.verbose else "WARNING"
+        return [args.python, "-u", os.path.join(SCRIPT_DIR, test), "--logging", logging]
+
+    if test.endswith(".cpp"):
+        exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
+        return [exe]
+
+    raise Exception("Test '{}' binary not supported!".format(test))
 
 
 def run_stress_test_suite(args: Args) -> Dict[str, float]:
