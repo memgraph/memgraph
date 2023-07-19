@@ -23,8 +23,6 @@ CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
 
 # long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
-SMALL_DATASET[-1]["options"].extend(["--stats-file", STATS_FILE])
-LARGE_DATASET[-1]["options"].extend(["--stats-file", STATS_FILE])
 
 # get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()

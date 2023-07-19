@@ -1,6 +1,10 @@
 import itertools
+import os
 from dataclasses import dataclass
 from typing import List
+
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
 
 
 class DatasetConstants:
@@ -59,6 +63,12 @@ SMALL_DATASET = [
         DatasetConstants.MODE: [get_default_database_mode()],
     },
     {
+        DatasetConstants.TEST: "new_stress_test.py",
+        DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
+        DatasetConstants.TIMEOUT: 5,
+        DatasetConstants.MODE: [get_default_database_mode()],
+    },
+    {
         DatasetConstants.TEST: "create_match.py",
         DatasetConstants.OPTIONS: ["--vertex-count", "40000", "--create-pack-size", "100"],
         DatasetConstants.TIMEOUT: 5,
@@ -96,6 +106,8 @@ SMALL_DATASET = [
             "2",
             "--verify",
             "30",
+            "--stats-file",
+            STATS_FILE,
         ],
         DatasetConstants.TIMEOUT: 5,
         DatasetConstants.MODE: [get_default_database_mode()],
@@ -112,6 +124,12 @@ LARGE_DATASET = (
             DatasetConstants.TEST: "bipartite.py",
             DatasetConstants.OPTIONS: ["--u-count", "300", "--v-count", "300"],
             DatasetConstants.TIMEOUT: 30,
+            DatasetConstants.MODE: [get_default_database_mode()],
+        },
+        {
+            DatasetConstants.TEST: "new_stress_test.py",
+            DatasetConstants.OPTIONS: ["--u-count", "100", "--v-count", "100"],
+            DatasetConstants.TIMEOUT: 5,
             DatasetConstants.MODE: [get_default_database_mode()],
         },
         {
@@ -151,6 +169,8 @@ LARGE_DATASET = (
                 "480",
                 "--verify",
                 "300",
+                "--stats-file",
+                STATS_FILE,
             ],
             DatasetConstants.TIMEOUT: 500,
             DatasetConstants.MODE: [get_default_database_mode()],
