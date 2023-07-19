@@ -98,12 +98,12 @@ def start_memgraph(args):
         cmd += ["--data-directory", args.data_directory]
     if args.use_ssl:
         cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
-    proc_mg = subprocess.Popen(cmd, cwd=cwd)
+    memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
     wait_for_server(7687)
 
-    assert proc_mg.poll() is None, "The database binary died prematurely!"
+    assert memgraph_proc.poll() is None, "The database binary died prematurely!"
 
-    return proc_mg
+    return memgraph_proc
 
 
 def stop_memgraph(proc_mg):
@@ -113,20 +113,8 @@ def stop_memgraph(proc_mg):
         raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
 
 
-def run_tests(args):
-    runtimes = {}
-    dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
-    for test in dataset:
-        if args.use_ssl:
-            test["options"] += ["--use-ssl"]
-        runtime = run_test(args, **test)
-        runtimes[os.path.splitext(test["test"])[0]] = runtime
-
-    return runtimes
-
-
 # run test helper function
-def run_test(args, test, options, timeout):
+def run_test(args, test, options, timeout, mode):
     print("Running test '{}'".format(test))
 
     # find binary
@@ -153,6 +141,29 @@ def run_test(args, test, options, timeout):
     return runtime
 
 
+def run_stress_test_suite(args):
+    def cleanup(memgraph_proc):
+        if memgraph_proc.poll() != None:
+            return
+        memgraph_proc.kill()
+        memgraph_proc.wait()
+
+    runtimes = {}
+    dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
+    for test in dataset:
+        if args.use_ssl:
+            test["options"] += ["--use-ssl"]
+
+        memgraph_proc = start_memgraph(args)
+        runtime = run_test(args, **test)
+        runtimes[os.path.splitext(test["test"])[0]] = runtime
+
+        stop_memgraph(memgraph_proc)
+        cleanup(memgraph_proc)
+
+    return runtimes
+
+
 def write_stats(runtimes):
     # measurements
     measurements = ""
@@ -172,20 +183,7 @@ if __name__ == "__main__":
     if args.use_ssl:
         generate_temporary_ssl_certs()
 
-    proc_mg = start_memgraph(args)
-
-    # at exit cleanup
-    # TODO: Kill and start after each test because of storage modes and serialization modes
-    @atexit.register
-    def cleanup():
-        global proc_mg
-        if proc_mg.poll() != None:
-            return
-        proc_mg.kill()
-        proc_mg.wait()
-
-    runtimes = run_tests(args)
-    stop_memgraph(proc_mg)
+    runtimes = run_stress_test_suite(args)
 
     if args.use_ssl:
         remove_certificates(args)
