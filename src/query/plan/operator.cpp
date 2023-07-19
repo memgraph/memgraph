@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <limits>
 #include <queue>
@@ -4430,7 +4431,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write)
+                             size_t memory_scale, bool is_write, bool is_util_validate_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
@@ -4438,7 +4439,8 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       result_symbols_(symbols),
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
-      is_write_(is_write) {}
+      is_write_(is_write),
+      is_util_validate_procedure_(is_util_validate_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -4553,8 +4555,8 @@ class CallProcedureCursor : public Cursor {
       // it's not possible for a single thread to request multiple read locks.
       // Builtin module registration in query/procedure/module.cpp depends on
       // this locking scheme.
-      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
-                                                         context.evaluation_context.memory);
+      auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
+                                                  context.evaluation_context.memory);
       if (!maybe_found) {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
@@ -4629,9 +4631,115 @@ class CallProcedureCursor : public Cursor {
   void Shutdown() override {}
 };
 
+class CallValidateProcedureCursor : public Cursor {
+  const CallProcedure *self_;
+  UniqueCursorPtr input_cursor_;
+
+ public:
+  CallValidateProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
+
+    if (MustAbort(context)) throw HintedAbortError();
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+
+    const auto args = self_->arguments_;
+    MG_ASSERT(args.size() == 3);
+
+    const auto predicate = args[0]->Accept(evaluator);
+    const bool predicate_val = predicate.ValueBool();
+
+    if (predicate_val) [[unlikely]] {
+      const auto &message = args[1]->Accept(evaluator);
+      const auto &message_args = args[2]->Accept(evaluator);
+
+      auto format_error_message = [message_val = message.ValueString(),
+                                   message_args_val = message_args.ValueList()]() mutable {
+        std::size_t found{0U};
+        std::size_t arg_index{0U};
+
+        if (message_val.find('%', found) == std::string::npos) {
+          return message_val;
+        }
+
+        while (true) {
+          found = message_val.find('%', found);
+          if (found == std::string::npos) {
+            break;
+          }
+
+          // If someone finishes the message with '%' that could be error prone.
+          if (found == message_val.size() - 1U) {
+            break;
+          }
+
+          std::string replacement_str;
+          const auto format_specifier = message_val.at(found + 1U);
+          if (!std::isalpha(format_specifier)) {
+            ++found;
+            continue;
+          }
+          const bool does_argument_list_overflow = (message_args_val.size() < arg_index - 1U) && (arg_index > 0U);
+          if (does_argument_list_overflow) {
+            throw QueryRuntimeException(
+                "There are more format specifiers in the CALL procedure error message, then arguments provided.");
+          }
+          // If the number of arguments given exceed the number
+          // of format specifiers, than we ingore the excess ones.
+          if (arg_index > message_args_val.size() - 1U) {
+            break;
+          }
+
+          auto &current_arg = message_args_val.at(arg_index);
+          switch (format_specifier) {
+            case 'd':
+              replacement_str = std::to_string(current_arg.ValueInt());
+              break;
+            case 'f':
+              replacement_str = std::to_string(current_arg.ValueDouble());
+              break;
+            case 's':
+              replacement_str = current_arg.ValueString();
+              break;
+            default:
+              throw QueryRuntimeException("Format specifier %'{}', in CALL procedure is not supported.",
+                                          format_specifier);
+          }
+
+          message_val.replace(found, 2U, replacement_str);
+          ++arg_index;
+          ++found;
+        }
+
+        message_val.shrink_to_fit();
+        return message_val;
+      };
+
+      throw QueryRuntimeException(format_error_message());
+    }
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+  void Shutdown() override {}
+};
+
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
+
+  if (is_util_validate_procedure_) {
+    return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
+  }
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }

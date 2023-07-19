@@ -10,10 +10,15 @@
 // licenses/APL.txt.
 
 #include <array>
+#include <cstring>
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
-namespace memgraph::query {
+#include <fstream>
+
+namespace memgraph::query::procedure {
 
 // TODO -1- (gvolfing) - check what happens if we can not provide
 // the same signature for any given functionality
@@ -23,26 +28,6 @@ namespace memgraph::query {
 // TODO -4- (gvolfing) - fill out the remaining of the mappings
 // TODO -5- (gvolfing) - consider if the query namespace is good for
 // this facility
+[[nodiscard]] std::optional<std::string_view> FindApocReplacement(std::string_view apoc_name);
 
-class GraphqlChecker {
- public:
-  GraphqlChecker() = default;
-
-  GraphqlChecker(const GraphqlChecker &) = delete;
-  GraphqlChecker &operator=(const GraphqlChecker &) = delete;
-  GraphqlChecker(GraphqlChecker &&) = delete;
-  GraphqlChecker &operator=(GraphqlChecker &&) = delete;
-
-  ~GraphqlChecker() = default;
-
-  void operator()(std::string &query) const;
-
- private:
-  static constexpr std::array<std::pair<std::string_view, std::string_view>, 1> mapping_ = {{
-
-      {"dbms.components", "mgps.components"}
-
-  }};
-};
-
-}  // namespace memgraph::query
+}  // namespace memgraph::query::procedure

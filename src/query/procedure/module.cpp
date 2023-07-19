@@ -22,6 +22,7 @@ extern "C" {
 #include <unistd.h>
 
 #include "py/py.hpp"
+#include "query/procedure/graphql_checker.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
@@ -1326,10 +1327,25 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
     }
   };
   auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
-  if (!result) return std::nullopt;
+  if (!result) {
+    return std::nullopt;
+  }
   auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
-  if (!module) return std::nullopt;
+  if (!module) {
+    // Check for GraphQL specific queries.
+    const auto maybe_graphql = FindApocReplacement(fully_qualified_name);
+    if (maybe_graphql) {
+      result = FindModuleNameAndProp(module_registry, *maybe_graphql, memory);
+      auto [module_name, prop_name] = *result;
+      module = module_registry.GetModuleNamed(module_name);
+      if (!module) {
+        return std::nullopt;
+      }
+    } else {
+      return std::nullopt;
+    }
+  }
   auto *prop = prop_fun(module);
   const auto &prop_it = prop->find(prop_name);
   if (prop_it == prop->end()) return std::nullopt;

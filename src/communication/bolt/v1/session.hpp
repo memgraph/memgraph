@@ -24,7 +24,6 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
-#include "query/graphql_checker.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -64,7 +63,7 @@ class Session {
    * if an explicit transaction was started.
    */
   virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      std::string &query, const std::map<std::string, Value> &params,
+      const std::string &query, const std::map<std::string, Value> &params,
       const std::map<std::string, memgraph::communication::bolt::Value> &metadata) = 0;
 
   /**
@@ -172,8 +171,6 @@ class Session {
 
   ChunkedDecoderBuffer<TInputStream> decoder_buffer_{input_stream_};
   Decoder<ChunkedDecoderBuffer<TInputStream>> decoder_{decoder_buffer_};
-
-  query::GraphqlChecker graphql_checker_{};
 
   bool handshake_done_{false};
   State state_{State::Handshake};

@@ -9,6 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/core.h>
+#include <fmt/format.h>
+#include <gflags/gflags.h>
+#include <spdlog/common.h>
+#include <spdlog/sinks/daily_file_sink.h>
+#include <spdlog/sinks/dist_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -25,14 +32,6 @@
 #include <string>
 #include <string_view>
 #include <thread>
-
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <gflags/gflags.h>
-#include <spdlog/common.h>
-#include <spdlog/sinks/daily_file_sink.h>
-#include <spdlog/sinks/dist_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
@@ -546,7 +545,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
+      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
       const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
@@ -560,9 +559,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     if (user_) {
       username = &user_->username();
     }
-
-    // TODO (gvolfing) - tie this behavior to a flag
-    graphql_checker_(query);
 
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {

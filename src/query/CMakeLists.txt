@@ -27,6 +27,7 @@ set(mg_query_sources
     procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    procedure/graphql_checker.cpp
     serialization/property_value.cpp
     stream/streams.cpp
     stream/sources.cpp
@@ -35,8 +36,7 @@ set(mg_query_sources
     trigger_context.cpp
     typed_value.cpp
     graph.cpp
-    db_accessor.cpp
-    graphql_checker.cpp)
+    db_accessor.cpp)
 
 find_package(Boost REQUIRED)
 

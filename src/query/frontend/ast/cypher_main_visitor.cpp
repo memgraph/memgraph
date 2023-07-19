@@ -35,6 +35,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/procedure/graphql_checker.hpp"
 #include "query/procedure/module.hpp"
 #include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
@@ -1180,13 +1181,20 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   const auto &maybe_found =
       procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
   if (!maybe_found) {
-    throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+    const auto mg_specific_name = procedure::FindApocReplacement(call_proc->procedure_name_);
+    if (mg_specific_name) {
+      if (*mg_specific_name == "mgps.validate") {
+        call_proc->is_util_validate_procedure_ = true;
+      }
+    } else {
+      throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+    }
   }
   call_proc->is_write_ = maybe_found->second->info.is_write;
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    if (!maybe_found->second->results.empty()) {
+    if (!maybe_found->second->results.empty() && !call_proc->is_util_validate_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
