@@ -2361,31 +2361,30 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     }
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
-          "You cannot switch from on-disk storage to in-memory storage while the database is running. "
-          "Please delete your data directory and restart the database. Once restarted, the Memgraph will automatically "
-          "start to use in-memory storage.");
+          "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will automatically "
+          "start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
       std::unique_lock main_guard{interpreter_context->db->main_lock_};
 
       if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
         throw utils::BasicException(
-            "You cannot switch from in-memory storage to on-disk storage when the database "
-            "contains data. Please delete all entries from the database, run FREE MEMORY and then repeat this "
+            "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+            "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
             "query. ");
       }
 
       main_guard.unlock();
       if (interpreter_context->interpreters->size() > 1) {
         throw utils::BasicException(
-            "You cannot switch from in-memory storage to on-disk storage when there are "
-            "multiple sessions active. Please close all other sessions and try again. If you are using Memgraph Lab, "
-            "please start mgconsole "
-            "and run the STORAGE MODE ON_DISK_TRANSACTIONAL there first. Memgraph Lab is using multiple sessions to "
-            "run queries in parallel "
-            "so it is currently impossible to switch to on-disk storage while the Lab is running. After you switch "
-            "from the mgconsole, you can "
-            "continue to use Memgraph Lab as you wish.");
+            "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+            "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
+            "multiple sessions to run queries in parallel,  "
+            "it is currently impossible to switch to the on-disk storage mode within Lab. "
+            "Close it, connect to the instance with mgconsole "
+            "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
+            "and continue to use the instance as usual.");
       }
 
       auto db_config = interpreter_context->db->config_;
