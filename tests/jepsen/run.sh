@@ -1,5 +1,4 @@
 #!/bin/bash
-
 set -Eeuo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -25,7 +24,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|test [args]"
+    echo "HELP: $0 help|cluster-up|cluster-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -201,9 +200,15 @@ case $1 in
     ;;
 
     cluster-cleanup)
-        docker_exec="docker exec jepsen-control bash -c"
-        $docker_exec "rm -rf /jepsen/memgraph/store/*"
-        # TODO(gitbuda): Clean also each node /opt/memgraph
+        jepsen_control_exec="docker exec jepsen-control bash -c"
+        INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
+        $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
+        for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+            jepsen_node_name="jepsen-n$iter"
+            jepsen_node_exec="docker exec $jepsen_node_name bash -c"
+            INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
+            $jepsen_node_exec "rm -rf /opt/memgraph/*"
+        done
     ;;
 
     cluster-dealloc)
