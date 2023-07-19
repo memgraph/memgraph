@@ -197,7 +197,6 @@ def run_stress_test_suite(args: Args) -> Dict[str, float]:
 
 
 def write_stats(runtimes: Dict[str, float]) -> None:
-    # measurements
     measurements = ""
     for key, value in runtimes.items():
         measurements += "{}.runtime {}\n".format(key, value)
@@ -222,4 +221,4 @@ if __name__ == "__main__":
 
     write_stats(runtimes)
 
-    print("Done!")
+    print("Successfully ran stress tests!")
