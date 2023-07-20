@@ -1063,8 +1063,9 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      for (auto pair : elements_)
+      for (auto pair : elements_) {
         if (!pair.second->Accept(visitor)) break;
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -1082,6 +1083,60 @@ class MapLiteral : public memgraph::query::BaseLiteral {
 
  protected:
   explicit MapLiteral(const std::unordered_map<PropertyIx, Expression *> &elements) : elements_(elements) {}
+
+ private:
+  friend class AstStorage;
+};
+
+struct MapProjectionData {
+  Expression *map_variable;
+  std::unordered_map<PropertyIx, Expression *> elements;
+};
+
+class MapProjectionLiteral : public memgraph::query::BaseLiteral {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  MapProjectionLiteral() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      for (auto pair : elements_) {
+        if (!pair.second) continue;
+
+        if (!pair.second->Accept(visitor)) break;
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *map_variable_;
+  std::unordered_map<PropertyIx, Expression *> elements_;
+
+  MapProjectionLiteral *Clone(AstStorage *storage) const override {
+    MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
+    object->map_variable_ = map_variable_;
+
+    for (const auto &entry : elements_) {
+      auto key = storage->GetPropertyIx(entry.first.name);
+
+      if (!entry.second) {
+        object->elements_[key] = nullptr;
+        continue;
+      }
+
+      object->elements_[key] = entry.second->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  explicit MapProjectionLiteral(Expression *map_variable, std::unordered_map<PropertyIx, Expression *> &&elements)
+      : map_variable_(map_variable), elements_(std::move(elements)) {}
 
  private:
   friend class AstStorage;
@@ -1153,6 +1208,38 @@ class PropertyLookup : public memgraph::query::Expression {
 
  protected:
   PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class AllPropertiesLookup : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AllPropertiesLookup() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  memgraph::query::Expression *expression_{nullptr};
+
+  AllPropertiesLookup *Clone(AstStorage *storage) const override {
+    AllPropertiesLookup *object = storage->Create<AllPropertiesLookup>();
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  explicit AllPropertiesLookup(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;
@@ -2786,7 +2873,7 @@ class InfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, INDEX, CONSTRAINT };
+  enum class InfoType { STORAGE, INDEX, CONSTRAINT, BUILD };
 
   DEFVISITABLE(QueryVisitor<void>);
 
@@ -2898,7 +2985,7 @@ class LockPathQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { LOCK_PATH, UNLOCK_PATH };
+  enum class Action { LOCK_PATH, UNLOCK_PATH, STATUS };
 
   LockPathQuery() = default;
 
@@ -2935,6 +3022,7 @@ class LoadCsv : public memgraph::query::Clause {
   bool ignore_bad_;
   memgraph::query::Expression *delimiter_{nullptr};
   memgraph::query::Expression *quote_{nullptr};
+  memgraph::query::Expression *nullif_{nullptr};
   memgraph::query::Identifier *row_var_{nullptr};
 
   LoadCsv *Clone(AstStorage *storage) const override {
@@ -2944,18 +3032,20 @@ class LoadCsv : public memgraph::query::Clause {
     object->ignore_bad_ = ignore_bad_;
     object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
+    object->nullif_ = nullif_;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
     return object;
   }
 
  protected:
   explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter, Expression *quote,
-                   Identifier *row_var)
+                   Expression *nullif, Identifier *row_var)
       : file_(file),
         with_header_(with_header),
         ignore_bad_(ignore_bad),
         delimiter_(delimiter),
         quote_(quote),
+        nullif_(nullif),
         row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadCsv cannot take nullptr for identifier");
   }
@@ -3053,7 +3143,7 @@ class StorageModeQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL };
+  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL };
 
   StorageModeQuery() = default;
 

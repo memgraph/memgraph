@@ -224,6 +224,9 @@ target_link_libraries(${test_prefix}utils_algorithm mg-utils)
 add_unit_test(utils_exceptions.cpp)
 target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 
+add_unit_test(utils_histogram.cpp)
+target_link_libraries(${test_prefix}utils_histogram mg-utils)
+
 add_unit_test(utils_file.cpp)
 target_link_libraries(${test_prefix}utils_file mg-utils)
 
@@ -269,8 +272,8 @@ target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 add_unit_test(utils_thread_pool.cpp)
 target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
-add_unit_test(utils_csv_parsing.cpp ${CMAKE_SOURCE_DIR}/src/utils/csv_parsing.cpp)
-target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
+add_unit_test(csv_csv_parsing.cpp)
+target_link_libraries(${test_prefix}csv_csv_parsing mg::csv)
 
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
@@ -300,11 +303,23 @@ target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
 add_unit_test(storage_v2_decoder_encoder.cpp)
 target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 
-add_unit_test(storage_v2_durability.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
+add_unit_test(storage_v2_durability_inmemory.cpp)
+target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2)
 
-add_unit_test(storage_v2_edge.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
+add_unit_test(storage_rocks.cpp)
+target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
+
+add_unit_test(storage_v2_disk.cpp)
+target_link_libraries(${test_prefix}storage_v2_disk mg-storage-v2)
+
+add_unit_test(clearing_old_disk_data.cpp)
+target_link_libraries(${test_prefix}clearing_old_disk_data mg-storage-v2)
+
+add_unit_test(storage_v2_edge_inmemory.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_inmemory mg-storage-v2)
+
+add_unit_test(storage_v2_edge_ondisk.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_ondisk mg-storage-v2)
 
 add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

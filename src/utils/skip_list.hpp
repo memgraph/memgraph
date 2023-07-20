@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,13 +21,17 @@
 #include <random>
 #include <utility>
 
+#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
+#include "utils/stat.hpp"
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -345,9 +349,6 @@ class SkipListGc final {
   MemoryResource *GetMemoryResource() const { return memory_; }
 
   void Clear() {
-#ifndef NDEBUG
-    MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
-#endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
     while (head != nullptr) {
@@ -391,7 +392,7 @@ class SkipListGc final {
 ///
 /// The implementation is based on the work described in the paper
 /// "A Provably Correct Scalable Concurrent Skip List"
-/// https://www.cs.tau.ac.il/~shanir/nir-pubs-web/Papers/OPODIS2006-BA.pdf
+/// http://people.csail.mit.edu/shanir/publications/OPODIS2006-BA.pdf
 ///
 /// The proposed implementation is in Java so the authors don't worry about
 /// garbage collection. This implementation uses the garbage collector that is
@@ -640,6 +641,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
+      return *this;
     }
 
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
@@ -775,6 +777,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
+      return *this;
     }
 
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
@@ -888,7 +891,7 @@ class SkipList final {
   MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
 
   /// This function removes all elements from the list.
-  /// NOTE: The function *isn't* thread-safe. It must be called while there are
+  /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
   void clear() {
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,17 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_server.hpp"
 #include <atomic>
 #include <filesystem>
 
+#include "spdlog/spdlog.h"
+
+#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
 
@@ -39,8 +44,8 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
 };
 }  // namespace
 
-Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::Endpoint endpoint,
-                                              const replication::ReplicationServerConfig &config)
+InMemoryStorage::ReplicationServer::ReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
+                                                      const replication::ReplicationServerConfig &config)
     : storage_(storage) {
   // Create RPC server.
   if (config.ssl) {
@@ -87,21 +92,21 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
   rpc_server_->Start();
 }
 
-void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::FrequentHeartbeatReq req;
   slk::Load(&req, req_reader);
   replication::FrequentHeartbeatRes res{true};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
 
@@ -120,6 +125,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
       storage_->wal_file_->FinalizeWal();
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
+      spdlog::trace("Finalized WAL file");
     } else {
       MG_ASSERT(storage_->wal_file_->SequenceNumber() == req.seq_num, "Invalid sequence number of current wal file");
       storage_->wal_seq_num_ = req.seq_num + 1;
@@ -146,9 +152,10 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
 
   replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
+  spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
-void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::SnapshotReq req;
   slk::Load(&req, req_reader);
 
@@ -161,19 +168,22 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
   std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
+  spdlog::trace("Clearing database since recovering from snapshot.");
   // Clear the database
   storage_->vertices_.clear();
   storage_->edges_.clear();
 
-  storage_->constraints_ = Constraints();
-  storage_->indices_.label_index = LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
-  storage_->indices_.label_property_index =
-      LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
+  storage_->constraints_.existence_constraints_ = std::make_unique<ExistenceConstraints>();
+  storage_->constraints_.unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+  storage_->indices_.label_index_ =
+      std::make_unique<InMemoryLabelIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
+  storage_->indices_.label_property_index_ =
+      std::make_unique<InMemoryLabelPropertyIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
-                                                       &storage_->epoch_history_, &storage_->name_id_mapper_,
-                                                       &storage_->edge_count_, storage_->config_.items);
+                                                       &storage_->epoch_history_, storage_->name_id_mapper_.get(),
+                                                       &storage_->edge_count_, storage_->config_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -184,6 +194,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
     storage_->edge_id_ = recovery_info.next_edge_id;
     storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
 
+    spdlog::trace("Recovering indices and constraints from snapshot.");
     durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
                                              &storage_->constraints_, &storage_->vertices_);
   } catch (const durability::RecoveryFailure &e) {
@@ -194,25 +205,30 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
+  spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
   // Delete other durability files
   auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
   for (const auto &[path, uuid, _] : snapshot_files) {
     if (path != *maybe_snapshot_path) {
+      spdlog::trace("Deleting snapshot file {}", path);
       storage_->file_retainer_.DeleteFile(path);
     }
   }
 
+  spdlog::trace("Deleting old WAL files due to snapshot recovery.");
   auto wal_files = durability::GetWalFiles(storage_->wal_directory_, storage_->uuid_);
   if (wal_files) {
     for (const auto &wal_file : *wal_files) {
+      spdlog::trace("Deleting WAL file {}", wal_file.path);
       storage_->file_retainer_.DeleteFile(wal_file.path);
     }
 
     storage_->wal_file_.reset();
   }
+  spdlog::debug("Replication recovery from snapshot finished!");
 }
 
-void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::WalFilesReq req;
   slk::Load(&req, req_reader);
 
@@ -229,9 +245,10 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
 
   replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
+  spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
 
-void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
 
@@ -243,9 +260,10 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
+  spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
-void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
+void InMemoryStorage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   const auto temp_wal_directory = std::filesystem::temp_directory_path() / "memgraph" / durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
@@ -267,13 +285,15 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
         storage_->wal_file_->FinalizeWal();
         storage_->wal_seq_num_ = wal_info.seq_num;
         storage_->wal_file_.reset();
+        spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
       }
     } else {
       storage_->wal_seq_num_ = wal_info.seq_num;
     }
-
+    spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
     durability::Decoder wal;
     const auto version = wal.Initialize(*maybe_wal_path, durability::kWalMagic);
+    spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
     if (!version) throw durability::RecoveryFailure("Couldn't read WAL magic and/or version!");
     if (!durability::IsVersionSupported(*version)) throw durability::RecoveryFailure("Invalid WAL version!");
     wal.SetPosition(wal_info.offset_deltas);
@@ -282,13 +302,13 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
       i += ReadAndApplyDelta(&wal);
     }
 
-    spdlog::debug("{} loaded successfully", *maybe_wal_path);
+    spdlog::debug("Replication from current WAL successful!");
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", *maybe_wal_path, e.what());
   }
 }
 
-void Storage::ReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryStorage::ReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::TimestampReq req;
   slk::Load(&req, req_reader);
 
@@ -296,24 +316,29 @@ void Storage::ReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::
   slk::Save(res, res_builder);
 }
 
-Storage::ReplicationServer::~ReplicationServer() {
+InMemoryStorage::ReplicationServer::~ReplicationServer() {
   if (rpc_server_) {
     rpc_server_->Shutdown();
     rpc_server_->AwaitShutdown();
   }
 }
-uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) {
+uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) {
   auto edge_acc = storage_->edges_.access();
   auto vertex_acc = storage_->vertices_.access();
 
-  std::optional<std::pair<uint64_t, storage::Storage::Accessor>> commit_timestamp_and_accessor;
+  std::optional<std::pair<uint64_t, std::unique_ptr<storage::Storage::Accessor>>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
-      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
+      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access(std::optional<IsolationLevel>{}));
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");
     }
-    return &commit_timestamp_and_accessor->second;
+    // TODO: Rethink this if we would reuse ReplicationServer for on disk storage.
+    if (auto *inmemoryAcc =
+            dynamic_cast<storage::InMemoryStorage::InMemoryAccessor *>(commit_timestamp_and_accessor->second.get())) {
+      return inmemoryAcc;
+    }
+    throw utils::BasicException("Received transaction for not supported storage!");
   };
 
   uint64_t applied_deltas = 0;
@@ -415,7 +440,6 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::EDGE_SET_PROPERTY: {
         spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
-
         if (!storage_->config_.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
@@ -452,6 +476,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
                 is_visible = true;
                 break;
               }
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 is_visible = false;
                 break;
@@ -485,7 +510,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Transaction end");
         if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != timestamp)
           throw utils::BasicException("Invalid data!");
-        auto ret = commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first);
+        auto ret = commit_timestamp_and_accessor->second->Commit(commit_timestamp_and_accessor->first);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         commit_timestamp_and_accessor = std::nullopt;
         break;
@@ -586,6 +611,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
   storage_->last_commit_timestamp_ = max_commit_timestamp;
 
+  spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
 }  // namespace memgraph::storage

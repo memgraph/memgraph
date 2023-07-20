@@ -67,7 +67,7 @@ jobs:
       - name: Run mgbench
         run: |
           cd tests/mgbench
-          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
 
       - name: Upload mgbench results
         run: |

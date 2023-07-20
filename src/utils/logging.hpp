@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,4 +75,15 @@ void Fatal(const char *msg, const Args &...msg_args) {
 #endif
 
 inline void RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }
+
+// /// Use it for operations that must successfully finish.
+inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }
+
+inline bool CheckRocksDBStatus(const auto &status) {
+  if (!status.ok()) [[unlikely]] {
+    spdlog::error("rocksdb: {}", status.ToString());
+  }
+  return status.ok();
+}
+
 }  // namespace memgraph::logging

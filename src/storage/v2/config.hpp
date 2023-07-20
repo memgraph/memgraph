@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,12 +49,28 @@ struct Config {
     uint64_t wal_file_flush_every_n_tx{100000};
 
     bool snapshot_on_exit{false};
-    bool restore_replicas_on_startup{false};
+    bool restore_replication_state_on_startup{false};
+
+    uint64_t items_per_batch{1'000'000};
+    uint64_t recovery_thread_count{8};
+
+    bool allow_parallel_index_creation{false};
   } durability;
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
   } transaction;
+
+  struct DiskConfig {
+    std::filesystem::path main_storage_directory{"rocksdb_main_storage"};
+    std::filesystem::path label_index_directory{"rocksdb_label_index"};
+    std::filesystem::path label_property_index_directory{"rocksdb_label_property_index"};
+    std::filesystem::path unique_constraints_directory{"rocksdb_unique_constraints"};
+    std::filesystem::path name_id_mapper_directory{"rocksdb_name_id_mapper"};
+    std::filesystem::path id_name_mapper_directory{"rocksdb_id_name_mapper"};
+    std::filesystem::path durability_directory{"rocksdb_durability"};
+    std::filesystem::path wal_directory{"rocksdb_wal"};
+  } disk;
 };
 
 }  // namespace memgraph::storage
