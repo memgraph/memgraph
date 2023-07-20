@@ -32,7 +32,6 @@
   M(FilterOperator, Operator, "Number of times Filter operator was used.")                                           \
   M(ProduceOperator, Operator, "Number of times Produce operator was used.")                                         \
   M(DeleteOperator, Operator, "Number of times Delete operator was used.")                                           \
-  M(DeleteBulkOperator, Operator, "Number of times DeleteBulk operator was used.")                                   \
   M(SetPropertyOperator, Operator, "Number of times SetProperty operator was used.")                                 \
   M(SetPropertiesOperator, Operator, "Number of times SetProperties operator was used.")                             \
   M(SetLabelsOperator, Operator, "Number of times SetLabels operator was used.")                                     \

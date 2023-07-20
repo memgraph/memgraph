@@ -73,9 +73,6 @@ constexpr utils::TypeInfo query::plan::Produce::kType{utils::TypeId::PRODUCE, "P
 constexpr utils::TypeInfo query::plan::Delete::kType{utils::TypeId::DELETE, "Delete",
                                                      &query::plan::LogicalOperator::kType};
 
-constexpr utils::TypeInfo query::plan::DeleteBulk::kType{utils::TypeId::DELETE_BULK, "DeleteBulk",
-                                                         &query::plan::LogicalOperator::kType};
-
 constexpr utils::TypeInfo query::plan::SetProperty::kType{utils::TypeId::SET_PROPERTY, "SetProperty",
                                                           &query::plan::LogicalOperator::kType};
 

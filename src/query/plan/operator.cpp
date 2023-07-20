@@ -99,7 +99,6 @@ extern const Event ConstructNamedPathOperator;
 extern const Event FilterOperator;
 extern const Event ProduceOperator;
 extern const Event DeleteOperator;
-extern const Event DeleteBulkOperator;
 extern const Event SetPropertyOperator;
 extern const Event SetPropertiesOperator;
 extern const Event SetLabelsOperator;
@@ -2445,161 +2444,7 @@ std::vector<Symbol> Delete::ModifiedSymbols(const SymbolTable &table) const { re
 Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Delete");
-
-  if (!input_cursor_->Pull(frame, context)) return false;
-
-  // Delete should get the latest information, this way it is also possible
-  // to delete newly added nodes and edges.
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
-  auto *pull_memory = context.evaluation_context.memory;
-  // collect expressions results so edges can get deleted before vertices
-  // this is necessary because an edge that gets deleted could block vertex
-  // deletion
-  utils::pmr::vector<TypedValue> expression_results(pull_memory);
-  expression_results.reserve(self_.expressions_.size());
-  for (Expression *expression : self_.expressions_) {
-    expression_results.emplace_back(expression->Accept(evaluator));
-  }
-
-  auto &dba = *context.db_accessor;
-  // delete edges first
-  for (TypedValue &expression_result : expression_results) {
-    if (MustAbort(context)) throw HintedAbortError();
-    if (expression_result.type() == TypedValue::Type::Edge) {
-      auto &ea = expression_result.ValueEdge();
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-            context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-            context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-        throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
-      }
-#endif
-      auto maybe_value = dba.RemoveEdge(&ea);
-      if (maybe_value.HasError()) {
-        switch (maybe_value.GetError()) {
-          case storage::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::Error::DELETED_OBJECT:
-          case storage::Error::VERTEX_HAS_EDGES:
-          case storage::Error::PROPERTIES_DISABLED:
-          case storage::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when deleting an edge.");
-        }
-      }
-      context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += 1;
-      if (context.trigger_context_collector && maybe_value.GetValue()) {
-        context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
-      }
-    }
-  }
-
-  // delete vertices
-  for (TypedValue &expression_result : expression_results) {
-    if (MustAbort(context)) throw HintedAbortError();
-    switch (expression_result.type()) {
-      case TypedValue::Type::Vertex: {
-        auto &va = expression_result.ValueVertex();
-#ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
-        }
-#endif
-        if (self_.detach_) {
-          auto res = dba.DetachRemoveVertex(&va);
-          if (res.HasError()) {
-            switch (res.GetError()) {
-              case storage::Error::SERIALIZATION_ERROR:
-                throw TransactionSerializationException();
-              case storage::Error::DELETED_OBJECT:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw QueryRuntimeException("Unexpected error when deleting a node.");
-            }
-          }
-
-          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-          if (*res) {
-            context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
-          }
-          std::invoke([&] {
-            if (!context.trigger_context_collector || !*res) {
-              return;
-            }
-
-            context.trigger_context_collector->RegisterDeletedObject((*res)->first);
-            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-              return;
-            }
-            for (const auto &edge : (*res)->second) {
-              context.trigger_context_collector->RegisterDeletedObject(edge);
-            }
-          });
-        } else {
-          auto res = dba.RemoveVertex(&va);
-          if (res.HasError()) {
-            switch (res.GetError()) {
-              case storage::Error::SERIALIZATION_ERROR:
-                throw TransactionSerializationException();
-              case storage::Error::VERTEX_HAS_EDGES:
-                throw RemoveAttachedVertexException();
-              case storage::Error::DELETED_OBJECT:
-              case storage::Error::PROPERTIES_DISABLED:
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw QueryRuntimeException("Unexpected error when deleting a node.");
-            }
-          }
-          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-          if (context.trigger_context_collector && res.GetValue()) {
-            context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
-          }
-        }
-        break;
-      }
-
-      // skip Edges (already deleted) and Nulls (can occur in optional
-      // match)
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Null:
-        break;
-      // check we're not trying to delete anything except vertices and edges
-      default:
-        throw QueryRuntimeException("Only edges and vertices can be deleted.");
-    }
-  }
-
-  return true;
-}
-
-void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
-
-DeleteBulk::DeleteBulk(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions,
-                       bool detach_)
-    : input_(input_), expressions_(expressions), detach_(detach_) {}
-
-ACCEPT_WITH_INPUT(DeleteBulk)
-
-UniqueCursorPtr DeleteBulk::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::DeleteBulkOperator);
-
-  return MakeUniqueCursorPtr<DeleteBulkCursor>(mem, *this, mem);
-}
-
-std::vector<Symbol> DeleteBulk::ModifiedSymbols(const SymbolTable &table) const {
-  return input_->ModifiedSymbols(table);
-}
-
-DeleteBulk::DeleteBulkCursor::DeleteBulkCursor(const DeleteBulk &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
-
-void DeleteBulk::DeleteBulkCursor::UpdateBuffer(Frame &frame, ExecutionContext &context) {
+void Delete::DeleteCursor::UpdateBuffer(Frame &frame, ExecutionContext &context) {
   // Delete should get the latest information, this way it is also possible
   // to delete newly added nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -2652,8 +2497,8 @@ void DeleteBulk::DeleteBulkCursor::UpdateBuffer(Frame &frame, ExecutionContext &
   }
 }
 
-bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("DeleteBulk");
+bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Delete");
 
   if (input_cursor_->Pull(frame, context)) {
     UpdateBuffer(frame, context);
@@ -2700,9 +2545,9 @@ bool DeleteBulk::DeleteBulkCursor::Pull(Frame &frame, ExecutionContext &context)
   return false;
 }
 
-void DeleteBulk::DeleteBulkCursor::Shutdown() { input_cursor_->Shutdown(); }
+void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void DeleteBulk::DeleteBulkCursor::Reset() { input_cursor_->Reset(); }
+void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                          PropertyLookup *lhs, Expression *rhs)
