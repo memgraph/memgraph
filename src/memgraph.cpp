@@ -52,6 +52,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
@@ -352,6 +353,11 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                                          [](const auto &dir) { return dir; });
                           return true;
                         });
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(callable_mappings_path, "",
+              "The path to mappings that describe aliases to callables in cypher queries in the form of key-value "
+              "pairs in a json file.");
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -939,6 +945,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_callable_mappings_path);
 
   memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   memgraph::glue::AuthChecker auth_checker{&auth};

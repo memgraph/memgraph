@@ -35,7 +35,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/graphql_checker.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
@@ -1181,7 +1181,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   const auto &maybe_found =
       procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
   if (!maybe_found) {
-    const auto mg_specific_name = procedure::FindApocReplacement(call_proc->procedure_name_);
+    const auto mg_specific_name = procedure::gCallableAliasMapper.FindAlias(call_proc->procedure_name_);
     if (mg_specific_name) {
       if (*mg_specific_name == "mgps.validate") {
         call_proc->is_util_validate_procedure_ = true;

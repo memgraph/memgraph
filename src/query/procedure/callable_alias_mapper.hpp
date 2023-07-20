@@ -9,25 +9,36 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <array>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
-
-#include <fstream>
+#include <unordered_map>
 
 namespace memgraph::query::procedure {
 
-// TODO -1- (gvolfing) - check what happens if we can not provide
-// the same signature for any given functionality
-// TODO -2- (gvolfing) - test this once we have some facilities.
-// TODO -3- (gvolfing) - check if we should read in the mapping from
-// some files instead.
-// TODO -4- (gvolfing) - fill out the remaining of the mappings
-// TODO -5- (gvolfing) - consider if the query namespace is good for
-// this facility
-[[nodiscard]] std::optional<std::string_view> FindApocReplacement(std::string_view apoc_name);
+class CallableAliasMapper final {
+ public:
+  CallableAliasMapper() = default;
+  CallableAliasMapper(const CallableAliasMapper &) = delete;
+  CallableAliasMapper &operator=(const CallableAliasMapper &) = delete;
+  CallableAliasMapper(CallableAliasMapper &&) = delete;
+  CallableAliasMapper &operator=(CallableAliasMapper &&) = delete;
+  ~CallableAliasMapper() = default;
+
+  void LoadMapping(const std::filesystem::path &);
+  [[nodiscard]] std::optional<std::string_view> FindAlias(const std::string &) const noexcept;
+
+ private:
+  std::unordered_map<std::string, std::string> mapping_;
+};
+
+/// Single, global alias mapper.
+extern CallableAliasMapper gCallableAliasMapper;
 
 }  // namespace memgraph::query::procedure

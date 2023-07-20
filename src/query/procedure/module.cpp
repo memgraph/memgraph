@@ -22,7 +22,7 @@ extern "C" {
 #include <unistd.h>
 
 #include "py/py.hpp"
-#include "query/procedure/graphql_checker.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
@@ -1333,10 +1333,10 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
   auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
   if (!module) {
-    // Check for GraphQL specific queries.
-    const auto maybe_graphql = FindApocReplacement(fully_qualified_name);
-    if (maybe_graphql) {
-      result = FindModuleNameAndProp(module_registry, *maybe_graphql, memory);
+    // Check for possible callable aliases.
+    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
+    if (maybe_valid_alias) {
+      result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
       auto [module_name, prop_name] = *result;
       module = module_registry.GetModuleNamed(module_name);
       if (!module) {
