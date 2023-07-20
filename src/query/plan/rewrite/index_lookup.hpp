@@ -27,7 +27,6 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
-#include "storage/v2/indices.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 

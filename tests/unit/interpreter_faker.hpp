@@ -20,7 +20,7 @@ struct InterpreterFaker {
   }
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(interpreter_context->db);
+    ResultStreamFaker stream(interpreter_context->db.get());
     const auto [header, _1, qid, _2] = interpreter.Prepare(query, params, nullptr);
     stream.Header(header);
     return std::make_pair(std::move(stream), qid);

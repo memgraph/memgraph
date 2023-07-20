@@ -14,35 +14,42 @@
 // easy testing and latter readability they are tested end-to-end.
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
+#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
 
+template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
-  std::optional<memgraph::storage::Storage> db_;
+  const std::string testSuite = "query_plan_edge_cases";
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
-    db_.emplace();
-    interpreter_context_.emplace(&*db_, memgraph::query::InterpreterConfig{}, data_directory);
+    interpreter_context_.emplace(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
+                                 memgraph::query::InterpreterConfig{}, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
 
   void TearDown() {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
-    db_ = std::nullopt;
+
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
   }
 
   /**
@@ -51,7 +58,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(&*db_);
+    ResultStreamFaker stream(this->interpreter_context_->db.get());
 
     auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
     stream.Header(header);
@@ -62,24 +69,28 @@ class QueryExecution : public testing::Test {
   }
 };
 
-TEST_F(QueryExecution, MissingOptionalIntoExpand) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryExecution, StorageTypes);
+
+TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
   // validating bug where expanding from Null (due to a preceeding optional
   // match) exhausts the expansion cursor, even if it's input is still not
   // exhausted
-  Execute(
+  this->Execute(
       "CREATE (a:Person {id: 1}), (b:Person "
       "{id:2})-[:Has]->(:Dog)-[:Likes]->(:Food )");
-  ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 4);
+  ASSERT_EQ(this->Execute("MATCH (n) RETURN n").size(), 4);
 
   auto Exec = [this](bool desc, const std::string &edge_pattern) {
     // this test depends on left-to-right query planning
     FLAGS_query_cost_planner = false;
-    return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") + (desc ? "DESC " : "") +
-                   "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
-                   "MATCH (d)" +
-                   edge_pattern +
-                   "(f:Food) "
-                   "RETURN p, d, f")
+    return this
+        ->Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") + (desc ? "DESC " : "") +
+                  "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
+                  "MATCH (d)" +
+                  edge_pattern +
+                  "(f:Food) "
+                  "RETURN p, d, f")
         .size();
   };
 
@@ -94,14 +105,14 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
   EXPECT_EQ(Exec(true, bfs), 1);
 }
 
-TEST_F(QueryExecution, EdgeUniquenessInOptional) {
+TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
   // Validating that an edge uniqueness check can't fail when the edge is Null
   // due to optonal match. Since edge-uniqueness only happens in one OPTIONAL
   // MATCH, we only need to check that scenario.
-  Execute("CREATE (), ()-[:Type]->()");
-  ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 3);
-  EXPECT_EQ(Execute("MATCH (n) OPTIONAL MATCH (n)-[r1]->(), (n)-[r2]->() "
-                    "RETURN n, r1, r2")
+  this->Execute("CREATE (), ()-[:Type]->()");
+  ASSERT_EQ(this->Execute("MATCH (n) RETURN n").size(), 3);
+  EXPECT_EQ(this->Execute("MATCH (n) OPTIONAL MATCH (n)-[r1]->(), (n)-[r2]->() "
+                          "RETURN n, r1, r2")
                 .size(),
             3);
 }

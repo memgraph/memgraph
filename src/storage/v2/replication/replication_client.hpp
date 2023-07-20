@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -28,7 +29,6 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-#include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/spin_lock.hpp"
@@ -37,9 +37,9 @@
 
 namespace memgraph::storage {
 
-class Storage::ReplicationClient {
+class InMemoryStorage::ReplicationClient {
  public:
-  ReplicationClient(std::string name, Storage *storage, const io::network::Endpoint &endpoint,
+  ReplicationClient(std::string name, InMemoryStorage *storage, const io::network::Endpoint &endpoint,
                     replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
 
   // Handler used for transfering the current transaction.
@@ -123,7 +123,7 @@ class Storage::ReplicationClient {
 
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
-  Storage::TimestampInfo GetTimestampInfo();
+  InMemoryStorage::TimestampInfo GetTimestampInfo();
 
  private:
   [[nodiscard]] bool FinalizeTransactionReplicationInternal();
@@ -150,7 +150,7 @@ class Storage::ReplicationClient {
   void HandleRpcFailure();
 
   std::string name_;
-  Storage *storage_;
+  InMemoryStorage *storage_;
   std::optional<communication::ClientContext> rpc_context_;
   std::optional<rpc::Client> rpc_client_;
 

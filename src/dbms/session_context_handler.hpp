@@ -33,7 +33,6 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
-#include "storage_handler.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -289,7 +288,7 @@ class SessionContextHandler {
     // Low level handlers
     const auto storage_path = StorageDir_(db_name);
     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
-    if (!interp_handler_.Delete(db_name) || !storage_handler_.Delete(db_name)) {
+    if (!interp_handler_.Delete(db_name)) {
       spdlog::error("Partial failure while deleting database \"{}\".", db_name);
       defunct_dbs_.emplace(db_name);
       return DeleteError::FAIL;
@@ -344,7 +343,7 @@ class SessionContextHandler {
    */
   std::vector<std::string> All() const {
     std::shared_lock<LockT> rd(lock_);
-    return storage_handler_.All();
+    return interp_handler_.All();
   }
 
   /**
@@ -357,9 +356,9 @@ class SessionContextHandler {
     uint64_t nv = 0;
     uint64_t ne = 0;
     std::shared_lock<LockT> rd(lock_);
-    const uint64_t ndb = std::distance(storage_handler_.cbegin(), storage_handler_.cend());
-    for (auto db = storage_handler_.cbegin(); db != storage_handler_.cend(); ++db) {
-      const auto &info = db->second.get()->GetInfo();
+    const uint64_t ndb = std::distance(interp_handler_.cbegin(), interp_handler_.cend());
+    for (auto ic = interp_handler_.cbegin(); ic != interp_handler_.cend(); ++ic) {
+      const auto &info = ic->second.get()->db->GetInfo();
       nv += info.vertex_count;
       ne += info.edge_count;
     }
@@ -388,7 +387,7 @@ class SessionContextHandler {
       auto ic = ic_itr.second.get();
       spdlog::debug("Restoring trigger for database \"{}\"", ic->db->id());
       auto storage_accessor = ic->db->Access();
-      auto dba = memgraph::query::DbAccessor{&storage_accessor};
+      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
       ic->trigger_store.RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
     }
   }
@@ -408,9 +407,9 @@ class SessionContextHandler {
 
  private:
   std::optional<std::filesystem::path> StorageDir_(const std::string &name) const {
-    const auto conf = storage_handler_.GetConfig(name);
+    const auto conf = interp_handler_.GetConfig(name);
     if (conf) {
-      return conf->durability.storage_directory;
+      return conf->storage_config.durability.storage_directory;
     }
     spdlog::debug("Failed to find storage dir for database \"{}\"", name);
     return {};
@@ -460,35 +459,14 @@ class SessionContextHandler {
       return NewError::DEFUNCT;
     }
 
-    auto new_storage = storage_handler_.New(name, storage_config);
-    if (new_storage.HasValue()) {
-      // auto new_auth = auth_handler_.New(name, storage_config.durability.storage_directory, ah_flags);
-      // if (new_auth.HasValue()) {
-      // auto &auth_context = new_auth.GetValue();
-      auto new_interp =
-          interp_handler_.New(name, *this, *new_storage.GetValue(), inter_config,
-                              storage_config.durability.storage_directory, *auth_handler_, *auth_checker_);
+    auto new_interp = interp_handler_.New(name, *this, storage_config, inter_config, *auth_handler_, *auth_checker_);
 
-      if (new_interp.HasValue()) {
-        // Success
-        if (durability_) durability_->Put(name, "ok");
-        return SessionContext{new_storage.GetValue(), new_interp.GetValue(), run_id_, auth_.get(), audit_log_};
-      }
-      // Partial error: Clear storage and exit
-      spdlog::warn("Partial failure while generating new database.");
-      new_storage.GetValue().reset();
-      if (!storage_handler_.Delete(name)) {
-        spdlog::error(
-            "Failed to handle partial error while generating new database \"{}\". Database might be in an unknown "
-            "state!",
-            name);
-      }
-      return new_interp.GetError();
-      // }
-      // return new_auth.GetError();
+    if (new_interp.HasValue()) {
+      // Success
+      if (durability_) durability_->Put(name, "ok");
+      return SessionContext{new_interp.GetValue(), run_id_, auth_.get(), audit_log_};
     }
-    // Error: Nothing to clear
-    return new_storage.GetError();
+    return new_interp.GetError();
   }
 
   /**
@@ -545,15 +523,9 @@ class SessionContextHandler {
    * @throw UnknownDatabase if trying to get unknown database
    */
   SessionContext Get_(const std::string &name) {
-    auto storage = storage_handler_.Get(name);
-    if (storage) {
-      // auto auth = auth_handler_.Get(name);
-      // if (auth) {
-      auto interp = interp_handler_.Get(name);
-      if (interp) {
-        return SessionContext{*storage, *interp, run_id_, auth_.get(), audit_log_};
-      }
-      // }
+    auto interp = interp_handler_.Get(name);
+    if (interp) {
+      return SessionContext{*interp, run_id_, auth_.get(), audit_log_};
     }
     throw UnknownDatabase("Tried to retrieve an unknown database \"{}\".", name);
   }
@@ -562,7 +534,6 @@ class SessionContextHandler {
   mutable LockT lock_;                                          //!< protective lock
   std::filesystem::path lock_file_path_;                        //!< Lock file protecting the main storage
   utils::OutputFile lock_file_handle_;                          //!< Handler the lock (crash if already open)
-  StorageHandler storage_handler_;                              //!< multi-tenancy storage handler
   InterpContextHandler<SessionContextHandler> interp_handler_;  //!< multi-tenancy interpreter handler
   // AuthContextHandler auth_handler_; //!< multi-tenancy authorization handler (currently we use a single global
   // auth)

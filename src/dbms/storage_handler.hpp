@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#if 0
+
 #pragma once
 
 #ifdef MG_ENTERPRISE
@@ -69,5 +71,7 @@ class StorageHandler : public Handler<storage::Storage, storage::Config> {
 };
 
 }  // namespace memgraph::dbms
+
+#endif
 
 #endif

@@ -31,8 +31,7 @@ struct SessionContext {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
 
-  SessionContext(std::shared_ptr<memgraph::storage::Storage> db,
-                 std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
+  SessionContext(std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
                  //  std::shared_ptr<AuthContext> auth_context
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
 #ifdef MG_ENTERPRISE
@@ -40,8 +39,7 @@ struct SessionContext {
                  memgraph::audit::Log *audit_log
 #endif
                  )
-      : db(db),
-        interpreter_context(interpreter_context),
+      : interpreter_context(interpreter_context),
         run_id(run),
         // auth_context(auth_context),
         // auth(&auth_context->auth)
@@ -53,7 +51,6 @@ struct SessionContext {
   {
   }
 
-  std::shared_ptr<memgraph::storage::Storage> db;
   std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context;
   std::string run_id;
 

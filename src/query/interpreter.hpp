@@ -32,7 +32,10 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -227,12 +230,17 @@ class Interpreter;
  * running concurrently).
  *
  */
+/// TODO: andi decouple in a separate file why here?
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
+  explicit InterpreterContext(storage::Config storage_config, InterpreterConfig interpreter_config,
                               const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                               query::AuthChecker *ac = nullptr);
 
-  storage::Storage *db;
+  InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+                     const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
+                     query::AuthChecker *ac = nullptr);
+
+  std::unique_ptr<storage::Storage> db;
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected
@@ -341,9 +349,6 @@ class Interpreter final {
 
   void BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata = {});
 
-  /*
-  Returns transaction id or empty if the db_accessor is not initialized.
-  */
   std::optional<uint64_t> GetTransactionId() const;
 
   void CommitTransaction();
@@ -399,6 +404,13 @@ class Interpreter final {
       // of execution memory.
       prepared_query.reset();
       std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
+    }
+
+    void CleanRuntimeData() {
+      if (prepared_query.has_value()) {
+        prepared_query.reset();
+      }
+      notifications.clear();
     }
   };
 
@@ -555,4 +567,5 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
+
 }  // namespace memgraph::query

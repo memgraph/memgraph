@@ -26,10 +26,11 @@
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_sc_handler"};
 
-memgraph::storage::Config storage_conf{
-    .durability = {
-        .storage_directory = storage_directory,
-        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
+const static memgraph::storage::Config storage_conf{
+    .durability = {.storage_directory = storage_directory,
+                   .snapshot_wal_mode =
+                       memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+    .disk = {.main_storage_directory = storage_directory / "disk"}};
 
 memgraph::query::InterpreterConfig interp_conf{};
 
@@ -98,7 +99,8 @@ using DBMS_HandlerDeath = DBMS_Handler;
 TEST(DBMS_Handler, Init) {
   // Check that the default db has been created successfully
   std::vector<std::string> dirs = {"snapshots", "streams", "triggers", "wal"};
-  for (const auto &dir : dirs) ASSERT_TRUE(std::filesystem::exists(storage_directory / dir));
+  for (const auto &dir : dirs)
+    ASSERT_TRUE(std::filesystem::exists(storage_directory / dir)) << (storage_directory / dir);
   const auto db_path = storage_directory / "databases" / memgraph::dbms::kDefaultDB;
   ASSERT_TRUE(std::filesystem::exists(db_path));
   for (const auto &dir : dirs) {
@@ -141,7 +143,7 @@ TEST(DBMS_Handler, New) {
     auto sc1 = sch.New("sc1");
     ASSERT_TRUE(sc1.HasValue());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "databases" / "sc1"));
-    ASSERT_TRUE(sc1.GetValue().db != nullptr);
+    ASSERT_TRUE(sc1.GetValue().interpreter_context->db != nullptr);
     ASSERT_TRUE(sc1.GetValue().interpreter_context != nullptr);
     ASSERT_TRUE(sc1.GetValue().audit_log != nullptr);
     ASSERT_TRUE(sc1.GetValue().auth != nullptr);
@@ -159,7 +161,7 @@ TEST(DBMS_Handler, New) {
     auto sc3 = sch.New("sc3");
     ASSERT_TRUE(sc3.HasValue());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "databases" / "sc3"));
-    ASSERT_TRUE(sc3.GetValue().db != nullptr);
+    ASSERT_TRUE(sc3.GetValue().interpreter_context->db != nullptr);
     ASSERT_TRUE(sc3.GetValue().interpreter_context != nullptr);
     ASSERT_TRUE(sc3.GetValue().audit_log != nullptr);
     ASSERT_TRUE(sc3.GetValue().auth != nullptr);
@@ -172,7 +174,7 @@ TEST(DBMS_Handler, New) {
 TEST(DBMS_Handler, Get) {
   auto &sch = *TestEnvironment::get();
   auto default_sc = sch.Get(memgraph::dbms::kDefaultDB);
-  ASSERT_TRUE(default_sc.db != nullptr);
+  ASSERT_TRUE(default_sc.interpreter_context->db != nullptr);
   ASSERT_TRUE(default_sc.interpreter_context != nullptr);
   ASSERT_TRUE(default_sc.audit_log != nullptr);
   ASSERT_TRUE(default_sc.auth != nullptr);
@@ -180,13 +182,13 @@ TEST(DBMS_Handler, Get) {
   ASSERT_ANY_THROW(sch.Get("non-existent"));
 
   auto sc1 = sch.Get("sc1");
-  ASSERT_TRUE(sc1.db != nullptr);
+  ASSERT_TRUE(sc1.interpreter_context->db != nullptr);
   ASSERT_TRUE(sc1.interpreter_context != nullptr);
   ASSERT_TRUE(sc1.audit_log != nullptr);
   ASSERT_TRUE(sc1.auth != nullptr);
 
   auto sc3 = sch.Get("sc3");
-  ASSERT_TRUE(sc3.db != nullptr);
+  ASSERT_TRUE(sc3.interpreter_context->db != nullptr);
   ASSERT_TRUE(sc3.interpreter_context != nullptr);
   ASSERT_TRUE(sc3.audit_log != nullptr);
   ASSERT_TRUE(sc3.auth != nullptr);

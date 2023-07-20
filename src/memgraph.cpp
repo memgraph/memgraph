@@ -59,6 +59,9 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -452,7 +455,6 @@ void AddLoggerSink(spdlog::sink_ptr new_sink) {
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
@@ -529,7 +531,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return *this;
     }
 
-    auto *db() { return session_context.db.get(); }
+    auto *db() { return session_context.interpreter_context->db.get(); }
+    auto *ic() { return session_context.interpreter_context.get(); }
     auto *interp() { return interpreter.get(); }
     auto *auth() const { return session_context.auth; }
 #ifdef MG_ENTERPRISE
@@ -601,7 +604,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     // Check if the underlying database needs to be updated
     if (update) {
       sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
-        const auto &db_name = new_sc.db->id();
+        const auto &db_name = new_sc.interpreter_context->db->id();
         MultiDatabaseAuth(db_name);
         try {
           Update(ContextWrapper(new_sc));
@@ -871,7 +874,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   ContextWrapper current_;
   std::optional<ContextWrapper> defunct_;
 
-  const memgraph::storage::Storage *db_;
+  memgraph::storage::Storage *db_;
   memgraph::query::Interpreter *interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
@@ -1085,7 +1088,15 @@ int main(int argc, char **argv) {
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
-      .transaction = {.isolation_level = ParseIsolationLevel()}};
+      .transaction = {.isolation_level = ParseIsolationLevel()},
+      .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
+               .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
+               .label_property_index_directory = FLAGS_data_directory + "/rocksdb_label_property_index",
+               .unique_constraints_directory = FLAGS_data_directory + "/rocksdb_unique_constraints",
+               .name_id_mapper_directory = FLAGS_data_directory + "/rocksdb_name_id_mapper",
+               .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
+               .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
+               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
@@ -1165,7 +1176,7 @@ int main(int argc, char **argv) {
 #endif
 
   auto *auth = session_context.auth;
-  auto &db = *session_context.db;
+  auto &db = *session_context.interpreter_context->db.get();
   auto &interpreter_context = *session_context.interpreter_context;
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
@@ -1192,7 +1203,7 @@ int main(int argc, char **argv) {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
-    auto dba = memgraph::query::DbAccessor{&storage_accessor};
+    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
     interpreter_context.trigger_store.RestoreTriggers(
         &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }

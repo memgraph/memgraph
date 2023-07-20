@@ -17,9 +17,11 @@
 #include <cppitertools/imap.hpp>
 
 #include "query/exceptions.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -347,6 +349,10 @@ class DbAccessor final {
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
+  void PrefetchOutEdges(const VertexAccessor &vertex) const { accessor_->PrefetchOutEdges(vertex.impl_); }
+
+  void PrefetchInEdges(const VertexAccessor &vertex) const { accessor_->PrefetchInEdges(vertex.impl_); }
+
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
@@ -372,6 +378,8 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
+    accessor_->PrefetchOutEdges(vertex_accessor->impl_);
+    accessor_->PrefetchInEdges(vertex_accessor->impl_);
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
@@ -423,6 +431,8 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageDataManipulationError, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
+
+  storage::StorageMode GetStorageMode() const { return accessor_->GetCreationStorageMode(); }
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
@@ -509,6 +519,10 @@ class SubgraphDbAccessor final {
   const std::string &LabelToName(storage::LabelId label) const;
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
+
+  void PrefetchOutEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchOutEdges(vertex.impl_); }
+
+  void PrefetchInEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchInEdges(vertex.impl_); }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge);
 
