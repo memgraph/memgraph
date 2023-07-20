@@ -34,7 +34,7 @@
         (when (:partition-halves? opts)
           [(cycle (map op [:start-partition-halves :stop-partition-halves]))])]
        (apply concat)
-       (gen/phases (gen/sleep 35))
+       (gen/phases (gen/sleep 40))
        gen/mix
        (gen/stagger (:interval opts))
        ))
