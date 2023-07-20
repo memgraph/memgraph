@@ -293,6 +293,8 @@ void InMemoryStorage::ReplicationClient::RecoverReplica(uint64_t replica_commit)
                   spdlog::debug("Sending current wal file");
                   replica_commit = ReplicateCurrentWal();
                   storage_->wal_file_->EnableFlushing();
+                } else {
+                  spdlog::debug("Cannot recover by sending current file");
                 }
               } else {
                 static_assert(always_false_v<T>, "Missing type from variant visitor");
