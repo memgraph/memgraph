@@ -564,18 +564,15 @@ class SessionContextHandler {
 static inline SessionContext Init(storage::Config &storage_config, query::InterpreterConfig &interp_config,
                                   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth,
                                   query::AuthQueryHandler *auth_handler, query::AuthChecker *auth_checker) {
-  MG_ASSERT(auth, "Pass a nullptr auth");
-  MG_ASSERT(auth_handler, "Pass a nullptr auth_handler");
-  MG_ASSERT(auth_checker, "Pass a nullptr auth_checker");
-
-  auto storage = std::make_shared<storage::Storage>(storage_config);
-  MG_ASSERT(storage, "Failed to allocate main storage.");
+  MG_ASSERT(auth, "Passed a nullptr auth");
+  MG_ASSERT(auth_handler, "Passed a nullptr auth_handler");
+  MG_ASSERT(auth_checker, "Passed a nullptr auth_checker");
 
   auto interp_context = std::make_shared<query::InterpreterContext>(
-      storage.get(), interp_config, storage_config.durability.storage_directory, auth_handler, auth_checker);
+      storage_config, interp_config, storage_config.durability.storage_directory, auth_handler, auth_checker);
   MG_ASSERT(interp_context, "Failed to construct main interpret context.");
 
-  return SessionContext{storage, interp_context, utils::GenerateUUID(), auth};
+  return SessionContext{interp_context, utils::GenerateUUID(), auth};
 }
 #endif
 
