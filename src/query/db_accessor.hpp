@@ -12,6 +12,7 @@
 #pragma once
 
 #include <optional>
+#include <ranges>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -416,10 +417,10 @@ class DbAccessor final {
     nodes_impl.reserve(nodes.size());
     edges_impl.reserve(edges.size());
 
-    std::transform(nodes.begin(), nodes.end(), std::back_inserter(nodes_impl),
-                   [](const auto &node_info) { return node_info.impl_; });
-    std::transform(edges.begin(), edges.end(), std::back_inserter(edges_impl),
-                   [](const auto &edge_info) { return edge_info.impl_; });
+    std::ranges::transform(nodes, std::back_inserter(nodes_impl),
+                           [](const auto &node_info) { return node_info.impl_; });
+    std::ranges::transform(edges, std::back_inserter(edges_impl),
+                           [](const auto &edge_info) { return edge_info.impl_; });
 
     auto res = accessor_->DetachDeleteVertexBulk(std::move(nodes_impl), std::move(edges_impl), detach);
     if (res.HasError()) {
@@ -439,10 +440,10 @@ class DbAccessor final {
     deleted_vertices.reserve(val_vertices.size());
     deleted_edges.reserve(val_edges.size());
 
-    std::transform(val_vertices.begin(), val_vertices.end(), std::back_inserter(deleted_vertices),
-                   [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
-    std::transform(val_edges.begin(), val_edges.end(), std::back_inserter(deleted_edges),
-                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    std::ranges::transform(val_vertices, std::back_inserter(deleted_vertices),
+                           [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
+    std::ranges::transform(val_edges, std::back_inserter(deleted_edges),
+                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
   }
