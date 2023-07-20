@@ -1,4 +1,1 @@
-copy_graphql_e2e_python_files(create.js)
-copy_graphql_e2e_python_files(delete.js)
-copy_graphql_e2e_python_files(update.js)
-copy_graphql_e2e_python_files(connect_or_create.js)
+copy_graphql_e2e_python_files(crud.js)
