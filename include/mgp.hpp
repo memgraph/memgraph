@@ -19,9 +19,9 @@
 #include <vector>
 
 #include "_mgp.hpp"
+#include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 #include "utils/fnv.hpp"
-#include "utils/logging.hpp"
 
 namespace mgp {
 
@@ -3561,7 +3561,7 @@ size_t Value::Hash::operator()(const Value &value) const {
     case Type::Null:
       return 31;
     case Type::Any:
-      LOG_FATAL("Type Any in hash function");
+      throw mg_exception::InvalidArgumentException();
     case Type::Bool:
       return std::hash<bool>{}(value.ValueBool());
     case Type::Int:
@@ -3575,7 +3575,7 @@ size_t Value::Hash::operator()(const Value &value) const {
     case Type::List:
       return memgraph::utils::FnvCollection<List, Value, Hash>{}(value.ValueList());
     case Type::Map:
-      return memgraph::utils::FnvCollection<Map, Value, Hash>{}(value.ValueMap());
+      return memgraph::utils::FnvCollection<Map, MapItem, std::hash<MapItem>>{}(value.ValueMap());
     case Type::Node:
       return std::hash<Node>{}(value.ValueNode());
     case Type::Relationship:
@@ -3606,6 +3606,6 @@ size_t Value::Hash::operator()(const Value &value) const {
     case Type::Duration:
       return std::hash<Duration>{}(value.ValueDuration());
   }
-  LOG_FATAL("Unhandled Value.Type() in hash function");
+  throw mg_exception::InvalidArgumentException();
 }
 }  // namespace mgp
