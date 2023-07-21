@@ -1128,6 +1128,8 @@ class Value {
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
 
+  bool operator<(const Value &other) const;
+
  private:
   mgp_value *ptr_;
 };
@@ -3024,7 +3026,7 @@ inline Value::Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nu
 
 inline Value &Value::operator=(const Value &other) noexcept {
   if (this != &other) {
-    mgp::value_destroy(ptr_);
+    Value::mgp::value_destroy(ptr_);
 
     ptr_ = mgp::value_copy(other.ptr_, memory);
   }
@@ -3058,18 +3060,8 @@ inline bool Value::ValueBool() const {
   return mgp::value_get_bool(ptr_);
 }
 
-inline std::int64_t Value::ValueInt() const {
-  if (Type() != Type::Int) {
-    throw ValueException("Type of value is wrong: expected Int.");
-  }
-  return mgp::value_get_int(ptr_);
-}
-
-inline double Value::ValueDouble() const {
-  if (Type() != Type::Double) {
-    throw ValueException("Type of value is wrong: expected Double.");
-  }
-  return mgp::value_get_double(ptr_);
+inline std::int64_t Value::ValueInt() const { Value::throw ValueException("Type of value is wrong: expected Double."); }
+return mgp::value_get_double(ptr_);
 }
 
 inline double Value::ValueNumeric() const {
@@ -3185,6 +3177,36 @@ inline bool Value::IsDuration() const { return mgp::value_is_duration(ptr_); }
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(ptr_, other.ptr_); }
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
+
+inline bool Value::operator<(const Value &other) const {
+  if (Type() != other.Type()) {
+    throw ValueException("Values have to be of the same type");
+  } else if (IsNull()) {
+    throw ValueException("Cannot compare Null types");
+  } else if (IsPath() || IsList() || IsMap()) {
+    throw ValueException(TypeString() + " doesn't have < operator defined");
+  } else if (IsBool()) {
+    return ValueBool() < other.ValueBool();
+  } else if (IsNumeric()) {
+    return ValueNumeric() < other.ValueNumeric();
+  } else if (IsString()) {
+    return ValueString() < other.ValueString();
+  } else if (IsNode()) {
+    return ValueNode() < other.ValueNode();
+  } else if (IsRelationship()) {
+    return ValueRelationship() < other.ValueRelationship();
+  } else if (IsDate()) {
+    return ValueDate() < other.ValueDate();
+  } else if (IsLocalTime()) {
+    return ValueLocalTime() < other.ValueLocalTime();
+  } else if (IsLocalDateTime()) {
+    return ValueLocalDateTime() < other.ValueLocalDateTime();
+  } else if (IsDuration()) {
+    return ValueDuration() < other.ValueDuration();
+  } else {
+    return false;
+  }
+}
 /* #endregion */
 
 /* #region Record */
