@@ -1180,6 +1180,8 @@ class Record {
   void Insert(const char *field_name, const LocalDateTime &local_date_time);
   /// @brief Inserts a @ref Duration value under field `field_name`.
   void Insert(const char *field_name, const Duration &duration);
+  /// @brief Inserts a @ref Value value under field `field_name`, and then call appropriate insert.
+  void Insert(const char *field_name, const Value &value);
 
  private:
   mgp_result_record *record_;
@@ -3274,6 +3276,53 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
   auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
+}
+
+inline void Record::Insert(const char *field_name, const Value &value) {
+  switch (value.Type()) {
+    case Type::Bool:
+      Insert(field_name, value.ValueBool());
+      break;
+    case Type::Int:
+      Insert(field_name, value.ValueInt());
+      break;
+    case Type::Double:
+      Insert(field_name, value.ValueDouble());
+      break;
+    case Type::String:
+      Insert(field_name, value.ValueString());
+      break;
+    case Type::List:
+      Insert(field_name, value.ValueList());
+      break;
+    case Type::Map:
+      Insert(field_name, value.ValueMap());
+      break;
+    case Type::Node:
+      Insert(field_name, value.ValueNode());
+      break;
+    case Type::Relationship:
+      Insert(field_name, value.ValueRelationship());
+      break;
+    case Type::Path:
+      Insert(field_name, value.ValuePath());
+      break;
+    case Type::Date:
+      Insert(field_name, value.ValueDate());
+      break;
+    case Type::LocalTime:
+      Insert(field_name, value.ValueLocalTime());
+      break;
+    case Type::LocalDateTime:
+      Insert(field_name, value.ValueLocalDateTime());
+      break;
+    case Type::Duration:
+      Insert(field_name, value.ValueDuration());
+      break;
+
+    default:
+      throw ValueException("No Record.Insert for this datatype");
+  }
 }
 
 // RecordFactory:
