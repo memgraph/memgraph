@@ -16,8 +16,14 @@
 #include <filesystem>
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
+
+/// Exception used to signal configuration errors.
+class StorageConfigException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
 
 /// Pass this class to the \ref Storage constructor to change the behavior of
 /// the storage. This class also defines the default behavior.
@@ -80,7 +86,7 @@ struct Config {
     const auto old_path = std::filesystem::weakly_canonical(std::filesystem::absolute(config.disk.update)); \
     const auto contained_path = contained(old_path, old_base);                                              \
     if (!contained_path) {                                                                                  \
-      throw;                                                                                                \
+      throw StorageConfigException("On-disk directories not contained in root.");                           \
     }                                                                                                       \
     config.disk.update = config.durability.storage_directory / *contained_path;                             \
   }

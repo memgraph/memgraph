@@ -434,7 +434,6 @@ class SessionContextHandler {
   NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
       auto storage = default_configs_->storage_config;
-      // storage.durability.storage_directory /= storage_subdir;
       storage::UpdatePaths(storage, storage.durability.storage_directory / storage_subdir);
       return New_(name, storage, default_configs_->interp_config);
     }
@@ -490,16 +489,31 @@ class SessionContextHandler {
         std::filesystem::create_directory(main_dir);
       }
 
+      // Force link on-disk directories
+      const auto conf = interp_handler_.GetConfig(kDefaultDB);
+      MG_ASSERT(conf, "No configuration for the default database.");
+      const auto &tmp_conf = conf->storage_config.disk;
+      std::vector<std::filesystem::path> to_link{
+          tmp_conf.main_storage_directory,         tmp_conf.label_index_directory,
+          tmp_conf.label_property_index_directory, tmp_conf.unique_constraints_directory,
+          tmp_conf.name_id_mapper_directory,       tmp_conf.id_name_mapper_directory,
+          tmp_conf.durability_directory,           tmp_conf.wal_directory,
+      };
+
+      // Add in-memory paths
       // Some directories are redundant (skip those)
       const std::vector<std::string> skip{".lock", "audit_log", "auth", "databases", "internal_modules", "settings"};
-      // TODO: Probably need to add a force list as well
-
-      // Symlink to root dir
       for (auto const &item : std::filesystem::directory_iterator{*dir}) {
         const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
         if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
+        to_link.push_back(item.path());
+      }
+
+      // Symlink to root dir
+      for (auto const &item : to_link) {
+        const auto dir_name = std::filesystem::relative(item, item.parent_path());
         const auto link = main_dir / dir_name;
-        const auto to = std::filesystem::relative(item.path(), main_dir);
+        const auto to = std::filesystem::relative(item, main_dir);
         if (!std::filesystem::exists(link)) {
           std::filesystem::create_directory_symlink(to, link);
         } else {  // Check existing link

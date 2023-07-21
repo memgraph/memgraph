@@ -26,13 +26,9 @@
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_sc_handler"};
 
-const static memgraph::storage::Config storage_conf{
-    .durability = {.storage_directory = storage_directory,
-                   .snapshot_wal_mode =
-                       memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-    .disk = {.main_storage_directory = storage_directory / "disk"}};
+static memgraph::storage::Config storage_conf;
 
-memgraph::query::InterpreterConfig interp_conf{};
+memgraph::query::InterpreterConfig interp_conf;
 
 // Global
 memgraph::audit::Log audit_log{storage_directory / "audit", 100, 1000};
@@ -64,6 +60,10 @@ class TestEnvironment : public ::testing::Environment {
   static memgraph::dbms::SessionContextHandler *get() { return ptr_.get(); }
 
   void SetUp() override {
+    // Setup config
+    memgraph::storage::UpdatePaths(storage_conf, storage_directory);
+    storage_conf.durability.snapshot_wal_mode =
+        memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     // Clean storage directory (running multiple parallel test, run only if the first process)
     if (std::filesystem::exists(storage_directory)) {
       memgraph::utils::OutputFile lock_file_handle_;
