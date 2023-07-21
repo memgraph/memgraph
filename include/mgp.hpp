@@ -3197,42 +3197,31 @@ inline bool Value::operator<(const Value &other) const {
   switch (type) {
     case Type::Null:
       throw ValueException("Cannot compare Null types");
-      break;
     case Type::Bool:
       return ValueBool() < other.ValueBool();
-      break;
     case Type::Int:
       return ValueNumeric() < other.ValueNumeric();
-      break;
     case Type::Double:
       return ValueNumeric() < other.ValueNumeric();
-      break;
     case Type::String:
       return ValueString() < other.ValueString();
-      break;
     case Type::Node:
       return ValueNode() < other.ValueNode();
-      break;
     case Type::Relationship:
       return ValueRelationship() < other.ValueRelationship();
-      break;
     case Type::Date:
       return ValueDate() < other.ValueDate();
-      break;
     case Type::LocalTime:
       return ValueLocalTime() < other.ValueLocalTime();
-      break;
     case Type::LocalDateTime:
       return ValueLocalDateTime() < other.ValueLocalDateTime();
-      break;
     case Type::Duration:
       return ValueDuration() < other.ValueDuration();
-      break;
     default:
       if (IsPath() || IsList() || IsMap()) {
         throw ValueException("Operator < is not defined for this data type");
       } else {
-        return false;
+        throw ValueException("Undefined behaviour");
       }
   }
 }

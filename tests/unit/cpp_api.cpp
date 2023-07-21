@@ -476,22 +476,15 @@ TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   const int64_t int1 = 3;
   const int64_t int2 = 4;
   const double double1 = 3.5;
-  const mgp::Value &int_test1 = mgp::Value(int1);
-  const mgp::Value &int_test2 = mgp::Value(int2);
-  const mgp::Value &double_test1 = mgp::Value(double1);
+  const mgp::Value int_test1 = mgp::Value(int1);
+  const mgp::Value int_test2 = mgp::Value(int2);
+  const mgp::Value double_test1 = mgp::Value(double1);
 
   ASSERT_TRUE(int_test1 < int_test2);
   ASSERT_TRUE(double_test1 < int_test2);
 
-  const std::string_view string1 = "string";
-  const mgp::Value &string_test1 = mgp::Value(string1);
-  bool exceptionThrown = false;
+  const std::string string1 = "string";
+  const mgp::Value string_test1 = mgp::Value(string1);
 
-  try {
-    bool Result = int_test1 < string_test1;
-  } catch (const std::exception &e) {
-    exceptionThrown = true;
-  }
-
-  ASSERT_TRUE(exceptionThrown);
+  ASSERT_THROW(int_test1 < string_test1, mgp::ValueException);
 }
