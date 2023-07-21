@@ -3281,44 +3281,31 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
 inline void Record::Insert(const char *field_name, const Value &value) {
   switch (value.Type()) {
     case Type::Bool:
-      Insert(field_name, value.ValueBool());
-      break;
+      return Insert(field_name, value.ValueBool());
     case Type::Int:
-      Insert(field_name, value.ValueInt());
-      break;
+      return Insert(field_name, value.ValueInt());
     case Type::Double:
-      Insert(field_name, value.ValueDouble());
-      break;
+      return Insert(field_name, value.ValueDouble());
     case Type::String:
-      Insert(field_name, value.ValueString());
-      break;
+      return Insert(field_name, value.ValueString());
     case Type::List:
-      Insert(field_name, value.ValueList());
-      break;
+      return Insert(field_name, value.ValueList());
     case Type::Map:
-      Insert(field_name, value.ValueMap());
-      break;
+      return Insert(field_name, value.ValueMap());
     case Type::Node:
-      Insert(field_name, value.ValueNode());
-      break;
+      return Insert(field_name, value.ValueNode());
     case Type::Relationship:
-      Insert(field_name, value.ValueRelationship());
-      break;
+      return Insert(field_name, value.ValueRelationship());
     case Type::Path:
-      Insert(field_name, value.ValuePath());
-      break;
+      return Insert(field_name, value.ValuePath());
     case Type::Date:
-      Insert(field_name, value.ValueDate());
-      break;
+      return Insert(field_name, value.ValueDate());
     case Type::LocalTime:
-      Insert(field_name, value.ValueLocalTime());
-      break;
+      return Insert(field_name, value.ValueLocalTime());
     case Type::LocalDateTime:
-      Insert(field_name, value.ValueLocalDateTime());
-      break;
+      return Insert(field_name, value.ValueLocalDateTime());
     case Type::Duration:
-      Insert(field_name, value.ValueDuration());
-      break;
+      return Insert(field_name, value.ValueDuration());
 
     default:
       throw ValueException("No Record.Insert for this datatype");
