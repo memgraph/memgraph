@@ -134,8 +134,9 @@ class SessionContextHandler {
 
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
-    auto &db_dir = default_configs_->storage_config.durability.storage_directory;
-    db_dir /= "databases";  // Move database root one level up
+    storage::UpdatePaths(default_configs_->storage_config,
+                         default_configs_->storage_config.durability.storage_directory / "databases");
+    const auto &db_dir = default_configs_->storage_config.durability.storage_directory;
     const auto durability_dir = db_dir / ".durability";
     utils::EnsureDirOrDie(db_dir);
     utils::EnsureDirOrDie(durability_dir);
@@ -433,7 +434,8 @@ class SessionContextHandler {
   NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
       auto storage = default_configs_->storage_config;
-      storage.durability.storage_directory /= storage_subdir;
+      // storage.durability.storage_directory /= storage_subdir;
+      storage::UpdatePaths(storage, storage.durability.storage_directory / storage_subdir);
       return New_(name, storage, default_configs_->interp_config);
     }
     spdlog::info("Trying to generate session context without any configurations.");
