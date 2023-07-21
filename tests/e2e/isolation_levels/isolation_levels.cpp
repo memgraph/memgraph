@@ -17,6 +17,8 @@
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
+#include <iostream>
+
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
 
@@ -66,10 +68,10 @@ void SetupCleanDB() {
   client->DiscardAll();
   try {
     client->Execute("DROP DATABASE clean;");
+    client->DiscardAll();
   } catch (const mg::ClientException &) {
     // In case clean doesn't exist
   }
-  client->DiscardAll();
   MG_ASSERT(client->Execute("CREATE DATABASE clean;"));
   client->DiscardAll();
   MG_ASSERT(client->Execute("USE DATABASE clean;"));
