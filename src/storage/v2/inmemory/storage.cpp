@@ -1976,7 +1976,11 @@ void InMemoryStorage::RestoreReplicationRole() {
   uint16_t port = replication::kDefaultReplicationPort;
 
   auto replica_data = storage_->Get(replication::kReservedReplicationRoleName);
-  const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
+  if (!replica_data.has_value()) {
+    LOG_FATAL("Cannot find data needed for restore replication role in persisted metadata.");
+  }
+
+  const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(*replica_data));
   if (!maybe_replica_status.has_value()) {
     LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replication::kReservedReplicationRoleName);
   }
