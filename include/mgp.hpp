@@ -3189,32 +3189,51 @@ inline bool Value::operator==(const Value &other) const { return util::ValuesEqu
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
 inline bool Value::operator<(const Value &other) const {
-  if (Type() != other.Type()) {
+  const mgp::Type &type = Type();
+  if (type != other.Type() && !(IsNumeric() && other.IsNumeric())) {
     throw ValueException("Values have to be of the same type");
-  } else if (IsNull()) {
-    throw ValueException("Cannot compare Null types");
-  } else if (IsPath() || IsList() || IsMap()) {
-    throw ValueException(TypeString() + " doesn't have < operator defined");
-  } else if (IsBool()) {
-    return ValueBool() < other.ValueBool();
-  } else if (IsNumeric()) {
-    return ValueNumeric() < other.ValueNumeric();
-  } else if (IsString()) {
-    return ValueString() < other.ValueString();
-  } else if (IsNode()) {
-    return ValueNode() < other.ValueNode();
-  } else if (IsRelationship()) {
-    return ValueRelationship() < other.ValueRelationship();
-  } else if (IsDate()) {
-    return ValueDate() < other.ValueDate();
-  } else if (IsLocalTime()) {
-    return ValueLocalTime() < other.ValueLocalTime();
-  } else if (IsLocalDateTime()) {
-    return ValueLocalDateTime() < other.ValueLocalDateTime();
-  } else if (IsDuration()) {
-    return ValueDuration() < other.ValueDuration();
-  } else {
-    return false;
+  }
+
+  switch (type) {
+    case Type::Null:
+      throw ValueException("Cannot compare Null types");
+      break;
+    case Type::Bool:
+      return ValueBool() < other.ValueBool();
+      break;
+    case Type::Int:
+      return ValueNumeric() < other.ValueNumeric();
+      break;
+    case Type::Double:
+      return ValueNumeric() < other.ValueNumeric();
+      break;
+    case Type::String:
+      return ValueString() < other.ValueString();
+      break;
+    case Type::Node:
+      return ValueNode() < other.ValueNode();
+      break;
+    case Type::Relationship:
+      return ValueRelationship() < other.ValueRelationship();
+      break;
+    case Type::Date:
+      return ValueDate() < other.ValueDate();
+      break;
+    case Type::LocalTime:
+      return ValueLocalTime() < other.ValueLocalTime();
+      break;
+    case Type::LocalDateTime:
+      return ValueLocalDateTime() < other.ValueLocalDateTime();
+      break;
+    case Type::Duration:
+      return ValueDuration() < other.ValueDuration();
+      break;
+    default:
+      if (IsPath() || IsList() || IsMap()) {
+        throw ValueException("Operator < is not defined for this data type");
+      } else {
+        return false;
+      }
   }
 }
 /* #endregion */
