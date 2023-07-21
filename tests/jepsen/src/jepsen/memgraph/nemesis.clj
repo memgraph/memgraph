@@ -26,18 +26,74 @@
   [f]
   {:type :info :f f})
 
+
+
+  ; (gen/phases (->> (gen/mix [(repeat {:f :read})
+  ;                              (map (fn [x] {:f :write, :value x}) (range))])
+  ;                    (gen/stagger 1/10)
+  ;                    (gen/nemesis (->> (cycle [{:f :break}
+  ;                                              {:f :repair}])
+  ;                                      (gen/stagger 5)))
+  ;                    (gen/time-limit 30))
+  ;               (gen/log \"Recovering\")
+  ;               (gen/nemesis {:f :repair})
+  ;               (gen/sleep 10)
+  ;               (gen/log \"Final read\")
+  ;               (gen/clients (gen/each-thread (gen/until-ok {:f :read}))))
+
+
+; (defn full-generator
+;   "Construct nemesis generator."
+;   [opts]
+;   (->> [(when (:kill-node? opts)
+;           [(cycle (map op [:kill-node :restart-node]))])
+;         (when (:partition-halves? opts)
+;           [(cycle (map op [:start-partition-halves :stop-partition-halves]))])]
+;        (apply concat)
+;        (gen/phases (gen/sleep 40))
+;        gen/mix
+;        (gen/stagger (:interval opts))
+;        ))
+
+
+(defn events-sequence
+  "Constructs sequence of Nemesis events."
+  [opts]
+  (apply concat
+      (when (:kill-node? opts)
+          [(cycle (map op [:kill-node :restart-node]))])
+      (when (:partition-halves? opts)
+          [(cycle (map op [:start-partition-halves :stop-partition-halves]))])
+  ))
+
+; (defn full-generator
+;   "Construct nemesis generator."
+;   [opts]
+;   (->> (events-sequence opts)
+;        (gen/phases (gen/sleep 40))
+;        gen/mix
+;        (gen/stagger (:interval opts))
+;        ))
+
+
 (defn full-generator
   "Construct nemesis generator."
   [opts]
-  (->> [(when (:kill-node? opts)
-          [(cycle (map op [:kill-node :restart-node]))])
-        (when (:partition-halves? opts)
-          [(cycle (map op [:start-partition-halves :stop-partition-halves]))])]
-       (apply concat)
-       (gen/phases (gen/sleep 40))
-       gen/mix
-       (gen/stagger (:interval opts))
-       ))
+  (->>  ; (gen/sleep 5)
+        (gen/mix (apply concat
+        [[(cycle (map op [:kill-node :restart-node]))]
+        [(cycle (map op [:start-partition-halves :stop-partition-halves]))]]
+        ))
+        (gen/stagger (:interval opts))))
+
+
+; (defn full-generator
+;   "Test."
+;   [opts]
+;    (->> (gen/mix [(repeat {:f :read})
+;                    (map (fn [x] {:f :write, :value x}) (range))])
+;          (gen/stagger 1/10)
+;          (gen/time-limit 30)))
 
 (defn nemesis
   "Composite nemesis and generator"
