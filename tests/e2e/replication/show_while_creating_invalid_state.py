@@ -147,27 +147,33 @@ def test_basic_recovery(connection):
     data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica1.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7689", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "replica_3": {
-            "args": ["--bolt-port", "7690", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7690", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica3.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
         },
         "replica_4": {
-            "args": ["--bolt-port", "7691", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7691", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica4.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level=TRACE",
+                "--storage-recover-on-startup=true",
+                "--replication-restore-state-on-startup=true",
+            ],
             "log_file": "main.log",
             "setup_queries": [],
             "data_directory": f"{data_directory.name}",
@@ -359,13 +365,19 @@ def test_replication_role_recovery(connection):
     data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
             "data_directory": f"{data_directory.name}/replica",
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level=TRACE",
+                "--storage-recover-on-startup=true",
+                "--replication-restore-state-on-startup=true",
+            ],
             "log_file": "main.log",
             "setup_queries": [],
             "data_directory": f"{data_directory.name}/main",
@@ -381,13 +393,19 @@ def test_replication_role_recovery(connection):
     # When we restart the replica, it does not need this query anymore since it needs to remember state
     CONFIGURATION = {
         "replica": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica.log",
             "setup_queries": [],
             "data_directory": f"{data_directory.name}/replica",
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level=TRACE",
+                "--storage-recover-on-startup=true",
+                "--replication-restore-state-on-startup=true",
+            ],
             "log_file": "main.log",
             "setup_queries": [],
             "data_directory": f"{data_directory.name}/main",
@@ -511,17 +529,23 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica1.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7689", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
             "log_file": "replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level=TRACE",
+                "--storage-recover-on-startup=true",
+                "--replication-restore-state-on-startup=true",
+            ],
             "log_file": "main.log",
             "setup_queries": [],
             "data_directory": f"{data_directory.name}",

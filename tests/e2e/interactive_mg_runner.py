@@ -38,7 +38,6 @@ import tempfile
 import time
 from argparse import ArgumentParser
 from inspect import signature
-from pathlib import Path
 
 import yaml
 

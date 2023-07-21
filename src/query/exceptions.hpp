@@ -177,7 +177,7 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
 
 class ReplicationDisabledOnDiskStorage : public QueryException {
  public:
-  ReplicationDisabledOnDiskStorage() : QueryException("Replication not support with disk storage. ") {}
+  ReplicationDisabledOnDiskStorage() : QueryException("Replication is not supported while in on-disk storage mode.") {}
 };
 
 class LockPathModificationInMulticommandTxException : public QueryException {
@@ -250,7 +250,7 @@ class CreateSnapshotInMulticommandTxException final : public QueryException {
 
 class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
  public:
-  CreateSnapshotDisabledOnDiskStorage() : QueryException("Data is already persisted when using disk storage. ") {}
+  CreateSnapshotDisabledOnDiskStorage() : QueryException("In the on-disk storage mode data is already persistent.") {}
 };
 
 class SettingConfigInMulticommandTxException final : public QueryException {
