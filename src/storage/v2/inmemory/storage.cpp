@@ -1977,7 +1977,8 @@ void InMemoryStorage::RestoreReplicationRole() {
 
   auto replica_data = storage_->Get(replication::kReservedReplicationRoleName);
   if (!replica_data.has_value()) {
-    LOG_FATAL("Cannot find data needed for restore replication role in persisted metadata.");
+    spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
+    return;
   }
 
   const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(*replica_data));
