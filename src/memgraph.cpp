@@ -1176,7 +1176,6 @@ int main(int argc, char **argv) {
 #endif
 
   auto *auth = session_context.auth;
-  auto &db = *session_context.interpreter_context->db.get();
   auto &interpreter_context = *session_context.interpreter_context;
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
@@ -1249,7 +1248,7 @@ int main(int argc, char **argv) {
       return {{"vertices", vertex_count}, {"edges", edge_count}, {"databases", db_count}};
     });
 #else
-    telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
+    telemetry->AddCollector("storage", [&db = *session_context.interpreter_context->db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
