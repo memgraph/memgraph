@@ -42,11 +42,11 @@
   "Construct nemesis generator."
   [opts]
   (gen/phases
-        (gen/log "Waiting replicas to get data from main.")
-        ; (gen/sleep 10)
-        (->>
-        (gen/mix (nemesis-events opts))
-        (gen/stagger (:interval opts)))))
+   (gen/log "Waiting replicas to get data from main.")
+   (gen/sleep 30)
+   (->>
+    (gen/mix (nemesis-events opts))
+    (gen/stagger (:interval opts)))))
 
 
 (defn nemesis
