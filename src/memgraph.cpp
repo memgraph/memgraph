@@ -533,7 +533,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return *this;
     }
 
-    auto *db() { return session_context.interpreter_context->db.get(); }
     auto *ic() { return session_context.interpreter_context.get(); }
     auto *interp() { return interpreter.get(); }
     auto *auth() const { return session_context.auth; }
@@ -566,7 +565,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #else
         current_(sc),
 #endif
-        db_(current_.db()),
+        interpreter_context_(current_.ic()),
         interpreter_(current_.interp()),
         auth_(current_.auth()),
 #ifdef MG_ENTERPRISE
@@ -595,11 +594,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         throw memgraph::communication::bolt::ClientError("Malformed database name.");
       }
       db = db_info.ValueString();
-      update = db != current_.db()->id();
+      update = db != current_.ic()->db->id();
       interpreter_->in_explicit_db_ = true;
     } else if (interpreter_->in_explicit_db_) {  // Just on a switch
       db = GetDefaultDB();
-      update = db != current_.db()->id();
+      update = db != current_.ic()->db->id();
       interpreter_->in_explicit_db_ = false;
     }
 
@@ -655,7 +654,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv), db_->id());
+                         memgraph::storage::PropertyValue(params_pv), interpreter_context_->db->id());
     }
 #endif
     try {
@@ -685,7 +684,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, db_);
+    TypedValueResultStream stream(encoder, interpreter_context_);
     return PullResults(stream, n, qid);
   }
 
@@ -709,7 +708,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     if (user_.has_value()) {
       const auto &db = user_->db_access().GetDefault();
       // Check if the underlying database needs to be updated
-      if (db != current_.db()->id()) {
+      if (db != current_.ic()->db->id()) {
         const auto &res = sc_handler_.SetFor(UUID(), db);
         return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
       }
@@ -726,7 +725,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     MultiDatabaseAuth(db_name);
-    if (db_name != current_.db()->id()) {
+    if (db_name != current_.ic()->db->id()) {
       UpdateAndDefunct(db_name);  // Done during Pull, so we cannot just replace the current db
       return memgraph::dbms::SetForResult::SUCCESS;
     }
@@ -734,13 +733,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
   bool OnDelete(const std::string &db_name) override {
-    MG_ASSERT(current_.db()->id() != db_name && (!defunct_ || defunct_->defunct()),
+    MG_ASSERT(current_.ic()->db->id() != db_name && (!defunct_ || defunct_->defunct()),
               "Trying to delete a database while still in use.");
     return true;
   }
 #endif
 
-  std::string GetID() const override { return db_->id(); }
+  std::string GetID() const override { return interpreter_context_->db->id(); }
 
  private:
   template <typename TStream>
@@ -750,7 +749,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       const auto &summary = interpreter_->Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::ToBoltValue(kv.second, *db_, memgraph::storage::View::NEW);
+        auto maybe_value =
+            memgraph::glue::ToBoltValue(kv.second, *interpreter_context_->db, memgraph::storage::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -807,7 +807,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Update(ContextWrapper &&cntxt) {
     current_ = std::move(cntxt);
     interpreter_ = current_.interp();
-    db_ = current_.db();
+    interpreter_context_ = current_.ic();
   }
 
   /**
@@ -840,13 +840,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::storage::Storage *db) : encoder_(encoder), db_(db) {}
+    TypedValueResultStream(TEncoder *encoder, memgraph::query::InterpreterContext *ic)
+        : encoder_(encoder), interpreter_context_(ic) {}
 
     void Result(const std::vector<memgraph::query::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::ToBoltValue(v, *db_, memgraph::storage::View::NEW);
+        auto maybe_value = memgraph::glue::ToBoltValue(v, *interpreter_context_->db, memgraph::storage::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -867,7 +868,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
    private:
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
-    const memgraph::storage::Storage *db_;
+    memgraph::query::InterpreterContext *interpreter_context_;
   };
 
 #ifdef MG_ENTERPRISE
@@ -876,7 +877,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   ContextWrapper current_;
   std::optional<ContextWrapper> defunct_;
 
-  memgraph::storage::Storage *db_;
+  memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter *interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
@@ -1178,7 +1179,7 @@ int main(int argc, char **argv) {
 #endif
 
   auto *auth = session_context.auth;
-  auto &interpreter_context = *session_context.interpreter_context;
+  auto &interpreter_context = *session_context.interpreter_context;  // TODO remove
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
@@ -1250,8 +1251,8 @@ int main(int argc, char **argv) {
       return {{"vertices", vertex_count}, {"edges", edge_count}, {"databases", db_count}};
     });
 #else
-    telemetry->AddCollector("storage", [&db = *session_context.interpreter_context->db]() -> nlohmann::json {
-      auto info = db.GetInfo();
+    telemetry->AddCollector("storage", [&interpreter_context]() -> nlohmann::json {
+      auto info = interpreter_context.db->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
 #endif
@@ -1281,14 +1282,14 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+    auto shutdown = [&metrics_server, &websocket_server, &server, &sc_handler] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
       // After the server is notified to stop accepting and processing
       // connections we tell the execution engine to stop processing all pending
       // queries.
-      memgraph::query::Shutdown(&interpreter_context);
+      sc_handler.Shutdown();
 
       websocket_server.Shutdown();
       metrics_server.Shutdown();

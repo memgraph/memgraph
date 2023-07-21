@@ -163,6 +163,10 @@ class SessionContextHandler {
     }
   }
 
+  void Shutdown() {
+    for (auto &ic : interp_handler_) memgraph::query::Shutdown(ic.second.get().get());
+  }
+
   /**
    * @brief Create a new SessionContext associated with the "name" database
    *
