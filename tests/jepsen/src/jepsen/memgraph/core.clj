@@ -102,7 +102,6 @@
 
 
   (doseq [node-config node-configs]
-    ; TODO: andi This can improved by iterating and checking name specifically
     (when-not (= (count node-config) (count nodes))
       (throw (Exception. "Invalid node configuration. Configuration not specified for all nodes. Check your .edn file.")))
 
