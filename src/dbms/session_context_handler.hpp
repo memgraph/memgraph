@@ -514,7 +514,7 @@ class SessionContextHandler {
         const auto dir_name = std::filesystem::relative(item, item.parent_path());
         const auto link = main_dir / dir_name;
         const auto to = std::filesystem::relative(item, main_dir);
-        if (!std::filesystem::exists(link)) {
+        if (!std::filesystem::is_symlink(link) && !std::filesystem::exists(link)) {
           std::filesystem::create_directory_symlink(to, link);
         } else {  // Check existing link
           std::error_code ec;
