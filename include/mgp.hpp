@@ -3240,27 +3240,27 @@ inline const std::string Value::TypeString() const {
     case Type::Double:
       return "Type: Double";
     case Type::String:
-      return "Type: String";
+      return "String";
     case Type::List:
-      return "Type: List";
+      return "List";
     case Type::Map:
-      return "Type: Map";
+      return "Map";
     case Type::Node:
-      return "Type: Node";
+      return "Node";
     case Type::Relationship:
-      return "Type: Relationship";
+      return "Relationship";
     case Type::Path:
-      return "Type: Path";
+      return "Path";
     case Type::Date:
-      return "Type: Date";
+      return "Date";
     case Type::LocalTime:
-      return "Type: LocalTime";
+      return "LocalTime";
     case Type::LocalDateTime:
-      return "Type: LocalDateTime";
+      return "LocalDateTime";
     case Type::Duration:
-      return "Type: Duration";
+      return "Duration";
     default:
-      return "Type: Unknown";
+      throw ValueException(" No known type");
   }
 }
 
