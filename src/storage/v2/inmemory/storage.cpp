@@ -1973,28 +1973,20 @@ void InMemoryStorage::RestoreReplicationRole() {
   }
 
   spdlog::info("Restoring replication role.");
-
   uint16_t port = replication::kDefaultReplicationPort;
-  for (const auto &[replica_name, replica_data] : *storage_) {
-    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
-    if (!maybe_replica_status.has_value()) {
-      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
-    }
 
-    if (replica_name != replication::kReservedReplicationRoleName) {
-      continue;
-    }
+  auto replica_data = storage_->Get(replication::kReservedReplicationRoleName);
+  const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
+  if (!maybe_replica_status.has_value()) {
+    LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replication::kReservedReplicationRoleName);
+  }
 
-    auto replica_status = *maybe_replica_status;
-
-    if (!replica_status.role.has_value()) {
-      replication_role_.store(replication::ReplicationRole::MAIN);
-    } else {
-      replication_role_.store(*replica_status.role);
-      port = replica_status.port;
-    }
-
-    break;
+  auto replica_status = *maybe_replica_status;
+  if (!replica_status.role.has_value()) {
+    replication_role_.store(replication::ReplicationRole::MAIN);
+  } else {
+    replication_role_.store(*replica_status.role);
+    port = replica_status.port;
   }
 
   if (replication_role_ == replication::ReplicationRole::REPLICA) {
