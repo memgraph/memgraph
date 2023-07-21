@@ -471,3 +471,17 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.Properties()["b"].ValueString(), "b");
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }
+
+TYPED_TEST(CppApiTestFixture, TestValueTypeString) {
+  const int64_t &int1 = 8;
+  const std::string_view &string1 = "string";
+  const mgp::List &list = mgp::List();
+
+  const mgp::Value int_test1 = mgp::Value(int1);
+  const mgp::Value string_test1 = mgp::Value(string1);
+  const mgp::Value list_test1 = mgp::Value(list);
+
+  ASSERT_EQ(int_test1.TypeString(), "Type: Int");
+  ASSERT_EQ(string_test1.TypeString(), "Type: String");
+  ASSERT_EQ(list_test1.TypeString(), "Type: List");
+}

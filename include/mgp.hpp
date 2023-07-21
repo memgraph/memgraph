@@ -3228,37 +3228,42 @@ inline bool Value::operator==(const Value &other) const { return util::ValuesEqu
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
 inline const std::string Value::TypeString() const {
-  if (Value::IsNull())
-    return "Type: Null";
-  else if (Value::IsBool())
-    return "Type: Bool";
-  else if (Value::IsInt())
-    return "Type: Int";
-  else if (Value::IsDouble())
-    return "Type: Double";
-  else if (Value::IsString())
-    return "Type: String";
-  else if (Value::IsList())
-    return "Type: List";
-  else if (Value::IsMap())
-    return "Type: Map";
-  else if (Value::IsNode())
-    return "Type: Node";
-  else if (Value::IsRelationship())
-    return "Type: Relationship";
-  else if (Value::IsPath())
-    return "Type: Path";
-  else if (Value::IsDate())
-    return "Type: Date";
-  else if (Value::IsLocalTime())
-    return "Type: LocalTime";
-  else if (Value::IsLocalDateTime())
-    return "Type: LocalDateTime";
-  else if (Value::IsDuration())
-    return "Type: Duration";
-  else
-    return "Type: Unknown";
+  const mgp::Type &valueType = Type();
+
+  switch (valueType) {
+    case Type::Null:
+      return "Type: Null";
+    case Type::Bool:
+      return "Type: Bool";
+    case Type::Int:
+      return "Type: Int";
+    case Type::Double:
+      return "Type: Double";
+    case Type::String:
+      return "Type: String";
+    case Type::List:
+      return "Type: List";
+    case Type::Map:
+      return "Type: Map";
+    case Type::Node:
+      return "Type: Node";
+    case Type::Relationship:
+      return "Type: Relationship";
+    case Type::Path:
+      return "Type: Path";
+    case Type::Date:
+      return "Type: Date";
+    case Type::LocalTime:
+      return "Type: LocalTime";
+    case Type::LocalDateTime:
+      return "Type: LocalDateTime";
+    case Type::Duration:
+      return "Type: Duration";
+    default:
+      return "Type: Unknown";
+  }
 }
+
 /* #endregion */
 
 /* #region Record */
