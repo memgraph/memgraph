@@ -3026,7 +3026,7 @@ inline Value::Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nu
 
 inline Value &Value::operator=(const Value &other) noexcept {
   if (this != &other) {
-    Value::mgp::value_destroy(ptr_);
+    mgp::value_destroy(ptr_);
 
     ptr_ = mgp::value_copy(other.ptr_, memory);
   }
@@ -3060,8 +3060,18 @@ inline bool Value::ValueBool() const {
   return mgp::value_get_bool(ptr_);
 }
 
-inline std::int64_t Value::ValueInt() const { Value::throw ValueException("Type of value is wrong: expected Double."); }
-return mgp::value_get_double(ptr_);
+inline std::int64_t Value::ValueInt() const {
+  if (Type() != Type::Int) {
+    throw ValueException("Type of value is wrong: expected Int.");
+  }
+  return mgp::value_get_int(ptr_);
+}
+
+inline double Value::ValueDouble() const {
+  if (Type() != Type::Double) {
+    throw ValueException("Type of value is wrong: expected Double.");
+  }
+  return mgp::value_get_double(ptr_);
 }
 
 inline double Value::ValueNumeric() const {
