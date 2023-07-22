@@ -2455,8 +2455,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
           "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will automatically "
-          "start in the default in-memory transactional storage mode.");
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
+          "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
       std::unique_lock main_guard{interpreter_context->db->main_lock_};
@@ -3578,11 +3578,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw QueryException("Write query forbidden on the replica!");
     }
 
-    // Set the target db to the current db (some queries have different target from the current db)
-    if (!query_execution->prepared_query->db) {
-      query_execution->prepared_query->db = interpreter_context_->db->id();
-    }
-    query_execution->summary["db"] = *query_execution->prepared_query->db;
+    // Update summary db (some queries have different target from the current db)
+    const auto &set_db = query_execution->prepared_query->db;
+    query_execution->summary["db"] = set_db ? *set_db : interpreter_context_->db->id();
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};

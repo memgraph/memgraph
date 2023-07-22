@@ -659,7 +659,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
     try {
       auto result = interpreter_->Prepare(query, params_pv, username, metadata_pv, UUID());
-      const std::string db_name = result.db ? *result.db : "";
+      const std::string &db_name = result.db ? *result.db : "";
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
         interpreter_->Abort();
         if (db_name.empty()) {
