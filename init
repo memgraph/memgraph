@@ -91,6 +91,10 @@ setup_virtualenv tests/stress
 setup_virtualenv tests/integration/ldap
 
 # Setup tests dependencies.
+# NOTE: This is commented out because of the build order (at the time of
+# execution mgclient is not built yet) which makes this setup to fail. mgclient
+# is built during the make phase. The tests/setup.sh is called under GHA CI
+# jobs.
 # cd tests
 # ./setup.sh
 # cd ..
