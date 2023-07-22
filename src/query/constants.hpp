@@ -15,5 +15,5 @@
 
 namespace memgraph::query {
 inline const std::string kAsterisk = "*";
-inline constexpr uint16_t kDeleteStatisticsNumResults = 6;
+inline constexpr uint16_t kComputeStatisticsNumResults = 7;
 }  // namespace memgraph::query

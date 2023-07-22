@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -467,6 +467,8 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
+  ctx.db_accessor->PrefetchInEdges(vertex);
+  ctx.db_accessor->PrefetchOutEdges(vertex);
   size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
@@ -476,6 +478,7 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
+  ctx.db_accessor->PrefetchInEdges(vertex);
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
@@ -484,6 +487,7 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
+  ctx.db_accessor->PrefetchOutEdges(vertex);
   size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }

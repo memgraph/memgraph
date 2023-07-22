@@ -22,6 +22,7 @@
 #include <string_view>
 
 #include "mg_procedure.h"
+#include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
@@ -1062,17 +1063,35 @@ void CallPythonCleanup(const py::Object &py_cleanup) {
 void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
   auto gil = py::EnsureGIL();
 
+  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
+    if (!exc_info) return std::nullopt;
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
+  };
+
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_initializer.Call(py_graph, py_args);
-    return {};
+    if (!py_res) return py::FetchError();
+    return std::nullopt;
   };
 
+  std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
     utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, !kStartGarbageCollection));
-    call(py_graph);
+    if (py_graph) {
+      maybe_msg = error_to_msg(call(py_graph));
+    } else {
+      maybe_msg = error_to_msg(py::FetchError());
+    }
+  }
+  if (maybe_msg) {
+    throw QueryRuntimeException(*maybe_msg);
   }
 }
 

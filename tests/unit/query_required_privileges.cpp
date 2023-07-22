@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,7 +70,7 @@ TEST_F(TestPrivilegeExtractor, MatchNodeSetLabels) {
 
 TEST_F(TestPrivilegeExtractor, MatchNodeSetProperty) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                   SET(PROPERTY_LOOKUP(storage.Create<Identifier>("n"), PROP_0), LITERAL(42))));
+                                   SET(PROPERTY_LOOKUP(dba, storage.Create<Identifier>("n"), PROP_0), LITERAL(42))));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::SET));
 }
@@ -88,8 +88,8 @@ TEST_F(TestPrivilegeExtractor, MatchNodeRemoveLabels) {
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeRemoveProperty) {
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(storage.Create<Identifier>("n"), PROP_0))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(dba, storage.Create<Identifier>("n"), PROP_0))));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::REMOVE));
 }

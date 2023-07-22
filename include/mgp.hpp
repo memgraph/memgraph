@@ -2218,7 +2218,14 @@ inline bool Map::Empty() const { return Size() == 0; }
 
 inline const Value Map::operator[](std::string_view key) const { return Value(mgp::map_at(ptr_, key.data())); }
 
-inline const Value Map::At(std::string_view key) const { return Value(mgp::map_at(ptr_, key.data())); }
+inline const Value Map::At(std::string_view key) const {
+  auto *ptr = mgp::map_at(ptr_, key.data());
+  if (ptr) {
+    return Value(ptr);
+  }
+
+  return Value();
+}
 
 inline Map::Iterator::Iterator(mgp_map_items_iterator *map_items_iterator) : map_items_iterator_(map_items_iterator) {
   if (map_items_iterator_ == nullptr) return;
@@ -3446,7 +3453,8 @@ inline mgp_type *Return::GetMGPType() const {
 
 // do not enter
 namespace detail {
-void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters, const std::vector<Return> &returns) {
+inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
+                                   const std::vector<Return> &returns) {
   for (const auto &parameter : parameters) {
     const auto *parameter_name = parameter.name.data();
     if (!parameter.optional) {

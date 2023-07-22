@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <curl/curl.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
+#include <ctre/ctre.hpp>
 
 #include "utils/logging.hpp"
 
@@ -106,6 +107,37 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path, int 
   }
 
   if (response_code != 200) {
+    SPDLOG_WARN("Request response code isn't 200 (received {})!", response_code);
+    return false;
+  }
+
+  return true;
+}
+
+auto DownloadToStream(char const *url, std::ostream &os) -> bool {
+  constexpr auto WriteCallback = [](char *ptr, size_t size, size_t nmemb, std::ostream *os) -> size_t {
+    auto const totalSize = static_cast<std::streamsize>(size * nmemb);
+    os->write(ptr, totalSize);
+    return totalSize;
+  };
+
+  auto *curl_handle{curl_easy_init()};
+  curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+  curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, +WriteCallback);
+  curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &os);
+
+  auto const res = curl_easy_perform(curl_handle);
+  long response_code = 0;  // NOLINT
+  curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &response_code);
+  curl_easy_cleanup(curl_handle);
+
+  if (res != CURLE_OK) {
+    SPDLOG_WARN("Couldn't perform request: {}", curl_easy_strerror(res));
+    return false;
+  }
+
+  constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
+  if (protocol_matcher(url) && response_code != 200) {
     SPDLOG_WARN("Request response code isn't 200 (received {})!", response_code);
     return false;
   }

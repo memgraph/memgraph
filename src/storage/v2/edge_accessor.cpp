@@ -14,6 +14,7 @@
 #include <memory>
 #include <tuple>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -44,6 +45,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::REMOVE_IN_EDGE:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
           break;
         case Delta::Action::ADD_OUT_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
@@ -83,6 +85,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -181,6 +184,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -232,6 +236,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;

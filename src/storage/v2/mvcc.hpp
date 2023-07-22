@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <optional>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
@@ -60,7 +61,9 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && ts == commit_timestamp && cid < transaction->command_id) {
+    if (view == View::OLD && ts == commit_timestamp &&
+        (cid < transaction->command_id ||
+         (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
       break;
     }
 
@@ -80,7 +83,6 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
-
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id.load(std::memory_order_acquire) || ts < transaction->start_timestamp) {
     return true;
@@ -102,6 +104,20 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                            transaction->command_id);
+}
+
+/// TODO: what if in-memory analytical
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
+  transaction->EnsureCommitTimestampExists();
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
+                                           old_disk_key);
+}
+
+/// TODO: what if in-memory analytical
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
+                                                       std::optional<std::string> old_disk_key) {
+  transaction->EnsureCommitTimestampExists();
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
 }
 
 /// This function creates a delta in the transaction for the object and links
