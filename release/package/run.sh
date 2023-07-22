@@ -166,10 +166,10 @@ case "$1" in
       fi
       # in the vX format, e.g. v5
       toolchain_version="$1"
+      # a name of the os folder, e.g. ubuntu-22.04-arm
       os="$2"
       cd "$SCRIPT_DIR/$os"
-      # TODO(gitbuda): Just copy or install into the container relevant environment/os script.
-      docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph-builder:v4_$os" .
+      docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:${toolchain_version}_$os" .
     ;;
 
     test)
