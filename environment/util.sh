@@ -1,8 +1,15 @@
 #!/bin/bash
 
 function operating_system() {
-    grep -E '^(VERSION_)?ID=' /etc/os-release | \
-    sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        grep -E '^(VERSION_)?ID=' /etc/os-release | \
+        sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "$(sw_vers -productName)-$(sw_vers -productVersion | cut -d '.' -f 1)"
+    else
+        echo "operating_system called on an unknown OS"
+        exit 1
+    fi
 }
 
 function check_operating_system() {
