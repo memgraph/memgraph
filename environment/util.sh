@@ -93,8 +93,10 @@ function install_custom_golang() {
 function install_custom_maven() {
   MVNVERSION="$1"
   MVNINSTALLDIR="/opt/apache-maven-$MVNVERSION"
+  MVNURL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
-    curl -LO "https://dlcdn.apache.org/maven/maven-3/$MVNVERSION/binaries/apache-maven-$MVNVERSION-bin.tar.gz"
+    echo "Downloading maven from $MVNURL"
+    curl -LO "$MVNURL"
     tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
   fi
   echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
