@@ -425,6 +425,11 @@ class DbAccessor final {
     nodes_impl.reserve(nodes.size());
     edges_impl.reserve(edges.size());
 
+    for (auto &vertex_accessor : nodes) {
+      accessor_->PrefetchOutEdges(vertex_accessor.impl_);
+      accessor_->PrefetchInEdges(vertex_accessor.impl_);
+    }
+
     std::ranges::transform(nodes, std::back_inserter(nodes_impl),
                            [](const auto &node_info) { return node_info.impl_; });
     std::ranges::transform(edges, std::back_inserter(edges_impl),
