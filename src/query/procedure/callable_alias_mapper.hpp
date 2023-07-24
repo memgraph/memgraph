@@ -39,6 +39,7 @@ class CallableAliasMapper final {
 };
 
 /// Single, global alias mapper.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern CallableAliasMapper gCallableAliasMapper;
 
 }  // namespace memgraph::query::procedure

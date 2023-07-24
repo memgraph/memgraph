@@ -21,6 +21,7 @@
 
 namespace memgraph::query::procedure {
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 CallableAliasMapper gCallableAliasMapper;
 
 void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
