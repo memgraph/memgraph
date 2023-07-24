@@ -1154,6 +1154,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && username.has_value() && dba) {
+    // TODO How can we avoid creating this every time? If we must create it, it would be faster with an auth::User
+    // instead of the username
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
