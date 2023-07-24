@@ -136,6 +136,5 @@ def create_related_nodes_query(server: GraphQLServer):
 
 @pytest.fixture
 def query_server() -> GraphQLServer:
-    path = "/home/gvolfing/workspace/neo4j_graphql_example/create.js"
-    print(path)
+    path = "graphql/graphql_library_config/crud.js"
     return GraphQLServer(path)
