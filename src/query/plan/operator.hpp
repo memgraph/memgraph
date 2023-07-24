@@ -136,7 +136,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, Delete>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1138,8 +1138,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<Delete>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->expressions_.resize(expressions_.size());
-    for (auto i = 0; i < expressions_.size(); ++i) {
-      object->expressions_[i] = expressions_[i] ? expressions_[i]->Clone(storage) : nullptr;
+    for (auto i3 = 0; i3 < expressions_.size(); ++i3) {
+      object->expressions_[i3] = expressions_[i3] ? expressions_[i3]->Clone(storage) : nullptr;
     }
     object->detach_ = detach_;
     return object;

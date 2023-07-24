@@ -1087,7 +1087,6 @@ DiskStorage::DiskAccessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> no
       // We need to check again for serialization errors because we unlocked the
       // vertex. Some other transaction could have modified the vertex in the
       // meantime if we didn't have any edges to delete.
-
       if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
       MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
