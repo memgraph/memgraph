@@ -350,7 +350,7 @@ uint64_t InMemoryStorage::ReplicationClient::ReplicateCurrentWal() {
 /// transactions while Snapshots contain all the data. For that reason we prefer
 /// WALs as much as possible. As the WAL file that is currently being updated
 /// can change during the process we ignore it as much as possible. Also, it
-/// uses the transaction lock so lokcing it can be really expensive. After we
+/// uses the transaction lock so locking it can be really expensive. After we
 /// fetch the list of finalized WALs, we try to find the longest chain of
 /// sequential WALs, starting from the latest one, that will update the recovery
 /// with the all missed updates. If the WAL chain cannot be created, replica is

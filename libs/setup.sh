@@ -71,8 +71,8 @@ file_get_try_double () {
     if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
-    wget -nv "$primary_url" -O "$filename" || wget -nv "$secondary_url" -O "$filename" || exit 1
-    echo ""
+    # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
+    wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
 }
 
 repo_clone_try_double () {
@@ -86,8 +86,8 @@ repo_clone_try_double () {
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     if [ -z "$folder_name" ]; then echo "Clone folder should not be empty." && exit 1; fi
     if [ -z "$ref" ]; then echo "Git clone ref should not be empty." && exit 1; fi
-    clone "$primary_url" "$folder_name" "$ref" "$shallow" || clone "$secondary_url" "$folder_name" "$ref" "$shallow" || exit 1
-    echo ""
+    # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
+    clone "$primary_url" "$folder_name" "$ref" "$shallow" >/dev/null 2>&1 || clone "$secondary_url" "$folder_name" "$ref" "$shallow" || exit 1
 }
 
 # List all dependencies.

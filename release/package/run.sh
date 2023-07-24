@@ -159,6 +159,19 @@ case "$1" in
         fi
     ;;
 
+    build)
+      shift 1
+      if [[ "$#" -ne 2 ]]; then
+          print_help
+      fi
+      # in the vX format, e.g. v5
+      toolchain_version="$1"
+      # a name of the os folder, e.g. ubuntu-22.04-arm
+      os="$2"
+      cd "$SCRIPT_DIR/$os"
+      docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:${toolchain_version}_$os" .
+    ;;
+
     test)
         echo "TODO(gitbuda): Test all packages on mgtest containers."
     ;;

@@ -146,8 +146,22 @@
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
-   [nil "--node-configs PATH" "Path to the node configuration file."
+   [nil "--node-configs PATH" "Path to a file containing a list of node config."
     :parse-fn #(-> % e/load-configuration)]])
+
+(defn single-test
+  "Takes base CLI options and constructs a single test."
+  [opts]
+  (let [workload (if (:workload opts)
+                   (:workload opts)
+                   (throw (Exception. "Workload undefined")))
+        node-config (if (:node-configs opts)
+                      (first (merge-node-configurations (:nodes opts) (list (first (:node-configs opts)))))
+                      (throw (Exception. "Node configs undefined")))
+        test-opts (assoc opts
+                         :node-config node-config
+                         :workload workload)]
+    (memgraph-test test-opts)))
 
 (defn all-tests
   "Takes base CLI options and constructs a sequence of test options."
@@ -169,7 +183,7 @@
   [& args]
   (cli/run! (merge (cli/test-all-cmd {:tests-fn all-tests
                                       :opt-spec cli-opts})
-                   (cli/single-test-cmd {:test-fn memgraph-test
+                   (cli/single-test-cmd {:test-fn single-test
                                          :opt-spec cli-opts})
                    (cli/serve-cmd))
             args))

@@ -53,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless oracle-java17-installer custom-maven3.9.2 # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless oracle-java17-installer custom-maven3.9.3 # for driver tests
     dotnet-sdk-3.1 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -75,8 +75,8 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.2 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.2/bin/mvn" ]; then
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
               missing="$pkg $missing"
             fi
             continue
@@ -124,8 +124,8 @@ EOF
     fi
 
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.2 ]; then
-            install_custom_maven "3.9.2"
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            install_custom_maven "3.9.3"
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
