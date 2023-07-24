@@ -476,9 +476,13 @@ TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   const int64_t int1 = 3;
   const int64_t int2 = 4;
   const double double1 = 3.5;
+  const mgp::List list1 = mgp::List();
+  const mgp::Map map1 = mgp::Map();
   const mgp::Value int_test1 = mgp::Value(int1);
   const mgp::Value int_test2 = mgp::Value(int2);
   const mgp::Value double_test1 = mgp::Value(double1);
+  const mgp::Value list_test = mgp::Value(list1);
+  const mgp::Value map_test = mgp::Value(map1);
 
   ASSERT_TRUE(int_test1 < int_test2);
   ASSERT_TRUE(double_test1 < int_test2);
@@ -487,4 +491,6 @@ TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   const mgp::Value string_test1 = mgp::Value(string1);
 
   ASSERT_THROW(int_test1 < string_test1, mgp::ValueException);
+  ASSERT_THROW(list_test < map_test, mgp::ValueException);
+  ASSERT_THROW(list_test < list_test, mgp::ValueException);
 }

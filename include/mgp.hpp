@@ -3217,12 +3217,12 @@ inline bool Value::operator<(const Value &other) const {
       return ValueLocalDateTime() < other.ValueLocalDateTime();
     case Type::Duration:
       return ValueDuration() < other.ValueDuration();
+    case Type::Path:
+    case Type::List:
+    case Type::Map:
+      throw ValueException("Operator < is not defined for this Path, List or Map data type");
     default:
-      if (IsPath() || IsList() || IsMap()) {
-        throw ValueException("Operator < is not defined for this data type");
-      } else {
-        throw ValueException("Undefined behaviour");
-      }
+      throw ValueException("Undefined behaviour");
   }
 }
 /* #endregion */
