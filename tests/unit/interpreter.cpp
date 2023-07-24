@@ -1151,6 +1151,31 @@ TEST_F(InterpreterTest, ExecutionStatsValues) {
     AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
   }
   {
+    auto [stream, qid] = Prepare("CREATE (n)-[:TO]->(m);");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-created"].ValueInt(), 1);
+    AssertAllValuesAreZero(stats, {"nodes-created", "relationships-created"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n)-[r]->(m) DELETE r;");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["relationships-deleted"].ValueInt(), 1);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 2);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", ""});
+  }
+  {
     auto [stream, qid] = Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L2);");
     Pull(&stream);
 
