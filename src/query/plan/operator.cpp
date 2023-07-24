@@ -2524,8 +2524,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   if (*res) {
-    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += (*res)->first.size();
-    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += (*res)->second.size();
+    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
+    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
   }
 
   std::invoke([&] {
