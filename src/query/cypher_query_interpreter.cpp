@@ -51,7 +51,6 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   // Return a copy of both the AST storage and the query.
   CachedQuery result;
   bool is_cacheable = true;
-  bool has_all_shortest = false;
 
   auto get_information_from_cache = [&](const auto &cached_query) {
     result.ast_storage.properties_ = cached_query.ast_storage.properties_;
