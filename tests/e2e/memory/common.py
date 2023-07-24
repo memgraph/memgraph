@@ -17,7 +17,7 @@ import typing
 import mgclient
 import pytest
 
-MEMORY_LIMIT = 1024  # MB check if workloads.yaml --memory-limit is properly configured.
+MEMORY_LIMIT = 1000  # MB check if workloads.yaml --memory-limit is properly configured.
 THRESHOLD = 0.01  # 1% of memory limit, defines the acceptable overdrive threshold for memory usage.
 
 

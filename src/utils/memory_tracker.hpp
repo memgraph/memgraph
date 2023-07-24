@@ -28,8 +28,8 @@ class MemoryTracker final {
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
   std::atomic<int64_t> hard_limit_{0};
-  std::atomic<int64_t> OS_process_reported_memory_{0};  // Amount of memory reported by the OS. Includes the overhead of
-                                                        // the binary, dynamic libraries, fragmentation, etc.
+  std::atomic<uint64_t> OS_process_reported_memory_{0};  // Amount of memory reported by the OS. Includes the overhead
+                                                         // of the binary, dynamic libraries, fragmentation, etc.
   // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
   int64_t maximum_hard_limit_{0};
 
@@ -63,6 +63,8 @@ class MemoryTracker final {
   void TryRaiseHardLimit(int64_t limit);
   void SetMaximumHardLimit(int64_t limit);
   void SetOsProcessReportedMemory(uint64_t memory);
+
+  void StartOsMemoryTracking();
 
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.

@@ -72,8 +72,10 @@
 #include "utils/message.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/signals.hpp"
+#include "utils/stat.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -1107,6 +1109,18 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
 #endif
   }
+
+  memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
+  memgraph::utils::total_memory_tracker.SetOsProcessReportedMemory(memgraph::utils::GetMemoryUsage());
+  spdlog::info("Process memory usage at the start: {}",
+               memgraph::utils::GetReadableSize(memgraph::utils::total_memory_tracker.OsProcessReportedMemory()));
+
+  memgraph::utils::Scheduler update_os_memory_usage;
+  update_os_memory_usage.Run("Memory_check", std::chrono::milliseconds(100), [&] {
+    memgraph::utils::total_memory_tracker.SetOsProcessReportedMemory(memgraph::utils::GetMemoryUsage());
+    spdlog::info("Process memory usage: {}",
+                 memgraph::utils::GetReadableSize(memgraph::utils::total_memory_tracker.OsProcessReportedMemory()));
+  });
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();

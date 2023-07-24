@@ -12,6 +12,7 @@
 #include "utils/memory_tracker.hpp"
 
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <stdexcept>
 
@@ -102,7 +103,7 @@ void MemoryTracker::Alloc(const int64_t size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
   const int64_t os_without_allocation =
-      OS_process_reported_memory_.load(std::memory_order_relaxed) - amount_.load(std::memory_order_relaxed);
+      abs(OS_process_reported_memory_.load(std::memory_order_relaxed) - amount_.load(std::memory_order_relaxed));
 
   const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed) + os_without_allocation;
 
@@ -118,7 +119,6 @@ void MemoryTracker::Alloc(const int64_t size) {
                     "use to {}, while the maximum allowed size for allocation is set to {}.",
                     GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   }
-  SetOsProcessReportedMemory(GetMemoryUsage());
   UpdatePeak(will_be);
 }
 
