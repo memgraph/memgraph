@@ -1,7 +1,7 @@
 (ns jepsen.memgraph.nemesis
   "Memgraph nemesis"
   (:require [jepsen [nemesis :as nemesis]
-                    [generator :as gen]]
+             [generator :as gen]]
             [jepsen.memgraph.support :as s]))
 
 (defn node-killer
@@ -16,10 +16,10 @@
   "Can kill and restart all processess and initiate network partitions."
   [opts]
   (nemesis/compose
-    {{:kill-node    :start
-      :restart-node :stop} (node-killer)
-     {:start-partition-halves :start
-      :stop-partition-halves  :stop} (nemesis/partition-random-halves)}))
+   {{:kill-node    :start
+     :restart-node :stop} (node-killer)
+    {:start-partition-halves :start
+     :stop-partition-halves  :stop} (nemesis/partition-random-halves)}))
 
 (defn op
   "Construct a nemesis op"
@@ -36,7 +36,7 @@
        (apply concat)
        gen/mix
        (gen/stagger (:interval opts))
-       (gen/phases (gen/sleep 10))))
+       (gen/phases (gen/sleep 60))))
 
 (defn nemesis
   "Composite nemesis and generator"

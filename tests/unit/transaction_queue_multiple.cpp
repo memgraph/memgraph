@@ -63,11 +63,14 @@ TYPED_TEST_CASE(TransactionQueueMultipleTest, StorageTypes);
 
 // Tests whether admin can see transaction of superadmin
 TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
-  std::vector<bool> started(NUM_INTERPRETERS, false);
+  std::vector<std::atomic<bool>> started(NUM_INTERPRETERS);
+  for (int i = 0; i < NUM_INTERPRETERS; i++) {
+    started[i].store(false, std::memory_order_release);
+  }
   auto thread_func = [this, &started](int thread_index) {
     try {
       this->running_interpreters[thread_index]->Interpret("BEGIN");
-      started[thread_index] = true;
+      started[thread_index].store(true, std::memory_order_release);
       // add try-catch block
       for (int j = 0; j < INSERTIONS; ++j) {
         this->running_interpreters[thread_index]->Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) +
@@ -84,7 +87,8 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
       running_threads.emplace_back(thread_func, i);
     }
 
-    while (!std::all_of(started.begin(), started.end(), [](const bool v) { return v; })) {
+    while (
+        !std::all_of(started.begin(), started.end(), [](const auto &v) { return v.load(std::memory_order_acquire); })) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
