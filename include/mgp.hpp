@@ -2127,6 +2127,8 @@ inline bool List::Empty() const { return Size() == 0; }
 
 inline const Value List::operator[](size_t index) const { return Value(mgp::list_at(ptr_, index)); }
 
+inline Value List::operator[](size_t index) { return Value(mgp::list_at(ptr_, index)); }
+
 inline bool List::Iterator::operator==(const Iterator &other) const {
   return iterable_ == other.iterable_ && index_ == other.index_;
 }
