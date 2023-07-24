@@ -15,14 +15,16 @@
 #include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
 
+// Has to be before the rest of includes because of TRUE redefinition. Antlr
+// and krb5 in conflict on CentOS7.
+#include "query_plan_common.hpp"
+// Do NOT remove this comment because clang-format will reorder includes.
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/planner.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/algorithm.hpp"
-
-#include "query_plan_common.hpp"
 
 #include "formatters.hpp"
 

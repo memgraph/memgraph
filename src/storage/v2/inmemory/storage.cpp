@@ -162,7 +162,7 @@ InMemoryStorage::InMemoryStorage(Config config)
     }
   } else {
     spdlog::warn(
-        "Replicastion configuration will NOT be stored. When the server restarts, replication state will be "
+        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
         "forgotten.");
   }
 
