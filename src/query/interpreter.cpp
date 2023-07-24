@@ -179,7 +179,6 @@ bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &claus
         auto *edge_atom = utils::Downcast<EdgeAtom>(atom);
         if (edge_atom->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
           return true;
-          spdlog::trace("Has all shortest from our visitor");
         }
       }
     }
@@ -2394,7 +2393,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       throw utils::BasicException(
           "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
           "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
-          "automatically "
+          "automatically"
           "start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
