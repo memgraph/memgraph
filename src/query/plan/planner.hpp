@@ -47,8 +47,9 @@ class PostProcessor final {
   }
 
   template <class TVertexCounts>
-  double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts) {
-    return query::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
+  double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
+                          const SymbolTable &table) {
+    return query::plan::EstimatePlanCost(vertex_counts, table, parameters_, *plan);
   }
 };
 
@@ -97,7 +98,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+      double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
       if (!curr_plan || cost < total_cost) {
         curr_plan.emplace(std::move(rewritten_plan));
         total_cost = cost;
@@ -106,7 +107,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   } else {
     auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
     curr_plan.emplace(std::move(rewritten_plan));
   }
 

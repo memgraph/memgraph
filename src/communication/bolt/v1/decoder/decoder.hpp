@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,14 @@ namespace memgraph::communication::bolt {
 template <typename Buffer>
 class Decoder {
  public:
-  explicit Decoder(Buffer &buffer) : buffer_(buffer) {}
+  explicit Decoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
+
+  /**
+   * Lets the user update the version.
+   * This is all single thread for now. TODO: Update if ever multithreaded.
+   * @param major_v the major version of the Bolt protocol used.
+   */
+  void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   /**
    * Reads a Value from the available data in the buffer.
@@ -208,6 +215,10 @@ class Decoder {
 
  protected:
   Buffer &buffer_;
+  int major_v_;  //!< Major version of the underlying Bolt protocol
+                 // TODO: when refactoring
+  // Ideally the major_v would be a compile time constant. If the higher level (Bolt driver) ends up being separate
+  // classes, this could be just a template and each version of the driver would use the appropriate decoder.
 
  private:
   bool ReadNull(const Marker &marker, Value *data) {
@@ -370,11 +381,7 @@ class Decoder {
       }
       ret.emplace(std::move(dv_key.ValueString()), std::move(dv_val));
     }
-    if (ret.size() != size) {
-      return false;
-    }
-
-    return true;
+    return ret.size() == size;
   }
 
   bool ReadVertex(Value *data) {
@@ -406,6 +413,14 @@ class Decoder {
       return false;
     }
     vertex.properties = std::move(dv.ValueMap());
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      vertex.element_id = std::move(dv.ValueString());
+    }
 
     return true;
   }
@@ -445,6 +460,23 @@ class Decoder {
     }
     edge.properties = std::move(dv.ValueMap());
 
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.element_id = std::move(dv.ValueString());
+      // from_element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.from_element_id = std::move(dv.ValueString());
+      // to_element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.to_element_id = std::move(dv.ValueString());
+    }
     return true;
   }
 
@@ -470,6 +502,14 @@ class Decoder {
       return false;
     }
     edge.properties = std::move(dv.ValueMap());
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.element_id = std::move(dv.ValueString());
+    }
 
     return true;
   }

@@ -59,6 +59,7 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | NULLIF
                       | ISOLATION
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -224,6 +225,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
+         ( NULLIF nullif ) ?
          AS rowVar ;
 
 csvFile : literal ;
@@ -231,6 +233,8 @@ csvFile : literal ;
 delimiter : literal ;
 
 quote : literal ;
+
+nullif : literal ;
 
 rowVar : variable ;
 
@@ -361,7 +365,7 @@ isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
 
-storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL ;
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTIONAL ;
 
 storageModeQuery : STORAGE MODE storageMode ;
 

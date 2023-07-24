@@ -15,7 +15,7 @@
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
@@ -48,6 +48,7 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -79,34 +80,37 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-
   if (vertex_->deleted) return Error::DELETED_OBJECT;
-
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
-
   vertex_->labels.push_back(label);
 
-  UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
+  /// TODO: some by pointers, some by reference => not good, make it better
+  constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
+  indices_->UpdateOnAddLabel(label, vertex_, *transaction_);
 
   return true;
 }
 
+/// TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
-
   std::swap(*it, *vertex_->labels.rbegin());
   vertex_->labels.pop_back();
+
+  /// TODO: some by pointers, some by reference => not good, make it better
+  constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
+  indices_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
+
   return true;
 }
 
@@ -137,6 +141,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -186,6 +191,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
         labels.push_back(delta.label);
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -226,7 +232,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+  indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
 
   return std::move(current_value);
 }
@@ -242,7 +248,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (!vertex_->properties.InitProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-    UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+    indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
   }
 
   return true;
@@ -258,7 +264,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   auto properties = vertex_->properties.Properties();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property.first, property.second);
-    UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_, *transaction_);
+    indices_->UpdateOnSetProperty(property.first, PropertyValue(), vertex_, *transaction_);
   }
 
   vertex_->properties.ClearProperties();
@@ -285,6 +291,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -335,6 +342,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -410,6 +418,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
             in_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -490,6 +499,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
             out_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -536,6 +546,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
       case Delta::Action::REMOVE_IN_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;
@@ -574,6 +585,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
       case Delta::Action::REMOVE_OUT_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;

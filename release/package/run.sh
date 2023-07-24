@@ -17,7 +17,8 @@ ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {os} [--for-docker|--for-platform]|docker|test"
+    # TODO(gitbuda): Update the release/package/run.sh help
+    echo "$0 init|package|docker|test {os} [--for-docker|--for-platform]"
     echo ""
     echo "    OSs: ${SUPPORTED_OS[*]}"
     exit 1
@@ -35,7 +36,7 @@ make_package () {
         package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
     fi
     if [[ "$os" =~ ^"debian".* ]]; then
-        docker exec "$build_container" bash -c "apt update"
+        docker exec "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     if [[ "$os" =~ ^"ubuntu".* ]]; then
@@ -64,6 +65,7 @@ make_package () {
         git fetch origin master:master
     fi
     docker exec "$build_container" mkdir -p /memgraph
+    # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
 
     container_build_dir="/memgraph/build"
@@ -74,6 +76,8 @@ make_package () {
     # environment/os/{os}.sh does not come within the toolchain package. When
     # migrating to the next version of toolchain do that, and remove the
     # TOOLCHAIN_RUN_DEPS installation from here.
+    # TODO(gitbuda): On the other side, having this here allows updating deps
+    # wihout reruning the build containers.
     echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
@@ -83,6 +87,7 @@ make_package () {
     docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
     docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
+    # TODO(gitbuda): cmake fails locally if remote is clone via ssh because of the key -> FIX
     if [[ "$os" =~ "-arm" ]]; then
         docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
     else
@@ -108,8 +113,13 @@ make_package () {
 case "$1" in
     init)
         cd "$SCRIPT_DIR"
-        docker-compose build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
-        docker-compose up -d
+        if ! which "docker-compose" >/dev/null; then
+            docker_compose_cmd="docker compose"
+        else
+            docker_compose_cmd="docker-compose"
+        fi
+        $docker_compose_cmd build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
+        $docker_compose_cmd up -d
     ;;
 
     docker)
@@ -147,6 +157,19 @@ case "$1" in
         else
             print_help
         fi
+    ;;
+
+    build)
+      shift 1
+      if [[ "$#" -ne 2 ]]; then
+          print_help
+      fi
+      # in the vX format, e.g. v5
+      toolchain_version="$1"
+      # a name of the os folder, e.g. ubuntu-22.04-arm
+      os="$2"
+      cd "$SCRIPT_DIR/$os"
+      docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:${toolchain_version}_$os" .
     ;;
 
     test)

@@ -13,6 +13,7 @@ import typing
 
 import mgclient
 import pytest
+from gqlalchemy import Memgraph
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -27,3 +28,14 @@ def connect(**kwargs) -> mgclient.Connection:
     yield connection
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+
+@pytest.fixture
+def memgraph(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+
+    memgraph.drop_database()
+    memgraph.execute("analyze graph delete statistics;")
+    memgraph.drop_indexes()

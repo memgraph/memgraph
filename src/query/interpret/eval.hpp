@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <map>
 #include <optional>
@@ -28,7 +29,11 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/frame_change_id.hpp"
+#include "utils/logging.hpp"
+#include "utils/pmr/unordered_map.hpp"
 
 namespace memgraph::query {
 
@@ -103,8 +108,13 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view)
-      : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
+                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr)
+      : frame_(frame),
+        symbol_table_(&symbol_table),
+        ctx_(&ctx),
+        dba_(dba),
+        view_(view),
+        frame_change_collector_(frame_change_collector) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -193,25 +203,78 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
+    TypedValue *_list_ptr = nullptr;
+    TypedValue _list;
     auto literal = in_list.expression1_->Accept(*this);
-    auto _list = in_list.expression2_->Accept(*this);
-    if (_list.IsNull()) {
-      return TypedValue(ctx_->memory);
+
+    auto get_list_literal = [this, &in_list, &_list, &_list_ptr]() -> void {
+      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+      _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      if (nullptr == _list_ptr) {
+        _list = in_list.expression2_->Accept(*this);
+        _list_ptr = &_list;
+      }
+    };
+
+    auto do_list_literal_checks = [this, &literal, &_list_ptr]() -> std::optional<TypedValue> {
+      MG_ASSERT(_list_ptr, "List literal should have been defined");
+      if (_list_ptr->IsNull()) {
+        return TypedValue(ctx_->memory);
+      }
+      // Exceptions have higher priority than returning nulls when list expression
+      // is not null.
+      if (_list_ptr->type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", _list_ptr->type());
+      }
+      const auto &list = _list_ptr->ValueList();
+
+      // If literal is NULL there is no need to try to compare it with every
+      // element in the list since result of every comparison will be NULL. There
+      // is one special case that we must test explicitly: if list is empty then
+      // result is false since no comparison will be performed.
+      if (list.empty()) return TypedValue(false, ctx_->memory);
+      if (literal.IsNull()) return TypedValue(ctx_->memory);
+      return {};
+    };
+
+    const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
+
+    const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
+                        frame_change_collector_->IsKeyTracked(*cached_id)};
+    if (do_cache) {
+      if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
+        // Check only first time if everything is okay, later when we use
+        // cache there is no need to check again as we did check first time
+        get_list_literal();
+        auto preoperational_checks = do_list_literal_checks();
+        if (preoperational_checks) {
+          return std::move(*preoperational_checks);
+        }
+        auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+        cached_value.CacheValue(*_list_ptr);
+        spdlog::trace("Value cached {}", *cached_id);
+      }
+      const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+
+      if (cached_value.ContainsValue(literal)) {
+        return TypedValue(true, ctx_->memory);
+      }
+      // has null
+      if (cached_value.ContainsValue(TypedValue(ctx_->memory))) {
+        return TypedValue(ctx_->memory);
+      }
+      return TypedValue(false, ctx_->memory);
     }
-    // Exceptions have higher priority than returning nulls when list expression
-    // is not null.
-    if (_list.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
+    // When caching is not an option, we need to evaluate list literal every time
+    // and do the checks
+    get_list_literal();
+    auto preoperational_checks = do_list_literal_checks();
+    if (preoperational_checks) {
+      return std::move(*preoperational_checks);
     }
+
     const auto &list = _list.ValueList();
-
-    // If literal is NULL there is no need to try to compare it with every
-    // element in the list since result of every comparison will be NULL. There
-    // is one special case that we must test explicitly: if list is empty then
-    // result is false since no comparison will be performed.
-    if (list.empty()) return TypedValue(false, ctx_->memory);
-    if (literal.IsNull()) return TypedValue(ctx_->memory);
-
+    spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
     for (const auto &element : list) {
       auto result = literal == element;
@@ -973,6 +1036,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
   storage::View view_;
+  FrameChangeCollector *frame_change_collector_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
