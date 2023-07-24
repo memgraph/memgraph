@@ -674,15 +674,12 @@ Storage::Accessor::DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std
 
     // also add edges which we want to delete from the query
     for (const auto &edge_accessor : edges) {
-      if (!nodes_to_delete.contains(edge_accessor.from_vertex_) &&
-          !nodes_to_delete.contains(edge_accessor.to_vertex_)) {
-        partial_src_vertices.insert(edge_accessor.from_vertex_);
-        partial_dest_vertices.insert(edge_accessor.to_vertex_);
+      partial_src_vertices.insert(edge_accessor.from_vertex_);
+      partial_dest_vertices.insert(edge_accessor.to_vertex_);
 
-        src_edge_refs.insert(edge_accessor.edge_);
-        dest_edge_refs.insert(edge_accessor.edge_);
-        total_edges_to_delete++;
-      }
+      src_edge_refs.insert(edge_accessor.edge_);
+      dest_edge_refs.insert(edge_accessor.edge_);
+      total_edges_to_delete++;
     }
   }
   deleted_edges.reserve(total_edges_to_delete);

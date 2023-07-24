@@ -2500,9 +2500,12 @@ void Delete::DeleteCursor::UpdateBuffer(Frame &frame, ExecutionContext &context)
 bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Delete");
 
-  if (input_cursor_->Pull(frame, context)) {
+  if (delete_executed_) {
+    return false;
+  }
+
+  while (input_cursor_->Pull(frame, context)) {
     UpdateBuffer(frame, context);
-    return true;
   }
 
   auto &dba = *context.db_accessor;
@@ -2542,12 +2545,19 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   });
 
-  return false;
+  delete_executed_ = true;
+
+  return true;
 }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
+void Delete::DeleteCursor::Reset() {
+  input_cursor_->Reset();
+  node_buffer.clear();
+  edge_buffer.clear();
+  delete_executed_ = false;
+}
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                          PropertyLookup *lhs, Expression *rhs)

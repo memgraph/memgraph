@@ -769,20 +769,7 @@ TEST(QueryPlan, Delete) {
     EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
   }
 
-  // detach delete a single vertex
-  {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
-    auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
-    Frame frame(symbol_table.max_position());
-    auto context = MakeContext(storage, symbol_table, &dba);
-    delete_op->MakeCursor(memgraph::utils::NewDeleteResource())->Pull(frame, context);
-    dba.AdvanceCommand();
-    EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-    EXPECT_EQ(3, CountEdges(&dba, memgraph::storage::View::OLD));
-  }
-
-  // delete all remaining edges
+  // delete all edges
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
@@ -792,7 +779,7 @@ TEST(QueryPlan, Delete) {
     auto context = MakeContext(storage, symbol_table, &dba);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
-    EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(0, CountEdges(&dba, memgraph::storage::View::OLD));
   }
 
@@ -997,7 +984,7 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
     auto context = MakeContext(storage, symbol_table, &dba);
-    EXPECT_EQ(2, PullAll(*delete_op, &context));
+    EXPECT_EQ(1, PullAll(*delete_op, &context));
     dba.AdvanceCommand();
     EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(0, CountEdges(&dba, memgraph::storage::View::OLD));
