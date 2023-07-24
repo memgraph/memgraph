@@ -303,11 +303,23 @@ target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
 add_unit_test(storage_v2_decoder_encoder.cpp)
 target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 
-add_unit_test(storage_v2_durability.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
+add_unit_test(storage_v2_durability_inmemory.cpp)
+target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2)
 
-add_unit_test(storage_v2_edge.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
+add_unit_test(storage_rocks.cpp)
+target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
+
+add_unit_test(storage_v2_disk.cpp)
+target_link_libraries(${test_prefix}storage_v2_disk mg-storage-v2)
+
+add_unit_test(clearing_old_disk_data.cpp)
+target_link_libraries(${test_prefix}clearing_old_disk_data mg-storage-v2)
+
+add_unit_test(storage_v2_edge_inmemory.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_inmemory mg-storage-v2)
+
+add_unit_test(storage_v2_edge_ondisk.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_ondisk mg-storage-v2)
 
 add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

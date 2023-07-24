@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,30 +19,48 @@
 #include <memory>
 #include <vector>
 
+#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 #include "query_plan_common.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-TEST(QueryPlan, Skip) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-
+template <typename StorageType>
+class QueryPlanTest : public testing::Test {
+ public:
+  const std::string testSuite = "query_plan_bag_semantics";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
   AstStorage storage;
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
+
+TYPED_TEST(QueryPlanTest, Skip) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n1");
+  auto n = MakeScanAll(this->storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba.InsertVertex();
@@ -62,18 +80,15 @@ TEST(QueryPlan, Skip) {
   EXPECT_EQ(11, PullAll(*skip, &context));
 }
 
-TEST(QueryPlan, Limit) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-
-  AstStorage storage;
+TYPED_TEST(QueryPlanTest, Limit) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n1");
+  auto n = MakeScanAll(this->storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba.InsertVertex();
@@ -93,37 +108,33 @@ TEST(QueryPlan, Limit) {
   EXPECT_EQ(2, PullAll(*skip, &context));
 }
 
-TEST(QueryPlan, CreateLimit) {
+TYPED_TEST(QueryPlanTest, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   dba.InsertVertex();
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n1");
+  auto n = MakeScanAll(this->storage, symbol_table, "n1");
   NodeCreationInfo m;
   m.symbol = symbol_table.CreateSymbol("m", true);
   auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*skip, &context));
   dba.AdvanceCommand();
   EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
-TEST(QueryPlan, OrderBy) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  AstStorage storage;
+TYPED_TEST(QueryPlanTest, OrderBy) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
@@ -179,24 +190,22 @@ TEST(QueryPlan, OrderBy) {
     dba.AdvanceCommand();
 
     // order by and collect results
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
     auto order_by = std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{order_value_pair.first, n_p}},
                                                     std::vector<Symbol>{n.sym_});
     auto n_p_ne = NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n.p", true));
     auto produce = MakeProduce(order_by, n_p_ne);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(values.size(), results.size());
     for (int j = 0; j < results.size(); ++j) EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], values[j]));
   }
 }
 
-TEST(QueryPlan, OrderByMultiple) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  AstStorage storage;
+TYPED_TEST(QueryPlanTest, OrderByMultiple) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
   auto p1 = dba.NameToProperty("p1");
@@ -218,9 +227,9 @@ TEST(QueryPlan, OrderByMultiple) {
   dba.AdvanceCommand();
 
   // order by and collect results
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p1 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p1);
-  auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p2);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_p1 = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), p1);
+  auto n_p2 = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), p2);
   // order the results so we get
   // (p1: 0, p2: N-1)
   // (p1: 0, p2: N-2)
@@ -235,7 +244,7 @@ TEST(QueryPlan, OrderByMultiple) {
   auto n_p1_ne = NEXPR("n.p1", n_p1)->MapTo(symbol_table.CreateSymbol("n.p1", true));
   auto n_p2_ne = NEXPR("n.p2", n_p2)->MapTo(symbol_table.CreateSymbol("n.p2", true));
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
@@ -246,11 +255,9 @@ TEST(QueryPlan, OrderByMultiple) {
   }
 }
 
-TEST(QueryPlan, OrderByExceptions) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  AstStorage storage;
+TYPED_TEST(QueryPlanTest, OrderByExceptions) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
@@ -292,11 +299,11 @@ TEST(QueryPlan, OrderByExceptions) {
                 memgraph::storage::PropertyValue::Type::Null);
 
     // order by and expect an exception
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
     auto order_by =
         std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}}, std::vector<Symbol>{});
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
   }
 }

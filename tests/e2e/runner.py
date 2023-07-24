@@ -13,6 +13,7 @@ import atexit
 import logging
 import os
 import subprocess
+import time
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -30,6 +31,7 @@ def load_args():
     parser = ArgumentParser()
     parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
+    parser.add_argument("--debug", default=False, required=False)
     return parser.parse_args()
 
 
@@ -59,6 +61,11 @@ def run(args):
             if "proc" in workload:
                 procdir = os.path.join(BUILD_DIR, workload["proc"])
             interactive_mg_runner.start_all(workload["cluster"], procdir)
+
+        if args.debug:
+            hosts = subprocess.check_output("pgrep memgraph", shell=True)
+            print(f"PID: {hosts}")
+            time.sleep(10)
 
         # Test.
         mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
