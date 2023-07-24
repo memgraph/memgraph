@@ -396,6 +396,9 @@ class List {
   /// @brief Returns the value at the given `index`.
   const Value operator[](size_t index) const;
 
+  ///@brief Same as above, but non const value
+  Value operator[](size_t index);
+
   class Iterator {
    private:
     friend class List;
@@ -1065,32 +1068,46 @@ class Value {
 
   /// @pre Value type needs to be Type::Bool.
   bool ValueBool() const;
+  bool ValueBool();
   /// @pre Value type needs to be Type::Int.
   int64_t ValueInt() const;
+  int64_t ValueInt();
   /// @pre Value type needs to be Type::Double.
   double ValueDouble() const;
+  double ValueDouble();
   /// @pre Value type needs to be Type::Numeric.
   double ValueNumeric() const;
+  double ValueNumeric();
   /// @pre Value type needs to be Type::String.
   std::string_view ValueString() const;
+  std::string_view ValueString();
   /// @pre Value type needs to be Type::List.
   const List ValueList() const;
+  List ValueList();
   /// @pre Value type needs to be Type::Map.
   const Map ValueMap() const;
+  Map ValueMap();
   /// @pre Value type needs to be Type::Node.
   const Node ValueNode() const;
+  Node ValueNode();
   /// @pre Value type needs to be Type::Relationship.
   const Relationship ValueRelationship() const;
+  Relationship ValueRelationship();
   /// @pre Value type needs to be Type::Path.
   const Path ValuePath() const;
+  Path ValuePath();
   /// @pre Value type needs to be Type::Date.
   const Date ValueDate() const;
+  Date ValueDate();
   /// @pre Value type needs to be Type::LocalTime.
   const LocalTime ValueLocalTime() const;
+  LocalTime ValueLocalTime();
   /// @pre Value type needs to be Type::LocalDateTime.
   const LocalDateTime ValueLocalDateTime() const;
+  LocalDateTime ValueLocalDateTime();
   /// @pre Value type needs to be Type::Duration.
   const Duration ValueDuration() const;
+  Duration ValueDuration();
 
   /// @brief Returns whether the value is null.
   bool IsNull() const;
@@ -3057,6 +3074,12 @@ inline bool Value::ValueBool() const {
   }
   return mgp::value_get_bool(ptr_);
 }
+inline bool Value::ValueBool() {
+  if (Type() != Type::Bool) {
+    throw ValueException("Type of value is wrong: expected Bool.");
+  }
+  return mgp::value_get_bool(ptr_);
+}
 
 inline std::int64_t Value::ValueInt() const {
   if (Type() != Type::Int) {
@@ -3064,8 +3087,20 @@ inline std::int64_t Value::ValueInt() const {
   }
   return mgp::value_get_int(ptr_);
 }
+inline std::int64_t Value::ValueInt() {
+  if (Type() != Type::Int) {
+    throw ValueException("Type of value is wrong: expected Int.");
+  }
+  return mgp::value_get_int(ptr_);
+}
 
 inline double Value::ValueDouble() const {
+  if (Type() != Type::Double) {
+    throw ValueException("Type of value is wrong: expected Double.");
+  }
+  return mgp::value_get_double(ptr_);
+}
+inline double Value::ValueDouble() {
   if (Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Double.");
   }
@@ -3081,8 +3116,23 @@ inline double Value::ValueNumeric() const {
   }
   return mgp::value_get_double(ptr_);
 }
+inline double Value::ValueNumeric() {
+  if (Type() != Type::Int && Type() != Type::Double) {
+    throw ValueException("Type of value is wrong: expected Int or Double.");
+  }
+  if (Type() == Type::Int) {
+    return static_cast<double>(mgp::value_get_int(ptr_));
+  }
+  return mgp::value_get_double(ptr_);
+}
 
 inline std::string_view Value::ValueString() const {
+  if (Type() != Type::String) {
+    throw ValueException("Type of value is wrong: expected String.");
+  }
+  return mgp::value_get_string(ptr_);
+}
+inline std::string_view Value::ValueString() {
   if (Type() != Type::String) {
     throw ValueException("Type of value is wrong: expected String.");
   }
@@ -3095,8 +3145,20 @@ inline const List Value::ValueList() const {
   }
   return List(mgp::value_get_list(ptr_));
 }
+inline List Value::ValueList() {
+  if (Type() != Type::List) {
+    throw ValueException("Type of value is wrong: expected List.");
+  }
+  return List(mgp::value_get_list(ptr_));
+}
 
 inline const Map Value::ValueMap() const {
+  if (Type() != Type::Map) {
+    throw ValueException("Type of value is wrong: expected Map.");
+  }
+  return Map(mgp::value_get_map(ptr_));
+}
+inline Map Value::ValueMap() {
   if (Type() != Type::Map) {
     throw ValueException("Type of value is wrong: expected Map.");
   }
@@ -3109,8 +3171,20 @@ inline const Node Value::ValueNode() const {
   }
   return Node(mgp::value_get_vertex(ptr_));
 }
+inline Node Value::ValueNode() {
+  if (Type() != Type::Node) {
+    throw ValueException("Type of value is wrong: expected Node.");
+  }
+  return Node(mgp::value_get_vertex(ptr_));
+}
 
 inline const Relationship Value::ValueRelationship() const {
+  if (Type() != Type::Relationship) {
+    throw ValueException("Type of value is wrong: expected Relationship.");
+  }
+  return Relationship(mgp::value_get_edge(ptr_));
+}
+inline Relationship Value::ValueRelationship() {
   if (Type() != Type::Relationship) {
     throw ValueException("Type of value is wrong: expected Relationship.");
   }
@@ -3123,8 +3197,20 @@ inline const Path Value::ValuePath() const {
   }
   return Path(mgp::value_get_path(ptr_));
 }
+inline Path Value::ValuePath() {
+  if (Type() != Type::Path) {
+    throw ValueException("Type of value is wrong: expected Path.");
+  }
+  return Path(mgp::value_get_path(ptr_));
+}
 
 inline const Date Value::ValueDate() const {
+  if (Type() != Type::Date) {
+    throw ValueException("Type of value is wrong: expected Date.");
+  }
+  return Date(mgp::value_get_date(ptr_));
+}
+inline Date Value::ValueDate() {
   if (Type() != Type::Date) {
     throw ValueException("Type of value is wrong: expected Date.");
   }
@@ -3137,6 +3223,12 @@ inline const LocalTime Value::ValueLocalTime() const {
   }
   return LocalTime(mgp::value_get_local_time(ptr_));
 }
+inline LocalTime Value::ValueLocalTime() {
+  if (Type() != Type::LocalTime) {
+    throw ValueException("Type of value is wrong: expected LocalTime.");
+  }
+  return LocalTime(mgp::value_get_local_time(ptr_));
+}
 
 inline const LocalDateTime Value::ValueLocalDateTime() const {
   if (Type() != Type::LocalDateTime) {
@@ -3144,8 +3236,20 @@ inline const LocalDateTime Value::ValueLocalDateTime() const {
   }
   return LocalDateTime(mgp::value_get_local_date_time(ptr_));
 }
+inline LocalDateTime Value::ValueLocalDateTime() {
+  if (Type() != Type::LocalDateTime) {
+    throw ValueException("Type of value is wrong: expected LocalDateTime.");
+  }
+  return LocalDateTime(mgp::value_get_local_date_time(ptr_));
+}
 
 inline const Duration Value::ValueDuration() const {
+  if (Type() != Type::Duration) {
+    throw ValueException("Type of value is wrong: expected Duration.");
+  }
+  return Duration(mgp::value_get_duration(ptr_));
+}
+inline Duration Value::ValueDuration() {
   if (Type() != Type::Duration) {
     throw ValueException("Type of value is wrong: expected Duration.");
   }
