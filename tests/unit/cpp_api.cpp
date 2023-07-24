@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <queue>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -472,16 +473,28 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }
 
-TYPED_TEST(CppApiTestFixture, TestValueTypeString) {
-  const int64_t &int1 = 8;
-  const std::string_view &string1 = "string";
-  const mgp::List &list = mgp::List();
+TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
+  std::string string1 = "string";
+  int64_t int1 = 4;
+  mgp::List list = mgp::List();
 
-  const mgp::Value int_test1 = mgp::Value(int1);
-  const mgp::Value string_test1 = mgp::Value(string1);
-  const mgp::Value list_test1 = mgp::Value(list);
+  mgp::Value string_value = mgp::Value(string1);
+  mgp::Value int_value = mgp::Value(int1);
+  mgp::Value list_value = mgp::Value(list);
 
-  ASSERT_EQ(int_test1.TypeString(), "Type: Int");
-  ASSERT_EQ(string_test1.TypeString(), "Type: String");
-  ASSERT_EQ(list_test1.TypeString(), "Type: List");
+  std::ostringstream oss_str;
+  oss_str << string_value.Type();
+  std::string str_test = oss_str.str();
+
+  std::ostringstream oss_int;
+  oss_int << int_value.Type();
+  std::string int_test = oss_int.str();
+
+  std::ostringstream oss_list;
+  oss_list << list_value.Type();
+  std::string list_test = oss_list.str();
+
+  ASSERT_EQ(str_test, "string");
+  ASSERT_EQ(int_test, "int");
+  ASSERT_EQ(list_test, "list");
 }

@@ -396,9 +396,6 @@ class List {
   /// @brief Returns the value at the given `index`.
   const Value operator[](size_t index) const;
 
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
-
   class Iterator {
    private:
     friend class List;
@@ -542,8 +539,6 @@ class Map {
   bool operator==(const Map &other) const;
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator!=(const Map &other) const;
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_map *ptr_;
@@ -605,8 +600,6 @@ class Node {
   bool operator==(const Node &other) const;
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator!=(const Node &other) const;
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_vertex *ptr_;
@@ -662,8 +655,6 @@ class Relationship {
   bool operator==(const Relationship &other) const;
   /// @exception std::runtime_error Relationship properties contain value(s) of unknown type.
   bool operator!=(const Relationship &other) const;
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_edge *ptr_;
@@ -712,8 +703,6 @@ class Path {
   bool operator==(const Path &other) const;
   /// @exception std::runtime_error Path contains element(s) with unknown value.
   bool operator!=(const Path &other) const;
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_path *ptr_;
@@ -771,9 +760,6 @@ class Date {
   Duration operator-(const Date &other) const;
 
   bool operator<(const Date &other) const;
-
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_date *ptr_;
@@ -833,9 +819,6 @@ class LocalTime {
   Duration operator-(const LocalTime &other) const;
 
   bool operator<(const LocalTime &other) const;
-
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_local_time *ptr_;
@@ -902,9 +885,6 @@ class LocalDateTime {
 
   bool operator<(const LocalDateTime &other) const;
 
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
-
  private:
   mgp_local_date_time *ptr_;
 };
@@ -955,9 +935,6 @@ class Duration {
   Duration operator-() const;
 
   bool operator<(const Duration &other) const;
-
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_duration *ptr_;
@@ -1150,9 +1127,6 @@ class Value {
   bool operator==(const Value &other) const;
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
-
-  /// @brief Returns type as string.
-  const std::string TypeString() const;
 
  private:
   mgp_value *ptr_;
@@ -2174,8 +2148,6 @@ inline bool List::operator==(const List &other) const { return util::ListsEqual(
 
 inline bool List::operator!=(const List &other) const { return !(*this == other); }
 
-inline const std::string List::TypeString() const { return "Type: List"; }
-
 // MapItem:
 
 inline bool MapItem::operator==(MapItem &other) const { return key == other.key && value == other.value; }
@@ -2334,8 +2306,6 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
 
-inline const std::string Map::TypeString() const { return "Type: Map"; }
-
 /* #endregion */
 
 /* #region Graph elements (Node, Relationship & Path) */
@@ -2434,8 +2404,6 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 
 inline bool Node::operator!=(const Node &other) const { return !(*this == other); }
 
-inline const std::string Node::TypeString() const { return "Type: Node"; }
-
 // Relationship:
 
 inline Relationship::Relationship(mgp_edge *ptr) : ptr_(mgp::edge_copy(ptr, memory)) {}
@@ -2508,8 +2476,6 @@ inline bool Relationship::operator==(const Relationship &other) const {
 
 inline bool Relationship::operator!=(const Relationship &other) const { return !(*this == other); }
 
-inline const std::string Relationship::TypeString() const { return "Type: Relationship"; }
-
 // Path:
 
 inline Path::Path(mgp_path *ptr) : ptr_(mgp::path_copy(ptr, memory)) {}
@@ -2571,7 +2537,6 @@ inline bool Path::operator==(const Path &other) const { return util::PathsEqual(
 
 inline bool Path::operator!=(const Path &other) const { return !(*this == other); }
 
-inline const std::string Path::TypeString() const { return "Type: Path"; }
 /* #endregion */
 
 /* #region Temporal types (Date, LocalTime, LocalDateTime, Duration) */
@@ -2667,7 +2632,6 @@ inline bool Date::operator<(const Date &other) const {
 
   return is_less;
 }
-inline const std::string Date::TypeString() const { return "Type: Date"; }
 
 // LocalTime:
 
@@ -2766,7 +2730,6 @@ inline bool LocalTime::operator<(const LocalTime &other) const {
 
   return is_less;
 }
-inline const std::string LocalTime::TypeString() const { return "Type: LocalTime"; }
 
 // LocalDateTime:
 
@@ -2880,7 +2843,6 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
 
   return is_less;
 }
-inline const std::string LocalDateTime::TypeString() const { return "Type: LocalDateTime"; }
 
 // Duration:
 
@@ -2968,8 +2930,6 @@ inline bool Duration::operator<(const Duration &other) const {
 
   return is_less;
 }
-
-inline const std::string Duration::TypeString() const { return "Type: Duration"; }
 
 /* #endregion */
 
@@ -3227,40 +3187,38 @@ inline bool Value::operator==(const Value &other) const { return util::ValuesEqu
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
-inline const std::string Value::TypeString() const {
-  const mgp::Type &valueType = Type();
-
-  switch (valueType) {
-    case Type::Null:
-      return "Type: Null";
-    case Type::Bool:
-      return "Type: Bool";
-    case Type::Int:
-      return "Type: Int";
-    case Type::Double:
-      return "Type: Double";
-    case Type::String:
-      return "String";
-    case Type::List:
-      return "List";
-    case Type::Map:
-      return "Map";
-    case Type::Node:
-      return "Node";
-    case Type::Relationship:
-      return "Relationship";
-    case Type::Path:
-      return "Path";
-    case Type::Date:
-      return "Date";
-    case Type::LocalTime:
-      return "LocalTime";
-    case Type::LocalDateTime:
-      return "LocalDateTime";
-    case Type::Duration:
-      return "Duration";
+inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
+  switch (type) {
+    case mgp::Type::Null:
+      return os << "null";
+    case mgp::Type::Bool:
+      return os << "bool";
+    case mgp::Type::Int:
+      return os << "int";
+    case mgp::Type::Double:
+      return os << "double";
+    case mgp::Type::String:
+      return os << "string";
+    case mgp::Type::List:
+      return os << "list";
+    case mgp::Type::Map:
+      return os << "map";
+    case mgp::Type::Node:
+      return os << "vertex";
+    case mgp::Type::Relationship:
+      return os << "edge";
+    case mgp::Type::Path:
+      return os << "path";
+    case mgp::Type::Date:
+      return os << "date";
+    case mgp::Type::LocalTime:
+      return os << "local_time";
+    case mgp::Type::LocalDateTime:
+      return os << "local_date_time";
+    case mgp::Type::Duration:
+      return os << "duration";
     default:
-      throw ValueException(" No known type");
+      throw ValueException("Unknown type");
   }
 }
 
