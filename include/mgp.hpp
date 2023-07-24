@@ -1130,10 +1130,6 @@ class Value {
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
 
-  struct Hash {
-    size_t operator()(const Value &value) const;
-  };
-
  private:
   mgp_value *ptr_;
 };
@@ -3553,59 +3549,60 @@ template <>
 struct hash<mgp::MapItem> {
   size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
 };
-}  // namespace std
 
-namespace mgp {
-size_t Value::Hash::operator()(const Value &value) const {
-  switch (value.Type()) {
-    case Type::Null:
-      return 31;
-    case Type::Any:
-      throw mg_exception::InvalidArgumentException();
-    case Type::Bool:
-      return std::hash<bool>{}(value.ValueBool());
-    case Type::Int:
-      // we cast int to double for hashing purposes
-      // to be consistent with equality (2.0 == 2) == true
-      return std::hash<double>{}((double)value.ValueInt());
-    case Type::Double:
-      return std::hash<double>{}(value.ValueDouble());
-    case Type::String:
-      return std::hash<std::string_view>{}(value.ValueString());
-    case Type::List:
-      return memgraph::utils::FnvCollection<List, Value, Hash>{}(value.ValueList());
-    case Type::Map:
-      return memgraph::utils::FnvCollection<Map, MapItem, std::hash<MapItem>>{}(value.ValueMap());
-    case Type::Node:
-      return std::hash<Node>{}(value.ValueNode());
-    case Type::Relationship:
-      return std::hash<Relationship>{}(value.ValueRelationship());
-    case Type::Path: {
-      // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-      // See memgraph::utils::FnvCollections above for more info
-      constexpr const uint64_t fnv_prime = 1099511628211U;
-      uint64_t hash = 14695981039346656037U;
+template <>
+struct hash<mgp::Value> {
+  size_t operator()(const mgp::Value &value) const {
+    switch (value.Type()) {
+      case mgp::Type::Null:
+        return 31;
+      case mgp::Type::Any:
+        throw mg_exception::InvalidArgumentException();
+      case mgp::Type::Bool:
+        return std::hash<bool>{}(value.ValueBool());
+      case mgp::Type::Int:
+        // we cast int to double for hashing purposes
+        // to be consistent with equality (2.0 == 2) == true
+        return std::hash<double>{}((double)value.ValueInt());
+      case mgp::Type::Double:
+        return std::hash<double>{}(value.ValueDouble());
+      case mgp::Type::String:
+        return std::hash<std::string_view>{}(value.ValueString());
+      case mgp::Type::List:
+        return memgraph::utils::FnvCollection<mgp::List, mgp::Value, std::hash<mgp::Value>>{}(value.ValueList());
+      case mgp::Type::Map:
+        return memgraph::utils::FnvCollection<mgp::Map, mgp::MapItem, std::hash<mgp::MapItem>>{}(value.ValueMap());
+      case mgp::Type::Node:
+        return std::hash<mgp::Node>{}(value.ValueNode());
+      case mgp::Type::Relationship:
+        return std::hash<mgp::Relationship>{}(value.ValueRelationship());
+      case mgp::Type::Path: {
+        // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+        // See memgraph::utils::FnvCollections above for more info
+        constexpr const uint64_t fnv_prime = 1099511628211U;
+        uint64_t hash = 14695981039346656037U;
 
-      const auto &path = value.ValuePath();
-      for (size_t i = 0; i < path.Length() - 1; ++i) {
+        const auto &path = value.ValuePath();
+        for (size_t i = 0; i < path.Length() - 1; ++i) {
+          hash *= fnv_prime;
+          hash ^= std::hash<mgp::Node>{}(path.GetNodeAt(i));
+          hash *= fnv_prime;
+          hash ^= std::hash<mgp::Relationship>{}(path.GetRelationshipAt(i));
+        }
         hash *= fnv_prime;
-        hash ^= std::hash<Node>{}(path.GetNodeAt(i));
-        hash *= fnv_prime;
-        hash ^= std::hash<Relationship>{}(path.GetRelationshipAt(i));
+        hash ^= std::hash<mgp::Node>{}(path.GetNodeAt(path.Length()));
+        return hash;
       }
-      hash *= fnv_prime;
-      hash ^= std::hash<Node>{}(path.GetNodeAt(path.Length()));
-      return hash;
+      case mgp::Type::Date:
+        return std::hash<mgp::Date>{}(value.ValueDate());
+      case mgp::Type::LocalTime:
+        return std::hash<mgp::LocalTime>{}(value.ValueLocalTime());
+      case mgp::Type::LocalDateTime:
+        return std::hash<mgp::LocalDateTime>{}(value.ValueLocalDateTime());
+      case mgp::Type::Duration:
+        return std::hash<mgp::Duration>{}(value.ValueDuration());
     }
-    case Type::Date:
-      return std::hash<Date>{}(value.ValueDate());
-    case Type::LocalTime:
-      return std::hash<LocalTime>{}(value.ValueLocalTime());
-    case Type::LocalDateTime:
-      return std::hash<LocalDateTime>{}(value.ValueLocalDateTime());
-    case Type::Duration:
-      return std::hash<Duration>{}(value.ValueDuration());
+    throw mg_exception::InvalidArgumentException();
   }
-  throw mg_exception::InvalidArgumentException();
-}
-}  // namespace mgp
+};
+}  // namespace std
