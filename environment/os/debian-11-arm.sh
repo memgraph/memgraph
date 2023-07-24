@@ -54,10 +54,19 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
-    golang nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk custom-maven3.9.3 # for driver tests
+    golang custom-golang1.18.9 nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    libsasl2-dev
+)
+
+MEMGRAPH_RUN_DEPS=(
+    logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget curl tar gzip
 )
 
 list() {
@@ -65,7 +74,28 @@ list() {
 }
 
 check() {
-    check_all_dpkg "$1"
+    local missing=""
+    for pkg in $1; do
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
+            missing="$pkg $missing"
+        fi
+    done
+    if [ "$missing" != "" ]; then
+        echo "MISSING PACKAGES: $missing"
+        exit 1
+    fi
 }
 
 install() {
@@ -89,7 +119,25 @@ EOF
         echo "NOTE: export LANG=en_US.utf8"
     fi
     apt install -y wget
+
     for pkg in $1; do
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            install_custom_maven "3.9.3"
+            continue
+        fi
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
+        if [ "$pkg" == openjdk-17-jdk ]; then
+            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
+                apt install -y "$pkg"
+                # The default Java version should be Java 11
+                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
+                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-arm64/bin/javac
+            fi
+            continue
+        fi
         apt install -y "$pkg"
     done
 }

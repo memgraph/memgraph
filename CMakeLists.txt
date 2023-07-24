@@ -1,6 +1,7 @@
 # MemGraph CMake configuration
 
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.12)
+cmake_policy(SET CMP0076 NEW)
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
@@ -18,10 +19,12 @@ set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
 # during the code coverage process
 find_program(CCACHE_FOUND ccache)
 option(USE_CCACHE "ccache:" ON)
-message(STATUS "CCache: ${USE_CCACHE}")
 if(CCACHE_FOUND AND USE_CCACHE)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+  message(STATUS "CCache: Used")
+else ()
+  message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler
@@ -37,7 +40,14 @@ endif()
 
 # -----------------------------------------------------------------------------
 
-project(memgraph)
+project(memgraph LANGUAGES C CXX)
+
+#TODO: upgrade to cmake 3.24 + CheckIPOSupported
+#cmake_policy(SET CMP0138 NEW)
+#include(CheckIPOSupported)
+#check_ipo_supported()
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
@@ -143,7 +153,9 @@ endif()
 # files used can be seen here:
 # https://git-scm.com/book/en/v2/Git-Internals-Git-References
 set(git_directory "${CMAKE_SOURCE_DIR}/.git")
-if (EXISTS "${git_directory}")
+# Check for directory because if the repo is cloned as a git submodule, .git is
+# a file and below code doesn't work.
+if (IS_DIRECTORY "${git_directory}")
   set_property(DIRECTORY APPEND PROPERTY
       CMAKE_CONFIGURE_DEPENDS "${git_directory}/HEAD")
   file(STRINGS "${git_directory}/HEAD" git_head_data)
@@ -158,7 +170,7 @@ endif()
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # custom function definitions
 include(functions)
 # -----------------------------------------------------------------------------

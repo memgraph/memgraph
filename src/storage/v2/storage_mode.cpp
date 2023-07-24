@@ -19,6 +19,8 @@ std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode
       return "IN_MEMORY_ANALYTICAL";
     case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
       return "IN_MEMORY_TRANSACTIONAL";
+    case memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL:
+      return "ON_DISK_TRANSACTIONAL";
   }
 }
 

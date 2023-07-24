@@ -55,7 +55,8 @@ image_name="memgraph:${version}"
 image_package_name="memgraph-${version}-docker.tar.gz"
 
 # Build docker image.
-docker build -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
+# NOTE: --pull is here to always pull that latest base image because of security patches.
+docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} \
 --build-arg TARGETARCH="" .
