@@ -43,7 +43,7 @@
   [opts]
   (gen/phases
    (gen/log "Waiting replicas to get data from main.")
-   (gen/sleep 30)
+   (gen/sleep 40)
    (->>
     (gen/mix (nemesis-events opts))
     (gen/stagger (:interval opts)))))
