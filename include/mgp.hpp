@@ -1469,6 +1469,20 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
     return true;
   }
+  // Make int and double comparable, (ex. this is true -> 1.0 == 1)
+  if ((mgp::value_get_type(value1) == MGP_VALUE_TYPE_INT || mgp::value_get_type(value1) == MGP_VALUE_TYPE_DOUBLE) &&
+      (mgp::value_get_type(value2) == MGP_VALUE_TYPE_INT || mgp::value_get_type(value2) == MGP_VALUE_TYPE_DOUBLE)) {
+    double val1{NAN};
+    if (mgp::value_get_type(value1) == MGP_VALUE_TYPE_INT)
+      val1 = static_cast<double>(mgp::value_get_int(value1));
+    else
+      val1 = mgp::value_get_double(value1);
+
+    if (mgp::value_get_type(value2) == MGP_VALUE_TYPE_INT)
+      return val1 == static_cast<double>(mgp::value_get_int(value2));
+
+    return val1 == mgp::value_get_double(value2);
+  }
   if (mgp::value_get_type(value1) != mgp::value_get_type(value2)) {
     return false;
   }

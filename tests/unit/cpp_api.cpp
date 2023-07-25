@@ -9,7 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <numeric>
 #include <queue>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -470,4 +472,13 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.Properties().size(), 1);
   ASSERT_EQ(node_1.Properties()["b"].ValueString(), "b");
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
+}
+
+TYPED_TEST(CppApiTestFixture, TestNumberEquality) {
+  mgp::Value double_1{1.0};
+  mgp::Value int_1{static_cast<int64_t>(1)};
+  ASSERT_TRUE(double_1 == int_1);
+  mgp::Value double_2{2.01};
+  mgp::Value int_2{static_cast<int64_t>(2)};
+  ASSERT_FALSE(double_2 == int_2);
 }
