@@ -2538,6 +2538,7 @@ inline void Path::Expand(const Relationship &relationship) { mgp::path_expand(pt
 inline bool Path::operator==(const Path &other) const { return util::PathsEqual(ptr_, other.ptr_); }
 
 inline bool Path::operator!=(const Path &other) const { return !(*this == other); }
+
 /* #endregion */
 
 /* #region Temporal types (Date, LocalTime, LocalDateTime, Duration) */
@@ -3225,6 +3226,43 @@ inline bool Value::operator<(const Value &other) const {
       throw ValueException("Undefined behaviour");
   }
 }
+
+inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
+  switch (type) {
+    case mgp::Type::Null:
+      return os << "null";
+    case mgp::Type::Bool:
+      return os << "bool";
+    case mgp::Type::Int:
+      return os << "int";
+    case mgp::Type::Double:
+      return os << "double";
+    case mgp::Type::String:
+      return os << "string";
+    case mgp::Type::List:
+      return os << "list";
+    case mgp::Type::Map:
+      return os << "map";
+    case mgp::Type::Node:
+      return os << "vertex";
+    case mgp::Type::Relationship:
+      return os << "edge";
+    case mgp::Type::Path:
+      return os << "path";
+    case mgp::Type::Date:
+      return os << "date";
+    case mgp::Type::LocalTime:
+      return os << "local_time";
+    case mgp::Type::LocalDateTime:
+      return os << "local_date_time";
+    case mgp::Type::Duration:
+      return os << "duration";
+    default:
+      throw ValueException("Unknown type");
+  }
+}
+
+
 /* #endregion */
 
 /* #region Record */
