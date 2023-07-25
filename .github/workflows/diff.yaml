@@ -275,11 +275,13 @@ jobs:
       - name: Run stress test (plain)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration
 
       - name: Run stress test (SSL)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration --use-ssl
 
       - name: Run durability test
