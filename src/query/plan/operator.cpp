@@ -4452,7 +4452,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write, bool is_util_validate_procedure)
+                             size_t memory_scale, bool is_write, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
@@ -4461,7 +4461,7 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
       is_write_(is_write),
-      is_util_validate_procedure_(is_util_validate_procedure) {}
+      void_procedure_(void_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -4582,8 +4582,8 @@ class CallProcedureCursor : public Cursor {
       // it's not possible for a single thread to request multiple read locks.
       // Builtin module registration in query/procedure/module.cpp depends on
       // this locking scheme.
-      auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
-                                                  context.evaluation_context.memory);
+      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
+                                                         context.evaluation_context.memory);
       if (!maybe_found) {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
@@ -4803,7 +4803,11 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
 
-  if (is_util_validate_procedure_) {
+  if (void_procedure_) {
+    // Currently we do not support Call procedures that do not return
+    // anything. This cursor is way too specific, but it provides a workaround
+    // to ensure GraphQL compatibility untill we start supporting truly void
+    // procedures.
     return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
   }
 

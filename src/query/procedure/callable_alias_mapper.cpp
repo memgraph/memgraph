@@ -26,10 +26,9 @@ CallableAliasMapper gCallableAliasMapper;
 
 void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
   using json = nlohmann::json;
-  if (path != "") {
+  if (!path.empty()) {
     if (std::filesystem::exists(path)) {
       const bool is_regular_file = std::filesystem::is_regular_file(path);
-      auto asd = path.extension();
       const bool has_json_extension = (path.extension() == ".json");
       if (is_regular_file && has_json_extension) {
         std::ifstream mapping_file(path);

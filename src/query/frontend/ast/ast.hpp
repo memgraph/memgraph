@@ -2253,7 +2253,7 @@ class CallProcedure : public memgraph::query::Clause {
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
-  bool is_util_validate_procedure_{false};
+  bool void_procedure_{false};
 
   CallProcedure *Clone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
@@ -2270,7 +2270,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
-    object->is_util_validate_procedure_ = is_util_validate_procedure_;
+    object->void_procedure_ = void_procedure_;
     return object;
   }
 
