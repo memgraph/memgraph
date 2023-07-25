@@ -9,12 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import time
+from multiprocessing import Manager, Process, Value
+
 import mgclient
 import pytest
-import time
-
 from mg_utils import mg_sleep_and_assert
-from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
 # query
@@ -442,7 +442,7 @@ def test_start_stream_with_batch_limit(connection, stream_creator, messages_send
     messages_sender(1)
 
     # We check that the stream has correctly stoped.
-    assert not mg_sleep_and_assert(False, is_running)
+    assert not mg_sleep_and_assert(False, is_running, 60, 0.5)
 
 
 def test_start_stream_with_batch_limit_timeout(connection, stream_creator):
