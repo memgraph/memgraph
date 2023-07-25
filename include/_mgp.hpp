@@ -326,6 +326,12 @@ inline void map_insert(mgp_map *map, const char *key, mgp_value *value) {
   MgInvokeVoid(mgp_map_insert, map, key, value);
 }
 
+inline void map_update(mgp_map *map, const char *key, mgp_value *value) {
+  MgInvokeVoid(mgp_map_update, map, key, value);
+}
+
+inline void map_erase(mgp_map *map, const char *key) { MgInvokeVoid(mgp_map_erase, map, key); }
+
 inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }

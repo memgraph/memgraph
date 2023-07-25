@@ -532,7 +532,14 @@ class Map {
   /// operation is undefined.
   void Insert(std::string_view key, Value &&value);
 
-  // void Erase(std::string_view key);  // not implemented (requires mgp_map_erase in the MGP API)
+  /// @brief Inserts the given `key`-`value` pair into the map. The `value` is copied.
+  void Update(std::string_view key, const Value &value);
+  /// @brief Inserts the given `key`-`value` pair into the map.
+  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
+  /// operation is undefined.
+  void Update(std::string_view key, Value &&value);
+
+  void Erase(std::string_view key);  // not implemented (requires mgp_map_erase in the MGP API)
   // void Clear();  // not implemented (requires mgp_map_clear in the MGP API)
 
   /// @exception std::runtime_error Map contains value of unknown type.
@@ -2301,6 +2308,15 @@ inline void Map::Insert(std::string_view key, Value &&value) {
   mgp::map_insert(ptr_, key.data(), value.ptr_);
   value.ptr_ = nullptr;
 }
+
+inline void Map::Update(std::string_view key, const Value &value) { mgp::map_update(ptr_, key.data(), value.ptr_); }
+
+inline void Map::Update(std::string_view key, Value &&value) {
+  mgp::map_update(ptr_, key.data(), value.ptr_);
+  value.ptr_ = nullptr;
+}
+
+inline void Map::Erase(std::string_view key) { mgp::map_erase(ptr_, key.data()); }
 
 inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr_, other.ptr_); }
 
