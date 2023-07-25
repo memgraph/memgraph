@@ -20,9 +20,9 @@ Only Bolt communication protocol is supported.
 
 import contextlib
 import os
+import time
 from argparse import ArgumentParser
 from threading import Thread
-from time import sleep
 
 from neo4j import TRUST_ALL_CERTIFICATES, GraphDatabase
 
@@ -253,7 +253,7 @@ def periodically_execute(callable, args, interval, daemon=True):
 
     def periodic_call():
         while True:
-            sleep(interval)
+            time.sleep(interval)
             callable()
 
     Thread(target=periodic_call, args=args, daemon=daemon).start()
