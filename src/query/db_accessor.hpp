@@ -416,7 +416,7 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-      std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
+      std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
     std::vector<storage::VertexAccessor *> nodes_impl;
@@ -426,14 +426,14 @@ class DbAccessor final {
     edges_impl.reserve(edges.size());
 
     for (auto &vertex_accessor : nodes) {
-      accessor_->PrefetchOutEdges(vertex_accessor->impl_);
-      accessor_->PrefetchInEdges(vertex_accessor->impl_);
+      accessor_->PrefetchOutEdges(vertex_accessor.impl_);
+      accessor_->PrefetchInEdges(vertex_accessor.impl_);
 
-      nodes_impl.push_back(&vertex_accessor->impl_);
+      nodes_impl.push_back(&vertex_accessor.impl_);
     }
 
     for (auto &edge_accessor : edges) {
-      edges_impl.push_back(&edge_accessor->impl_);
+      edges_impl.push_back(&edge_accessor.impl_);
     }
 
     auto res = accessor_->DetachDelete(std::move(nodes_impl), std::move(edges_impl), detach);

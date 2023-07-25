@@ -2491,7 +2491,7 @@ void Delete::DeleteCursor::UpdateBuffer(Frame &frame, ExecutionContext &context)
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
 #endif
-        node_buffer.push_back(&va);
+        node_buffer.push_back(va);
         break;
       }
       case TypedValue::Type::Edge: {
@@ -2505,7 +2505,7 @@ void Delete::DeleteCursor::UpdateBuffer(Frame &frame, ExecutionContext &context)
           throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
         }
 #endif
-        edge_buffer.push_back(&ea);
+        edge_buffer.push_back(ea);
         break;
       }
       case TypedValue::Type::Null:
