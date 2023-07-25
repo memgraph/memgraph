@@ -64,6 +64,21 @@ class MustAbortException : public std::exception {
   std::string message_;
 };
 
+class TerminatedMustAbortException : public MustAbortException {
+ public:
+  explicit TerminatedMustAbortException() : MustAbortException("Query was asked to terminate directly.") {}
+};
+
+class ShutdownMustAbortException : public MustAbortException {
+ public:
+  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+};
+
+class TimeoutMustAbortException : public MustAbortException {
+ public:
+  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+};
+
 // Forward declarations
 class Nodes;
 using GraphNodes = Nodes;
@@ -1636,9 +1651,15 @@ inline AbortReason Graph::MustAbort() const {
 }
 
 inline void Graph::CheckMustAbort() const {
-  if (MustAbort() != AbortReason::NO_ABORT) {
-    // Can't add extra information to MustAbortException because of ABI stability
-    throw MustAbortException("Query was asked to abort.");
+  switch (MustAbort()) {
+    case AbortReason::TERMINATED:
+      throw TerminatedMustAbortException();
+    case AbortReason::SHUTDOWN:
+      throw ShutdownMustAbortException();
+    case AbortReason::TIMEOUT:
+      throw TimeoutMustAbortException();
+    case AbortReason::NO_ABORT:
+      break;
   }
 }
 

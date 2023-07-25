@@ -1020,17 +1020,19 @@ struct PullPlanVector {
 
 struct TxTimeout {
   TxTimeout() = default;
-  explicit TxTimeout(double value) noexcept : value_{std::in_place, value} {
+  explicit TxTimeout(std::chrono::duration<double> value) noexcept : value_{std::in_place, value} {
     // validation
     // - negative timeout makes no sense
     // - zero timeout means no timeout
-    if (value_ <= 0.0) value_.reset();
+    if (value_ <= std::chrono::milliseconds{0}) value_.reset();
   };
   explicit operator bool() const { return value_.has_value(); }
-  double value() const { return *value_; }
+
+  /// Must call operator bool() first to know if safe
+  auto ValueUnsafe() const -> std::chrono::duration<double> const & { return *value_; }
 
  private:
-  std::optional<double> value_;
+  std::optional<std::chrono::duration<double>> value_;
 };
 
 struct PullPlan {
@@ -1251,17 +1253,18 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
-auto DetermineTxTimeout(std::optional<int64_t> tx_timeout, InterpreterConfig const &config) -> TxTimeout {
-  using namespace std::string_view_literals;
+auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
+  using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = config.execution_timeout_sec;
+  auto const global_tx_timeout = double_seconds{config.execution_timeout_sec};
+  auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
-  if (tx_timeout) {
-    auto const as_seconds = double(*tx_timeout) / 1000;
-    if (global_tx_timeout > 0.0) return TxTimeout{std::min(global_tx_timeout, as_seconds)};
-    return TxTimeout{as_seconds};
+  if (tx_timeout_ms) {
+    auto const timeout = std::chrono::duration_cast<double_seconds>(std::chrono::milliseconds{*tx_timeout_ms});
+    if (valid_global_tx_timeout) return TxTimeout{std::min(global_tx_timeout, timeout)};
+    return TxTimeout{timeout};
   }
-  if (global_tx_timeout > 0.0) {
+  if (valid_global_tx_timeout) {
     return TxTimeout{global_tx_timeout};
   }
   return TxTimeout{};
@@ -1285,7 +1288,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       metadata_ = GenOptional(extras.metadata_pv);
 
       auto const timeout = DetermineTxTimeout(extras.tx_timeout, interpreter_context_->config);
-      explicit_transaction_timer_ = timeout ? std::make_shared<utils::AsyncTimer>(timeout.value()) : nullptr;
+      explicit_transaction_timer_ =
+          timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
 
       db_accessor_ = interpreter_context_->db->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -2403,7 +2407,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
           "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will automatically "
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
+          "automatically "
           "start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
@@ -3121,7 +3126,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // Handle user-defined metadata in auto-transactions
     metadata_ = GenOptional(extras.metadata_pv);
     auto const timeout = DetermineTxTimeout(extras.tx_timeout, interpreter_context_->config);
-    current_timer = timeout ? std::make_shared<utils::AsyncTimer>(timeout.value()) : nullptr;
+    current_timer = timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
   } else {
     current_timer = explicit_transaction_timer_;
   }

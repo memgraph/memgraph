@@ -131,7 +131,7 @@ enum class AbortReason : uint8_t {
 class HintedAbortError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  HintedAbortError(AbortReason reason) : utils::BasicException(AsMsg(reason)), reason_{reason} {}
+  explicit HintedAbortError(AbortReason reason) : utils::BasicException(AsMsg(reason)), reason_{reason} {}
 
   auto Reason() const -> AbortReason { return reason_; }
 
