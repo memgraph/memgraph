@@ -12,4 +12,4 @@ if ! command -v npm >/dev/null; then
   exit 1
 fi
 
-npm ci
+npm i
