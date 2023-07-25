@@ -2491,7 +2491,7 @@ void Delete::DeleteCursor::UpdateBuffer(Frame &frame, ExecutionContext &context)
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
 #endif
-        node_buffer.push_back(va);
+        node_buffer.push_back(&va);
         break;
       }
       case TypedValue::Type::Edge: {
@@ -2505,7 +2505,7 @@ void Delete::DeleteCursor::UpdateBuffer(Frame &frame, ExecutionContext &context)
           throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
         }
 #endif
-        edge_buffer.emplace_back(ea);
+        edge_buffer.push_back(&ea);
         break;
       }
       case TypedValue::Type::Null:
@@ -2529,7 +2529,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   auto &dba = *context.db_accessor;
-  auto res = dba.DetachDeleteVertexBulk(std::move(node_buffer), std::move(edge_buffer), self_.detach_);
+  auto res = dba.DetachDelete(std::move(node_buffer), std::move(edge_buffer), self_.detach_);
   if (res.HasError()) {
     switch (res.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:

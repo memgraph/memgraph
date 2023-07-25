@@ -124,8 +124,8 @@ class DiskStorage final : public Storage {
     Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
         VertexAccessor *vertex) override;
 
-    Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDeleteVertexBulk(
-        std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) override;
+    Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
 
     void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
 

@@ -1156,8 +1156,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    private:
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
-    std::vector<EdgeAccessor> edge_buffer{};
-    std::vector<VertexAccessor> node_buffer{};
+    std::vector<EdgeAccessor *> edge_buffer{};
+    std::vector<VertexAccessor *> node_buffer{};
     bool delete_executed_{false};
 
     void UpdateBuffer(Frame &, ExecutionContext &);

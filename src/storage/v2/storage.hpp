@@ -137,8 +137,8 @@ class Storage {
     virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
         VertexAccessor *vertex) = 0;
 
-    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
-    DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) = 0;
+    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) = 0;
 
     virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
 

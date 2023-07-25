@@ -395,8 +395,8 @@ class DbAccessor final {
 
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
-    std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
-                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    std::ranges::transform(edges, std::back_inserter(deleted_edges),
+                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
@@ -415,27 +415,28 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
-  storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
-  DetachDeleteVertexBulk(std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
+  storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+      std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
-    std::vector<storage::VertexAccessor> nodes_impl;
-    std::vector<storage::EdgeAccessor> edges_impl;
+    std::vector<storage::VertexAccessor *> nodes_impl;
+    std::vector<storage::EdgeAccessor *> edges_impl;
 
     nodes_impl.reserve(nodes.size());
     edges_impl.reserve(edges.size());
 
     for (auto &vertex_accessor : nodes) {
-      accessor_->PrefetchOutEdges(vertex_accessor.impl_);
-      accessor_->PrefetchInEdges(vertex_accessor.impl_);
+      accessor_->PrefetchOutEdges(vertex_accessor->impl_);
+      accessor_->PrefetchInEdges(vertex_accessor->impl_);
+
+      nodes_impl.push_back(&vertex_accessor->impl_);
     }
 
-    std::ranges::transform(nodes, std::back_inserter(nodes_impl),
-                           [](const auto &node_info) { return node_info.impl_; });
-    std::ranges::transform(edges, std::back_inserter(edges_impl),
-                           [](const auto &edge_info) { return edge_info.impl_; });
+    for (auto &edge_accessor : edges) {
+      edges_impl.push_back(&edge_accessor->impl_);
+    }
 
-    auto res = accessor_->DetachDeleteVertexBulk(std::move(nodes_impl), std::move(edges_impl), detach);
+    auto res = accessor_->DetachDelete(std::move(nodes_impl), std::move(edges_impl), detach);
     if (res.HasError()) {
       return res.GetError();
     }
