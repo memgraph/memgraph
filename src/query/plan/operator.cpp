@@ -2807,13 +2807,21 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
+      // TODO (antoniofilipovic): this will create more deltas then necessary
+      const auto old_props = record->ClearProperties();
+      if (old_props.HasError()) {
+        throw QueryRuntimeException("Unexpected error when setting properties.");
+      }
+      std::map<storage::PropertyId, storage::PropertyValue> merged_map;
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
-        auto old_value = PropsSetChecked(record, key, kv.second);
-        if (should_register_change) {
-          register_set_property(std::move(old_value), key, kv.second);
-        }
+        merged_map.emplace(key, kv.second);
       }
+      for (const auto &kv : *old_props) {
+        merged_map.emplace(kv.first, kv.second);
+      }
+      auto result = record->InitProperties(merged_map);
+      MG_ASSERT(!result.HasError() && *result);
       break;
     }
     default:
