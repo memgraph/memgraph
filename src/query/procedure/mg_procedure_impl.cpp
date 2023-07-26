@@ -1056,7 +1056,9 @@ mgp_error mgp_map_update(mgp_map *map, const char *key, mgp_value *value) {
 mgp_error mgp_map_erase(mgp_map *map, const char *key) {
   return WrapExceptions([&] {
     auto iterator = map->items.find(key);
-    if (iterator != map->items.end()) map->items.erase(iterator);
+    if (iterator != map->items.end()) {
+      map->items.erase(iterator);
+    }
   });
 }
 
