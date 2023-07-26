@@ -66,7 +66,7 @@ startup_config_dict = {
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
-    "data_recover_on_startup": (
+    "data_recovery_on_startup": (
         "false",
         "false",
         "Controls whether the database recovers persisted data on startup.",
