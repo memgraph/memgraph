@@ -366,7 +366,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                          const VertexAccessor *destination) const {
+                                                          const VertexAccessor *destination,
+                                                          int64_t *expanded_count) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
@@ -375,6 +376,9 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
+    if (expanded_count) {
+      *expanded_count = vertex_->in_edges.size();
+    }
     if (edge_types.empty() && !destination) {
       in_edges = vertex_->in_edges;
     } else {
@@ -447,7 +451,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                           const VertexAccessor *destination) const {
+                                                           const VertexAccessor *destination,
+                                                           int64_t *expanded_count) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
@@ -456,6 +461,9 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
+    if (expanded_count) {
+      *expanded_count = vertex_->out_edges.size();
+    }
     if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
     } else {

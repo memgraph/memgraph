@@ -794,30 +794,78 @@ void Expand::ExpandCursor::Reset() {
   out_edges_it_ = std::nullopt;
 }
 
+ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame, ExecutionContext &context) {
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+
+  if (vertex_value.IsNull()) {
+    return ExpansionInfo{};
+  }
+
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+  auto &vertex = vertex_value.ValueVertex();
+
+  auto direction = self_.common_.direction;
+  if (!self_.common_.existing_node) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction};
+  }
+
+  TypedValue &existing_node = frame[self_.common_.node_symbol];
+
+  if (existing_node.IsNull()) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction};
+  }
+
+  ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+
+  auto &existing_vertex = existing_node.ValueVertex();
+
+  // -1 and -1 -> normal expansion
+  // -1 and expanded -> can't happen
+  // expanded and -1 -> reverse
+  // expanded and expanded -> see if can reverse
+  if ((prev_input_degree_ == -1 && prev_existing_degree_ == -1) || prev_input_degree_ < prev_existing_degree_) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction, .existing_node = existing_vertex};
+  }
+
+  auto new_direction = direction;
+  switch (direction) {
+    case EdgeAtom::Direction::IN:
+      new_direction = EdgeAtom::Direction::OUT;
+      break;
+    case EdgeAtom::Direction::OUT:
+      new_direction = EdgeAtom::Direction::IN;
+      break;
+    default:
+      new_direction = EdgeAtom::Direction::BOTH;
+      break;
+  }
+
+  return ExpansionInfo{
+      .input_node = existing_vertex, .direction = new_direction, .existing_node = vertex, .reversed = true};
+}
+
 bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
-    TypedValue &vertex_value = frame[self_.input_symbol_];
 
-    // Null check due to possible failed optional match.
-    if (vertex_value.IsNull()) continue;
+    expansion_info_ = GetExpansionInfo(frame, context);
 
-    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-    auto &vertex = vertex_value.ValueVertex();
+    if (!expansion_info_.input_node) {
+      continue;
+    }
 
-    auto direction = self_.common_.direction;
+    auto vertex = *expansion_info_.input_node;
+    auto direction = expansion_info_.direction;
+
+    int64_t num_expanded_first = -1;
     if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
-      if (self_.common_.existing_node) {
-        TypedValue &existing_node = frame[self_.common_.node_symbol];
-        // old_node_value may be Null when using optional matching
-        if (!existing_node.IsNull()) {
-          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          context.db_accessor->PrefetchInEdges(vertex);
-          in_edges_.emplace(
-              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
-        }
+      if (expansion_info_.existing_node) {
+        auto existing_node = *expansion_info_.existing_node;
+        context.db_accessor->PrefetchInEdges(vertex);
+        in_edges_.emplace(UnwrapEdgesResult(
+            vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &num_expanded_first)));
       } else {
         context.db_accessor->PrefetchInEdges(vertex);
         in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
@@ -827,16 +875,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       }
     }
 
+    int64_t num_expanded_second = -1;
     if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-      if (self_.common_.existing_node) {
-        TypedValue &existing_node = frame[self_.common_.node_symbol];
-        // old_node_value may be Null when using optional matching
-        if (!existing_node.IsNull()) {
-          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          context.db_accessor->PrefetchOutEdges(vertex);
-          out_edges_.emplace(
-              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
-        }
+      if (expansion_info_.existing_node) {
+        auto existing_node = *expansion_info_.existing_node;
+        context.db_accessor->PrefetchOutEdges(vertex);
+        out_edges_.emplace(UnwrapEdgesResult(
+            vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &num_expanded_second)));
       } else {
         context.db_accessor->PrefetchOutEdges(vertex);
         out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
@@ -844,6 +889,20 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
       }
+    }
+
+    if (!expansion_info_.existing_node) {
+      return true;
+    }
+
+    num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
+    num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
+    int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
+
+    if (!expansion_info_.reversed) {
+      prev_input_degree_ = total_expanded_edges;
+    } else {
+      prev_existing_degree_ = total_expanded_edges;
     }
 
     return true;

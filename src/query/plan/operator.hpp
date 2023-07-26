@@ -764,6 +764,13 @@ struct ExpandCommon {
   bool existing_node;
 };
 
+struct ExpansionInfo {
+  std::optional<VertexAccessor> input_node;
+  EdgeAtom::Direction direction;
+  std::optional<VertexAccessor> existing_node;
+  bool reversed{false};
+};
+
 /// Expansion operator. For a node existing in the frame it
 /// expands one edge and one node and places them on the frame.
 ///
@@ -826,8 +833,12 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     std::optional<InEdgeIteratorT> in_edges_it_;
     std::optional<OutEdgeT> out_edges_;
     std::optional<OutEdgeIteratorT> out_edges_it_;
+    ExpansionInfo expansion_info_;
+    int64_t prev_input_degree_{-1};
+    int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
+    ExpansionInfo GetExpansionInfo(Frame &, ExecutionContext &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
