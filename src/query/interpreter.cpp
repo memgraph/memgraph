@@ -1076,6 +1076,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && username.has_value() && dba) {
+    // TODO How can we avoid creating this every time? If we must create it, it would be faster with an auth::User
+    // instead of the username
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
@@ -2362,8 +2364,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
           "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will automatically "
-          "start in the default in-memory transactional storage mode.");
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
+          "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
       std::unique_lock main_guard{interpreter_context->db->main_lock_};

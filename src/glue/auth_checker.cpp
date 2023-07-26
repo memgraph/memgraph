@@ -72,18 +72,18 @@ AuthChecker::AuthChecker(
 
 bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const {
-  std::optional<memgraph::auth::User> maybe_user;
   {
     auto locked_auth = auth_->ReadLock();
     if (!locked_auth->HasUsers()) {
       return true;
     }
-    if (username.has_value()) {
-      maybe_user = locked_auth->GetUser(*username);
+    if (username.has_value() && username != user_.username()) {
+      const auto maybe_user = locked_auth->GetUser(*username);
+      if (!maybe_user) return false;
+      user_ = *maybe_user;
     }
   }
-
-  return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
+  return IsUserAuthorized(user_, privileges);
 }
 
 #ifdef MG_ENTERPRISE
@@ -94,12 +94,14 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   }
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+    if (username != user_.username()) {
+      auto maybe_user = locked_auth->GetUser(username);
+      if (!maybe_user) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+      user_ = *maybe_user;
     }
-
-    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*user), dba);
+    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(user_, dba);
 
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());

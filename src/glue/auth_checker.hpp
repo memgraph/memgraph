@@ -37,6 +37,7 @@ class AuthChecker : public query::AuthChecker {
 
  private:
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
+  mutable auth::User user_;
 };
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
