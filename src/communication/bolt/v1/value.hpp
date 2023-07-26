@@ -112,7 +112,7 @@ struct Path {
     for (uint i = 0; i < edges.size(); i++) {
       const auto &e = edges[i];
       const auto &v = vertices[i + 1];
-      UnboundedEdge unbounded_edge{e.id, e.type, e.properties};
+      UnboundedEdge unbounded_edge{e.id, e.type, e.properties, e.element_id};
       add_element(this->edges, unbounded_edge, e.to == v.id ? 1 : -1, 1);
       add_element(this->vertices, v, 1, 0);
     }
