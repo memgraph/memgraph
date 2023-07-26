@@ -57,7 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang custom-golang1.18.9 zip unzip java-11-openjdk-devel jdk-17 custom-maven3.9.2 # for driver tests
+    which nodejs golang custom-golang1.18.9 zip unzip java-11-openjdk-devel jdk-17 custom-maven3.9.3 # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     cyrus-sasl-devel
@@ -82,8 +82,8 @@ check() {
     local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-""}
     LD_LIBRARY_PATH=""
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.2 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.2/bin/mvn" ]; then
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
               missing="$pkg $missing"
             fi
             continue
@@ -127,8 +127,8 @@ install() {
 
     yum update -y
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.2 ]; then
-            install_custom_maven "3.9.2"
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            install_custom_maven "3.9.3"
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
