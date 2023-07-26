@@ -72,18 +72,18 @@ AuthChecker::AuthChecker(
 
 bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const {
+  std::optional<memgraph::auth::User> maybe_user;
   {
     auto locked_auth = auth_->ReadLock();
     if (!locked_auth->HasUsers()) {
       return true;
     }
-    if (username.has_value() && username != user_.username()) {
-      const auto maybe_user = locked_auth->GetUser(*username);
-      if (!maybe_user) return false;
-      user_ = *maybe_user;
+    if (username.has_value()) {
+      maybe_user = locked_auth->GetUser(*username);
     }
   }
-  return IsUserAuthorized(user_, privileges);
+
+  return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
 }
 
 #ifdef MG_ENTERPRISE
