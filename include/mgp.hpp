@@ -2307,6 +2307,7 @@ inline void Map::Insert(std::string_view key, const Value &value) { mgp::map_ins
 
 inline void Map::Insert(std::string_view key, Value &&value) {
   mgp::map_insert(ptr_, key.data(), value.ptr_);
+  value.~Value();
   value.ptr_ = nullptr;
 }
 
@@ -2314,6 +2315,7 @@ inline void Map::Update(std::string_view key, const Value &value) { mgp::map_upd
 
 inline void Map::Update(std::string_view key, Value &&value) {
   mgp::map_update(ptr_, key.data(), value.ptr_);
+  value.~Value();
   value.ptr_ = nullptr;
 }
 
