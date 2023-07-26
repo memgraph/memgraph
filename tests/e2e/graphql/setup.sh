@@ -23,7 +23,6 @@ echo "NODE VERSION: $node_version"
 echo "NPM  VERSION: $npm_version"
 node_major_version=${node_version##v}
 node_major_version=${node_major_version%%.*}
-node_major_version="10"
 if [ ! "$node_major_version" -ge 14 ]; then
   echo "ERROR: It's required to have node >= 14."
   exit 1
