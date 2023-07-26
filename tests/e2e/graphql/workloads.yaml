@@ -1,7 +1,7 @@
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--callable_mappings_path", "graphql/callable_alias_mapping.json"]
+      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--callable_mappings_path", "graphql/callable_alias_mapping.json"]
       log_file: "graphql-e2e.log"
       setup_queries: []
       validation_queries: []

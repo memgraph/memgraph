@@ -60,10 +60,10 @@ def test_connect_or_create(query_server):
         + created_user_uuid
         + '" }) {info {nodesCreated}}}'
     )
-    expected_respone = '{"data":{"updateUsers":{"info":{"nodesCreated":1}}}}\n'
+    expected_response = '{"data":{"updateUsers":{"info":{"nodesCreated":1}}}}\n'
 
     gotten = query_server.send_query(connect_or_create_query)
-    assert expected_respone == str(gotten.text)
+    assert expected_response == str(gotten.text)
 
 
 if __name__ == "__main__":

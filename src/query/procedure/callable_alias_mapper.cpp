@@ -19,6 +19,8 @@
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
 
+#include "utils/logging.hpp"
+
 namespace memgraph::query::procedure {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -27,25 +29,26 @@ CallableAliasMapper gCallableAliasMapper;
 void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
   using json = nlohmann::json;
   if (!path.empty()) {
-    if (std::filesystem::exists(path)) {
-      const bool is_regular_file = std::filesystem::is_regular_file(path);
-      const bool has_json_extension = (path.extension() == ".json");
-      if (is_regular_file && has_json_extension) {
-        std::ifstream mapping_file(path);
-        try {
-          json mapping_data = json::parse(mapping_file);
-          mapping_ = mapping_data.get<std::unordered_map<std::string, std::string>>();
-        } catch (const std::exception &e) {
-          spdlog::warn("Parsing callable mapping was unsuccesful, reason: {}", e.what());
-        }
-      } else {
-        spdlog::warn("Path to callable mappings is not a regular file or does not have .json extension.");
+    spdlog::info("Path to callable mappings was not set.");
+    return;
+  }
+
+  if (std::filesystem::exists(path)) {
+    const bool is_regular_file = std::filesystem::is_regular_file(path);
+    const bool has_json_extension = (path.extension() == ".json");
+    if (is_regular_file && has_json_extension) {
+      std::ifstream mapping_file(path);
+      try {
+        json mapping_data = json::parse(mapping_file);
+        mapping_ = mapping_data.get<std::unordered_map<std::string, std::string>>();
+      } catch (...) {
+        MG_ASSERT("Parsing callable mapping was unsuccesful. Make sure it is in correct json format.");
       }
     } else {
-      spdlog::warn("Path to callable mappings was set, but the path does not exist.");
+      MG_ASSERT("Path to callable mappings is not a regular file or does not have .json extension.");
     }
   } else {
-    spdlog::info("Path to callable mappings was not set.");
+    MG_ASSERT("Path to callable mappings was set, but the path does not exist.");
   }
 }
 

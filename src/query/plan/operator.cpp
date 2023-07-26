@@ -4717,7 +4717,7 @@ class CallValidateProcedureCursor : public Cursor {
                                   storage::View::NEW);
 
     const auto args = self_->arguments_;
-    MG_ASSERT(args.size() == 3);
+    MG_ASSERT(args.size() == 3U);
 
     const auto predicate = args[0]->Accept(evaluator);
     const bool predicate_val = predicate.ValueBool();
@@ -4731,22 +4731,17 @@ class CallValidateProcedureCursor : public Cursor {
         std::size_t found{0U};
         std::size_t arg_index{0U};
 
-        if (message_val.find('%', found) == std::string::npos) {
-          return message_val;
-        }
-
         while (true) {
           found = message_val.find('%', found);
           if (found == std::string::npos) {
             break;
           }
 
-          // If someone finishes the message with '%' that could be error prone.
-          if (found == message_val.size() - 1U) {
+          const bool ends_with_percentile = (found == message_val.size() - 1U);
+          if (ends_with_percentile) {
             break;
           }
 
-          std::string replacement_str;
           const auto format_specifier = message_val.at(found + 1U);
           if (!std::isalpha(format_specifier)) {
             ++found;
@@ -4757,12 +4752,12 @@ class CallValidateProcedureCursor : public Cursor {
             throw QueryRuntimeException(
                 "There are more format specifiers in the CALL procedure error message, then arguments provided.");
           }
-          // If the number of arguments given exceed the number
-          // of format specifiers, than we ingore the excess ones.
-          if (arg_index > message_args_val.size() - 1U) {
+          const bool arg_count_exceeds_format_spec_count = (arg_index > message_args_val.size() - 1U);
+          if (arg_count_exceeds_format_spec_count) {
             break;
           }
 
+          std::string replacement_str;
           auto &current_arg = message_args_val.at(arg_index);
           switch (format_specifier) {
             case 'd':

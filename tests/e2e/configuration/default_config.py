@@ -192,4 +192,9 @@ startup_config_dict = {
         "false",
         "Restore replication state on startup, e.g. recover replica",
     ),
+    "callable_mappings_path": (
+        "",
+        "",
+        "The path to mappings that describe aliases to callables in cypher queries in the form of key-value pairs in a json file.",
+    ),
 }

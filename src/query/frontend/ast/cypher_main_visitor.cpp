@@ -1190,15 +1190,13 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
   if (!maybe_found) {
     const auto mg_specific_name = procedure::gCallableAliasMapper.FindAlias(call_proc->procedure_name_);
-    if (mg_specific_name) {
+    if (mg_specific_name && *mg_specific_name == "mgps.validate") {
       // This is a special case. Since void procedures currently are not supported,
       // we have to make sure that the non-memgraph native, void procedures that are
       // possibly used against a memgraph instance are handled correctly. As of now
       // this is the only known such case. This should be more generic, but the most
       // generic solution would be to implement void procedures.
-      if (*mg_specific_name == "mgps.validate") {
-        call_proc->void_procedure_ = true;
-      }
+      call_proc->void_procedure_ = true;
     } else {
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
