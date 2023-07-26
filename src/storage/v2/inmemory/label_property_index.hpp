@@ -136,6 +136,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
+
+  std::unordered_map<LabelId, std::unordered_map<PropertyId, utils::SkipList<Entry>>> indices_on_label_;
 };
 
 }  // namespace memgraph::storage
