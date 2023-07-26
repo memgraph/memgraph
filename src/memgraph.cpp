@@ -162,7 +162,7 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(data_recover_on_startup, false, "Controls whether the database recovers persisted data on startup.");
+DEFINE_bool(data_recovery_on_startup, false, "Controls whether the database recovers persisted data on startup.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
@@ -182,7 +182,7 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
-// storage_recover_on_startup deprecated; use data_recover_on_startup instead
+// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
                    "Controls whether the storage recovers persisted data on startup.");
@@ -1082,7 +1082,7 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
-                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup,
+                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
@@ -1153,7 +1153,7 @@ int main(int argc, char **argv) {
            }
          }
        }},
-      FLAGS_storage_recover_on_startup || FLAGS_data_recover_on_startup, FLAGS_storage_delete_on_drop);
+      FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
