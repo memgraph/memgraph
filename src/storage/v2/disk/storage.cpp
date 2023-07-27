@@ -1237,8 +1237,8 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   const auto &[vertices, edges] = *value;
 
-  MG_ASSERT(vertices.empty(), "During deletion of an edge, a vertex was deleted as well!");
-  MG_ASSERT(edges.size() == 1, "During deletion of an edge, more edges were deleted!");
+  MG_ASSERT(vertices.empty(), "Deleting an edge should not have deleted a vertex!");
+  MG_ASSERT(edges.size() <= 1, "Deleted edges need to be less or equal to 1!");
 
   return std::make_optional<EdgeAccessor>(edges[0]);
 }

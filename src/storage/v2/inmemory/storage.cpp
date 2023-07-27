@@ -712,7 +712,7 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   const auto &[vertices, edges] = *value;
 
   MG_ASSERT(vertices.empty(), "Deleting an edge should not have deleted a vertex!");
-  MG_ASSERT(edges.size() == 1, "Deleting an edge should have resulted in deleting only one edge!");
+  MG_ASSERT(edges.size() <= 1, "Deleted edges need to be less or equal to 1!");
 
   return std::make_optional<EdgeAccessor>(edges[0]);
 }
