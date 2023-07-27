@@ -28,7 +28,7 @@ CallableAliasMapper gCallableAliasMapper;
 
 void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
   using json = nlohmann::json;
-  if (!path.empty()) {
+  if (path.empty()) {
     spdlog::info("Path to callable mappings was not set.");
     return;
   }

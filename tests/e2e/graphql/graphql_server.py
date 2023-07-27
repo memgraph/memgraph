@@ -14,7 +14,8 @@ class GraphQLServer:
     def __init__(self, config_file_path: str):
         self.url = "http://127.0.0.1:4000"
 
-        graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
         self.__wait_process_to_init(graphql_lib.pid)
 
     def send_query(self, query: str, timeout=5.0) -> requests.Response:
@@ -26,6 +27,7 @@ class GraphQLServer:
             return response
 
     def __wait_process_to_init(self, pid: int):
+        time.sleep(1)
         path = "/proc/" + str(pid)
         while True:
             if os.path.exists(path):
@@ -136,5 +138,5 @@ def create_related_nodes_query(server: GraphQLServer):
 
 @pytest.fixture
 def query_server() -> GraphQLServer:
-    path = "graphql/graphql_library_config/crud.js"
+    path = os.path.join("graphql/graphql_library_config/crud.js")
     return GraphQLServer(path)
