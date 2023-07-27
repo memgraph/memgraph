@@ -272,33 +272,22 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
 }
 
 Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
-  MG_ASSERT(vertex->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-  auto *vertex_ptr = vertex->vertex_;
+  auto res = DetachDelete({vertex}, {}, false);
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  if (res.HasError()) {
+    return res.GetError();
+  }
 
-  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-
-  if (vertex_ptr->deleted) {
+  const auto &value = res.GetValue();
+  if (!value) {
     return std::optional<VertexAccessor>{};
   }
 
-  if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
+  const auto &[vertices, edges] = *value;
 
-  CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
-  vertex_ptr->deleted = true;
+  MG_ASSERT(vertices.size() == 1, "The number of detach deleted vertices is not equal to 1!");
 
-  // Need to inform the next CollectGarbage call that there are some
-  // non-transactional deletions that need to be collected
-  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-    mem_storage->gc_full_scan_vertices_delete_ = true;
-  }
-
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+  return std::make_optional<VertexAccessor>(vertices[0]);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
@@ -311,14 +300,16 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
     return res.GetError();
   }
 
-  const auto &value = res.GetValue();
+  auto &value = res.GetValue();
   if (!value) {
     return std::optional<ReturnType>{};
   }
 
-  const auto &[vertices, edges] = *value;
+  auto &[vertices, edges] = *value;
 
-  return std::make_optional<ReturnType>(vertices[0], edges);
+  MG_ASSERT(vertices.size() == 1, "The number of detach deleted vertices is not equal to 1!");
+
+  return std::make_optional<ReturnType>(vertices[0], std::move(edges));
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
@@ -719,6 +710,9 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   }
 
   const auto &[vertices, edges] = *value;
+
+  MG_ASSERT(vertices.empty(), "Deleting an edge should not have deleted a vertex!");
+  MG_ASSERT(edges.size() == 1, "Deleting an edge should have resulted in deleting only one edge!");
 
   return std::make_optional<EdgeAccessor>(edges[0]);
 }

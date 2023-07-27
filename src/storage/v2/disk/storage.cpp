@@ -774,27 +774,22 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 }
 
 Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(VertexAccessor *vertex) {
-  MG_ASSERT(vertex->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-  auto *vertex_ptr = vertex->vertex_;
+  auto res = DetachDelete({vertex}, {}, false);
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  if (res.HasError()) {
+    return res.GetError();
+  }
 
-  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-
-  if (vertex_ptr->deleted) {
+  const auto &value = res.GetValue();
+  if (!value) {
     return std::optional<VertexAccessor>{};
   }
 
-  if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
+  const auto &[vertices, edges] = *value;
 
-  CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
-  vertex_ptr->deleted = true;
-  vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
+  MG_ASSERT(vertices.size() == 1, "The number of detach deleted vertices is not equal to 1!");
 
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+  return std::make_optional<VertexAccessor>(vertices[0]);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
