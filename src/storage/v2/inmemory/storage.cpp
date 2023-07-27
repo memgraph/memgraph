@@ -285,7 +285,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
 
   const auto &[vertices, edges] = *value;
 
-  MG_ASSERT(vertices.size() == 1, "The number of detach deleted vertices is not equal to 1!");
+  MG_ASSERT(vertices.size() == 1, "The number of deleted vertices is not equal to 1!");
 
   return std::make_optional<VertexAccessor>(vertices[0]);
 }
