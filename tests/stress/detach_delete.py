@@ -83,9 +83,7 @@ def parse_args() -> Args:
     :return: parsed arguments
     """
     parser = connection_argument_parser()
-    parser.add_argument(
-        "--worker-count", type=int, default=multiprocessing.cpu_count(), help="Number of concurrent workers."
-    )
+    parser.add_argument("--worker-count", type=int, default=4, help="Number of concurrent workers.")
     parser.add_argument(
         "--logging", default="INFO", choices=["INFO", "DEBUG", "WARNING", "ERROR"], help="Logging level"
     )
