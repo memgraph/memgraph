@@ -1182,6 +1182,8 @@ class Record {
   void Insert(const char *field_name, const LocalDateTime &local_date_time);
   /// @brief Inserts a @ref Duration value under field `field_name`.
   void Insert(const char *field_name, const Duration &duration);
+  /// @brief Inserts a @ref Value value under field `field_name`, and then call appropriate insert.
+  void Insert(const char *field_name, const Value &value);
 
  private:
   mgp_result_record *record_;
@@ -3352,6 +3354,40 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
   auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
+}
+
+inline void Record::Insert(const char *field_name, const Value &value) {
+  switch (value.Type()) {
+    case Type::Bool:
+      return Insert(field_name, value.ValueBool());
+    case Type::Int:
+      return Insert(field_name, value.ValueInt());
+    case Type::Double:
+      return Insert(field_name, value.ValueDouble());
+    case Type::String:
+      return Insert(field_name, value.ValueString());
+    case Type::List:
+      return Insert(field_name, value.ValueList());
+    case Type::Map:
+      return Insert(field_name, value.ValueMap());
+    case Type::Node:
+      return Insert(field_name, value.ValueNode());
+    case Type::Relationship:
+      return Insert(field_name, value.ValueRelationship());
+    case Type::Path:
+      return Insert(field_name, value.ValuePath());
+    case Type::Date:
+      return Insert(field_name, value.ValueDate());
+    case Type::LocalTime:
+      return Insert(field_name, value.ValueLocalTime());
+    case Type::LocalDateTime:
+      return Insert(field_name, value.ValueLocalDateTime());
+    case Type::Duration:
+      return Insert(field_name, value.ValueDuration());
+
+    default:
+      throw ValueException("No Record.Insert for this datatype");
+  }
 }
 
 // RecordFactory:
