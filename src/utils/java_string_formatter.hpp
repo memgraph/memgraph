@@ -14,6 +14,7 @@
 #include <string>
 
 #include "utils/exceptions.hpp"
+#include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::utils {
@@ -27,10 +28,17 @@ class JStringFormatException final : public BasicException {
       : JStringFormatException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 };
 
-template <typename TString, typename TElement>
+template <typename T>
+concept TTypedValueLike = requires(T t) {
+  { t.ValueInt() } -> std::convertible_to<int>;
+  { t.ValueDouble() } -> std::convertible_to<double>;
+  { t.ValueString() } -> std::convertible_to<pmr::string>;
+};
+
+template <typename TString, typename TTypedValueLike>
 class JStringFormatter final {
  public:
-  [[nodiscard]] TString FormatString(TString str, const pmr::vector<TElement> &format_args) const {
+  [[nodiscard]] TString FormatString(TString str, const pmr::vector<TTypedValueLike> &format_args) const {
     std::size_t found{0U};
     std::size_t arg_index{0U};
 
@@ -50,7 +58,7 @@ class JStringFormatter final {
         ++found;
         continue;
       }
-      const bool does_argument_list_overflow = (format_args.size() < arg_index - 1U) && (arg_index > 0U);
+      const bool does_argument_list_overflow = (format_args.size() < arg_index + 1U) && (arg_index > 0U);
       if (does_argument_list_overflow) {
         throw JStringFormatException(
             "There are more format specifiers in the CALL procedure error message, then arguments provided.");
@@ -70,7 +78,7 @@ class JStringFormatter final {
   }
 
  private:
-  void ReplaceFormatSpecifier(TString &str, std::size_t pos, char format_specifier, TElement current_arg) const {
+  void ReplaceFormatSpecifier(TString &str, std::size_t pos, char format_specifier, TTypedValueLike current_arg) const {
     std::string replacement_str;
     switch (format_specifier) {
       case 'd':
