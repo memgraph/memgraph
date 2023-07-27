@@ -814,6 +814,8 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   const auto &[vertices, edges] = *value;
 
+  MG_ASSERT(vertices.size() == 1, "The vertex was not deleted during detach delete!");
+
   return std::make_optional<ReturnType>(vertices[0], edges);
 }
 
@@ -828,12 +830,22 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
   std::set<EdgeRef> deleted_edges_set;
 
   // routine for deleting edges, please use this under the edge spin lock
-  auto mark_edge_as_deleted_func = [this](auto edge_ref, auto edge_type, auto *from_vertex, auto *to_vertex) {
-    auto *edge_ptr = edge_ref.ptr;
-    if (!edge_ptr->deleted) {
-      CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
-      edge_ptr->deleted = true;
-      storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+  auto mark_edge_as_deleted_func = [this, &deleted_edges, &deleted_edges_set](auto edge_ref, auto edge_type,
+                                                                              auto *from_vertex, auto *to_vertex) {
+    if (config_.properties_on_edges) {
+      auto *edge_ptr = edge_ref.ptr;
+      if (!edge_ptr->deleted) {
+        CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
+        edge_ptr->deleted = true;
+        storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+      }
+    }
+
+    // edges need to be deleted twice from the src vertex vector and the dest vertex vector, which
+    // guarantees that the deleted edges will be updated
+    if (!deleted_edges_set.insert(edge_ref).second) {
+      deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                                 &storage_->constraints_, config_, true);
 
       const std::string src_dest_del_key{
           utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges)};
@@ -908,7 +920,7 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   // Detach nodes which need to be deleted
   if (detach) {
-    auto clear_edges = [this, &deleted_edges, &deleted_edges_set, &mark_edge_as_deleted_func](
+    auto clear_edges = [this, &mark_edge_as_deleted_func](
                            auto *vertex_ptr, auto *edges_collection, auto delta,
                            auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
       while (!edges_collection->empty()) {
@@ -952,14 +964,7 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        if (config_.properties_on_edges) {
-          mark_edge_as_deleted_func(edge_ref, edge_type, from_vertex, to_vertex);
-        }
-
-        if (!deleted_edges_set.insert(edge_ref).second) {
-          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                     &storage_->constraints_, config_, true);
-        }
+        mark_edge_as_deleted_func(edge_ref, edge_type, from_vertex, to_vertex);
 
         CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
       }
@@ -983,40 +988,32 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
   {
-    auto detach_non_deletable_nodes = [this, &mark_edge_as_deleted_func, &deleted_edges, &deleted_edges_set](
-                                          auto *vertex_ptr, auto *edges_collection, auto &set_for_erasure, auto delta,
-                                          auto reverse_vertex_order) {
+    auto detach_non_deletable_nodes = [this, &mark_edge_as_deleted_func](auto *vertex_ptr, auto *edges_collection,
+                                                                         auto &set_for_erasure, auto delta,
+                                                                         auto reverse_vertex_order) {
       std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
-      auto mid =
-          std::partition(edges_collection->begin(), edges_collection->end(),
-                         [this, &mark_edge_as_deleted_func, &set_for_erasure, &deleted_edges, &deleted_edges_set,
-                          vertex_ptr, delta, reverse_vertex_order](auto &edge) {
-                           auto [edge_type, opposing_vertex, edge_ref] = edge;
+      auto mid = std::partition(
+          edges_collection->begin(), edges_collection->end(),
+          [this, &mark_edge_as_deleted_func, &set_for_erasure, vertex_ptr, delta, reverse_vertex_order](auto &edge) {
+            auto [edge_type, opposing_vertex, edge_ref] = edge;
 
-                           auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-                           auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+            if (set_for_erasure.contains(edge_ref)) {
+              std::unique_lock<utils::SpinLock> guard;
+              if (config_.properties_on_edges) {
+                auto edge_ptr = edge_ref.ptr;
+                guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+              }
 
-                           if (set_for_erasure.contains(edge_ref)) {
-                             std::unique_lock<utils::SpinLock> guard;
-                             if (config_.properties_on_edges) {
-                               auto edge_ptr = edge_ref.ptr;
-                               guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
-                               // this can happen only if we marked edges for deletion with no nodes,
-                               // so the method detaching nodes will not do anything
-                               mark_edge_as_deleted_func(edge_ref, edge_type, from_vertex, to_vertex);
-                             }
+              auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+              auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+              mark_edge_as_deleted_func(edge_ref, edge_type, from_vertex, to_vertex);
 
-                             if (!deleted_edges_set.insert(edge_ref).second) {
-                               deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                                          &storage_->indices_, &storage_->constraints_, config_, true);
-                             }
-
-                             CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-                             return false;
-                           }
-                           return true;
-                         });
+              CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
+              return false;
+            }
+            return true;
+          });
 
       edges_collection->erase(mid, edges_collection->end());
     };
@@ -1244,6 +1241,9 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   }
 
   const auto &[vertices, edges] = *value;
+
+  MG_ASSERT(vertices.empty(), "During deletion of an edge, a vertex was deleted as well!");
+  MG_ASSERT(edges.size() == 1, "During deletion of an edge, more edges were deleted!");
 
   return std::make_optional<EdgeAccessor>(edges[0]);
 }
