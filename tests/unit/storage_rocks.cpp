@@ -100,6 +100,7 @@ TEST_F(RocksDBStorageTest, SerializePropertiesExternalBuffer) {
   auto completion_percentage = memgraph::storage::PropertyId::FromInt(1);
   auto completion_percentage_value = memgraph::storage::PropertyValue(14);
   auto gender = memgraph::storage::PropertyId::FromInt(2);
+  // Use big value so that memory for properties is allocated on the heap not on the stack
   auto gender_value = memgraph::storage::PropertyValue("man167863816386826");
   auto age = memgraph::storage::PropertyId::FromInt(3);
   auto age_value = memgraph::storage::PropertyValue(26);
