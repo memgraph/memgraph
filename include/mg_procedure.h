@@ -471,7 +471,7 @@ enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_v
 enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
 
 // Erase a mapping by key.
-// If key doesn't exist nothing happens
+// If the key doesn't exist in the map nothing happens
 enum mgp_error mgp_map_erase(struct mgp_map *map, const char *key);
 
 /// Get the number of items stored in mgp_map.
