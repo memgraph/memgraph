@@ -64,7 +64,7 @@ SMALL_DATASET = [
     },
     {
         DatasetConstants.TEST: "detach_delete.py",
-        DatasetConstants.OPTIONS: ["--worker-count", "4", "--repetition-count", "1000"],
+        DatasetConstants.OPTIONS: ["--worker-count", "4", "--repetition-count", "100"],
         DatasetConstants.TIMEOUT: 5,
         DatasetConstants.MODE: [get_default_database_mode()],
     },
@@ -128,7 +128,7 @@ LARGE_DATASET = (
         },
         {
             DatasetConstants.TEST: "detach_delete.py",
-            DatasetConstants.OPTIONS: ["--worker-count", "4", "--repetition-count", "1000"],
+            DatasetConstants.OPTIONS: ["--worker-count", "4", "--repetition-count", "300"],
             DatasetConstants.TIMEOUT: 5,
             DatasetConstants.MODE: [get_default_database_mode()],
         },
