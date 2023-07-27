@@ -818,9 +818,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    using InEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().InEdges(storage::View::OLD))>;
+    using InEdgeT = std::vector<EdgeAccessor>;
     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
-    using OutEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().OutEdges(storage::View::OLD))>;
+    using OutEdgeT = std::vector<EdgeAccessor>;
     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
     const Expand &self_;

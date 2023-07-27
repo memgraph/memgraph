@@ -304,7 +304,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
       dba.PrefetchOutEdges(vertex);
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
       MG_ASSERT(maybe_edges.HasValue());
-      for (auto edge : *maybe_edges) {
+      for (auto edge : maybe_edges->edges) {
         EXPECT_EQ(edge.EdgeType(), edge_type);
         EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 3);
       }
@@ -1129,7 +1129,7 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
     dba.PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
-    for (auto edge : *maybe_edges) {
+    for (auto edge : maybe_edges->edges) {
       ASSERT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
                 memgraph::storage::PropertyValue::Type::Int);
       EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->ValueInt(), 42);
@@ -1184,7 +1184,7 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
       dba.PrefetchOutEdges(vertex);
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(maybe_edges.HasValue());
-      for (auto edge : *maybe_edges) {
+      for (auto edge : maybe_edges->edges) {
         auto from = edge.From();
         EXPECT_EQ(from.Properties(memgraph::storage::View::OLD)->size(), update ? 2 : 1);
         if (update) {
@@ -1365,7 +1365,7 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
     dba.PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
-    for (auto edge : *maybe_edges) {
+    for (auto edge : maybe_edges->edges) {
       EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
                 memgraph::storage::PropertyValue::Type::Null);
       auto from = edge.From();
@@ -2223,7 +2223,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     for (auto vertex : this->dba.Vertices(memgraph::storage::View::NEW)) {
       if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
         auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
-        for (auto edge : *maybe_edges) {
+        for (auto edge : maybe_edges->edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(maybe_properties.HasValue());
@@ -2241,7 +2241,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     for (auto vertex : this->dba.Vertices(memgraph::storage::View::NEW)) {
       if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
         auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
-        for (auto edge : *maybe_edges) {
+        for (auto edge : maybe_edges->edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(maybe_properties.HasValue());

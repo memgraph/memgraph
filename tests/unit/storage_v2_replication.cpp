@@ -180,7 +180,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v);
     const auto out_edges = v->OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(out_edges.HasValue());
-    const auto edge = find_edge(*out_edges, *edge_gid);
+    const auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_EQ(edge->EdgeType(), replica_store->NameToEdgeType(edge_type));
     const auto properties = edge->Properties(memgraph::storage::View::OLD);
     ASSERT_TRUE(properties.HasValue());
@@ -197,7 +197,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v);
     auto out_edges = v->OutEdges(memgraph::storage::View::OLD);
-    auto edge = find_edge(*out_edges, *edge_gid);
+    auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_TRUE(edge);
     ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
@@ -209,7 +209,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v);
     const auto out_edges = v->OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(out_edges.HasValue());
-    ASSERT_FALSE(find_edge(*out_edges, *edge_gid));
+    ASSERT_FALSE(find_edge(out_edges->edges, *edge_gid));
     ASSERT_FALSE(acc->Commit().HasError());
   }
 

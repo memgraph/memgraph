@@ -891,7 +891,7 @@ void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc
     auto edge_gid = disk_edge_parts[4];
     auto in_edges_res = vertex_acc.InEdges(storage::View::NEW);
     if (in_edges_res.HasValue()) {
-      for (const auto &edge_acc : in_edges_res.GetValue()) {
+      for (const auto &edge_acc : in_edges_res.GetValue().edges) {
         if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
           // We already inserted this edge into the vertex's in_edges list.
           return false;
@@ -908,7 +908,7 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
     auto edge_gid = disk_edge_parts[4];
     auto out_edges_res = vertex_acc.OutEdges(storage::View::NEW);
     if (out_edges_res.HasValue()) {
-      for (const auto &edge_acc : out_edges_res.GetValue()) {
+      for (const auto &edge_acc : out_edges_res.GetValue().edges) {
         if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
           // We already inserted this edge into the vertex's out_edges list.
           return false;

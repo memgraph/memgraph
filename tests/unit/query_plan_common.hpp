@@ -224,7 +224,7 @@ inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::
     dba->PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(view);
     MG_ASSERT(maybe_edges.HasValue());
-    count += CountIterable(*maybe_edges);
+    count += CountIterable(maybe_edges->edges);
   }
   return count;
 }

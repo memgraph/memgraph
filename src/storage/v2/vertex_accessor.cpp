@@ -365,20 +365,18 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                          const VertexAccessor *destination,
-                                                          int64_t *expanded_count) const {
+Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+                                                          const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   Delta *delta = nullptr;
+  int64_t expanded_count = 0;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    if (expanded_count) {
-      *expanded_count = vertex_->in_edges.size();
-    }
+    expanded_count = vertex_->in_edges.size();
     if (edge_types.empty() && !destination) {
       in_edges = vertex_->in_edges;
     } else {
@@ -447,23 +445,22 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_);
   }
-  return std::move(ret);
+
+  return EdgesVertexAccessorResult{.edges = std::move(ret), .expanded_count = expanded_count};
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                           const VertexAccessor *destination,
-                                                           int64_t *expanded_count) const {
+Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
   Delta *delta = nullptr;
+  int64_t expanded_count = 0;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    if (expanded_count) {
-      *expanded_count = vertex_->out_edges.size();
-    }
+    expanded_count = vertex_->out_edges.size();
     if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
     } else {
@@ -532,7 +529,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
     const auto &[edge_type, to_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_);
   }
-  return std::move(ret);
+  return EdgesVertexAccessorResult{.edges = std::move(ret), .expanded_count = expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {

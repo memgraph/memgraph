@@ -428,11 +428,11 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, storage::View::NEW);
         if (!to_vertex) throw utils::BasicException("Invalid transaction!");
-        auto edges = from_vertex->OutEdges(
+        auto edge_result = from_vertex->OutEdges(
             storage::View::NEW, {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)}, &*to_vertex);
-        if (edges.HasError()) throw utils::BasicException("Invalid transaction!");
-        if (edges->size() != 1) throw utils::BasicException("Invalid transaction!");
-        auto &edge = (*edges)[0];
+        if (edge_result.HasError()) throw utils::BasicException("Invalid transaction!");
+        if (edge_result->edges.size() != 1) throw utils::BasicException("Invalid transaction!");
+        auto &edge = edge_result->edges[0];
         auto ret = transaction->DeleteEdge(&edge);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         break;
