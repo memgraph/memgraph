@@ -1,8 +1,15 @@
 #!/bin/bash
 
 function operating_system() {
-    grep -E '^(VERSION_)?ID=' /etc/os-release | \
-    sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        grep -E '^(VERSION_)?ID=' /etc/os-release | \
+        sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "$(sw_vers -productName)-$(sw_vers -productVersion | cut -d '.' -f 1)"
+    else
+        echo "operating_system called on an unknown OS"
+        exit 1
+    fi
 }
 
 function check_operating_system() {
@@ -93,8 +100,10 @@ function install_custom_golang() {
 function install_custom_maven() {
   MVNVERSION="$1"
   MVNINSTALLDIR="/opt/apache-maven-$MVNVERSION"
+  MVNURL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
-    curl -LO "https://dlcdn.apache.org/maven/maven-3/$MVNVERSION/binaries/apache-maven-$MVNVERSION-bin.tar.gz"
+    echo "Downloading maven from $MVNURL"
+    curl -LO "$MVNURL"
     tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
   fi
   echo "maven $MVNVERSION installed under $MVNINSTALLDIR"

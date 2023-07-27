@@ -1180,6 +1180,8 @@ class Record {
   void Insert(const char *field_name, const LocalDateTime &local_date_time);
   /// @brief Inserts a @ref Duration value under field `field_name`.
   void Insert(const char *field_name, const Duration &duration);
+  /// @brief Inserts a @ref Value value under field `field_name`, and then call appropriate insert.
+  void Insert(const char *field_name, const Value &value);
 
  private:
   mgp_result_record *record_;
@@ -2536,6 +2538,7 @@ inline void Path::Expand(const Relationship &relationship) { mgp::path_expand(pt
 inline bool Path::operator==(const Path &other) const { return util::PathsEqual(ptr_, other.ptr_); }
 
 inline bool Path::operator!=(const Path &other) const { return !(*this == other); }
+
 /* #endregion */
 
 /* #region Temporal types (Date, LocalTime, LocalDateTime, Duration) */
@@ -3185,6 +3188,42 @@ inline bool Value::IsDuration() const { return mgp::value_is_duration(ptr_); }
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(ptr_, other.ptr_); }
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
+
+inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
+  switch (type) {
+    case mgp::Type::Null:
+      return os << "null";
+    case mgp::Type::Bool:
+      return os << "bool";
+    case mgp::Type::Int:
+      return os << "int";
+    case mgp::Type::Double:
+      return os << "double";
+    case mgp::Type::String:
+      return os << "string";
+    case mgp::Type::List:
+      return os << "list";
+    case mgp::Type::Map:
+      return os << "map";
+    case mgp::Type::Node:
+      return os << "vertex";
+    case mgp::Type::Relationship:
+      return os << "edge";
+    case mgp::Type::Path:
+      return os << "path";
+    case mgp::Type::Date:
+      return os << "date";
+    case mgp::Type::LocalTime:
+      return os << "local_time";
+    case mgp::Type::LocalDateTime:
+      return os << "local_date_time";
+    case mgp::Type::Duration:
+      return os << "duration";
+    default:
+      throw ValueException("Unknown type");
+  }
+}
+
 /* #endregion */
 
 /* #region Record */
@@ -3274,6 +3313,40 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
   auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
+}
+
+inline void Record::Insert(const char *field_name, const Value &value) {
+  switch (value.Type()) {
+    case Type::Bool:
+      return Insert(field_name, value.ValueBool());
+    case Type::Int:
+      return Insert(field_name, value.ValueInt());
+    case Type::Double:
+      return Insert(field_name, value.ValueDouble());
+    case Type::String:
+      return Insert(field_name, value.ValueString());
+    case Type::List:
+      return Insert(field_name, value.ValueList());
+    case Type::Map:
+      return Insert(field_name, value.ValueMap());
+    case Type::Node:
+      return Insert(field_name, value.ValueNode());
+    case Type::Relationship:
+      return Insert(field_name, value.ValueRelationship());
+    case Type::Path:
+      return Insert(field_name, value.ValuePath());
+    case Type::Date:
+      return Insert(field_name, value.ValueDate());
+    case Type::LocalTime:
+      return Insert(field_name, value.ValueLocalTime());
+    case Type::LocalDateTime:
+      return Insert(field_name, value.ValueLocalDateTime());
+    case Type::Duration:
+      return Insert(field_name, value.ValueDuration());
+
+    default:
+      throw ValueException("No Record.Insert for this datatype");
+  }
 }
 
 // RecordFactory:
