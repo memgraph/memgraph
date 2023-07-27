@@ -540,7 +540,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (!auth->GrantDatabaseToUser(database, username)) {
             throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
           }
-        } catch (memgraph::dbms::UnknownDatabase &e) {
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
 #else
@@ -557,7 +557,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (!auth->RevokeDatabaseFromUser(database, username)) {
             throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
           }
-        } catch (memgraph::dbms::UnknownDatabase &e) {
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
 #else
@@ -584,7 +584,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (!auth->SetMainDatabase(database, username)) {
             throw QueryRuntimeException("Failed to set main database {} for user {}.", database, username);
           }
-        } catch (memgraph::dbms::UnknownDatabase &e) {
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
 #else
@@ -2455,7 +2455,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
           "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will automatically "
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
+          "automatically "
           "start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
@@ -3309,7 +3310,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     for (const auto &name : all) {
       status.push_back({TypedValue(name), TypedValue("")});
     }
-    // Update current db
+    // Check if present and update current db
     auto it = std::lower_bound(
         status.begin(), status.end(), std::vector<TypedValue>({TypedValue(in_use), TypedValue("")}),
         [](const auto &lhs, const auto &rhs) { return lhs[0].ValueString().compare(rhs[0].ValueString()) < 0; });

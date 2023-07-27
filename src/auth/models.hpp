@@ -245,7 +245,7 @@ bool operator==(const Role &first, const Role &second);
 #ifdef MG_ENTERPRISE
 class Databases final {
  public:
-  Databases() : allow_all_(true), default_db_(dbms::kDefaultDB) {}
+  Databases() : grants_dbs_({dbms::kDefaultDB}), allow_all_(false), default_db_(dbms::kDefaultDB) {}
 
   Databases(const Databases &) = default;
   Databases &operator=(const Databases &) = default;

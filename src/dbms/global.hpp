@@ -41,21 +41,11 @@ enum class SetForResult : uint8_t {
 };
 
 /**
- * UnknownUser Exception
- *
- * Used to indicate that an unknown user was used.
- */
-class UnknownUser : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-};
-
-/**
  * UnknownSession Exception
  *
  * Used to indicate that an unknown session was used.
  */
-class UnknownSession : public utils::BasicException {
+class UnknownSessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 };
@@ -65,7 +55,7 @@ class UnknownSession : public utils::BasicException {
  *
  * Used to indicate that an unknown database was used.
  */
-class UnknownDatabase : public utils::BasicException {
+class UnknownDatabaseException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 };
@@ -96,7 +86,7 @@ class SessionInterface {
    *
    * @return std::string
    */
-  virtual std::string GetID() const = 0;
+  virtual std::string GetDatabaseName() const = 0;
 
   /**
    * @brief Gets called on database change.
@@ -106,7 +96,7 @@ class SessionInterface {
   virtual dbms::SetForResult OnChange(const std::string &) = 0;
 
   /**
-   * @brief Gets called on database delete (drop).
+   * @brief Callback that gets called on database delete (drop).
    *
    * @return true on success
    */

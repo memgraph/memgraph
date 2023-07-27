@@ -12,7 +12,6 @@
 #pragma once
 
 #include "auth/auth.hpp"
-#include "auth_handler.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/synchronized.hpp"

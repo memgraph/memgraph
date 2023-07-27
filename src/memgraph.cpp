@@ -533,13 +533,15 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return *this;
     }
 
-    auto *ic() { return session_context.interpreter_context.get(); }
-    auto *interp() { return interpreter.get(); }
-    auto *auth() const { return session_context.auth; }
+    memgraph::query::InterpreterContext *interpreter_context() { return session_context.interpreter_context.get(); }
+    memgraph::query::Interpreter *interp() { return interpreter.get(); }
+    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth() const {
+      return session_context.auth;
+    }
 #ifdef MG_ENTERPRISE
-    auto *audit_log() const { return session_context.audit_log; }
+    memgraph::audit::Log *audit_log() const { return session_context.audit_log; }
 #endif
-    auto run_id() const { return session_context.run_id; }
+    std::string run_id() const { return session_context.run_id; }
     bool defunct() const { return defunct_; }
 
    private:
@@ -565,7 +567,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #else
         current_(sc),
 #endif
-        interpreter_context_(current_.ic()),
+        interpreter_context_(current_.interpreter_context()),
         interpreter_(current_.interp()),
         auth_(current_.auth()),
 #ifdef MG_ENTERPRISE
@@ -594,11 +596,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         throw memgraph::communication::bolt::ClientError("Malformed database name.");
       }
       db = db_info.ValueString();
-      update = db != current_.ic()->db->id();
+      update = db != current_.interpreter_context()->db->id();
       interpreter_->in_explicit_db_ = true;
     } else if (interpreter_->in_explicit_db_) {  // Just on a switch
       db = GetDefaultDB();
-      update = db != current_.ic()->db->id();
+      update = db != current_.interpreter_context()->db->id();
       interpreter_->in_explicit_db_ = false;
     }
 
@@ -610,7 +612,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
         try {
           Update(ContextWrapper(new_sc));
           return memgraph::dbms::SetForResult::SUCCESS;
-        } catch (memgraph::dbms::UnknownDatabase &e) {
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", db_name);
         }
       });
@@ -708,7 +710,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     if (user_.has_value()) {
       const auto &db = user_->db_access().GetDefault();
       // Check if the underlying database needs to be updated
-      if (db != current_.ic()->db->id()) {
+      if (db != current_.interpreter_context()->db->id()) {
         const auto &res = sc_handler_.SetFor(UUID(), db);
         return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
       }
@@ -725,7 +727,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
     MultiDatabaseAuth(db_name);
-    if (db_name != current_.ic()->db->id()) {
+    if (db_name != current_.interpreter_context()->db->id()) {
       UpdateAndDefunct(db_name);  // Done during Pull, so we cannot just replace the current db
       return memgraph::dbms::SetForResult::SUCCESS;
     }
@@ -733,13 +735,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
   bool OnDelete(const std::string &db_name) override {
-    MG_ASSERT(current_.ic()->db->id() != db_name && (!defunct_ || defunct_->defunct()),
+    MG_ASSERT(current_.interpreter_context()->db->id() != db_name && (!defunct_ || defunct_->defunct()),
               "Trying to delete a database while still in use.");
     return true;
   }
 #endif
 
-  std::string GetID() const override { return interpreter_context_->db->id(); }
+  std::string GetDatabaseName() const override { return interpreter_context_->db->id(); }
 
  private:
   template <typename TStream>
@@ -789,7 +791,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
    * @brief Update setup to the new database.
    *
    * @param db_name name of the target database
-   * @throws UnknownDatabase if handler cannot get it
+   * @throws UnknownDatabaseException if handler cannot get it
    */
   void UpdateAndDefunct(const std::string &db_name) { UpdateAndDefunct(ContextWrapper(sc_handler_.Get(db_name))); }
 
@@ -807,7 +809,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Update(ContextWrapper &&cntxt) {
     current_ = std::move(cntxt);
     interpreter_ = current_.interp();
-    interpreter_context_ = current_.ic();
+    interpreter_context_ = current_.interpreter_context();
   }
 
   /**
@@ -1129,39 +1131,41 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
+  auto auth_glue =
+      [flag = FLAGS_auth_user_or_role_name_regex](
+          memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+          std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+        // Glue high level auth implementations to the query side
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
+        ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+        // Handle users passed via arguments
+        auto *maybe_username = std::getenv(kMgUser);
+        auto *maybe_password = std::getenv(kMgPassword);
+        auto *maybe_pass_file = std::getenv(kMgPassfile);
+        if (maybe_username && maybe_password) {
+          ah->CreateUser(maybe_username, maybe_password);
+        } else if (maybe_pass_file) {
+          const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+          if (!username.empty() && !password.empty()) {
+            ah->CreateUser(username, password);
+          }
+        }
+      };
+
 #ifdef MG_ENTERPRISE
   // SessionContext handler (multi-tenancy)
-  memgraph::dbms::SessionContextHandler sc_handler(
-      audit_log,
-      {db_config, interp_config,
-       [flag = FLAGS_auth_user_or_role_name_regex](
-           memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-           std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
-         // Glue high level auth implementations to the query side
-         ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
-         ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
-         // Handle users passed via arguments
-         auto *maybe_username = std::getenv(kMgUser);
-         auto *maybe_password = std::getenv(kMgPassword);
-         auto *maybe_pass_file = std::getenv(kMgPassfile);
-         if (maybe_username && maybe_password) {
-           ah->CreateUser(maybe_username, maybe_password);
-         } else if (maybe_pass_file) {
-           const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-           if (!username.empty() && !password.empty()) {
-             ah->CreateUser(username, password);
-           }
-         }
-       }},
-      FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop);
+  memgraph::dbms::SessionContextHandler sc_handler(audit_log, {db_config, interp_config, auth_glue},
+                                                   FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
+                                                   FLAGS_storage_delete_on_drop);
   // Just for current support... TODO remove
   auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
 
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
                                                                                                      "auth"};
-  memgraph::glue::AuthQueryHandler auth_handler(&auth_, FLAGS_auth_user_or_role_name_regex);
-  memgraph::glue::AuthChecker auth_checker{&auth_};
+  memgraph::glue::AuthQueryHandler auth_handler;
+  memgraph::glue::AuthChecker auth_checker;
+  auth_glue(auth_, auth_handler, auth_checker);
   auto session_context = memgraph::dbms::Init(db_config, interp_config, &auth_, &auth_handler, &auth_checker);
 
   // Handle users passed via arguments
@@ -1244,11 +1248,8 @@ int main(int argc, char **argv) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
 #ifdef MG_ENTERPRISE
     telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
-      auto info = sc_handler.Info();
-      const auto &vertex_count = std::get<0>(info);
-      const auto &edge_count = std::get<1>(info);
-      const auto &db_count = std::get<2>(info);
-      return {{"vertices", vertex_count}, {"edges", edge_count}, {"databases", db_count}};
+      const auto &info = sc_handler.Info();
+      return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
     });
 #else
     telemetry->AddCollector("storage", [&interpreter_context]() -> nlohmann::json {

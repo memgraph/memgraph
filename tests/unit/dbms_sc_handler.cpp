@@ -40,7 +40,7 @@ class TestInterface : public memgraph::dbms::SessionInterface {
     on_delete_ = on_delete;
   }
   std::string UUID() const override { return std::to_string(id_); }
-  std::string GetID() const override { return db_; }
+  std::string GetDatabaseName() const override { return db_; }
   memgraph::dbms::SetForResult OnChange(const std::string &name) override { return on_change_(name); }
   bool OnDelete(const std::string &name) override { return on_delete_(name); }
 

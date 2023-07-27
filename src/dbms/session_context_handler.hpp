@@ -56,18 +56,21 @@ class SessionContextHandler {
  public:
   using StorageT = storage::Storage;
   using StorageConfigT = storage::Config;
-  // using InterpT = decltype(interp_handler_)::ExpandedInterpContext;
-  // using InterpConfigT = query::InterpreterConfig;
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, SessionContext>;
 
   struct Config {
     StorageConfigT storage_config;           //!< Storage configuration
     query::InterpreterConfig interp_config;  //!< Interpreter context configuration
-    // std::string ah_flags;                    //!< glue::AuthHandler setup flags
     std::function<void(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *,
                        std::unique_ptr<query::AuthQueryHandler> &, std::unique_ptr<query::AuthChecker> &)>
         glue_auth;
+  };
+
+  struct Statistics {
+    uint64_t num_vertex;     //!< Sum of vertexes in every database
+    uint64_t num_edges;      //!< Sum of edges in every database
+    uint64_t num_databases;  //! number of isolated databases
   };
 
   /**
@@ -183,7 +186,7 @@ class SessionContextHandler {
    *
    * @param name
    * @return SessionContext
-   * @throw UnknownDatabase if getting unknown database
+   * @throw UnknownDatabaseException if getting unknown database
    */
   SessionContext Get(const std::string &name) {
     std::shared_lock<LockT> rd(lock_);
@@ -196,7 +199,7 @@ class SessionContextHandler {
    * @param uuid unique session identifier
    * @param db_name unique database name
    * @return SetForResult enum
-   * @throws UnknownDatabase, UnknownSession or anything OnChange throws
+   * @throws UnknownDatabaseException, UnknownSessionException or anything OnChange throws
    */
   SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
     std::shared_lock<LockT> rd(lock_);
@@ -206,7 +209,7 @@ class SessionContextHandler {
       auto &s = sessions_.at(uuid);
       return s.OnChange(db_name);
     } catch (std::out_of_range &) {
-      throw UnknownSession("Unknown session \"{}\"", uuid);
+      throw UnknownSessionException("Unknown session \"{}\"", uuid);
     }
   }
 
@@ -277,7 +280,7 @@ class SessionContextHandler {
       if (!sc.interpreter_context->interpreters->empty()) {
         return DeleteError::USING;
       }
-    } catch (UnknownDatabase &) {
+    } catch (UnknownDatabaseException &) {
       return DeleteError::NON_EXISTENT;
     }
 
@@ -356,14 +359,14 @@ class SessionContextHandler {
    *
    * @return uint64_t
    */
-  std::tuple<uint64_t, uint64_t, uint64_t> Info() const {
+  Statistics Info() const {
     // TODO: Handle overflow
     uint64_t nv = 0;
     uint64_t ne = 0;
     std::shared_lock<LockT> rd(lock_);
     const uint64_t ndb = std::distance(interp_handler_.cbegin(), interp_handler_.cend());
-    for (auto ic = interp_handler_.cbegin(); ic != interp_handler_.cend(); ++ic) {
-      const auto &info = ic->second.get()->db->GetInfo();
+    for (const auto &ic : interp_handler_) {
+      const auto &info = ic.second.get()->db->GetInfo();
       nv += info.vertex_count;
       ne += info.edge_count;
     }
@@ -379,7 +382,7 @@ class SessionContextHandler {
    */
   std::string Current(const std::string &uuid) const {
     std::shared_lock<LockT> rd(lock_);
-    return sessions_.at(uuid).GetID();
+    return sessions_.at(uuid).GetDatabaseName();
   }
 
   /**
@@ -540,14 +543,14 @@ class SessionContextHandler {
    *
    * @param name
    * @return SessionContext
-   * @throw UnknownDatabase if trying to get unknown database
+   * @throw UnknownDatabaseException if trying to get unknown database
    */
   SessionContext Get_(const std::string &name) {
     auto interp = interp_handler_.Get(name);
     if (interp) {
       return SessionContext{*interp, run_id_, auth_.get(), audit_log_};
     }
-    throw UnknownDatabase("Tried to retrieve an unknown database \"{}\".", name);
+    throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
 
   // Should storage objects ever be deleted?

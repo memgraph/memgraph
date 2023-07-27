@@ -81,16 +81,6 @@ struct Config {
   std::string name;
 };
 
-#define UPDATE_PATH(update)                                                                                 \
-  {                                                                                                         \
-    const auto old_path = std::filesystem::weakly_canonical(std::filesystem::absolute(config.disk.update)); \
-    const auto contained_path = contained(old_path, old_base);                                              \
-    if (!contained_path) {                                                                                  \
-      throw StorageConfigException("On-disk directories not contained in root.");                           \
-    }                                                                                                       \
-    config.disk.update = config.durability.storage_directory / *contained_path;                             \
-  }
-
 static inline void UpdatePaths(Config &config, const std::filesystem::path &storage_dir) {
   auto contained = [](const auto &path, const auto &base) -> std::optional<std::filesystem::path> {
     auto rel = std::filesystem::relative(path, base);
@@ -104,16 +94,23 @@ static inline void UpdatePaths(Config &config, const std::filesystem::path &stor
       std::filesystem::weakly_canonical(std::filesystem::absolute(config.durability.storage_directory));
   config.durability.storage_directory = std::filesystem::weakly_canonical(std::filesystem::absolute(storage_dir));
 
-  UPDATE_PATH(main_storage_directory);
-  UPDATE_PATH(label_index_directory);
-  UPDATE_PATH(label_property_index_directory);
-  UPDATE_PATH(unique_constraints_directory);
-  UPDATE_PATH(name_id_mapper_directory);
-  UPDATE_PATH(id_name_mapper_directory);
-  UPDATE_PATH(durability_directory);
-  UPDATE_PATH(wal_directory);
-}
+  auto UPDATE_PATH = [&](auto to_update) {
+    const auto old_path = std::filesystem::weakly_canonical(std::filesystem::absolute(to_update(config.disk)));
+    const auto contained_path = contained(old_path, old_base);
+    if (!contained_path) {
+      throw StorageConfigException("On-disk directories not contained in root.");
+    }
+    to_update(config.disk) = config.durability.storage_directory / *contained_path;
+  };
 
-#undef UPDATE_PATH
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::main_storage_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::label_index_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::label_property_index_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::unique_constraints_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::name_id_mapper_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::id_name_mapper_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::durability_directory));
+  UPDATE_PATH(std::mem_fn(&Config::DiskConfig::wal_directory));
+}
 
 }  // namespace memgraph::storage

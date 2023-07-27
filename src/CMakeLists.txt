@@ -18,7 +18,6 @@ add_subdirectory(rpc)
 add_subdirectory(license)
 add_subdirectory(auth)
 add_subdirectory(audit)
-add_subdirectory(dbms)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 

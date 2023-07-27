@@ -503,6 +503,10 @@ void Databases::Delete(const std::string &db) {
   if (!allow_all_) {
     grants_dbs_.erase(db);
   }
+  // Reset if default deleted
+  if (default_db_ == db) {
+    default_db_ = "";
+  }
 }
 
 void Databases::GrantAll() {

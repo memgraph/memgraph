@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "auth/models.hpp"
+#include "dbms/constants.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
@@ -291,6 +292,10 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
           }
 #endif
       );
+#ifdef MG_ENTERPRISE
+      GrantDatabaseToUser(kAllDatabases, username);
+      SetMainDatabase(username, dbms::kDefaultDB);
+#endif
     }
 
     return user_added;

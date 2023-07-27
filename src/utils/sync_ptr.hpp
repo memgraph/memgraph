@@ -37,9 +37,9 @@ struct SyncPtr {
    */
   template <typename... TArgs>
   explicit SyncPtr(TConfig config, TArgs &&...args)
-      : timeout_{1000},
-        config_{config},
-        ptr_{new TContext(std::forward<TArgs>(args)...), std::bind(&SyncPtr::OnDelete, this, std::placeholders::_1)} {}
+      : timeout_{1000}, config_{config}, ptr_{new TContext(std::forward<TArgs>(args)...), [this](TContext *ptr) {
+                                                this->OnDelete(ptr);
+                                              }} {}
 
   ~SyncPtr() = default;
 
@@ -99,7 +99,7 @@ struct SyncPtr {
       std::lock_guard<std::mutex> lock(in_use_mtx_);
       in_use_ = false;
     }
-    in_use_cv_.notify_one();
+    in_use_cv_.notify_all();
   }
 
   bool in_use_{true};                          //!< Flag used to signal sync
@@ -122,8 +122,9 @@ class SyncPtr<TContext, void> {
    */
   template <typename... TArgs>
   explicit SyncPtr(TArgs &&...args)
-      : timeout_{1000},
-        ptr_{new TContext(std::forward<TArgs>(args)...), std::bind(&SyncPtr::OnDelete, this, std::placeholders::_1)} {}
+      : timeout_{1000}, ptr_{new TContext(std::forward<TArgs>(args)...), [this](TContext *ptr) {
+                               this->OnDelete(ptr);
+                             }} {}
 
   ~SyncPtr() = default;
 
@@ -175,7 +176,7 @@ class SyncPtr<TContext, void> {
       std::lock_guard<std::mutex> lock(in_use_mtx_);
       in_use_ = false;
     }
-    in_use_cv_.notify_one();
+    in_use_cv_.notify_all();
   }
 
   bool in_use_{true};                          //!< Flag used to signal sync

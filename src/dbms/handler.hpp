@@ -107,6 +107,8 @@ class Handler {
 
   auto begin() { return items_.begin(); }
   auto end() { return items_.end(); }
+  auto begin() const { return items_.begin(); }
+  auto end() const { return items_.end(); }
   auto cbegin() const { return items_.cbegin(); }
   auto cend() const { return items_.cend(); }
 

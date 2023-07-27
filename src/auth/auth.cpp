@@ -346,10 +346,10 @@ bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name
 void Auth::DeleteDatabase(const std::string &db) {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
-    if (username != utils::ToLowerCase(username)) continue;
     auto user = GetUser(username);
     if (user) {
       user->db_access().Delete(db);
+      SaveUser(*user);
     }
   }
 }
