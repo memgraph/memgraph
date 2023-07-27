@@ -42,13 +42,13 @@ void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
         json mapping_data = json::parse(mapping_file);
         mapping_ = mapping_data.get<std::unordered_map<std::string, std::string>>();
       } catch (...) {
-        MG_ASSERT("Parsing callable mapping was unsuccesful. Make sure it is in correct json format.");
+        MG_ASSERT(false, "Parsing callable mapping was unsuccesful. Make sure it is in correct json format.");
       }
     } else {
-      MG_ASSERT("Path to callable mappings is not a regular file or does not have .json extension.");
+      MG_ASSERT(false, "Path to callable mappings is not a regular file or does not have .json extension.");
     }
   } else {
-    MG_ASSERT("Path to callable mappings was set, but the path does not exist.");
+    MG_ASSERT(false, "Path to callable mappings was set, but the path does not exist.");
   }
 }
 
