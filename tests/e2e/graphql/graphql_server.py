@@ -14,6 +14,10 @@ class GraphQLServer:
     def __init__(self, config_file_path: str):
         self.url = "http://127.0.0.1:4000"
 
+        ls = subprocess.Popen(("lsof", "-t", "-i:4000"), stdout=subprocess.PIPE)
+        subprocess.check_output(("xargs", "-r", "kill"), stdin=ls.stdout)
+        ls.wait()
+
         graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         self.__wait_process_to_init(graphql_lib.pid)
