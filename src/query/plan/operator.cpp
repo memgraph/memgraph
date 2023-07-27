@@ -2705,9 +2705,11 @@ namespace {
 
 template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value) {
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
   { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
 };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
@@ -2807,20 +2809,12 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
-      // TODO (antoniofilipovic): this will create more deltas then necessary
-      const auto old_props = record->ClearProperties();
-      if (old_props.HasError()) {
-        throw QueryRuntimeException("Unexpected error when setting properties.");
-      }
-      std::map<storage::PropertyId, storage::PropertyValue> merged_map;
+      std::map<storage::PropertyId, storage::PropertyValue> new_properties;
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
-        merged_map.emplace(key, kv.second);
+        new_properties.emplace(key, kv.second);
       }
-      for (const auto &kv : *old_props) {
-        merged_map.emplace(kv.first, kv.second);
-      }
-      auto result = record->InitProperties(merged_map);
+      auto result = record->UpdateProperties(new_properties);
       MG_ASSERT(!result.HasError() && *result);
       break;
     }

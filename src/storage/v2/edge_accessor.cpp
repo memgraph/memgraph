@@ -12,11 +12,13 @@
 #include "storage/v2/edge_accessor.hpp"
 
 #include <memory>
+#include <stdexcept>
 #include <tuple>
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -143,6 +145,10 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   }
 
   return true;
+}
+
+Result<bool> EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> & /*properties*/) {
+  throw std::runtime_error("Method not implemented");
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
