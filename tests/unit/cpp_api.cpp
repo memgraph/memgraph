@@ -473,7 +473,6 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }
 
-
 TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   const int64_t int1 = 3;
   const int64_t int2 = 4;
@@ -495,6 +494,7 @@ TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   ASSERT_THROW(int_test1 < string_test1, mgp::ValueException);
   ASSERT_THROW(list_test < map_test, mgp::ValueException);
   ASSERT_THROW(list_test < list_test, mgp::ValueException);
+}
 
 TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
   std::string string1 = "string";
@@ -520,5 +520,4 @@ TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
   ASSERT_EQ(str_test, "string");
   ASSERT_EQ(int_test, "int");
   ASSERT_EQ(list_test, "list");
-
 }
