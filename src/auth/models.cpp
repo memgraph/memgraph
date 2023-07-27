@@ -600,7 +600,7 @@ User User::Deserialize(const nlohmann::json &data) {
     if (data["fine_grained_access_handler"].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
     }
-    return {data["username"], data["password_hash"], permissions, fine_grained_access_handler};
+    return {data["username"], data["password_hash"], permissions, std::move(fine_grained_access_handler)};
   }
 #endif
   return {data["username"], data["password_hash"], permissions};
