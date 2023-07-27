@@ -31,7 +31,7 @@ class GraphQLServer:
             return response
 
     def __wait_process_to_init(self, pid: int):
-        time.sleep(1)
+        time.sleep(5)
         path = "/proc/" + str(pid)
         while True:
             if os.path.exists(path):
@@ -74,9 +74,8 @@ def server_returned_expected(expected_string: str, server_response: requests.Res
     actual = _flatten(_ordered(server_response_json))
 
     for expected_item, actual_item in zip(expected, actual):
-        if expected_item != actual_item:
-            if not (_valid_uuid(expected_item)):
-                return False
+        if expected_item != actual_item and not (_valid_uuid(expected_item)):
+            return False
 
     return True
 

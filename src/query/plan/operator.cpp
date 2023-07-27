@@ -52,6 +52,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -4726,64 +4727,17 @@ class CallValidateProcedureCursor : public Cursor {
       const auto &message = args[1]->Accept(evaluator);
       const auto &message_args = args[2]->Accept(evaluator);
 
-      auto format_error_message = [message_val = message.ValueString(),
-                                   message_args_val = message_args.ValueList()]() mutable {
-        std::size_t found{0U};
-        std::size_t arg_index{0U};
+      using TString = std::remove_cvref_t<decltype(message.ValueString())>;
+      using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
 
-        while (true) {
-          found = message_val.find('%', found);
-          if (found == std::string::npos) {
-            break;
-          }
+      utils::JStringFormatter<TString, TElement> formatter;
 
-          const bool ends_with_percentile = (found == message_val.size() - 1U);
-          if (ends_with_percentile) {
-            break;
-          }
-
-          const auto format_specifier = message_val.at(found + 1U);
-          if (!std::isalpha(format_specifier)) {
-            ++found;
-            continue;
-          }
-          const bool does_argument_list_overflow = (message_args_val.size() < arg_index - 1U) && (arg_index > 0U);
-          if (does_argument_list_overflow) {
-            throw QueryRuntimeException(
-                "There are more format specifiers in the CALL procedure error message, then arguments provided.");
-          }
-          const bool arg_count_exceeds_format_spec_count = (arg_index > message_args_val.size() - 1U);
-          if (arg_count_exceeds_format_spec_count) {
-            break;
-          }
-
-          std::string replacement_str;
-          auto &current_arg = message_args_val.at(arg_index);
-          switch (format_specifier) {
-            case 'd':
-              replacement_str = std::to_string(current_arg.ValueInt());
-              break;
-            case 'f':
-              replacement_str = std::to_string(current_arg.ValueDouble());
-              break;
-            case 's':
-              replacement_str = current_arg.ValueString();
-              break;
-            default:
-              throw QueryRuntimeException("Format specifier %'{}', in CALL procedure is not supported.",
-                                          format_specifier);
-          }
-
-          message_val.replace(found, 2U, replacement_str);
-          ++arg_index;
-          ++found;
-        }
-
-        message_val.shrink_to_fit();
-        return message_val;
-      };
-
-      throw QueryRuntimeException(format_error_message());
+      try {
+        const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());
+        throw QueryRuntimeException(msg);
+      } catch (const utils::JStringFormatException &e) {
+        throw QueryRuntimeException(e.what());
+      }
     }
 
     return true;
@@ -4801,7 +4755,7 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   if (void_procedure_) {
     // Currently we do not support Call procedures that do not return
     // anything. This cursor is way too specific, but it provides a workaround
-    // to ensure GraphQL compatibility untill we start supporting truly void
+    // to ensure GraphQL compatibility until we start supporting truly void
     // procedures.
     return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
   }

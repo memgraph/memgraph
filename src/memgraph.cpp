@@ -358,8 +358,9 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(callable_mappings_path, "",
-              "The path to mappings that describe aliases to callables in cypher queries in the form of key-value "
-              "pairs in a json file.");
+              "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
+              "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
+              "mapped to ones that exist.");
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
