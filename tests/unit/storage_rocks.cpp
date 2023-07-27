@@ -34,7 +34,7 @@
  */
 class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
  public:
-  const std::string testSuite = "storage_v2_constraints";
+  const std::string testSuite = "storage_rocks";
 
   RocksDBStorageTest() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
