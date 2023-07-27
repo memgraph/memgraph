@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <queue>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -479,4 +480,30 @@ TYPED_TEST(CppApiTestFixture, TestNumberEquality) {
   mgp::Value double_2{2.01};
   mgp::Value int_2{static_cast<int64_t>(2)};
   ASSERT_FALSE(double_2 == int_2);
+}
+
+TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
+  std::string string1 = "string";
+  int64_t int1 = 4;
+  mgp::List list = mgp::List();
+
+  mgp::Value string_value = mgp::Value(string1);
+  mgp::Value int_value = mgp::Value(int1);
+  mgp::Value list_value = mgp::Value(list);
+
+  std::ostringstream oss_str;
+  oss_str << string_value.Type();
+  std::string str_test = oss_str.str();
+
+  std::ostringstream oss_int;
+  oss_int << int_value.Type();
+  std::string int_test = oss_int.str();
+
+  std::ostringstream oss_list;
+  oss_list << list_value.Type();
+  std::string list_test = oss_list.str();
+
+  ASSERT_EQ(str_test, "string");
+  ASSERT_EQ(int_test, "int");
+  ASSERT_EQ(list_test, "list");
 }
