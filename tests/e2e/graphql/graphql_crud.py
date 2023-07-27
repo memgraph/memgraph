@@ -5,11 +5,46 @@ from graphql_server import *
 
 
 def test_create_query(query_server):
-    create_node_query(query_server)
+    query = 'mutation{createUsers(input:[{name:"John Doe"}]){users{id name}}}'
+    gotten = query_server.send_query(query)
+    expected_result = (
+        '{"data":{"createUsers":{"users":[{"id":"e2d65187-d522-47bf-9791-6c66dd8fd672","name":"John Doe"}]}}}'
+    )
+    assert server_returned_expected(expected_result, gotten)
 
 
 def test_nested_create_query(query_server):
-    create_related_nodes_query(query_server)
+    query = """
+    mutation {
+        createUsers(input: [
+            {
+                name: "John Doe"
+                posts: {
+                    create: [
+                        {
+                            node: {
+                                content: "Hi, my name is John!"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]) {
+            users {
+                id
+                name
+                posts {
+                    id
+                    content
+                }
+            }
+        }
+    }
+    """
+
+    expected_result = '{"data":{"createUsers":{"users":[{"id": "361004b7-f92d-4df0-9f96-5b43602c0f25","name": "John Doe","posts":[{"id":"e8d2033f-c15e-4529-a4f8-ca2ae09a066b",       "content": "Hi, my name is John!"}]}]}}}'
+    gotten_response = query_server.send_query(query)
+    assert server_returned_expected(expected_result, gotten_response)
 
 
 def test_delete_node_query(query_server):
