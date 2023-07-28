@@ -19,6 +19,9 @@
 #include "utils/settings.hpp"
 
 namespace memgraph::auth {
+
+static const constexpr char *const kAllDatabases = "*";
+
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.

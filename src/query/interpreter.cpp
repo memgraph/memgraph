@@ -536,7 +536,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
-          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          if (database != memgraph::auth::kAllDatabases) {
+            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          }
           if (!auth->GrantDatabaseToUser(database, username)) {
             throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
           }
@@ -553,7 +556,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
-          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          if (database != memgraph::auth::kAllDatabases) {
+            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          }
           if (!auth->RevokeDatabaseFromUser(database, username)) {
             throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
           }

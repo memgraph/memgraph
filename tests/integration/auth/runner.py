@@ -182,12 +182,17 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
         [
             "CREATE USER ADmin IDENTIFIED BY 'admin'",
             "GRANT ALL PRIVILEGES TO admIN",
+            "GRANT DATABASE * TO admin",
             "CREATE USER usEr IDENTIFIED BY 'user'",
+            "GRANT DATABASE db1 TO user",
+            "GRANT DATABASE db2 TO user",
             "CREATE USER useR2 IDENTIFIED BY 'user'",
             "GRANT DATABASE db2 TO user2",
+            "REVOKE DATABASE memgraph FROM user2",
             "SET MAIN DATABASE db2 FOR user2",
             "CREATE USER user3 IDENTIFIED BY 'user'",
             "GRANT ALL PRIVILEGES TO user3",
+            "GRANT DATABASE * TO user3",
             "REVOKE DATABASE memgraph FROM user3",
         ]
     )

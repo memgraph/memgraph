@@ -22,7 +22,6 @@
 namespace memgraph::glue {
 
 inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
-static const constexpr char *const kAllDatabases = "*";
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;

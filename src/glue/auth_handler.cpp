@@ -293,7 +293,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 #endif
       );
 #ifdef MG_ENTERPRISE
-      GrantDatabaseToUser(kAllDatabases, username);
+      GrantDatabaseToUser(auth::kAllDatabases, username);
       SetMainDatabase(username, dbms::kDefaultDB);
 #endif
     }

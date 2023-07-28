@@ -31,7 +31,6 @@ struct SessionContext {
   // supplied.
 
   SessionContext(std::shared_ptr<memgraph::query::InterpreterContext> interpreter_context, std::string run,
-                 //  std::shared_ptr<AuthContext> auth_context
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
 #ifdef MG_ENTERPRISE
                  ,
@@ -40,8 +39,6 @@ struct SessionContext {
                  )
       : interpreter_context(interpreter_context),
         run_id(run),
-        // auth_context(auth_context),
-        // auth(&auth_context->auth)
         auth(auth)
 #ifdef MG_ENTERPRISE
         ,

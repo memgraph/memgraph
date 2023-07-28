@@ -318,7 +318,7 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name) {
   auto user = GetUser(name);
   if (user) {
-    if (db == "*") {
+    if (db == kAllDatabases) {
       user->db_access().GrantAll();
     } else {
       user->db_access().Add(db);
@@ -332,7 +332,7 @@ bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name) {
 bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name) {
   auto user = GetUser(name);
   if (user) {
-    if (db == "*") {
+    if (db == kAllDatabases) {
       user->db_access().DenyAll();
     } else {
       user->db_access().Remove(db);
