@@ -414,6 +414,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
+    session.Configure(extra.ValueMap());
     session.BeginTransaction(helpers::ConsumeMetadata(extra));
   } catch (const std::exception &e) {
     return HandleFailure(session, e);

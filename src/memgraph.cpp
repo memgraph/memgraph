@@ -597,11 +597,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       }
       db = db_info.ValueString();
       update = db != current_.interpreter_context()->db->id();
-      interpreter_->in_explicit_db_ = true;
-    } else if (interpreter_->in_explicit_db_) {  // Just on a switch
+      in_explicit_db_ = true;
+      // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
+    } else if (in_explicit_db_ && !interpreter_->in_explicit_transaction_) {  // Just on a switch
       db = GetDefaultDB();
       update = db != current_.interpreter_context()->db->id();
-      interpreter_->in_explicit_db_ = false;
+      in_explicit_db_ = false;
     }
 
     // Check if the underlying database needs to be updated
@@ -809,6 +810,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Update(ContextWrapper &&cntxt) {
     current_ = std::move(cntxt);
     interpreter_ = current_.interp();
+    interpreter_->in_explicit_db_ = in_explicit_db_;
     interpreter_context_ = current_.interpreter_context();
   }
 
@@ -889,6 +891,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;
+  bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
 };
 
 #ifdef MG_ENTERPRISE
