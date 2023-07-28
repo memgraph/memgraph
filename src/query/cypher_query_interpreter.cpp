@@ -84,6 +84,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     if (visitor.GetQueryInfo().has_load_csv && !query_config.allow_load_csv) {
       throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
     }
+
     if (visitor.GetQueryInfo().is_cacheable) {
       CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
       it = accessor.insert({hash, std::move(cached_query)}).first;

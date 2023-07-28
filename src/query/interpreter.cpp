@@ -171,8 +171,8 @@ bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &claus
       continue;
     }
     auto *match_clause = utils::Downcast<Match>(clause);
-    for (auto &pattern : match_clause->patterns_) {
-      for (auto &atom : pattern->atoms_) {
+    for (const auto &pattern : match_clause->patterns_) {
+      for (const auto &atom : pattern->atoms_) {
         if (atom->GetTypeInfo() != EdgeAtom::kType) {
           continue;
         }
@@ -1405,9 +1405,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
   auto use_monotonic_memory =
       !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
-
-  spdlog::trace("Has all shortest PrepareCypher {} and use monotonic {}", IsAllShortestPathsQuery(clauses),
-                use_monotonic_memory);
+  spdlog::trace("PrepareCypher has {} encountered all shortest paths and will {} use of monotonic memory",
+                IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
@@ -3175,7 +3174,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(utils::PoolResource(
             128, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
         query_execution_ptr = &query_executions_.back();
-        spdlog::trace("Has all shortest QueryExecutions Resource {}", IsAllShortestPathsQuery(clauses));
+        spdlog::trace("PrepareCypher has {} encountered all shortest paths, QueryExection will use PoolResource",
+                      IsAllShortestPathsQuery(clauses) ? "" : "not");
       }
     }
 
