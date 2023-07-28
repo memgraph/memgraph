@@ -11,14 +11,17 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "_mgp.hpp"
+#include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
 namespace mgp {
@@ -1349,6 +1352,67 @@ inline void AddFunction(mgp_func_cb callback, std::string_view name, std::vector
 /* #endregion */
 
 namespace util {
+inline uint64_t Fnv(const std::string_view s) {
+  // fnv1a is recommended so use it as the default implementation.
+  uint64_t hash = 14695981039346656037UL;
+
+  for (const auto &ch : s) {
+    hash = (hash ^ (uint64_t)ch) * 1099511628211UL;
+  }
+
+  return hash;
+}
+
+/**
+ * Does FNV-like hashing on a collection. Not truly FNV
+ * because it operates on 8-bit elements, while this
+ * implementation uses size_t elements (collection item
+ * hash).
+ *
+ * https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+ *
+ *
+ * @tparam TIterable A collection type that has begin() and end().
+ * @tparam TElement Type of element in the collection.
+ * @tparam THash Hash type (has operator() that accepts a 'const TEelement &'
+ *  and returns size_t. Defaults to std::hash<TElement>.
+ * @param iterable A collection of elements.
+ * @param element_hash Function for hashing a single element.
+ * @return The hash of the whole collection.
+ */
+template <typename TIterable, typename TElement, typename THash = std::hash<TElement>>
+struct FnvCollection {
+  size_t operator()(const TIterable &iterable) const {
+    uint64_t hash = 14695981039346656037u;
+    THash element_hash;
+    for (const TElement &element : iterable) {
+      hash *= fnv_prime;
+      hash ^= element_hash(element);
+    }
+    return hash;
+  }
+
+ private:
+  static const uint64_t fnv_prime = 1099511628211u;
+};
+
+/**
+ * Like FNV hashing for a collection, just specialized for two elements to avoid
+ * iteration overhead.
+ */
+template <typename TA, typename TB, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>>
+struct HashCombine {
+  size_t operator()(const TA &a, const TB &b) const {
+    static constexpr size_t fnv_prime = 1099511628211UL;
+    static constexpr size_t fnv_offset = 14695981039346656037UL;
+    size_t ret = fnv_offset;
+    ret ^= TAHash()(a);
+    ret *= fnv_prime;
+    ret ^= TBHash()(b);
+    return ret;
+  }
+};
+
 // uint to int conversion in C++ is a bit tricky. Take a look here
 // https://stackoverflow.com/questions/14623266/why-cant-i-reinterpret-cast-uint-to-int
 // for more details.
@@ -1470,6 +1534,10 @@ inline bool DurationsEqual(mgp_duration *duration1, mgp_duration *duration2) {
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
     return true;
+  }
+  // Make int and double comparable, (ex. this is true -> 1.0 == 1)
+  if (mgp::value_is_numeric(value1) && mgp::value_is_numeric(value2)) {
+    return mgp::value_get_numeric(value1) == mgp::value_get_numeric(value2);
   }
   if (mgp::value_get_type(value1) != mgp::value_get_type(value2)) {
     return false;
@@ -3638,6 +3706,28 @@ struct hash<mgp::Relationship> {
 };
 
 template <>
+struct hash<mgp::Path> {
+  size_t operator()(const mgp::Path &x) const {
+    // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+    // See mgp::util::FnvCollection
+    constexpr const uint64_t fnv_prime = 1099511628211U;
+    uint64_t hash = 14695981039346656037U;
+
+    auto multiply_and_xor = [](uint64_t &hash, size_t element_hash) {
+      hash *= fnv_prime;
+      hash ^= element_hash;
+    };
+
+    for (size_t i = 0; i < x.Length() - 1; ++i) {
+      multiply_and_xor(hash, std::hash<mgp::Node>{}(x.GetNodeAt(i)));
+      multiply_and_xor(hash, std::hash<mgp::Relationship>{}(x.GetRelationshipAt(i)));
+    }
+    multiply_and_xor(hash, std::hash<mgp::Node>{}(x.GetNodeAt(x.Length())));
+    return hash;
+  }
+};
+
+template <>
 struct hash<mgp::Date> {
   size_t operator()(const mgp::Date &x) const { return hash<int64_t>()(x.Timestamp()); };
 };
@@ -3660,5 +3750,60 @@ struct hash<mgp::Duration> {
 template <>
 struct hash<mgp::MapItem> {
   size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
+};
+
+template <>
+struct hash<mgp::Map> {
+  size_t operator()(const mgp::Map &x) const {
+    return mgp::util::FnvCollection<mgp::Map, mgp::MapItem, std::hash<mgp::MapItem>>{}(x);
+  }
+};
+
+template <>
+struct hash<mgp::Value> {
+  size_t operator()(const mgp::Value &x) const {
+    switch (x.Type()) {
+      case mgp::Type::Null:
+        return 31;
+      case mgp::Type::Any:
+        throw mg_exception::InvalidArgumentException();
+      case mgp::Type::Bool:
+        return std::hash<bool>{}(x.ValueBool());
+      case mgp::Type::Int:
+        // we cast int to double for hashing purposes
+        // to be consistent with equality (2.0 == 2) == true
+        return std::hash<double>{}((double)x.ValueInt());
+      case mgp::Type::Double:
+        return std::hash<double>{}(x.ValueDouble());
+      case mgp::Type::String:
+        return std::hash<std::string_view>{}(x.ValueString());
+      case mgp::Type::List:
+        return mgp::util::FnvCollection<mgp::List, mgp::Value, std::hash<mgp::Value>>{}(x.ValueList());
+      case mgp::Type::Map:
+        return std::hash<mgp::Map>{}(x.ValueMap());
+      case mgp::Type::Node:
+        return std::hash<mgp::Node>{}(x.ValueNode());
+      case mgp::Type::Relationship:
+        return std::hash<mgp::Relationship>{}(x.ValueRelationship());
+      case mgp::Type::Path:
+        return std::hash<mgp::Path>{}(x.ValuePath());
+      case mgp::Type::Date:
+        return std::hash<mgp::Date>{}(x.ValueDate());
+      case mgp::Type::LocalTime:
+        return std::hash<mgp::LocalTime>{}(x.ValueLocalTime());
+      case mgp::Type::LocalDateTime:
+        return std::hash<mgp::LocalDateTime>{}(x.ValueLocalDateTime());
+      case mgp::Type::Duration:
+        return std::hash<mgp::Duration>{}(x.ValueDuration());
+    }
+    throw mg_exception::InvalidArgumentException();
+  }
+};
+
+template <>
+struct hash<mgp::List> {
+  size_t operator()(const mgp::List &x) {
+    return mgp::util::FnvCollection<mgp::List, mgp::Value, std::hash<mgp::Value>>{}(x);
+  }
 };
 }  // namespace std
