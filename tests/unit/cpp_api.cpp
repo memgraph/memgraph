@@ -473,6 +473,15 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }
 
+TYPED_TEST(CppApiTestFixture, TestNumberEquality) {
+  mgp::Value double_1{1.0};
+  mgp::Value int_1{static_cast<int64_t>(1)};
+  ASSERT_TRUE(double_1 == int_1);
+  mgp::Value double_2{2.01};
+  mgp::Value int_2{static_cast<int64_t>(2)};
+  ASSERT_FALSE(double_2 == int_2);
+}
+
 TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
   std::string string1 = "string";
   int64_t int1 = 4;
