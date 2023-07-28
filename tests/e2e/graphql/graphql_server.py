@@ -31,7 +31,7 @@ class GraphQLServer:
             return response
 
     def __wait_process_to_init(self, pid: int):
-        time.sleep(1)
+        time.sleep(5)
         path = "/proc/" + str(pid)
         while True:
             if os.path.exists(path):
