@@ -112,12 +112,14 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
 #ifdef MG_ENTERPRISE
   ~WebsocketSession() { session_context_->Delete(session_); }
+#else
+  ~WebsocketSession() = default;
+#endif
 
   WebsocketSession(const WebsocketSession &) = delete;
   WebsocketSession &operator=(const WebsocketSession &) = delete;
   WebsocketSession(WebsocketSession &&) noexcept = delete;
   WebsocketSession &operator=(WebsocketSession &&) noexcept = delete;
-#endif
 
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
@@ -286,12 +288,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
 #ifdef MG_ENTERPRISE
   ~Session() { session_context_->Delete(session_); }
+#else
+  ~Session() = default;
+#endif
 
   Session(const Session &) = delete;
   Session(Session &&) = delete;
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
-#endif
 
   bool Start() {
     if (execution_active_) {

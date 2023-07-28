@@ -1513,7 +1513,7 @@ antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListC
 }
 
 /**
- * @return std::vector<std::string>
+ * @return std::string
  */
 antlrcpp::Any CypherMainVisitor::visitWildcardName(MemgraphCypher::WildcardNameContext *ctx) {
   if (ctx->symbolicName()) {

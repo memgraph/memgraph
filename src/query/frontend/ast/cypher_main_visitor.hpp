@@ -525,7 +525,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
 
   /**
-   * @return std::vector<std::string>
+   * @return std::string
    */
   antlrcpp::Any visitWildcardName(MemgraphCypher::WildcardNameContext *ctx) override;
 

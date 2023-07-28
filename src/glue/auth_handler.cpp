@@ -552,7 +552,6 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
 #ifdef MG_ENTERPRISE
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
-    std::vector<std::vector<memgraph::query::TypedValue>> database_grants;
 #endif
     auto user = locked_auth->GetUser(user_or_role);
     auto role = locked_auth->GetRole(user_or_role);
