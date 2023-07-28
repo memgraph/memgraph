@@ -30,6 +30,7 @@
 #include <utility>
 #include <variant>
 
+#include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/global.hpp"
@@ -108,6 +109,24 @@ template <typename>
 constexpr auto kAlwaysFalse = false;
 
 namespace {
+template <typename T, typename K>
+void Sort(std::vector<T, K> &vec) {
+  std::sort(vec.begin(), vec.end());
+}
+
+template <typename K>
+void Sort(std::vector<TypedValue, K> &vec) {
+  std::sort(vec.begin(), vec.end(),
+            [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
+}
+
+bool Same(const TypedValue &lv, const TypedValue &rv) {
+  return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
+}
+bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
+bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
+bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
+
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
@@ -3291,7 +3310,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         const std::string &session_uuid, std::map<std::string, TypedValue> *summary,
                                         DbAccessor *dba, utils::MemoryResource *execution_memory,
-                                        const std::string *username,
+                                        const std::optional<std::string> &username,
                                         std::atomic<TransactionStatus> *transaction_status) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -3303,26 +3322,57 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   }
 
   auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
   callback.header = {"Name", "Current"};
-  callback.fn = [session_uuid, &sc_handler]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [auth, session_uuid, &sc_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
-    // Get all active dbs
-    auto all = sc_handler.All();
     const auto in_use = sc_handler.Current(session_uuid);
-    std::sort(all.begin(), all.end());
-    status.reserve(all.size());
-    for (const auto &name : all) {
-      status.push_back({TypedValue(name), TypedValue("")});
-    }
-    // Check if present and update current db
-    auto it = std::lower_bound(
-        status.begin(), status.end(), std::vector<TypedValue>({TypedValue(in_use), TypedValue("")}),
-        [](const auto &lhs, const auto &rhs) { return lhs[0].ValueString().compare(rhs[0].ValueString()) < 0; });
-    MG_ASSERT(it != status.end() && std::string((*it)[0].ValueString()) == in_use, "Missing current database!");
-    (*it)[1] = "*";
+    bool found_current = false;
 
+    auto gen_status = [&]<typename T, typename K>(T all, K denied) {
+      Sort(all);
+      Sort(denied);
+
+      status.reserve(all.size());
+      for (const auto &name : all) {
+        TypedValue use("");
+        if (!found_current && Same(name, in_use)) {
+          use = TypedValue("*");
+          found_current = true;
+        }
+        status.push_back({TypedValue(name), std::move(use)});
+      }
+
+      // No denied databases (no need to filter them out)
+      if (denied.empty()) return;
+
+      auto denied_itr = denied.begin();
+      auto iter = std::remove_if(status.begin(), status.end(), [&denied_itr, &denied](auto &in) -> bool {
+        while (denied_itr != denied.end() && denied_itr->ValueString() < in[0].ValueString()) ++denied_itr;
+        return (denied_itr != denied.end() && denied_itr->ValueString() == in[0].ValueString());
+      });
+      status.erase(iter, status.end());
+    };
+
+    if (!username) {
+      // No user, return all
+      gen_status(sc_handler.All(), std::vector<TypedValue>{});
+    } else {
+      // User has a subset of accessible dbs; this is synched with the SessionContextHandler
+      const auto &db_priv = auth->GetDatabasePrivileges(*username);
+      const auto &allowed = db_priv[0][0];
+      const auto &denied = db_priv[0][1].ValueList();
+      if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
+        // All databases are allowed
+        gen_status(sc_handler.All(), denied);
+      } else {
+        gen_status(allowed.ValueList(), denied);
+      }
+    }
+
+    if (!found_current) throw QueryRuntimeException("Missing current database!");
     return status;
   };
 
@@ -3338,7 +3388,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       0.0, AstStorage{}, symbol_table));
 
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, StringPointerToOptional(username), transaction_status);
+                                              execution_memory, username, transaction_status);
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
       [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
@@ -3567,7 +3617,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(
           std::move(parsed_query), interpreter_context_, session_uuid, &query_execution->summary,
-          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
+          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username_, &transaction_status_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
