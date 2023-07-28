@@ -1163,23 +1163,11 @@ int main(int argc, char **argv) {
 
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
                                                                                                      "auth"};
-  memgraph::glue::AuthQueryHandler auth_handler;
-  memgraph::glue::AuthChecker auth_checker;
-  auth_glue(auth_, auth_handler, auth_checker);
-  auto session_context = memgraph::dbms::Init(db_config, interp_config, &auth_, &auth_handler, &auth_checker);
+  std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
+  std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
+  auth_glue(&auth_, auth_handler, auth_checker);
+  auto session_context = memgraph::dbms::Init(db_config, interp_config, &auth_, auth_handler.get(), auth_checker.get());
 
-  // Handle users passed via arguments
-  auto *maybe_username = std::getenv(kMgUser);
-  auto *maybe_password = std::getenv(kMgPassword);
-  auto *maybe_pass_file = std::getenv(kMgPassfile);
-  if (maybe_username && maybe_password) {
-    auth_handler.CreateUser(maybe_username, maybe_password);
-  } else if (maybe_pass_file) {
-    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-    if (!username.empty() && !password.empty()) {
-      auth_handler.CreateUser(username, password);
-    }
-  }
 #endif
 
   auto *auth = session_context.auth;
