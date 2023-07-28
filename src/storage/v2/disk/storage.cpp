@@ -790,6 +790,10 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
   MG_ASSERT(vertices.size() <= 1, "The number of deleted vertices is not less or equal to 1!");
   MG_ASSERT(edges.empty(), "Deleting a vertex without detaching should not have resulted in deleting any edges!");
 
+  if (vertices.empty()) {
+    return std::optional<VertexAccessor>{};
+  }
+
   return std::make_optional<VertexAccessor>(vertices[0]);
 }
 
@@ -1240,6 +1244,10 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   MG_ASSERT(vertices.empty(), "Deleting an edge should not have deleted a vertex!");
   MG_ASSERT(edges.size() <= 1, "Deleted edges need to be less or equal to 1!");
+
+  if (edges.empty()) {
+    return std::optional<EdgeAccessor>{};
+  }
 
   return std::make_optional<EdgeAccessor>(edges[0]);
 }
