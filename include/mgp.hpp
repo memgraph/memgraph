@@ -532,15 +532,18 @@ class Map {
   /// operation is undefined.
   void Insert(std::string_view key, Value &&value);
 
-  /// @brief Updates the `key`-`value` pair in the map. If it doesn't exist inserts it. The `value` is copied.
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
   void Update(std::string_view key, const Value &value);
-  /// @brief Updates the `key`-`value` pair in the map. If it doesn't exist inserts it. The `value` is copied.
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
   /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
   /// operation is undefined.
   void Update(std::string_view key, Value &&value);
 
   /// @brief Erases the element associated with the key from the map, if it doesn't exist does nothing.
   void Erase(std::string_view key);
+
   // void Clear();  // not implemented (requires mgp_map_clear in the MGP API)
 
   /// @exception std::runtime_error Map contains value of unknown type.
