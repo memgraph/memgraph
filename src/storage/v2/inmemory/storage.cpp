@@ -271,300 +271,38 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 
-Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
-  auto res = DetachDelete({vertex}, {}, false);
-
-  if (res.HasError()) {
-    return res.GetError();
-  }
-
-  const auto &value = res.GetValue();
-  if (!value) {
-    return std::optional<VertexAccessor>{};
-  }
-
-  const auto &[vertices, edges] = *value;
-
-  MG_ASSERT(vertices.size() <= 1, "The number of deleted vertices is not less or equal to 1!");
-  MG_ASSERT(edges.empty(), "Deleting a vertex without detaching should not have resulted in deleting any edges!");
-
-  if (vertices.empty()) {
-    return std::optional<VertexAccessor>{};
-  }
-
-  return std::make_optional<VertexAccessor>(vertices[0]);
-}
-
-Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
-InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
-  using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-
-  auto res = DetachDelete({vertex}, {}, true);
-
-  if (res.HasError()) {
-    return res.GetError();
-  }
-
-  auto &value = res.GetValue();
-  if (!value) {
-    return std::optional<ReturnType>{};
-  }
-
-  auto &[vertices, edges] = *value;
-
-  MG_ASSERT(vertices.size() <= 1, "The number of detach deleted vertices is not less or equal to 1!");
-
-  return std::make_optional<ReturnType>(vertices[0], std::move(edges));
-}
-
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                                 bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
-  // result of the operation
-  std::vector<VertexAccessor> deleted_vertices;
-  std::vector<EdgeAccessor> deleted_edges;
-  std::set<EdgeRef> deleted_edges_set;
+  auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
 
-  // routine for deleting edges, please use this under the edge spin lock
-  auto mark_edge_as_deleted_func = [this](auto *edge_ptr) {
-    if (!edge_ptr->deleted) {
-      CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
-      edge_ptr->deleted = true;
-      storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
-
-      // Need to inform the next CollectGarbage call that there are some
-      // non-transactional deletions that need to be collected
-      if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-        auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-        mem_storage->gc_full_scan_edges_delete_ = true;
-      }
-    }
-  };
-
-  // Gather nodes for deletion
-  std::set<Vertex *> nodes_to_delete;
-  {
-    for (const auto &vertex : nodes) {
-      MG_ASSERT(vertex->transaction_ == &transaction_,
-                "VertexAccessor must be from the same transaction as the storage "
-                "accessor when deleting a vertex!");
-      auto *vertex_ptr = vertex->vertex_;
-
-      {
-        std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-        if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-
-        if (vertex_ptr->deleted) {
-          continue;
-        }
-      }
-
-      nodes_to_delete.insert(vertex_ptr);
-    }
-
-    deleted_vertices.reserve(nodes_to_delete.size());
+  if (maybe_result.HasError()) {
+    return maybe_result.GetError();
   }
 
-  // Aggregate edges and nodes for partial deletion (edges of nodes which don't need deletion)
-  std::set<Vertex *> partial_src_vertices;
-  std::set<Vertex *> partial_dest_vertices;
-  std::set<EdgeRef> src_edge_refs;
-  std::set<EdgeRef> dest_edge_refs;
-  auto total_edges_to_delete = 0;
-  {
-    if (detach) {
-      auto try_adding_partial_delete_vertices = [&nodes_to_delete, &total_edges_to_delete](
-                                                    auto &partial_delete_vertices, auto &edge_refs, auto &item) {
-        auto [edge_type, opposing_vertex, edge] = item;
-        if (!nodes_to_delete.contains(opposing_vertex)) {
-          partial_delete_vertices.insert(opposing_vertex);
-          edge_refs.insert(edge);
-          total_edges_to_delete++;
-        }
-      };
+  auto value = maybe_result.GetValue();
 
-      for (auto *vertex_ptr : nodes_to_delete) {
-        for (const auto &item : vertex_ptr->in_edges) {
-          try_adding_partial_delete_vertices(partial_src_vertices, src_edge_refs, item);
-        }
-        for (const auto &item : vertex_ptr->out_edges) {
-          try_adding_partial_delete_vertices(partial_dest_vertices, dest_edge_refs, item);
-        }
-      }
-    }
-
-    // also add edges which we want to delete from the query
-    for (const auto &edge_accessor : edges) {
-      partial_src_vertices.insert(edge_accessor->from_vertex_);
-      partial_dest_vertices.insert(edge_accessor->to_vertex_);
-
-      src_edge_refs.insert(edge_accessor->edge_);
-      dest_edge_refs.insert(edge_accessor->edge_);
-      total_edges_to_delete++;
-    }
+  if (!value) {
+    return std::make_optional<ReturnType>();
   }
-  deleted_edges.reserve(total_edges_to_delete);
 
-  // Detach nodes which need to be deleted
-  if (detach) {
-    auto clear_edges = [this, &deleted_edges, &deleted_edges_set, &mark_edge_as_deleted_func](
-                           auto *vertex_ptr, auto *edges_collection, auto delta,
-                           auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
-      while (!edges_collection->empty()) {
-        auto [edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
-        std::unique_lock<utils::SpinLock> guard;
-        if (config_.properties_on_edges) {
-          auto edge_ptr = edge_ref.ptr;
-          guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+  auto &[deleted_vertices, deleted_edges] = *value;
 
-          if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-
-          // TODO: Not yet sure why this edge should be deleted. This is the implementation
-          // from the unoptimized deletion of edges. I should probably delete this from the vector and put a delta.
-          // if (edge_ptr->deleted) return std::make_optional<bool>(true);
-        }
-
-        std::unique_lock<utils::SpinLock> guard_vertex(vertex_ptr->lock, std::defer_lock);
-        std::unique_lock<utils::SpinLock> guard_opposing_vertex(opposing_vertex->lock, std::defer_lock);
-
-        // Obtain the locks by `gid` order to avoid lock cycles.
-        if (vertex_ptr->gid < opposing_vertex->gid) {
-          guard_vertex.lock();
-          guard_opposing_vertex.lock();
-        } else if (vertex_ptr->gid > opposing_vertex->gid) {
-          guard_opposing_vertex.lock();
-          guard_vertex.lock();
-        } else {
-          // The vertices are the same vertex, only lock one.
-          guard_vertex.lock();
-        }
-
-        if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-        MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
-
-        if (opposing_vertex != vertex_ptr) {
-          if (!PrepareForWrite(&transaction_, opposing_vertex)) return Error::SERIALIZATION_ERROR;
-          MG_ASSERT(!opposing_vertex->deleted, "Invalid database state!");
-        }
-
-        edges_collection->pop_back();
-        if (config_.properties_on_edges) {
-          auto *edge_ptr = edge_ref.ptr;
-          mark_edge_as_deleted_func(edge_ptr);
-        }
-
-        {
-          if (!deleted_edges_set.insert(edge_ref).second) {
-            auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-            auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-            deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                       &storage_->constraints_, config_, true);
-          }
-        }
-
-        CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-      }
-
-      return std::make_optional<ReturnType>();
-    };
-
-    // delete the in and out edges from the nodes we want to delete
-    for (auto *vertex_ptr : nodes_to_delete) {
-      auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
-      if (maybe_error.HasError()) {
-        return maybe_error;
-      }
-
-      maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
-      if (maybe_error.HasError()) {
-        return maybe_error;
-      }
+  // // Need to inform the next CollectGarbage call that there are some
+  // // non-transactional deletions that need to be collected
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && !deleted_vertices.empty()) {
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    if (!deleted_vertices.empty()) {
+      mem_storage->gc_full_scan_vertices_delete_ = true;
+    }
+    if (!deleted_edges.empty()) {
+      mem_storage->gc_full_scan_edges_delete_ = true;
     }
   }
 
-  // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
-  {
-    auto detach_non_deletable_nodes = [this, &mark_edge_as_deleted_func, &deleted_edges, &deleted_edges_set](
-                                          auto *vertex_ptr, auto *edges_collection, auto &set_for_erasure, auto delta,
-                                          auto reverse_vertex_order) {
-      std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-      auto mid = std::partition(
-          edges_collection->begin(), edges_collection->end(),
-          [this, &mark_edge_as_deleted_func, &set_for_erasure, &deleted_edges, &deleted_edges_set, vertex_ptr, delta,
-           reverse_vertex_order](auto &edge) {
-            auto [edge_type, opposing_vertex, edge_ref] = edge;
-            if (set_for_erasure.contains(edge_ref)) {
-              std::unique_lock<utils::SpinLock> guard;
-              if (config_.properties_on_edges) {
-                auto edge_ptr = edge_ref.ptr;
-                guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
-                // this can happen only if we marked edges for deletion with no nodes,
-                // so the method detaching nodes will not do anything
-                mark_edge_as_deleted_func(edge_ptr);
-              }
-
-              {
-                if (!deleted_edges_set.insert(edge_ref).second) {
-                  auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-                  auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-                  deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                             &storage_->indices_, &storage_->constraints_, config_, true);
-                }
-              }
-
-              CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-              return false;
-            }
-            return true;
-          });
-
-      edges_collection->erase(mid, edges_collection->end());
-    };
-
-    // remove edges from vertex collections which we aggregated for just detaching
-    for (auto *vertex_ptr : partial_src_vertices) {
-      detach_non_deletable_nodes(vertex_ptr, &vertex_ptr->out_edges, src_edge_refs, Delta::AddOutEdgeTag(), false);
-    }
-    for (auto *vertex_ptr : partial_dest_vertices) {
-      detach_non_deletable_nodes(vertex_ptr, &vertex_ptr->in_edges, dest_edge_refs, Delta::AddInEdgeTag(), true);
-    }
-
-    // finally, delete the nodes
-    for (auto *vertex_ptr : nodes_to_delete) {
-      std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-      // We need to check again for serialization errors because we unlocked the
-      // vertex. Some other transaction could have modified the vertex in the
-      // meantime if we didn't have any edges to delete.
-
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-
-      MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
-
-      if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) {
-        return Error::VERTEX_HAS_EDGES;
-      }
-
-      CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
-      vertex_ptr->deleted = true;
-
-      // Need to inform the next CollectGarbage call that there are some
-      // non-transactional deletions that need to be collected
-      if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-        auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-        mem_storage->gc_full_scan_vertices_delete_ = true;
-      }
-
-      deleted_vertices.emplace_back(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                    true);
-    }
-  }
-
-  return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
+  return maybe_result;
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
@@ -700,30 +438,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
-}
-
-Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdge(EdgeAccessor *edge) {
-  auto res = DetachDelete({}, {edge}, false);
-
-  if (res.HasError()) {
-    return res.GetError();
-  }
-
-  const auto &value = res.GetValue();
-  if (!value) {
-    return std::optional<EdgeAccessor>{};
-  }
-
-  const auto &[vertices, edges] = *value;
-
-  MG_ASSERT(vertices.empty(), "Deleting an edge should not have deleted a vertex!");
-  MG_ASSERT(edges.size() <= 1, "Deleted edges need to be less or equal to 1!");
-
-  if (edges.empty()) {
-    return std::optional<EdgeAccessor>{};
-  }
-
-  return std::make_optional<EdgeAccessor>(edges[0]);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)

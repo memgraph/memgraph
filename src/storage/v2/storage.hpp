@@ -63,6 +63,14 @@ struct StorageInfo {
   uint64_t disk_usage;
 };
 
+struct EdgeInfoForDeletion {
+  std::set<EdgeRef> partial_src_edges{};
+  std::set<EdgeRef> partial_dest_edges{};
+  std::set<Vertex *> partial_src_vertices{};
+  std::set<Vertex *> partial_dest_vertices{};
+  uint64_t total_edges_to_delete{0};
+};
+
 class Storage {
  public:
   Storage(Config config, StorageMode storage_mode);
@@ -132,21 +140,11 @@ class Storage {
 
     virtual std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> labels) = 0;
 
-    virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) = 0;
-
-    virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex) = 0;
-
-    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) = 0;
-
     virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
 
     virtual void PrefetchOutEdges(const VertexAccessor &vertex_acc) = 0;
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
-
-    virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
@@ -163,6 +161,16 @@ class Storage {
     virtual void Abort() = 0;
 
     virtual void FinalizeTransaction() = 0;
+
+    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+
+    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex);
+
+    Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
+
+    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
     std::optional<uint64_t> GetTransactionId() const;
 
@@ -188,6 +196,16 @@ class Storage {
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
+
+    Result<std::unordered_set<Vertex *>> PrepareNodesForDeletion(const std::vector<VertexAccessor *> &vertices);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
+    static EdgeInfoForDeletion PrepareEdgesForDeletion(const std::unordered_set<Vertex *> &vertices,
+                                                       const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
+                                                                          std::set<EdgeRef> &deleted_edges_set);
+    std::vector<EdgeAccessor> DetachEdgesFromNodes(EdgeInfoForDeletion info, std::set<EdgeRef> &deleted_edges_set);
+
+    void MarkEdgeAsDeleted(Edge *edge);
 
    private:
     StorageMode creation_storage_mode_;

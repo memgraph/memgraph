@@ -118,22 +118,14 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
-    /// TODO: It is just marked as deleted but the memory isn't reclaimed because of the in-memory storage
-    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
-
-    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex) override;
-
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
 
     void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
 
     void PrefetchOutEdges(const VertexAccessor &vertex_acc) override;
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
-
-    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     bool LabelIndexExists(LabelId label) const override {
       auto *disk_storage = static_cast<DiskStorage *>(storage_);

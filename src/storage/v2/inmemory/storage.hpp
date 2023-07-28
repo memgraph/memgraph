@@ -215,15 +215,8 @@ class InMemoryStorage final : public Storage {
                                                labels);
     }
 
-    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
-    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
-
-    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex) override;
-
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
 
     void PrefetchInEdges(const VertexAccessor &vertex_acc) override{};
 
@@ -231,10 +224,6 @@ class InMemoryStorage final : public Storage {
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
-
-    /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
-    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     bool LabelIndexExists(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);

@@ -1109,6 +1109,11 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   };
 };
 
+struct DeleteBuffer {
+  std::vector<VertexAccessor> nodes{};
+  std::vector<EdgeAccessor> edges{};
+};
+
 /// Operator for deleting vertices and edges.
 ///
 /// Has a flag for using DETACH DELETE when deleting vertices.
@@ -1156,11 +1161,9 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    private:
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
-    std::vector<EdgeAccessor> edge_buffer{};
-    std::vector<VertexAccessor> node_buffer{};
     bool delete_executed_{false};
 
-    void UpdateBuffer(Frame &, ExecutionContext &);
+    DeleteBuffer ConstructDeleteBuffer(Frame &, ExecutionContext &);
   };
 };
 
