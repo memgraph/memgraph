@@ -76,6 +76,7 @@ def test_admin_has_one_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     admin_cursor = connect(username="admin", password="").cursor()
     process = multiprocessing.Process(target=show_transactions_test, args=(admin_cursor, 1))
     process.start()
@@ -88,6 +89,7 @@ def test_user_can_see_its_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
     user_cursor = connect(username="user", password="").cursor()
@@ -103,6 +105,7 @@ def test_explicit_transaction_output():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     admin_connection = connect(username="admin", password="")
     admin_cursor = admin_connection.cursor()
     # Admin starts running explicit transaction
@@ -128,8 +131,10 @@ def test_superadmin_cannot_see_admin_can_see_admin():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
     # Admin starts running infinite query
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
@@ -167,6 +172,7 @@ def test_admin_sees_superadmin():
     superadmin_cursor = superadmin_connection.cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     # Admin starts running infinite query
     process = multiprocessing.Process(
         target=process_function, args=(superadmin_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
@@ -197,6 +203,7 @@ def test_admin_can_see_user_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     # Admin starts running infinite query
     admin_connection = connect(username="admin", password="")
@@ -234,8 +241,10 @@ def test_user_cannot_see_admin_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin2")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
@@ -296,6 +305,7 @@ def test_admin_killing_multiple_non_existing_transactions():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     # Connect with admin
     admin_cursor = connect(username="admin", password="").cursor()
     transactions_id = ["'1'", "'2'", "'3'"]
@@ -312,6 +322,7 @@ def test_user_killing_some_transactions():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user1")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user1")
 

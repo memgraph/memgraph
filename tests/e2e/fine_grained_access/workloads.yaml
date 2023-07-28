@@ -9,7 +9,9 @@ create_delete_filtering_cluster: &create_delete_filtering_cluster
           "CREATE USER admin IDENTIFIED BY 'test';",
           "CREATE USER user IDENTIFIED BY 'test';",
           "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT DATABASE * TO admin;",
           "GRANT ALL PRIVILEGES TO user;",
+          "GRANT DATABASE * TO user;",
         ]
 
 edge_type_filtering_cluster: &edge_type_filtering_cluster
