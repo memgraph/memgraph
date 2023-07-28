@@ -1131,6 +1131,8 @@ class Value {
   /// @exception std::runtime_error Unknown value type.
   bool operator!=(const Value &other) const;
 
+  bool operator<(const Value &other) const;
+
  private:
   mgp_value *ptr_;
 };
@@ -3257,6 +3259,44 @@ inline bool Value::operator==(const Value &other) const { return util::ValuesEqu
 
 inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
+inline bool Value::operator<(const Value &other) const {
+  const mgp::Type &type = Type();
+  if (type != other.Type() && !(IsNumeric() && other.IsNumeric())) {
+    throw ValueException("Values have to be of the same type");
+  }
+
+  switch (type) {
+    case Type::Null:
+      throw ValueException("Cannot compare Null types");
+    case Type::Bool:
+      return ValueBool() < other.ValueBool();
+    case Type::Int:
+      return ValueNumeric() < other.ValueNumeric();
+    case Type::Double:
+      return ValueNumeric() < other.ValueNumeric();
+    case Type::String:
+      return ValueString() < other.ValueString();
+    case Type::Node:
+      return ValueNode() < other.ValueNode();
+    case Type::Relationship:
+      return ValueRelationship() < other.ValueRelationship();
+    case Type::Date:
+      return ValueDate() < other.ValueDate();
+    case Type::LocalTime:
+      return ValueLocalTime() < other.ValueLocalTime();
+    case Type::LocalDateTime:
+      return ValueLocalDateTime() < other.ValueLocalDateTime();
+    case Type::Duration:
+      return ValueDuration() < other.ValueDuration();
+    case Type::Path:
+    case Type::List:
+    case Type::Map:
+      throw ValueException("Operator < is not defined for this Path, List or Map data type");
+    default:
+      throw ValueException("Undefined behaviour");
+  }
+}
+
 inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
   switch (type) {
     case mgp::Type::Null:
@@ -3291,6 +3331,7 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       throw ValueException("Unknown type");
   }
 }
+
 
 /* #endregion */
 
