@@ -31,6 +31,7 @@ inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key
 
 // Extracts global id from user key. User key must be without timestamp.
 std::string_view ExtractGidFromUserKey(const rocksdb::Slice &key) {
+  spdlog::debug("Extracted gid from key: {}", key.ToString());
   assert(key.size() >= 2);
   auto keyStrView = key.ToStringView();
   return keyStrView.substr(keyStrView.find_last_of('|') + 1);
@@ -59,8 +60,12 @@ int ComparatorWithU64TsImpl::CompareWithoutTimestamp(const rocksdb::Slice &a, bo
   const size_t ts_sz = timestamp_size();
   assert(!a_has_ts || a.size() >= ts_sz);
   assert(!b_has_ts || b.size() >= ts_sz);
+  spdlog::debug("a key: {}", a.ToString());
+  spdlog::debug("b key: {}", b.ToString());
   rocksdb::Slice lhsUserKey = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
   rocksdb::Slice rhsUserKey = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
+  spdlog::debug("lhsUserKey: {}", lhsUserKey.ToString());
+  spdlog::debug("rhsUserKey: {}", rhsUserKey.ToString());
   rocksdb::Slice lhsGid = ExtractGidFromUserKey(lhsUserKey);
   rocksdb::Slice rhsGid = ExtractGidFromUserKey(rhsUserKey);
   return cmp_without_ts_->Compare(lhsGid, rhsGid);

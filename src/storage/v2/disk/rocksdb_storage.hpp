@@ -15,12 +15,15 @@
 #include <rocksdb/db.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice_transform.h>
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -84,6 +87,43 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
 
  private:
   const Comparator *cmp_without_ts_{nullptr};
+};
+
+class VerticalLinePrefixTransform : public rocksdb::SliceTransform {
+ private:
+  std::string id_{"vertical_line_separator_prefix_transform"};
+
+ public:
+  explicit VerticalLinePrefixTransform() {}
+
+  static const char *kClassName() { return "memgraph.VerticalLine"; }
+  static const char *kNickName() { return "vertical_line"; }
+  const char *Name() const override { return kClassName(); }
+  const char *NickName() const override { return kNickName(); }
+
+  bool IsInstanceOf(const std::string &name) const override {
+    if (name == id_) {
+      return true;
+    }
+    return rocksdb::SliceTransform::IsInstanceOf(name);
+  }
+
+  std::string GetId() const override { return id_; }
+
+  rocksdb::Slice Transform(const rocksdb::Slice &src) const override {
+    assert(InDomain(src));
+    const std::string src_str = src.ToString();
+    return {src.data(), src_str.find('|')};
+  }
+
+  bool InDomain(const rocksdb::Slice &src) const override { return (utils::Contains(src.ToString(), '|')); }
+
+  // deprecated and implemented here just for backwards compatibility
+  bool InRange(const rocksdb::Slice & /*dst*/) const override { return true; }
+
+  bool FullLengthEnabled(size_t * /*len*/) const override { return false; }
+
+  bool SameResultWhenAppended(const rocksdb::Slice &prefix) const override { return InDomain(prefix); }
 };
 
 }  // namespace memgraph::storage

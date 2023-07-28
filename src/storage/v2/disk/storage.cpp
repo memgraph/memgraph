@@ -16,7 +16,11 @@
 
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
+#include <rocksdb/filter_policy.h>
+#include <rocksdb/memtablerep.h>
 #include <rocksdb/slice.h>
+#include <rocksdb/slice_transform.h>
+#include <rocksdb/table.h>
 
 #include <rocksdb/options.h>
 #include <rocksdb/utilities/transaction.h>
@@ -241,6 +245,11 @@ DiskStorage::DiskStorage(Config config)
   LoadIndexInfoIfExists();
   LoadConstraintsInfoIfExists();
   kvstore_->options_.create_if_missing = true;
+  // rocksdb::BlockBasedTableOptions table_options;
+  // TODO: have to implement our own FilterPolicy
+  // table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+  // kvstore_->options_.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+  kvstore_->options_.prefix_extractor.reset(new VerticalLinePrefixTransform());
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
   kvstore_->options_.wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
@@ -887,6 +896,7 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
 }
 
 void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
+  spdlog::debug("Prefetch input edges");
   PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
     auto disk_vertex_in_edge_gid = disk_edge_parts[1];
     auto edge_gid = disk_edge_parts[4];
@@ -903,21 +913,51 @@ void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc
   });
 }
 
+// void DiskStorage::DiskAccessor::PrefetchOutEdgesTmp(const VertexAccessor &vertex_acc) {
+//   spdlog::debug("Prefetch output edges");
+//   PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
+//     auto disk_vertex_out_edge_gid = disk_edge_parts[0];
+//     auto edge_gid = disk_edge_parts[4];
+//     auto out_edges_res = vertex_acc.OutEdges(storage::View::NEW);
+//     if (out_edges_res.HasValue()) {
+//       for (const auto &edge_acc : out_edges_res.GetValue()) {
+//         if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
+//           // We already inserted this edge into the vertex's out_edges list.
+//           return false;
+//         }
+//       }
+//     }
+//     return disk_vertex_out_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
+//   });
+// }
+
 void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges([&vertex_acc](const std::vector<std::string> &disk_edge_parts) -> bool {
-    auto disk_vertex_out_edge_gid = disk_edge_parts[0];
-    auto edge_gid = disk_edge_parts[4];
-    auto out_edges_res = vertex_acc.OutEdges(storage::View::NEW);
-    if (out_edges_res.HasValue()) {
-      for (const auto &edge_acc : out_edges_res.GetValue()) {
-        if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
-          // We already inserted this edge into the vertex's out_edges list.
-          return false;
-        }
-      }
-    }
-    return disk_vertex_out_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
-  });
+  rocksdb::ReadOptions read_opts;
+  read_opts.total_order_seek = false;
+  read_opts.auto_prefix_mode = false;
+  auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
+  read_opts.timestamp = &ts;
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto it = std::unique_ptr<rocksdb::Iterator>(
+      disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->edge_chandle));
+  auto gid_str = std::to_string(vertex_acc.Gid().AsUint());
+  spdlog::debug("Gid string: {}", gid_str);
+  it->Seek(gid_str);
+  spdlog::debug("Before loop");
+  while (true) {
+    spdlog::debug("In loop execution");
+    auto key_str = it->key().ToString();
+    if (!key_str.starts_with(gid_str)) break;
+    spdlog::debug("Found edge with key: {}", it->key().ToString());
+    it->Next();
+  }
+
+  // for (it->SeekToFirst(); it->Valid(); it->Next()) {
+  //   const rocksdb::Slice &key = it->key();
+  //   const auto edge_parts = utils::Split(key.ToStringView(), "|");
+  //   DeserializeEdge(key, it->value());
+  // }
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor *from, const VertexAccessor *to,
