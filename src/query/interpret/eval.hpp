@@ -700,12 +700,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (property_key.name == kAllPropertiesSelector.data()) {
         auto maybe_all_properties_lookup = property_value->Accept(*this);
 
-        if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
-          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.",
+        switch (maybe_all_properties_lookup.type())
+        case TypedValue::Type::Map:
+          all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
+        case TypedValue::Type::Null:
+          all_properties_lookup = std::move(maybe_all_properties_lookup.ValueNull());
+        default:
+          throw QueryRuntimeException("Expected a map or NULL from AllPropertiesLookup, got {}.",
                                       maybe_all_properties_lookup.type());
-        }
-        all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
-        continue;
       }
 
       result.emplace(property_key.name, property_value->Accept(*this));

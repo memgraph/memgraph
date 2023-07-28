@@ -4,7 +4,7 @@ Feature: Map projection
     When executing query:
       """
       WITH {} AS map
-      RETURN map {} as result
+      RETURN map {} AS result
       """
     Then the result should be:
       | result |
@@ -25,6 +25,16 @@ Feature: Map projection
     Then the result should be:
       | result                                                    |
       | {age: 85, lastName: 'Freeman', name: 'Morgan', oscars: 1} |
+
+  Scenario: Projecting from a null value
+    When executing query:
+      """
+      OPTIONAL MATCH (n:Nonexistent)
+      RETURN n {.*} AS result;
+      """
+    Then the result should be:
+      | result |
+      | {}     |
 
   Scenario: Projecting a nonexistent property
     When executing query:
