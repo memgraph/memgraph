@@ -382,6 +382,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
+  spdlog::debug("Scanning all vertices");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
