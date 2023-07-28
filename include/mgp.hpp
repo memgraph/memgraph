@@ -549,7 +549,6 @@ class Map {
 
   /// @brief Erases the element associated with the key from the map, if it doesn't exist does nothing.
   void Erase(std::string_view key);
-
   // void Clear();  // not implemented (requires mgp_map_clear in the MGP API)
 
   /// @exception std::runtime_error Map contains value of unknown type.
@@ -3459,7 +3458,6 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       throw ValueException("Unknown type");
   }
 }
-
 
 /* #endregion */
 
