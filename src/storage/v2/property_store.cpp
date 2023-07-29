@@ -1292,12 +1292,11 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
 
   uint64_t size = 0;
   uint8_t *data = nullptr;
+  size = buffer.size();
   if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
     buffer_[0] = kUseLocalBuffer;
-    size = buffer.size() - 1;
     data = &buffer_[1];
   } else {
-    size = buffer.size();
     data = new uint8_t[size];
     SetSizeData(buffer_, size, data);
   }
