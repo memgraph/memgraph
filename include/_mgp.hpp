@@ -135,6 +135,13 @@ inline int64_t value_get_int(mgp_value *val) { return MgInvoke<int64_t>(mgp_valu
 
 inline double value_get_double(mgp_value *val) { return MgInvoke<double>(mgp_value_get_double, val); }
 
+inline double value_get_numeric(mgp_value *val) {
+  if (MgInvoke<int>(mgp_value_is_int, val)) {
+    return static_cast<double>(value_get_int(val));
+  }
+  return value_get_double(val);
+}
+
 inline const char *value_get_string(mgp_value *val) { return MgInvoke<const char *>(mgp_value_get_string, val); }
 
 inline mgp_list *value_get_list(mgp_value *val) { return MgInvoke<mgp_list *>(mgp_value_get_list, val); }
@@ -170,6 +177,8 @@ inline bool value_is_bool(mgp_value *val) { return MgInvoke<int>(mgp_value_is_bo
 inline bool value_is_int(mgp_value *val) { return MgInvoke<int>(mgp_value_is_int, val); }
 
 inline bool value_is_double(mgp_value *val) { return MgInvoke<int>(mgp_value_is_double, val); }
+
+inline bool value_is_numeric(mgp_value *val) { return value_is_int(val) || value_is_double(val); }
 
 inline bool value_is_string(mgp_value *val) { return MgInvoke<int>(mgp_value_is_string, val); }
 
