@@ -120,10 +120,12 @@ void Sort(std::vector<TypedValue, K> &vec) {
             [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
 
+// NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const TypedValue &lv, const TypedValue &rv) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
 bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
+// NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
 bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
