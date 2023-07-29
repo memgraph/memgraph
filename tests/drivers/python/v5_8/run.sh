@@ -24,3 +24,4 @@ source ve3/bin/activate
 python3 docs_how_to_query.py || exit 1
 python3 max_query_length.py || exit 1
 python3 transactions.py || exit 1
+python3 path.py || exit 1
