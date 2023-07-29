@@ -63,6 +63,9 @@ class UnknownDatabaseException : public utils::BasicException {
 #ifdef MG_ENTERPRISE
 /**
  * @brief Session interface used by the DBMS to handle the the active sessions.
+ * @todo Try to remove this dependency from SessionContextHandler. OnDelete could be removed, as it only does an assert.
+ * OnChange could be removed if SetFor returned the pointer and the called then handled the OnChange execution.
+ * However, the interface is very useful to  decouple the interpreter's query execution and the sessions themselves.
  */
 class SessionInterface {
  public:
@@ -91,7 +94,7 @@ class SessionInterface {
   /**
    * @brief Gets called on database change.
    *
-   * @return true on success
+   * @return SetForResult enum (SUCCESS, ALREADY_SET or FAIL)
    */
   virtual dbms::SetForResult OnChange(const std::string &) = 0;
 

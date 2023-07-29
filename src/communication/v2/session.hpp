@@ -374,6 +374,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
 #ifdef MG_ENTERPRISE
+    // TODO Try to remove Register (see comment at SessionInterface declaration)
     session_context_->Register(session_);
 #endif
     ExecuteForSocket([](auto &&socket) {
