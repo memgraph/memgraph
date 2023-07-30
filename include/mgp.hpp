@@ -67,6 +67,21 @@ class MustAbortException : public std::exception {
   std::string message_;
 };
 
+class TerminatedMustAbortException : public MustAbortException {
+ public:
+  explicit TerminatedMustAbortException() : MustAbortException("Query was asked to terminate directly.") {}
+};
+
+class ShutdownMustAbortException : public MustAbortException {
+ public:
+  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+};
+
+class TimeoutMustAbortException : public MustAbortException {
+ public:
+  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+};
+
 // Forward declarations
 class Nodes;
 using GraphNodes = Nodes;
@@ -107,6 +122,19 @@ class Id {
   explicit Id(int64_t id);
 
   int64_t id_;
+};
+
+enum class AbortReason : uint8_t {
+  NO_ABORT = 0,
+
+  // transaction has been requested to terminate, ie. "TERMINATE TRANSACTIONS ..."
+  TERMINATED = 1,
+
+  // server is gracefully shutting down
+  SHUTDOWN = 2,
+
+  // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
+  TIMEOUT = 3,
 };
 
 /// @brief Wrapper class for @ref mgp_graph.
@@ -153,8 +181,13 @@ class Graph {
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
-  bool MustAbort() const;
+  /// @brief Checks if process must abort
+  /// @return AbortReason the reason to abort, if no need to abort then AbortReason::NO_ABORT is returned
+  AbortReason MustAbort() const;
 
+  /// @brief Checks if process must abort
+  /// @throws MustAbortException If process must abort for any reason
+  /// @note For the reason why the process must abort consider using MustAbort method instead
   void CheckMustAbort() const;
 
  private:
@@ -1709,11 +1742,31 @@ inline Id::Id(int64_t id) : id_(id) {}
 
 inline Graph::Graph(mgp_graph *graph) : graph_(graph) {}
 
-inline bool Graph::MustAbort() const { return must_abort(graph_); }
+inline AbortReason Graph::MustAbort() const {
+  const auto reason = must_abort(graph_);
+  switch (reason) {
+    case 1:
+      return AbortReason::TERMINATED;
+    case 2:
+      return AbortReason::SHUTDOWN;
+    case 3:
+      return AbortReason::TIMEOUT;
+    default:
+      break;
+  }
+  return AbortReason::NO_ABORT;
+}
 
 inline void Graph::CheckMustAbort() const {
-  if (MustAbort()) {
-    throw MustAbortException("Query was asked to abort.");
+  switch (MustAbort()) {
+    case AbortReason::TERMINATED:
+      throw TerminatedMustAbortException();
+    case AbortReason::SHUTDOWN:
+      throw ShutdownMustAbortException();
+    case AbortReason::TIMEOUT:
+      throw TimeoutMustAbortException();
+    case AbortReason::NO_ABORT:
+      break;
   }
 }
 

@@ -503,6 +503,25 @@ namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
+auto ToQueryExtras(memgraph::communication::bolt::Value const &extra) -> memgraph::query::QueryExtras {
+  auto const &as_map = extra.ValueMap();
+
+  auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
+
+  if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
+    for (const auto &[key, bolt_md] : it->second.ValueMap()) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+    }
+  }
+
+  auto tx_timeout = std::optional<int64_t>{};
+  if (auto const it = as_map.find("tx_timeout"); it != as_map.cend() && it->second.IsInt()) {
+    tx_timeout = it->second.ValueInt();
+  }
+
+  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout};
+}
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -531,12 +550,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>::TEncoder;
 
-  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
-    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
-    for (const auto &[key, bolt_value] : metadata) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
-    }
-    interpreter_.BeginTransaction(metadata_pv);
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) override {
+    interpreter_.BeginTransaction(ToQueryExtras(extra));
   }
 
   void CommitTransaction() override { interpreter_.CommitTransaction(); }
@@ -545,14 +560,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+      const std::map<std::string, memgraph::communication::bolt::Value> &extra) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &[key, bolt_param] : params) {
       params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
-    }
-    for (const auto &[key, bolt_md] : metadata) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
     }
     const std::string *username{nullptr};
     if (user_) {
@@ -565,7 +576,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
+      auto result = interpreter_.Prepare(query, params_pv, username, ToQueryExtras(extra));
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(

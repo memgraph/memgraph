@@ -85,7 +85,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
-  utils::AsyncTimer timer;
+  std::shared_ptr<utils::AsyncTimer> timer;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
@@ -94,11 +94,18 @@ struct ExecutionContext {
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 
-inline bool MustAbort(const ExecutionContext &context) noexcept {
-  return (context.transaction_status != nullptr &&
-          context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) ||
-         (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
-         context.timer.IsExpired();
+inline auto MustAbort(const ExecutionContext &context) noexcept -> AbortReason {
+  if (context.transaction_status != nullptr &&
+      context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
+    return AbortReason::TERMINATED;
+  }
+  if (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) {
+    return AbortReason::SHUTDOWN;
+  }
+  if (context.timer && context.timer->IsExpired()) {
+    return AbortReason::TIMEOUT;
+  }
+  return AbortReason::NO_ABORT;
 }
 
 inline plan::ProfilingStatsWithTotalTime GetStatsWithTotalTime(const ExecutionContext &context) {
