@@ -54,6 +54,7 @@ import mgclient
 
 shutdown = Event()
 
+
 def forward_progress(args):
     conn = mgclient.connect(host=args.host, port=args.port)
     conn.autocommit = True
@@ -61,7 +62,7 @@ def forward_progress(args):
 
     id = str(uuid4())
 
-    cursor.execute("CREATE (v:Vsn { id: $id, counter: 0 }) RETURN v;", {'id': id})
+    cursor.execute("CREATE (v:Vsn { id: $id, counter: 0 }) RETURN v;", {"id": id})
     cursor.fetchall()
 
     counter = 0
@@ -70,12 +71,14 @@ def forward_progress(args):
         if shutdown.is_set():
             return
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 MATCH (v: Vsn { id: $id, counter: $old })
                 SET v.counter = $new
                 RETURN v
             """,
-            {'id': id, 'old': counter, 'new': counter + 1})
+                {"id": id, "old": counter, "new": counter + 1},
+            )
             ret = cursor.fetchall()
             if len(ret) != 1:
                 print("expected there to be exactly one Vsn associated with this counter, but we got:", ret)
@@ -87,7 +90,7 @@ def forward_progress(args):
                 print("encountered unexpected exception:", str(e))
                 shutdown.set()
         except mgclient.InterfaceError as e:
-            assert("bad session" in str(e))
+            assert "bad session" in str(e)
 
         print("waiting for server to come back")
 
@@ -102,18 +105,18 @@ def forward_progress(args):
 
 
 children = []
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--host', default = '127.0.0.1')
-    parser.add_argument('-p', '--port', type=int, default = 7687)
-    parser.add_argument('--reconnect-host', default = '127.0.0.1')
-    parser.add_argument('--reconnect-port', type=int, default = 7687)
-    parser.add_argument('-c', '--concurrency', type=int, default = 20)
-    parser.add_argument('-o', '--ops', type=int, default = 1000)
+    parser.add_argument("-s", "--host", default="127.0.0.1")
+    parser.add_argument("-p", "--port", type=int, default=7687)
+    parser.add_argument("--reconnect-host", default="127.0.0.1")
+    parser.add_argument("--reconnect-port", type=int, default=7687)
+    parser.add_argument("-c", "--concurrency", type=int, default=20)
+    parser.add_argument("-o", "--ops", type=int, default=1000)
     args = parser.parse_args()
 
     if args.ops == 0:
-        args.ops = 2 ** 64
+        args.ops = 2**64
 
     for i in range(args.concurrency):
         child = Process(target=forward_progress, args=(args,))
