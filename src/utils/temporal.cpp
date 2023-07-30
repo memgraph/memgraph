@@ -448,7 +448,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
     // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
     // ISO8601 specifies that you cannot mix extended and basic format of date and time
     // If the date is in the extended format, same must be true for the time, so we don't send T
-    // which denotes the basic format. The opposite case also aplies.
+    // which denotes the basic format. The opposite case also applies.
     auto local_time_substring = string.substr(t_position + 1);
     if (local_time_substring.empty()) {
       throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
