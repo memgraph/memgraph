@@ -497,6 +497,7 @@ class Map {
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(mgp_map *ptr);
+
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(const mgp_map *const_ptr);
 
@@ -505,6 +506,7 @@ class Map {
 
   /// @brief Creates a Map from the given vector.
   explicit Map(const std::map<std::string_view, Value> &items);
+
   /// @brief Creates a Map from the given vector.
   explicit Map(std::map<std::string_view, Value> &&items);
 
@@ -521,11 +523,13 @@ class Map {
 
   /// @brief Returns the size of the map.
   size_t Size() const;
+
   /// @brief Returns whether the map is empty.
   bool Empty() const;
 
   /// @brief Returns the value at the given `key`.
   Value const operator[](std::string_view key) const;
+
   /// @brief Returns the value at the given `key`.
   Value const At(std::string_view key) const;
 
@@ -566,16 +570,30 @@ class Map {
 
   /// @brief Inserts the given `key`-`value` pair into the map. The `value` is copied.
   void Insert(std::string_view key, const Value &value);
+
   /// @brief Inserts the given `key`-`value` pair into the map.
   /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
   /// operation is undefined.
   void Insert(std::string_view key, Value &&value);
 
-  // void Erase(std::string_view key);  // not implemented (requires mgp_map_erase in the MGP API)
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
+  void Update(std::string_view key, const Value &value);
+
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
+  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
+  /// operation is undefined.
+  void Update(std::string_view key, Value &&value);
+
+  /// @brief Erases the element associated with the key from the map, if it doesn't exist does nothing.
+  void Erase(std::string_view key);
+
   // void Clear();  // not implemented (requires mgp_map_clear in the MGP API)
 
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator==(const Map &other) const;
+
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator!=(const Map &other) const;
 
@@ -2443,8 +2461,19 @@ inline void Map::Insert(std::string_view key, const Value &value) { mgp::map_ins
 
 inline void Map::Insert(std::string_view key, Value &&value) {
   mgp::map_insert(ptr_, key.data(), value.ptr_);
+  value.~Value();
   value.ptr_ = nullptr;
 }
+
+inline void Map::Update(std::string_view key, const Value &value) { mgp::map_update(ptr_, key.data(), value.ptr_); }
+
+inline void Map::Update(std::string_view key, Value &&value) {
+  mgp::map_update(ptr_, key.data(), value.ptr_);
+  value.~Value();
+  value.ptr_ = nullptr;
+}
+
+inline void Map::Erase(std::string_view key) { mgp::map_erase(ptr_, key.data()); }
 
 inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr_, other.ptr_); }
 
@@ -3490,7 +3519,6 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       throw ValueException("Unknown type");
   }
 }
-
 
 /* #endregion */
 

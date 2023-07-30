@@ -138,7 +138,8 @@ static void Distinct(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = plan_and_cost.first->MakeCursor(memory.get());
@@ -184,7 +185,8 @@ static void ExpandVariable(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
@@ -223,7 +225,8 @@ static void ExpandBfs(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
@@ -258,7 +261,8 @@ static void ExpandShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
@@ -299,7 +303,8 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
@@ -344,7 +349,8 @@ static void Accumulate(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = accumulate.MakeCursor(memory.get());
@@ -393,7 +399,8 @@ static void Aggregate(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = aggregate.MakeCursor(memory.get());
@@ -443,7 +450,8 @@ static void OrderBy(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = order_by.MakeCursor(memory.get());
@@ -481,7 +489,8 @@ static void Unwind(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     frame[list_sym] = memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1)));
@@ -517,7 +526,8 @@ static void Foreach(benchmark::State &state) {
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{
+        .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     frame[list_sym] = memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1)));
