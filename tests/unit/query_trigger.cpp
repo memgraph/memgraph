@@ -1075,8 +1075,11 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
   store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
                    memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
                    memgraph::query::InterpreterConfig::Query{}, std::nullopt, &this->auth_checker);
-  expected_info.push_back({"trigger", "RETURN 1", memgraph::query::TriggerEventType::VERTEX_CREATE,
-                           memgraph::query::TriggerPhase::BEFORE_COMMIT});
+  expected_info.push_back({"trigger",
+                           "RETURN 1",
+                           memgraph::query::TriggerEventType::VERTEX_CREATE,
+                           memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                           {/* no owner */}});
 
   const auto check_trigger_info = [&] {
     const auto trigger_info = store.GetTriggerInfo();
@@ -1095,8 +1098,11 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
   store.AddTrigger("edge_update_trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::EDGE_UPDATE,
                    memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
                    memgraph::query::InterpreterConfig::Query{}, std::nullopt, &this->auth_checker);
-  expected_info.push_back({"edge_update_trigger", "RETURN 1", memgraph::query::TriggerEventType::EDGE_UPDATE,
-                           memgraph::query::TriggerPhase::AFTER_COMMIT});
+  expected_info.push_back({"edge_update_trigger",
+                           "RETURN 1",
+                           memgraph::query::TriggerEventType::EDGE_UPDATE,
+                           memgraph::query::TriggerPhase::AFTER_COMMIT,
+                           {/* no owner */}});
 
   check_trigger_info();
 

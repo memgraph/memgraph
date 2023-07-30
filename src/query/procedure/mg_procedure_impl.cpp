@@ -2962,7 +2962,18 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_t
 int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
-  return memgraph::query::MustAbort(*graph->ctx) ? 1 : 0;
+  auto const reason = memgraph::query::MustAbort(*graph->ctx);
+  // NOTE: deliberately decoupled to avoid accidental ABI breaks
+  switch (reason) {
+    case memgraph::query::AbortReason::TERMINATED:
+      return 1;
+    case memgraph::query::AbortReason::SHUTDOWN:
+      return 2;
+    case memgraph::query::AbortReason::TIMEOUT:
+      return 3;
+    case memgraph::query::AbortReason::NO_ABORT:
+      return 0;
+  }
 }
 
 namespace memgraph::query::procedure {

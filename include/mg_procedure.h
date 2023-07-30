@@ -1460,7 +1460,10 @@ enum mgp_error mgp_log(enum mgp_log_level log_level, const char *output);
 /// @{
 
 /// Return non-zero if the currently executing procedure should abort as soon as
-/// possible.
+/// possible. If non-zero the reasons are:
+/// (1) The transaction was requested to be terminated
+/// (2) The server is gracefully shutting down
+/// (3) The transaction has hit its timeout threshold
 ///
 /// Procedures which perform heavyweight processing run the risk of running too
 /// long and going over the query execution time limit. To prevent this, such
