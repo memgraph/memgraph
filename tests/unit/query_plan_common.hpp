@@ -35,7 +35,7 @@ using Bound = ScanAllByLabelPropertyRange::Bound;
 
 ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
                              memgraph::query::DbAccessor *dba) {
-  ExecutionContext context{dba};
+  ExecutionContext context{.db_accessor = dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
@@ -45,7 +45,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
 ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, const SymbolTable &symbol_table,
                                                    memgraph::query::DbAccessor *dba,
                                                    memgraph::glue::FineGrainedAuthChecker *auth_checker) {
-  ExecutionContext context{dba};
+  ExecutionContext context{.db_accessor = dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);

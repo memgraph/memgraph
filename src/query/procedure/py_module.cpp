@@ -218,7 +218,7 @@ static PyMethodDef PyVerticesIteratorMethods[] = {
      "Get the current vertex pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyVerticesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next vertex and return it."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -290,7 +290,7 @@ static PyMethodDef PyEdgesIteratorMethods[] = {
      "Get the current edge pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyEdgesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next edge and return it."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -406,7 +406,7 @@ static PyMethodDef PyGraphMethods[] = {
     {"iter_vertices", reinterpret_cast<PyCFunction>(PyGraphIterVertices), METH_NOARGS, "Return _mgp.VerticesIterator."},
     {"must_abort", reinterpret_cast<PyCFunction>(PyGraphMustAbort), METH_NOARGS,
      "Check whether the running procedure should abort"},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -560,7 +560,7 @@ static PyMethodDef PyQueryProcMethods[] = {
      "Add a result field to a procedure."},
     {"add_deprecated_result", reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult), METH_VARARGS,
      "Add a result field to a procedure and mark it as deprecated."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -585,7 +585,7 @@ static PyMethodDef PyMagicFuncMethods[] = {
      "Add a required argument to a function."},
     {"add_opt_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg), METH_VARARGS,
      "Add an optional argument with a default value to a function."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -737,7 +737,7 @@ static PyMethodDef PyMessageMethods[] = {
     {"key", reinterpret_cast<PyCFunction>(PyMessageGetKey), METH_NOARGS, "Get message key."},
     {"timestamp", reinterpret_cast<PyCFunction>(PyMessageGetTimestamp), METH_NOARGS, "Get message timestamp."},
     {"offset", reinterpret_cast<PyCFunction>(PyMessageGetOffset), METH_NOARGS, "Get message offset."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 void PyMessageDealloc(PyMessage *self) {
@@ -816,7 +816,7 @@ static PyMethodDef PyMessagesMethods[] = {
      "Get number of messages available"},
     {"message_at", reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt), METH_VARARGS,
      "Get message at index idx from messages"},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // NOLINTNEXTLINE
@@ -1372,7 +1372,7 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a transformation with this module."},
     {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
      "Register a function with this module."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -1466,7 +1466,7 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {"type_local_time", PyMgpModuleTypeLocalTime, METH_NOARGS, "Get the type representing a LocalTime."},
     {"type_local_date_time", PyMgpModuleTypeLocalDateTime, METH_NOARGS, "Get the type representing a LocalDateTime."},
     {"type_duration", PyMgpModuleTypeDuration, METH_NOARGS, "Get the type representing a Duration."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -1541,7 +1541,7 @@ static PyMethodDef PyPropertiesIteratorMethods[] = {
      "Get the current proprety pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next property and return it."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -1699,7 +1699,7 @@ static PyMethodDef PyEdgeMethods[] = {
      "Return edge property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
      "Set the value of the property on the edge."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
@@ -1987,7 +1987,7 @@ static PyMethodDef PyVertexMethods[] = {
      "Return vertex property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
      "Set the value of the property on the vertex."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
@@ -2141,7 +2141,7 @@ static PyMethodDef PyPathMethods[] = {
      "Return the vertex from a path at given index."},
     {"edge_at", reinterpret_cast<PyCFunction>(PyPathEdgeAt), METH_VARARGS,
      "Return the edge from a path at given index."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -2259,7 +2259,7 @@ static PyMethodDef PyLoggerMethods[] = {
      "Logs a message with level TRACE on this logger."},
     {"debug", reinterpret_cast<PyCFunction>(PyLoggerLogDebug), METH_VARARGS,
      "Logs a message with level DEBUG on this logger."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
