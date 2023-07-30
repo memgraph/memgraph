@@ -343,6 +343,17 @@ def test_user_killing_some_transactions():
     # Create another user1 connections
     user_connection_1_copy = connect(username="user1", password="")
     user_cursor_1_copy = user_connection_1_copy.cursor()
+    # Run in this while loop since it is possible that process 1 hasn't started yet.
+    query_not_started = True
+    time_passed = 0
+    while query_not_started:
+        query_not_started = len(execute_and_fetch_all(user_cursor_1_copy, "SHOW TRANSACTIONS")) != 2
+        time.sleep(1)
+        # Avoid running same test forever
+        time_passed += 1
+        if time_passed > 10:
+            assert False
+
     show_user_1_results = show_transactions_test(user_cursor_1_copy, 2)
     if show_user_1_results[0][2] == ["SHOW TRANSACTIONS"]:
         execution_index = 0
