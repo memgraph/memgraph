@@ -473,7 +473,6 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }
 
-
 TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   const int64_t int1 = 3;
   const int64_t int2 = 4;
@@ -503,7 +502,6 @@ TYPED_TEST(CppApiTestFixture, TestNumberEquality) {
   mgp::Value double_2{2.01};
   mgp::Value int_2{static_cast<int64_t>(2)};
   ASSERT_FALSE(double_2 == int_2);
-
 }
 
 TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
@@ -530,4 +528,35 @@ TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
   ASSERT_EQ(str_test, "string");
   ASSERT_EQ(int_test, "int");
   ASSERT_EQ(list_test, "list");
+}
+
+TYPED_TEST(CppApiTestFixture, TestMapUpdate) {
+  mgp::Map map{};
+  mgp::Value double_1{1.0};
+  mgp::Value double_2{2.0};
+
+  map.Update("1", double_1);
+  ASSERT_EQ(map.At("1"), double_1);
+
+  map.Update("1", double_2);
+  ASSERT_EQ(map.At("1"), double_2);
+}
+
+TYPED_TEST(CppApiTestFixture, TestMapErase) {
+  mgp::Map map{};
+  mgp::Value double_1{1.0};
+  mgp::Value double_2{2.0};
+
+  map.Insert("1", double_1);
+  map.Insert("2", double_2);
+  ASSERT_EQ(map.Size(), 2);
+
+  map.Erase("1");
+  ASSERT_EQ(map.Size(), 1);
+
+  map.Erase("1");
+  ASSERT_EQ(map.Size(), 1);
+
+  map.Erase("2");
+  ASSERT_EQ(map.Size(), 0);
 }

@@ -152,6 +152,7 @@ State StateExecutingRun(TSession &session, State state) {
       return RunHandlerV4<TSession>(signature, session, state, marker);
     }
     case 5:
+      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
       return RunHandlerV5<TSession>(signature, session, state, marker);
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
