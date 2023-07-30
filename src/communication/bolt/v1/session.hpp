@@ -64,7 +64,7 @@ class Session {
    */
   virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) = 0;
+      const std::map<std::string, memgraph::communication::bolt::Value> &extra) = 0;
 
   /**
    * Put results of the processed query in the `encoder`.
