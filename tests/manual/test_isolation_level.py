@@ -22,6 +22,7 @@ and then assert various transactional correctness properties.
 import argparse
 import mgclient
 
+
 def setup(conn):
     conn.autocommit = True
     cursor = conn.cursor()
@@ -42,41 +43,48 @@ def setup(conn):
     assert_eq(get(cursor, 2), [20])
 
 
-def update(cursor, key, value, comment = ""):
-    cursor.execute("""
+def update(cursor, key, value, comment=""):
+    cursor.execute(
+        """
             // %s
          MERGE (kv:Kv{ key: $key })
            SET kv.value = $value
         RETURN kv;
-    """ % comment, {'key': key, 'value': value})
+    """
+        % comment,
+        {"key": key, "value": value},
+    )
     ret = cursor.fetchall()
     if len(ret) != 1:
         print(f"expected ret to be len 1, but it's {ret}")
         assert len(ret) == 1
-    return ret[0][0].properties['value']
+    return ret[0][0].properties["value"]
 
 
 def get(cursor, key):
-    cursor.execute("""
+    cursor.execute(
+        """
         MATCH (kv: Kv { key: $key })
         RETURN kv;
-    """, {'key': key})
+    """,
+        {"key": key},
+    )
     ret = cursor.fetchall()
-    return [ r[0].properties['value'] for r in ret ]
+    return [r[0].properties["value"] for r in ret]
 
 
 def assert_eq(a, b):
     if a != b:
         print("expected", a, "to be", b)
-        assert(a == b)
+        assert a == b
 
 
-def assert_commit_fails(conn, failure = "conflicting transactions"):
+def assert_commit_fails(conn, failure="conflicting transactions"):
     try:
         conn.commit()
         # should always abort
         print("expected transaction to fail with", failure, "but it incorrectly committed successfully")
-        assert(False)
+        assert False
     except mgclient.DatabaseError as e:
         assert failure in str(e), "expected exception containing text {failure} but instead it was {e}"
 
@@ -84,26 +92,29 @@ def assert_commit_fails(conn, failure = "conflicting transactions"):
 def conflicting_update(cursor, key, value):
     try:
         update(cursor, key, value)
-        assert(False)
+        assert False
     except mgclient.DatabaseError as e:
-        assert(str(e).startswith("Cannot resolve conflicting transactions"))
+        assert str(e).startswith("Cannot resolve conflicting transactions")
 
 
 def select(cursor, key, expected):
     actual = get(cursor, key)
     if actual != expected:
         print("expected key", key, "to have value", expected, "but instead it had value", actual)
-        assert(False)
+        assert False
+
 
 def select_all(cursor, expected):
     cursor.execute("MATCH (kv: Kv {}) RETURN kv")
-    actual = [ r[0].properties['value'] for r in cursor.fetchall() ]
+    actual = [r[0].properties["value"] for r in cursor.fetchall()]
     assert actual == expected, "expected values {expected}, but instead it had values {actual}"
 
 
 """
     G0: Write Cycles (dirty writes)
 """
+
+
 def g0(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -142,6 +153,8 @@ def g0(c1, c2):
 """
     G1a: Aborted Reads (dirty reads, cascaded aborts)
 """
+
+
 def g1a(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -160,6 +173,8 @@ def g1a(c1, c2):
 """
     G1b: Intermediate Reads (dirty reads)
 """
+
+
 def g1b(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -179,6 +194,8 @@ def g1b(c1, c2):
 """
     G1c: Circular Information Flow (dirty reads)
 """
+
+
 def g1c(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -199,6 +216,8 @@ def g1c(c1, c2):
 """
     OTV: Observed Transaction Vanishes
 """
+
+
 def otv(c1, c2, c3):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -227,6 +246,8 @@ def otv(c1, c2, c3):
 """
     Predicate-Many-Preceders
 """
+
+
 def pmp(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -245,6 +266,8 @@ def pmp(c1, c2):
 """
     Predicate-Many-Preceders (write)
 """
+
+
 def pmp_write(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -256,9 +279,9 @@ def pmp_write(c1, c2):
 
     try:
         cursor_2.execute("MATCH (kv:Kv { value: 20 }) DETACH DELETE kv;")
-        assert(False)
+        assert False
     except mgclient.DatabaseError as e:
-        assert("conflicting transactions" in str(e))
+        assert "conflicting transactions" in str(e)
 
     c1.commit()
 
@@ -274,6 +297,8 @@ def pmp_write(c1, c2):
 """
     P4: Lost Update
 """
+
+
 def p4(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -293,6 +318,8 @@ def p4(c1, c2):
 """
     G-single: Single Anti-dependency Cycles (read skew)
 """
+
+
 def g_single(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -315,20 +342,22 @@ def g_single(c1, c2):
 """
     G-single: Single Anti-dependency Cycles (read skew) (dependencies)
 """
+
+
 def g_single_dependencies(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
 
     cursor_1.execute("MATCH (kv: Kv {}) WHERE kv.value % 5 = 0 RETURN kv")
-    found = [ r[0].properties['value'] for r in cursor_1.fetchall() ]
-    assert(found == [10, 20])
+    found = [r[0].properties["value"] for r in cursor_1.fetchall()]
+    assert found == [10, 20]
 
     cursor_2.execute("MATCH (kv: Kv { value: 10 }) SET kv.value = 12 RETURN kv")
     c2.commit()
 
     cursor_1.execute("MATCH (kv: Kv {}) WHERE kv.value % 3 = 0 RETURN kv")
-    found = [ r[0].properties['value'] for r in cursor_1.fetchall() ]
-    assert(found == [])
+    found = [r[0].properties["value"] for r in cursor_1.fetchall()]
+    assert found == []
 
     c1.commit()
 
@@ -339,6 +368,8 @@ def g_single_dependencies(c1, c2):
 """
     G-single: Single Anti-dependency Cycles (read skew) (write 1)
 """
+
+
 def g_single_write_1(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -353,9 +384,9 @@ def g_single_write_1(c1, c2):
 
     try:
         cursor_1.execute("MATCH (kv:Kv { value: 20 }) DETACH DELETE kv;")
-        assert(False)
+        assert False
     except mgclient.DatabaseError as e:
-        assert("conflicting transactions" in str(e))
+        assert "conflicting transactions" in str(e)
 
     select_all(cursor_2, [12, 18])
 
@@ -368,6 +399,8 @@ def g_single_write_1(c1, c2):
 """
     G-single: Single Anti-dependency Cycles (read skew) (write 2)
 """
+
+
 def g_single_write_2(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
@@ -391,17 +424,19 @@ def g_single_write_2(c1, c2):
 """
     G2-item: Item Anti-dependency Cycles (write skew on disjoint read)
 """
+
+
 def g2_item(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
 
     cursor_1.execute("MATCH (kv: Kv {}) WHERE kv.key = 1 OR kv.key = 2 RETURN kv")
-    found = [ r[0].properties['value'] for r in cursor_1.fetchall() ]
-    assert(found == [10, 20])
+    found = [r[0].properties["value"] for r in cursor_1.fetchall()]
+    assert found == [10, 20]
 
     cursor_2.execute("MATCH (kv: Kv {}) WHERE kv.key = 1 OR kv.key = 2 RETURN kv")
-    found = [ r[0].properties['value'] for r in cursor_2.fetchall() ]
-    assert(found == [10, 20])
+    found = [r[0].properties["value"] for r in cursor_2.fetchall()]
+    assert found == [10, 20]
 
     update(cursor_1, 1, 11)
     update(cursor_2, 2, 21)
@@ -413,27 +448,31 @@ def g2_item(c1, c2):
         print("✓ g2_item test passed")
         return True
     except:
-        print("X g2_item test failed - database exhibits write skew -",
-               "writes based on invalidated reads should have failed,",
-               "causing repeatable read (PL-2.99) and serializability (PL-3)",
-               "to fail to be achieved")
+        print(
+            "X g2_item test failed - database exhibits write skew -",
+            "writes based on invalidated reads should have failed,",
+            "causing repeatable read (PL-2.99) and serializability (PL-3)",
+            "to fail to be achieved",
+        )
         return False
 
 
 """
     G2: Anti-Dependency Cycles (write skew on predicate read)
 """
+
+
 def g2(c1, c2):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
 
     cursor_1.execute("MATCH (kv: Kv {}) WHERE kv.value % 3 = 0 RETURN kv")
-    found = [ r[0].properties['value'] for r in cursor_1.fetchall() ]
-    assert(found == [])
+    found = [r[0].properties["value"] for r in cursor_1.fetchall()]
+    assert found == []
 
     cursor_2.execute("MATCH (kv: Kv {}) WHERE kv.value % 3 = 0 RETURN kv")
-    found = [ r[0].properties['value'] for r in cursor_2.fetchall() ]
-    assert(found == [])
+    found = [r[0].properties["value"] for r in cursor_2.fetchall()]
+    assert found == []
 
     update(cursor_1, 3, 30)
     update(cursor_2, 4, 42)
@@ -445,25 +484,29 @@ def g2(c1, c2):
         print("✓ g2 test passed")
         return True
     except:
-        print("X g2 test failed - database exhibits write skew on predicate read -",
-              "concurrent transactions that should have caused a predicate read to",
-              "return data in one transaction actually returned nothing in both.",
-              "Both transactions committed, but one of them should have failed due",
-              "to having a predicate invalidated")
+        print(
+            "X g2 test failed - database exhibits write skew on predicate read -",
+            "concurrent transactions that should have caused a predicate read to",
+            "return data in one transaction actually returned nothing in both.",
+            "Both transactions committed, but one of them should have failed due",
+            "to having a predicate invalidated",
+        )
         return False
 
 
 """
     G2: Anti-Dependency Cycles (write skew on predicate read) (two edges)
 """
+
+
 def g2_two_edges(c1, c2, c3):
     cursor_1 = c1.cursor()
     select_all(cursor_1, [10, 20])
 
     cursor_2 = c2.cursor()
     cursor_2.execute("MATCH (kv: Kv { key: 2 }) SET kv.value = kv.value + 5 RETURN kv;")
-    found = [ r[0].properties['value'] for r in cursor_2.fetchall() ]
-    assert(found == [25])
+    found = [r[0].properties["value"] for r in cursor_2.fetchall()]
+    assert found == [25]
     c2.commit()
 
     cursor_3 = c3.cursor()
@@ -476,16 +519,18 @@ def g2_two_edges(c1, c2, c3):
         return True
     except:
         c3.rollback()
-        print("X g2_two_edges test failed: database exhibits write skew on predicate read -",
-              "a transaction's read set was invalidated in two concurrent transactions,"
-              "and it should have failed to commit if we want to be serializable")
+        print(
+            "X g2_two_edges test failed: database exhibits write skew on predicate read -",
+            "a transaction's read set was invalidated in two concurrent transactions,"
+            "and it should have failed to commit if we want to be serializable",
+        )
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--host', default = '127.0.0.1')
-    parser.add_argument('-p', '--port', default = 7687)
+    parser.add_argument("-s", "--host", default="127.0.0.1")
+    parser.add_argument("-p", "--port", default=7687)
     args = parser.parse_args()
 
     c1 = mgclient.connect(host=args.host, port=args.port)
@@ -541,12 +586,11 @@ if __name__ == '__main__':
     g2_two_edges = g2_two_edges(c1, c2, c3)
 
     g1 = all([g1a, g1b, g1c])
-    repeatable_read = all([g1 , g2_item])
-    snapshot_isolation = all([g0,  g1, otv,  pmp,
-        pmp_write, p4, g_single, g_single_dependencies,
-        g_single_write_1, g_single_write_2])
-    full_serializability =  all([snapshot_isolation, g2_item,
-        g2, g2_two_edges])
+    repeatable_read = all([g1, g2_item])
+    snapshot_isolation = all(
+        [g0, g1, otv, pmp, pmp_write, p4, g_single, g_single_dependencies, g_single_write_1, g_single_write_2]
+    )
+    full_serializability = all([snapshot_isolation, g2_item, g2, g2_two_edges])
 
     print("")
 
@@ -561,4 +605,3 @@ if __name__ == '__main__':
     print("more information about these anomalies can be found at:")
     print("\thttps://github.com/ept/hermitage")
     print("\thttps://pmg.csail.mit.edu/papers/adya-phd.pdf")
-
