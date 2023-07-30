@@ -89,12 +89,38 @@ path_filtering_cluster: &path_filtering_cluster
           "USE DATABASE memgraph",
         ]
 
+show_databases_w_user: &show_databases_w_user
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "fine_grained_access.log"
+      setup_queries:
+        [
+          "CREATE USER admin IDENTIFIED BY 'test';",
+          "CREATE USER user IDENTIFIED BY 'test';",
+          "CREATE USER user2 IDENTIFIED BY 'test';",
+          "CREATE USER user3 IDENTIFIED BY 'test';",
+          "CREATE DATABASE db1;",
+          "CREATE DATABASE db2;",
+          "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT DATABASE * TO admin;",
+          "GRANT ALL PRIVILEGES TO user;",
+          "GRANT DATABASE db1 TO user;",
+          "GRANT ALL PRIVILEGES TO user2;",
+          "GRANT DATABASE db2 TO user2;",
+          "REVOKE DATABASE memgraph FROM user2;",
+          "SET MAIN DATABASE db2 FOR user2",
+          "GRANT ALL PRIVILEGES TO user3;",
+          "GRANT DATABASE * TO user3;",
+          "REVOKE DATABASE memgraph FROM user3;",
+          "SET MAIN DATABASE db1 FOR user3",
+        ]
+
 workloads:
   - name: "Create delete filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/create_delete_filtering_tests.py"]
     <<: *create_delete_filtering_cluster
-
   - name: "EdgeType filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
@@ -103,3 +129,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/path_filtering_tests.py"]
     <<: *path_filtering_cluster
+  - name: "Show databases with users"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/show_db.py"]
+    <<: *show_databases_w_user

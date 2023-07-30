@@ -139,10 +139,10 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
     res.emplace_back("*");
   } else {
     std::vector<memgraph::query::TypedValue> grants_vec(grants.cbegin(), grants.cend());
-    res.emplace_back(grants_vec);
+    res.emplace_back(std::move(grants_vec));
   }
   std::vector<memgraph::query::TypedValue> denies_vec(denies.cbegin(), denies.cend());
-  res.emplace_back(denies_vec);
+  res.emplace_back(std::move(denies_vec));
   return {res};
 }
 
