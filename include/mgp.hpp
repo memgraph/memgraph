@@ -67,6 +67,21 @@ class MustAbortException : public std::exception {
   std::string message_;
 };
 
+class TerminatedMustAbortException : public MustAbortException {
+ public:
+  explicit TerminatedMustAbortException() : MustAbortException("Query was asked to terminate directly.") {}
+};
+
+class ShutdownMustAbortException : public MustAbortException {
+ public:
+  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+};
+
+class TimeoutMustAbortException : public MustAbortException {
+ public:
+  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+};
+
 // Forward declarations
 class Nodes;
 using GraphNodes = Nodes;
@@ -107,6 +122,19 @@ class Id {
   explicit Id(int64_t id);
 
   int64_t id_;
+};
+
+enum class AbortReason : uint8_t {
+  NO_ABORT = 0,
+
+  // transaction has been requested to terminate, ie. "TERMINATE TRANSACTIONS ..."
+  TERMINATED = 1,
+
+  // server is gracefully shutting down
+  SHUTDOWN = 2,
+
+  // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
+  TIMEOUT = 3,
 };
 
 /// @brief Wrapper class for @ref mgp_graph.
@@ -153,8 +181,13 @@ class Graph {
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
-  bool MustAbort() const;
+  /// @brief Checks if process must abort
+  /// @return AbortReason the reason to abort, if no need to abort then AbortReason::NO_ABORT is returned
+  AbortReason MustAbort() const;
 
+  /// @brief Checks if process must abort
+  /// @throws MustAbortException If process must abort for any reason
+  /// @note For the reason why the process must abort consider using MustAbort method instead
   void CheckMustAbort() const;
 
  private:
@@ -399,6 +432,9 @@ class List {
   /// @brief Returns the value at the given `index`.
   const Value operator[](size_t index) const;
 
+  ///@brief Same as above, but non const value
+  Value operator[](size_t index);
+
   class Iterator {
    private:
     friend class List;
@@ -461,6 +497,7 @@ class Map {
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(mgp_map *ptr);
+
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(const mgp_map *const_ptr);
 
@@ -469,6 +506,7 @@ class Map {
 
   /// @brief Creates a Map from the given vector.
   explicit Map(const std::map<std::string_view, Value> &items);
+
   /// @brief Creates a Map from the given vector.
   explicit Map(std::map<std::string_view, Value> &&items);
 
@@ -485,11 +523,13 @@ class Map {
 
   /// @brief Returns the size of the map.
   size_t Size() const;
+
   /// @brief Returns whether the map is empty.
   bool Empty() const;
 
   /// @brief Returns the value at the given `key`.
   Value const operator[](std::string_view key) const;
+
   /// @brief Returns the value at the given `key`.
   Value const At(std::string_view key) const;
 
@@ -530,16 +570,30 @@ class Map {
 
   /// @brief Inserts the given `key`-`value` pair into the map. The `value` is copied.
   void Insert(std::string_view key, const Value &value);
+
   /// @brief Inserts the given `key`-`value` pair into the map.
   /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
   /// operation is undefined.
   void Insert(std::string_view key, Value &&value);
 
-  // void Erase(std::string_view key);  // not implemented (requires mgp_map_erase in the MGP API)
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
+  void Update(std::string_view key, const Value &value);
+
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
+  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
+  /// operation is undefined.
+  void Update(std::string_view key, Value &&value);
+
+  /// @brief Erases the element associated with the key from the map, if it doesn't exist does nothing.
+  void Erase(std::string_view key);
+
   // void Clear();  // not implemented (requires mgp_map_clear in the MGP API)
 
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator==(const Map &other) const;
+
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator!=(const Map &other) const;
 
@@ -1068,32 +1122,46 @@ class Value {
 
   /// @pre Value type needs to be Type::Bool.
   bool ValueBool() const;
+  bool ValueBool();
   /// @pre Value type needs to be Type::Int.
   int64_t ValueInt() const;
+  int64_t ValueInt();
   /// @pre Value type needs to be Type::Double.
   double ValueDouble() const;
+  double ValueDouble();
   /// @pre Value type needs to be Type::Numeric.
   double ValueNumeric() const;
+  double ValueNumeric();
   /// @pre Value type needs to be Type::String.
   std::string_view ValueString() const;
+  std::string_view ValueString();
   /// @pre Value type needs to be Type::List.
   const List ValueList() const;
+  List ValueList();
   /// @pre Value type needs to be Type::Map.
   const Map ValueMap() const;
+  Map ValueMap();
   /// @pre Value type needs to be Type::Node.
   const Node ValueNode() const;
+  Node ValueNode();
   /// @pre Value type needs to be Type::Relationship.
   const Relationship ValueRelationship() const;
+  Relationship ValueRelationship();
   /// @pre Value type needs to be Type::Path.
   const Path ValuePath() const;
+  Path ValuePath();
   /// @pre Value type needs to be Type::Date.
   const Date ValueDate() const;
+  Date ValueDate();
   /// @pre Value type needs to be Type::LocalTime.
   const LocalTime ValueLocalTime() const;
+  LocalTime ValueLocalTime();
   /// @pre Value type needs to be Type::LocalDateTime.
   const LocalDateTime ValueLocalDateTime() const;
+  LocalDateTime ValueLocalDateTime();
   /// @pre Value type needs to be Type::Duration.
   const Duration ValueDuration() const;
+  Duration ValueDuration();
 
   /// @brief Returns whether the value is null.
   bool IsNull() const;
@@ -1674,11 +1742,31 @@ inline Id::Id(int64_t id) : id_(id) {}
 
 inline Graph::Graph(mgp_graph *graph) : graph_(graph) {}
 
-inline bool Graph::MustAbort() const { return must_abort(graph_); }
+inline AbortReason Graph::MustAbort() const {
+  const auto reason = must_abort(graph_);
+  switch (reason) {
+    case 1:
+      return AbortReason::TERMINATED;
+    case 2:
+      return AbortReason::SHUTDOWN;
+    case 3:
+      return AbortReason::TIMEOUT;
+    default:
+      break;
+  }
+  return AbortReason::NO_ABORT;
+}
 
 inline void Graph::CheckMustAbort() const {
-  if (MustAbort()) {
-    throw MustAbortException("Query was asked to abort.");
+  switch (MustAbort()) {
+    case AbortReason::TERMINATED:
+      throw TerminatedMustAbortException();
+    case AbortReason::SHUTDOWN:
+      throw ShutdownMustAbortException();
+    case AbortReason::TIMEOUT:
+      throw TimeoutMustAbortException();
+    case AbortReason::NO_ABORT:
+      break;
   }
 }
 
@@ -2182,6 +2270,8 @@ inline bool List::Empty() const { return Size() == 0; }
 
 inline const Value List::operator[](size_t index) const { return Value(mgp::list_at(ptr_, index)); }
 
+inline Value List::operator[](size_t index) { return Value(mgp::list_at(ptr_, index)); }
+
 inline bool List::Iterator::operator==(const Iterator &other) const {
   return iterable_ == other.iterable_ && index_ == other.index_;
 }
@@ -2371,8 +2461,19 @@ inline void Map::Insert(std::string_view key, const Value &value) { mgp::map_ins
 
 inline void Map::Insert(std::string_view key, Value &&value) {
   mgp::map_insert(ptr_, key.data(), value.ptr_);
+  value.~Value();
   value.ptr_ = nullptr;
 }
+
+inline void Map::Update(std::string_view key, const Value &value) { mgp::map_update(ptr_, key.data(), value.ptr_); }
+
+inline void Map::Update(std::string_view key, Value &&value) {
+  mgp::map_update(ptr_, key.data(), value.ptr_);
+  value.~Value();
+  value.ptr_ = nullptr;
+}
+
+inline void Map::Erase(std::string_view key) { mgp::map_erase(ptr_, key.data()); }
 
 inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr_, other.ptr_); }
 
@@ -3130,6 +3231,12 @@ inline bool Value::ValueBool() const {
   }
   return mgp::value_get_bool(ptr_);
 }
+inline bool Value::ValueBool() {
+  if (Type() != Type::Bool) {
+    throw ValueException("Type of value is wrong: expected Bool.");
+  }
+  return mgp::value_get_bool(ptr_);
+}
 
 inline std::int64_t Value::ValueInt() const {
   if (Type() != Type::Int) {
@@ -3137,8 +3244,20 @@ inline std::int64_t Value::ValueInt() const {
   }
   return mgp::value_get_int(ptr_);
 }
+inline std::int64_t Value::ValueInt() {
+  if (Type() != Type::Int) {
+    throw ValueException("Type of value is wrong: expected Int.");
+  }
+  return mgp::value_get_int(ptr_);
+}
 
 inline double Value::ValueDouble() const {
+  if (Type() != Type::Double) {
+    throw ValueException("Type of value is wrong: expected Double.");
+  }
+  return mgp::value_get_double(ptr_);
+}
+inline double Value::ValueDouble() {
   if (Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Double.");
   }
@@ -3154,8 +3273,23 @@ inline double Value::ValueNumeric() const {
   }
   return mgp::value_get_double(ptr_);
 }
+inline double Value::ValueNumeric() {
+  if (Type() != Type::Int && Type() != Type::Double) {
+    throw ValueException("Type of value is wrong: expected Int or Double.");
+  }
+  if (Type() == Type::Int) {
+    return static_cast<double>(mgp::value_get_int(ptr_));
+  }
+  return mgp::value_get_double(ptr_);
+}
 
 inline std::string_view Value::ValueString() const {
+  if (Type() != Type::String) {
+    throw ValueException("Type of value is wrong: expected String.");
+  }
+  return mgp::value_get_string(ptr_);
+}
+inline std::string_view Value::ValueString() {
   if (Type() != Type::String) {
     throw ValueException("Type of value is wrong: expected String.");
   }
@@ -3168,8 +3302,20 @@ inline const List Value::ValueList() const {
   }
   return List(mgp::value_get_list(ptr_));
 }
+inline List Value::ValueList() {
+  if (Type() != Type::List) {
+    throw ValueException("Type of value is wrong: expected List.");
+  }
+  return List(mgp::value_get_list(ptr_));
+}
 
 inline const Map Value::ValueMap() const {
+  if (Type() != Type::Map) {
+    throw ValueException("Type of value is wrong: expected Map.");
+  }
+  return Map(mgp::value_get_map(ptr_));
+}
+inline Map Value::ValueMap() {
   if (Type() != Type::Map) {
     throw ValueException("Type of value is wrong: expected Map.");
   }
@@ -3182,8 +3328,20 @@ inline const Node Value::ValueNode() const {
   }
   return Node(mgp::value_get_vertex(ptr_));
 }
+inline Node Value::ValueNode() {
+  if (Type() != Type::Node) {
+    throw ValueException("Type of value is wrong: expected Node.");
+  }
+  return Node(mgp::value_get_vertex(ptr_));
+}
 
 inline const Relationship Value::ValueRelationship() const {
+  if (Type() != Type::Relationship) {
+    throw ValueException("Type of value is wrong: expected Relationship.");
+  }
+  return Relationship(mgp::value_get_edge(ptr_));
+}
+inline Relationship Value::ValueRelationship() {
   if (Type() != Type::Relationship) {
     throw ValueException("Type of value is wrong: expected Relationship.");
   }
@@ -3196,8 +3354,20 @@ inline const Path Value::ValuePath() const {
   }
   return Path(mgp::value_get_path(ptr_));
 }
+inline Path Value::ValuePath() {
+  if (Type() != Type::Path) {
+    throw ValueException("Type of value is wrong: expected Path.");
+  }
+  return Path(mgp::value_get_path(ptr_));
+}
 
 inline const Date Value::ValueDate() const {
+  if (Type() != Type::Date) {
+    throw ValueException("Type of value is wrong: expected Date.");
+  }
+  return Date(mgp::value_get_date(ptr_));
+}
+inline Date Value::ValueDate() {
   if (Type() != Type::Date) {
     throw ValueException("Type of value is wrong: expected Date.");
   }
@@ -3210,6 +3380,12 @@ inline const LocalTime Value::ValueLocalTime() const {
   }
   return LocalTime(mgp::value_get_local_time(ptr_));
 }
+inline LocalTime Value::ValueLocalTime() {
+  if (Type() != Type::LocalTime) {
+    throw ValueException("Type of value is wrong: expected LocalTime.");
+  }
+  return LocalTime(mgp::value_get_local_time(ptr_));
+}
 
 inline const LocalDateTime Value::ValueLocalDateTime() const {
   if (Type() != Type::LocalDateTime) {
@@ -3217,8 +3393,20 @@ inline const LocalDateTime Value::ValueLocalDateTime() const {
   }
   return LocalDateTime(mgp::value_get_local_date_time(ptr_));
 }
+inline LocalDateTime Value::ValueLocalDateTime() {
+  if (Type() != Type::LocalDateTime) {
+    throw ValueException("Type of value is wrong: expected LocalDateTime.");
+  }
+  return LocalDateTime(mgp::value_get_local_date_time(ptr_));
+}
 
 inline const Duration Value::ValueDuration() const {
+  if (Type() != Type::Duration) {
+    throw ValueException("Type of value is wrong: expected Duration.");
+  }
+  return Duration(mgp::value_get_duration(ptr_));
+}
+inline Duration Value::ValueDuration() {
   if (Type() != Type::Duration) {
     throw ValueException("Type of value is wrong: expected Duration.");
   }
@@ -3331,7 +3519,6 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       throw ValueException("Unknown type");
   }
 }
-
 
 /* #endregion */
 
