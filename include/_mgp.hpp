@@ -335,6 +335,12 @@ inline void map_insert(mgp_map *map, const char *key, mgp_value *value) {
   MgInvokeVoid(mgp_map_insert, map, key, value);
 }
 
+inline void map_update(mgp_map *map, const char *key, mgp_value *value) {
+  MgInvokeVoid(mgp_map_update, map, key, value);
+}
+
+inline void map_erase(mgp_map *map, const char *key) { MgInvokeVoid(mgp_map_erase, map, key); }
+
 inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
@@ -712,7 +718,7 @@ inline void proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_typ
   MgInvokeVoid(mgp_proc_add_deprecated_result, proc, name, type);
 }
 
-inline bool must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
+inline int must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
 
 // mgp_result
 

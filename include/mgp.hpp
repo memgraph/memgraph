@@ -67,6 +67,21 @@ class MustAbortException : public std::exception {
   std::string message_;
 };
 
+class TerminatedMustAbortException : public MustAbortException {
+ public:
+  explicit TerminatedMustAbortException() : MustAbortException("Query was asked to terminate directly.") {}
+};
+
+class ShutdownMustAbortException : public MustAbortException {
+ public:
+  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+};
+
+class TimeoutMustAbortException : public MustAbortException {
+ public:
+  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+};
+
 // Forward declarations
 class Nodes;
 using GraphNodes = Nodes;
@@ -107,6 +122,19 @@ class Id {
   explicit Id(int64_t id);
 
   int64_t id_;
+};
+
+enum class AbortReason : uint8_t {
+  NO_ABORT = 0,
+
+  // transaction has been requested to terminate, ie. "TERMINATE TRANSACTIONS ..."
+  TERMINATED = 1,
+
+  // server is gracefully shutting down
+  SHUTDOWN = 2,
+
+  // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
+  TIMEOUT = 3,
 };
 
 /// @brief Wrapper class for @ref mgp_graph.
@@ -153,8 +181,13 @@ class Graph {
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
-  bool MustAbort() const;
+  /// @brief Checks if process must abort
+  /// @return AbortReason the reason to abort, if no need to abort then AbortReason::NO_ABORT is returned
+  AbortReason MustAbort() const;
 
+  /// @brief Checks if process must abort
+  /// @throws MustAbortException If process must abort for any reason
+  /// @note For the reason why the process must abort consider using MustAbort method instead
   void CheckMustAbort() const;
 
  private:
@@ -464,6 +497,7 @@ class Map {
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(mgp_map *ptr);
+
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(const mgp_map *const_ptr);
 
@@ -472,6 +506,7 @@ class Map {
 
   /// @brief Creates a Map from the given vector.
   explicit Map(const std::map<std::string_view, Value> &items);
+
   /// @brief Creates a Map from the given vector.
   explicit Map(std::map<std::string_view, Value> &&items);
 
@@ -488,11 +523,13 @@ class Map {
 
   /// @brief Returns the size of the map.
   size_t Size() const;
+
   /// @brief Returns whether the map is empty.
   bool Empty() const;
 
   /// @brief Returns the value at the given `key`.
   Value const operator[](std::string_view key) const;
+
   /// @brief Returns the value at the given `key`.
   Value const At(std::string_view key) const;
 
@@ -533,16 +570,30 @@ class Map {
 
   /// @brief Inserts the given `key`-`value` pair into the map. The `value` is copied.
   void Insert(std::string_view key, const Value &value);
+
   /// @brief Inserts the given `key`-`value` pair into the map.
   /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
   /// operation is undefined.
   void Insert(std::string_view key, Value &&value);
 
-  // void Erase(std::string_view key);  // not implemented (requires mgp_map_erase in the MGP API)
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
+  void Update(std::string_view key, const Value &value);
+
+  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
+  /// is copied.
+  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
+  /// operation is undefined.
+  void Update(std::string_view key, Value &&value);
+
+  /// @brief Erases the element associated with the key from the map, if it doesn't exist does nothing.
+  void Erase(std::string_view key);
+
   // void Clear();  // not implemented (requires mgp_map_clear in the MGP API)
 
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator==(const Map &other) const;
+
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator!=(const Map &other) const;
 
@@ -1691,11 +1742,31 @@ inline Id::Id(int64_t id) : id_(id) {}
 
 inline Graph::Graph(mgp_graph *graph) : graph_(graph) {}
 
-inline bool Graph::MustAbort() const { return must_abort(graph_); }
+inline AbortReason Graph::MustAbort() const {
+  const auto reason = must_abort(graph_);
+  switch (reason) {
+    case 1:
+      return AbortReason::TERMINATED;
+    case 2:
+      return AbortReason::SHUTDOWN;
+    case 3:
+      return AbortReason::TIMEOUT;
+    default:
+      break;
+  }
+  return AbortReason::NO_ABORT;
+}
 
 inline void Graph::CheckMustAbort() const {
-  if (MustAbort()) {
-    throw MustAbortException("Query was asked to abort.");
+  switch (MustAbort()) {
+    case AbortReason::TERMINATED:
+      throw TerminatedMustAbortException();
+    case AbortReason::SHUTDOWN:
+      throw ShutdownMustAbortException();
+    case AbortReason::TIMEOUT:
+      throw TimeoutMustAbortException();
+    case AbortReason::NO_ABORT:
+      break;
   }
 }
 
@@ -2390,8 +2461,19 @@ inline void Map::Insert(std::string_view key, const Value &value) { mgp::map_ins
 
 inline void Map::Insert(std::string_view key, Value &&value) {
   mgp::map_insert(ptr_, key.data(), value.ptr_);
+  value.~Value();
   value.ptr_ = nullptr;
 }
+
+inline void Map::Update(std::string_view key, const Value &value) { mgp::map_update(ptr_, key.data(), value.ptr_); }
+
+inline void Map::Update(std::string_view key, Value &&value) {
+  mgp::map_update(ptr_, key.data(), value.ptr_);
+  value.~Value();
+  value.ptr_ = nullptr;
+}
+
+inline void Map::Erase(std::string_view key) { mgp::map_erase(ptr_, key.data()); }
 
 inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr_, other.ptr_); }
 
@@ -3437,7 +3519,6 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       throw ValueException("Unknown type");
   }
 }
-
 
 /* #endregion */
 

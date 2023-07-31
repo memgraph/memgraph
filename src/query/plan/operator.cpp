@@ -160,6 +160,10 @@ uint64_t ComputeProfilingKey(const T *obj) {
   return reinterpret_cast<uint64_t>(obj);
 }
 
+inline void AbortCheck(ExecutionContext const &context) {
+  if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
+}
+
 }  // namespace
 
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
@@ -432,7 +436,7 @@ class ScanAllCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -740,7 +744,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   };
 
   while (true) {
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -1003,7 +1007,7 @@ class ExpandVariableCursor : public Cursor {
     // Input Vertex could be null if it is created by a failed optional match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       if (!input_cursor_->Pull(frame, context)) return false;
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -1073,7 +1077,7 @@ class ExpandVariableCursor : public Cursor {
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -1271,7 +1275,7 @@ class STShortestPathCursor : public query::plan::Cursor {
     out_edge[sink] = std::nullopt;
 
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
       if (current_length > upper_bound) return false;
@@ -1477,7 +1481,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // do it all in a loop because we skip some elements
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // if we have nothing to visit on the current depth, switch to next
       if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
@@ -1683,7 +1687,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     };
 
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       if (pq_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         const auto &vertex_value = frame[self_.input_symbol_];
@@ -1720,7 +1724,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       }
 
       while (!pq_.empty()) {
-        if (MustAbort(context)) throw HintedAbortError();
+        AbortCheck(context);
         auto [current_weight, current_depth, current_vertex, current_edge] = pq_.top();
         pq_.pop();
 
@@ -2019,7 +2023,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     auto create_DFS_traversal_tree = [this, &context, &memory, &create_state, &expand_from_vertex]() {
       while (!pq_.empty()) {
-        if (MustAbort(context)) throw HintedAbortError();
+        AbortCheck(context);
 
         const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
         pq_.pop();
@@ -2070,7 +2074,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // On each subsequent Pull run, paths are created from the traversal stack and returned.
     while (true) {
       // Check if there is an external error.
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
 
       // The algorithm is run all at once by create_DFS_traversal_tree, after which we
       // traverse the tree iteratively by preserving the traversal state on stack.
@@ -2488,7 +2492,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   // delete edges first
   for (TypedValue &expression_result : expression_results) {
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto &ea = expression_result.ValueEdge();
 #ifdef MG_ENTERPRISE
@@ -2520,7 +2524,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // delete vertices
   for (TypedValue &expression_result : expression_results) {
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
@@ -3199,9 +3203,7 @@ class EmptyResultCursor : public Cursor {
 
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
-        if (MustAbort(context)) {
-          throw HintedAbortError();
-        }
+        AbortCheck(context);
       }
       pulled_all_input_ = true;
     }
@@ -3257,7 +3259,7 @@ class AccumulateCursor : public Cursor {
       if (self_.advance_command_) dba.AdvanceCommand();
     }
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
@@ -3833,7 +3835,7 @@ class OrderByCursor : public Cursor {
 
     if (cache_it_ == cache_.end()) return false;
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     // place the output values on the frame
     DMG_ASSERT(self_.output_symbols_.size() == cache_it_->remember.size(),
@@ -4057,7 +4059,7 @@ class UnwindCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // if we reached the end of our list of values
       // pull from the input
       if (input_value_it_ == input_value_.end()) {
@@ -4316,7 +4318,7 @@ class CartesianCursor : public Cursor {
       restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     restore_frame(self_.left_symbols_, *left_op_frames_it_);
     left_op_frames_it_++;
@@ -4568,7 +4570,7 @@ class CallProcedureCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CallProcedure");
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
@@ -4847,7 +4849,7 @@ class LoadCsvCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("LoadCsv");
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     // ToDo(the-joksim):
     //  - this is an ungodly hack because the pipeline of creating a plan
