@@ -4711,7 +4711,7 @@ class CallValidateProcedureCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CallValidateProcedureCursor");
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     if (!input_cursor_->Pull(frame, context)) {
       return false;
     }
