@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test:explicit": "ts-node explicit-transaction.ts",
+    "test:auto": "ts-node auto-transaction.ts"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.9.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "ts-node": "^10.0.0"
+  }
+}

@@ -23,7 +23,7 @@ noExplicitConstructor:src/storage/property_value.hpp
 noExplicitConstructor:src/query/typed_value.hpp
 noExplicitConstructor:src/communication/bolt/v1/decoder/decoded_value.hpp
 
-// suppress antrl warnings
+// suppress antlr warnings
 variableScope:src/query/frontend/opencypher/generated/CypherParser.h
 variableScope:src/query/frontend/opencypher/generated/CypherLexer.h
 variableScope:src/query/frontend/opencypher/generated/CypherParser.cpp
