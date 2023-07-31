@@ -2722,7 +2722,8 @@ concept AccessorWithProperties = requires(T value, storage::PropertyId property_
 ///     RecordAccessor<Edge>
 template <AccessorWithProperties TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
-                           ExecutionContext *context) {
+                           ExecutionContext *context,
+                           std::unordered_map<std::string, storage::PropertyId> &cached_name_id) {
   std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
   const bool should_register_change =
       context->trigger_context_collector &&
@@ -2813,11 +2814,17 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.ValueMap()) {
-        auto key = context->db_accessor->NameToProperty(kv.first);
-        auto old_value = PropsSetChecked(record, key, kv.second);
+      for (const auto &[string_key, value] : rhs.ValueMap()) {
+        storage::PropertyId property_id;
+        if (auto it = cached_name_id.find(std::string(string_key)); it == cached_name_id.end()) {
+          property_id = context->db_accessor->NameToProperty(string_key);
+          cached_name_id.emplace(string_key, property_id);
+        } else {
+          property_id = it->second;
+        }
+        auto old_value = PropsSetChecked(record, property_id, value);
         if (should_register_change) {
-          register_set_property(std::move(old_value), key, kv.second);
+          register_set_property(std::move(old_value), property_id, value);
         }
       }
       break;
@@ -2845,6 +2852,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &lhs = frame[self_.input_symbol_];
+  // context.frame_change_collector->AddTrackingKey("a");
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -2860,8 +2868,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 #endif
-
-      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -2870,7 +2877,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
