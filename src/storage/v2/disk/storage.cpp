@@ -792,6 +792,11 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   auto &[deleted_vertices, deleted_edges] = *value;
 
+  for (const auto &deleted_vertex : deleted_vertices) {
+    vertices_to_delete_.emplace_back(utils::SerializeIdType(deleted_vertex.vertex_->gid),
+                                     utils::SerializeVertex(*deleted_vertex.vertex_));
+  }
+
   for (const auto &deleted_edge : deleted_edges) {
     const std::string src_dest_del_key{utils::SerializeEdge(deleted_edge.from_vertex_->gid,
                                                             deleted_edge.to_vertex_->gid, deleted_edge.edge_type_,
