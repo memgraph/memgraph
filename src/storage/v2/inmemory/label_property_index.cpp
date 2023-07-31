@@ -104,16 +104,25 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  for (const auto &label : vertex->labels) {
-    if (index_exists_.contains(property) && index_exists_.at(property).contains(label)) {
-      // if (index_exists_.contains(label) && index_exists_.at(label).contains(property)) {
-      // auto &storage = index_.at({label, property});
-      auto &storage = *index_exists_.at(property).at(label);
-      // auto &storage = *index_exists_.at(label).at(property);
-      auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
-    }
+  if (!index_exists_.contains(property)) {
+    return;
   }
+
+  for (const auto &[_, storage] : index_exists_.at(property)) {
+    auto acc = storage->access();
+    acc.insert(Entry{value, vertex, tx.start_timestamp});
+  }
+
+  // for (const auto &label : vertex->labels) {
+  //   if (index_exists_.contains(property) && index_exists_.at(property).contains(label)) {
+  //     // if (index_exists_.contains(label) && index_exists_.at(label).contains(property)) {
+  //     // auto &storage = index_.at({label, property});
+  //     auto &storage = *index_exists_.at(property).at(label);
+  //     // auto &storage = *index_exists_.at(label).at(property);
+  //     auto acc = storage.access();
+  //     acc.insert(Entry{value, vertex, tx.start_timestamp});
+  //   }
+  // }
 
   // for (auto &[label_prop, storage] : index_) {  // O(n_indeksa)
   //   if (label_prop.second != property) {
