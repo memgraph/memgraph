@@ -591,6 +591,7 @@ static inline SessionContext Init(storage::Config &storage_config, query::Interp
   MG_ASSERT(auth_handler, "Passed a nullptr auth_handler");
   MG_ASSERT(auth_checker, "Passed a nullptr auth_checker");
 
+  storage_config.name = kDefaultDB;
   auto interp_context = std::make_shared<query::InterpreterContext>(
       storage_config, interp_config, storage_config.durability.storage_directory, auth_handler, auth_checker);
   MG_ASSERT(interp_context, "Failed to construct main interpret context.");

@@ -60,7 +60,6 @@ class UnknownDatabaseException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-#ifdef MG_ENTERPRISE
 /**
  * @brief Session interface used by the DBMS to handle the the active sessions.
  * @todo Try to remove this dependency from SessionContextHandler. OnDelete could be removed, as it only does an assert.
@@ -91,6 +90,7 @@ class SessionInterface {
    */
   virtual std::string GetDatabaseName() const = 0;
 
+#ifdef MG_ENTERPRISE
   /**
    * @brief Gets called on database change.
    *
@@ -104,7 +104,7 @@ class SessionInterface {
    * @return true on success
    */
   virtual bool OnDelete(const std::string &) = 0;
-};
 #endif
+};
 
 }  // namespace memgraph::dbms

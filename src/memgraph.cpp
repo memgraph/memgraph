@@ -896,11 +896,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::optional<memgraph::auth::User> user_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
+  bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
 #endif
   memgraph::communication::v2::ServerEndpoint endpoint_;
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;
-  bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
 };
 
 #ifdef MG_ENTERPRISE
