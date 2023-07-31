@@ -105,15 +105,19 @@ def create_indices() -> None:
     memgraph.execute("CREATE INDEX ON :Node(id)")
 
 
-def execute_function(worker: Worker):
+def execute_function(worker: Worker) -> Worker:
     """
     Executes the function based on the worker type
     """
     if worker.type == CREATE_FUNCTION:
         run_writer(worker.total_worker_cnt, worker.repetition_count, worker.sleep_sec, worker.id)
-    elif worker.type == DELETE_FUNCTION:
+        return worker
+
+    if worker.type == DELETE_FUNCTION:
         run_deleter(worker.total_worker_cnt, worker.repetition_count, worker.sleep_sec)
-    raise Exception("Unknown command!")
+        return worker
+
+    raise Exception("Worker function not recognized, raising exception!")
 
 
 def run_writer(total_workers_cnt: int, repetition_count: int, sleep_sec: float, worker_id: int) -> int:
@@ -199,11 +203,11 @@ def execution_handler(args: Args) -> None:
     rep_count = args.repetition_count
 
     workers = [Worker(CREATE_FUNCTION, x, worker_count - 1, rep_count, 0.2) for x in range(worker_count - 1)]
-    workers.append(Worker(DELETE_FUNCTION, -1, worker_count - 1, rep_count * 2, 0.15))
+    workers.append(Worker(DELETE_FUNCTION, -1, worker_count - 1, rep_count, 0.15))
 
-    with multiprocessing.Pool(args.worker_count) as p:
-        tasks = p.map(execute_function, workers)
-        tasks.get()
+    with multiprocessing.Pool(processes=args.worker_count) as p:
+        for worker in p.map(execute_function, workers):
+            print(f"Worker {worker.type} finished!")
 
 
 if __name__ == "__main__":
