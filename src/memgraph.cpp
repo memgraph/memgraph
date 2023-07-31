@@ -56,6 +56,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
@@ -371,6 +372,12 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                                          [](const auto &dir) { return dir; });
                           return true;
                         });
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(query_callable_mappings_path, "",
+              "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
+              "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
+              "mapped to ones that exist.");
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -1187,6 +1194,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file...");

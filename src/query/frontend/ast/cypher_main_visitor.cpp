@@ -35,6 +35,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
@@ -1188,13 +1189,26 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   const auto &maybe_found =
       procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
   if (!maybe_found) {
-    throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+    // TODO remove this once void procedures are supported,
+    // this will not be needed anymore.
+    const auto mg_specific_name = procedure::gCallableAliasMapper.FindAlias(call_proc->procedure_name_);
+    const bool void_procedure_required = (mg_specific_name && *mg_specific_name == "mgps.validate");
+    if (void_procedure_required) {
+      // This is a special case. Since void procedures currently are not supported,
+      // we have to make sure that the non-memgraph native, void procedures that are
+      // possibly used against a memgraph instance are handled correctly. As of now
+      // this is the only known such case. This should be more generic, but the most
+      // generic solution would be to implement void procedures.
+      call_proc->void_procedure_ = true;
+    } else {
+      throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+    }
   }
   call_proc->is_write_ = maybe_found->second->info.is_write;
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    if (!maybe_found->second->results.empty()) {
+    if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
