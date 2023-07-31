@@ -18,6 +18,7 @@
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
+#include <string_view>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
@@ -87,6 +88,8 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
 
  private:
   const Comparator *cmp_without_ts_{nullptr};
+
+  int CompareEdgeWithGidForPrefixSearch(std::string_view edge, std::string_view source_vertex_gid) const;
 };
 
 class VerticalLinePrefixTransform : public rocksdb::SliceTransform {
@@ -111,9 +114,15 @@ class VerticalLinePrefixTransform : public rocksdb::SliceTransform {
   std::string GetId() const override { return id_; }
 
   rocksdb::Slice Transform(const rocksdb::Slice &src) const override {
-    assert(InDomain(src));
+    // spdlog::debug("Received request for transform: {} {}", src.ToString(), src.ToString().size());
     const std::string src_str = src.ToString();
-    return {src.data(), src_str.find('|')};
+    if (utils::Contains(src.ToString(), '|')) {
+      assert(InDomain(src));
+      auto res = rocksdb::Slice(src.data(), src_str.find('|'));
+      // spdlog::debug("Transform result: {} from: {}", res.ToString(), src_str);
+      return res;
+    }
+    return src;
   }
 
   bool InDomain(const rocksdb::Slice &src) const override { return (utils::Contains(src.ToString(), '|')); }

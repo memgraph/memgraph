@@ -15,6 +15,8 @@
 
 namespace memgraph::utils {
 
+enum RocksDBType { VERTEX, EDGE, GID };
+
 inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
   while (head->next != nullptr) {
     head = head->next;
@@ -23,6 +25,28 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
     return head->old_disk_key;
   }
   return std::nullopt;
+}
+
+inline RocksDBType GetRocksDBKeyType(uint32_t num_separators) {
+  if (num_separators == 0) {
+    return RocksDBType::GID;
+  }
+  if (num_separators == 4) {
+    return RocksDBType::EDGE;
+  }
+  return RocksDBType::VERTEX;
+}
+
+inline bool ComparingVertexWithVertex(RocksDBType type_a, RocksDBType type_b) {
+  return type_a == RocksDBType::VERTEX && type_b == RocksDBType::VERTEX;
+}
+
+inline bool ComparingEdgeWithEdge(RocksDBType type_a, RocksDBType type_b) {
+  return type_a == RocksDBType::EDGE && type_b == RocksDBType::EDGE;
+}
+
+inline bool ComparingEdgeWithGID(RocksDBType type_a, RocksDBType type_b) {
+  return type_a == RocksDBType::EDGE && type_b == RocksDBType::GID;
 }
 
 }  // namespace memgraph::utils

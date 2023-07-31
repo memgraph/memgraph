@@ -4247,9 +4247,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
     acc->PrefetchOutEdges(*vertex_to);
     acc->PrefetchInEdges(*vertex_to);
 

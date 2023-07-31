@@ -245,10 +245,11 @@ DiskStorage::DiskStorage(Config config)
   LoadIndexInfoIfExists();
   LoadConstraintsInfoIfExists();
   kvstore_->options_.create_if_missing = true;
-  // rocksdb::BlockBasedTableOptions table_options;
+  rocksdb::BlockBasedTableOptions table_options;
   // TODO: have to implement our own FilterPolicy
   // table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
-  // kvstore_->options_.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+  table_options.filter_policy.reset(rocksdb::NewRibbonFilterPolicy(10, false));
+  kvstore_->options_.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
   kvstore_->options_.prefix_extractor.reset(new VerticalLinePrefixTransform());
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
@@ -391,7 +392,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  spdlog::debug("Scanning all vertices");
+  // spdlog::debug("Scanning all vertices");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -932,9 +933,10 @@ void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc
 // }
 
 void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
+  spdlog::debug("Prefetch out edges");
   rocksdb::ReadOptions read_opts;
-  read_opts.total_order_seek = false;
-  read_opts.auto_prefix_mode = false;
+  read_opts.total_order_seek = true;
+  read_opts.prefix_same_as_start = true;
   auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
   read_opts.timestamp = &ts;
@@ -944,20 +946,14 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
   auto gid_str = std::to_string(vertex_acc.Gid().AsUint());
   spdlog::debug("Gid string: {}", gid_str);
   it->Seek(gid_str);
-  spdlog::debug("Before loop");
-  while (true) {
+  while (it->Valid()) {
     spdlog::debug("In loop execution");
-    auto key_str = it->key().ToString();
+    auto key_str = it->key().ToStringView();
     if (!key_str.starts_with(gid_str)) break;
-    spdlog::debug("Found edge with key: {}", it->key().ToString());
+    spdlog::debug("Key str: {} gid str: {}", key_str, gid_str);
+    DeserializeEdge(key_str, it->value());
     it->Next();
   }
-
-  // for (it->SeekToFirst(); it->Valid(); it->Next()) {
-  //   const rocksdb::Slice &key = it->key();
-  //   const auto edge_parts = utils::Split(key.ToStringView(), "|");
-  //   DeserializeEdge(key, it->value());
-  // }
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor *from, const VertexAccessor *to,
