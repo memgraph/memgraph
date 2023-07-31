@@ -67,7 +67,11 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
 
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
-  index_exists_[label].emplace(property);  // TODO ante emplace flag
+  // index_exists_[label].emplace(property);  // TODO ante emplace flag
+
+  index_exists_[property].insert({label, &index_.at({label, property})});
+
+  // index_exists_[label].insert({property, &index_.at({label, property})});
 
   if (!emplaced) {
     // Index already exists.
@@ -76,7 +80,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
 
   if (paralell_exec_info) {
     return create_index_par(label, property, vertices, it, *paralell_exec_info);
-  }
+  } /*  */
   return create_index_seq(label, property, vertices, it);
 }
 
@@ -101,8 +105,11 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   }
 
   for (const auto &label : vertex->labels) {
-    if (index_exists_.contains(label) && index_exists_.at(label).contains(property)) {
-      auto &storage = index_.at({label, property});
+    if (index_exists_.contains(property) && index_exists_.at(property).contains(label)) {
+      // if (index_exists_.contains(label) && index_exists_.at(label).contains(property)) {
+      // auto &storage = index_.at({label, property});
+      auto &storage = *index_exists_.at(property).at(label);
+      // auto &storage = *index_exists_.at(label).at(property);
       auto acc = storage.access();
       acc.insert(Entry{value, vertex, tx.start_timestamp});
     }
@@ -120,11 +127,19 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  if (index_exists_.find(label) != index_exists_.end()) {
-    index_exists_.at(label).erase(property);
+  // if (index_exists_.find(label) != index_exists_.end()) {
+  //   index_exists_.at(label).erase(property);
 
-    if (index_exists_.at(label).empty()) {
-      index_exists_.erase(label);
+  //   if (index_exists_.at(label).empty()) {
+  //     index_exists_.erase(label);
+  //   }
+  // }
+
+  if (index_exists_.find(property) != index_exists_.end()) {
+    index_exists_.at(property).erase(label);
+
+    if (index_exists_.at(property).empty()) {
+      index_exists_.erase(property);
     }
   }
 
