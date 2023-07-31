@@ -1,6 +1,8 @@
+import atexit
 import collections.abc
 import json
 import os.path
+import socket
 import subprocess
 import time
 from uuid import UUID
@@ -14,13 +16,11 @@ class GraphQLServer:
     def __init__(self, config_file_path: str):
         self.url = "http://127.0.0.1:4000"
 
-        ls = subprocess.Popen(("lsof", "-t", "-i:4000"), stdout=subprocess.PIPE)
-        subprocess.check_output(("xargs", "-r", "kill"), stdin=ls.stdout)
-        ls.wait()
+        self.graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        self.__wait_process_to_init(graphql_lib.pid)
+        self.__wait_process_to_init(7687)
+        self.__wait_process_to_init(4000)
+        atexit.register(self.__shut_down)
 
     def send_query(self, query: str, timeout=5.0) -> requests.Response:
         try:
@@ -30,13 +30,26 @@ class GraphQLServer:
         else:
             return response
 
-    def __wait_process_to_init(self, pid: int):
-        time.sleep(5)
-        path = "/proc/" + str(pid)
-        while True:
-            if os.path.exists(path):
-                return
-            time.sleep(1 / 100)
+    def __wait_process_to_init(self, port):
+        host = "127.0.0.1"
+        try:
+            while True:
+                # Create a socket object
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(5)
+                    result = s.connect_ex((host, port))
+                    if result == 0:
+                        break
+
+        except socket.error as e:
+            print(f"Error occurred while checking port {port}: {e}")
+            return False
+
+    def __shut_down(self):
+        self.graphql_lib.kill()
+        ls = subprocess.Popen(("lsof", "-t", "-i:4000"), stdout=subprocess.PIPE)
+        subprocess.check_output(("xargs", "-r", "kill"), stdin=ls.stdout)
+        ls.wait()
 
 
 def _ordered(obj: any) -> any:
