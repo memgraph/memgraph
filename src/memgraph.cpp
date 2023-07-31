@@ -357,7 +357,7 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                         });
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(callable_mappings_path, "",
+DEFINE_string(query_callable_mappings_path, "",
               "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
               "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
               "mapped to ones that exist.");
@@ -951,7 +951,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_callable_mappings_path);
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
   memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   memgraph::glue::AuthChecker auth_checker{&auth};
