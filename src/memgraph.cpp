@@ -53,6 +53,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
@@ -355,6 +356,12 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                           return true;
                         });
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(query_callable_mappings_path, "",
+              "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
+              "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
+              "mapped to ones that exist.");
+
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
@@ -569,6 +576,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     if (user_) {
       username = &user_->username();
     }
+
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
@@ -954,6 +962,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
   memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   memgraph::glue::AuthChecker auth_checker{&auth};

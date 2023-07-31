@@ -27,6 +27,7 @@ set(mg_query_sources
     procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    procedure/callable_alias_mapper.cpp
     serialization/property_value.cpp
     stream/streams.cpp
     stream/sources.cpp
