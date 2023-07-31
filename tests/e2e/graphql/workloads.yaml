@@ -1,9 +1,25 @@
-template_cluster: &template_cluster
+args: &args
+ - "--bolt-port"
+ - "7687"
+ - "--log-level"
+ - "TRACE"
+ - "--query-callable-mappings-path"
+ - "graphql/callable_alias_mapping.json"
+
+in_memory_cluster: &in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--query-callable-mappings-path", "graphql/callable_alias_mapping.json"]
+      args: *args
       log_file: "graphql-e2e.log"
       setup_queries: []
+      validation_queries: []
+
+disk_cluster: &disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "graphql-e2e.log"
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
       validation_queries: []
 
 workloads:
@@ -11,4 +27,9 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
     args: ["graphql/graphql_crud.py"]
-    <<: *template_cluster
+    <<: *in_memory_cluster
+  - name: "Disk GraphQL crud"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_crud.py"]
+    <<: *disk_cluster
