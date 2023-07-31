@@ -12,8 +12,10 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <random>
 #include <string>
@@ -28,6 +30,7 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "csv/parsing.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
@@ -46,13 +49,14 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/message.hpp"
 #include "utils/pmr/deque.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
@@ -154,6 +158,10 @@ template <typename T>
 uint64_t ComputeProfilingKey(const T *obj) {
   static_assert(sizeof(T *) == sizeof(uint64_t));
   return reinterpret_cast<uint64_t>(obj);
+}
+
+inline void AbortCheck(ExecutionContext const &context) {
+  if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
 }
 
 }  // namespace
@@ -428,7 +436,7 @@ class ScanAllCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -736,7 +744,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   };
 
   while (true) {
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -812,10 +820,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+          context.db_accessor->PrefetchInEdges(vertex);
           in_edges_.emplace(
               UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
         }
       } else {
+        context.db_accessor->PrefetchInEdges(vertex);
         in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
       }
       if (in_edges_) {
@@ -829,10 +839,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+          context.db_accessor->PrefetchOutEdges(vertex);
           out_edges_.emplace(
               UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
         }
       } else {
+        context.db_accessor->PrefetchOutEdges(vertex);
         out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
       }
       if (out_edges_) {
@@ -890,7 +902,8 @@ namespace {
  * @return See above.
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
+                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
+                      DbAccessor *db_accessor) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
@@ -901,6 +914,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   utils::pmr::vector<decltype(wrapper(direction, *vertex.InEdges(view, edge_types)))> chain_elements(memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
+    db_accessor->PrefetchInEdges(vertex);
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
@@ -908,6 +922,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   }
 
   if (direction != EdgeAtom::Direction::IN) {
+    db_accessor->PrefetchOutEdges(vertex);
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
@@ -973,8 +988,9 @@ class ExpandVariableCursor : public Cursor {
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
-  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
-                                                self_.common_.edge_types, utils::NewDeleteResource()));
+  using ExpandEdges =
+      decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
+                                utils::NewDeleteResource(), std::declval<DbAccessor *>()));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -991,7 +1007,7 @@ class ExpandVariableCursor : public Cursor {
     // Input Vertex could be null if it is created by a failed optional match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       if (!input_cursor_->Pull(frame, context)) return false;
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -1015,7 +1031,8 @@ class ExpandVariableCursor : public Cursor {
 
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory));
+        edges_.emplace_back(
+            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, context.db_accessor));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1060,7 +1077,7 @@ class ExpandVariableCursor : public Cursor {
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -1121,8 +1138,8 @@ class ExpandVariableCursor : public Cursor {
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory));
+        edges_.emplace_back(ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory,
+                                             context.db_accessor));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1258,13 +1275,14 @@ class STShortestPathCursor : public query::plan::Cursor {
     out_edge[sink] = std::nullopt;
 
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          context.db_accessor->PrefetchOutEdges(vertex);
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -1291,6 +1309,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          dba.PrefetchInEdges(vertex);
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
@@ -1331,6 +1350,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       // reversed.
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          context.db_accessor->PrefetchOutEdges(vertex);
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -1356,6 +1376,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          dba.PrefetchInEdges(vertex);
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
@@ -1445,12 +1466,14 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair](const auto &vertex) {
+    auto expand_from_vertex = [this, &expand_pair, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        context.db_accessor->PrefetchOutEdges(vertex);
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) expand_pair(edge, edge.To());
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        context.db_accessor->PrefetchInEdges(vertex);
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) expand_pair(edge, edge.From());
       }
@@ -1458,7 +1481,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // do it all in a loop because we skip some elements
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // if we have nothing to visit on the current depth, switch to next
       if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
@@ -1645,15 +1668,17 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex, const TypedValue &weight,
-                                                   int64_t depth) {
+    auto expand_from_vertex = [this, &expand_pair, &context](const VertexAccessor &vertex, const TypedValue &weight,
+                                                             int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        context.db_accessor->PrefetchOutEdges(vertex);
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        context.db_accessor->PrefetchInEdges(vertex);
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
           expand_pair(edge, edge.From(), weight, depth);
@@ -1662,7 +1687,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     };
 
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       if (pq_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         const auto &vertex_value = frame[self_.input_symbol_];
@@ -1699,7 +1724,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       }
 
       while (!pq_.empty()) {
-        if (MustAbort(context)) throw HintedAbortError();
+        AbortCheck(context);
         auto [current_weight, current_depth, current_vertex, current_edge] = pq_.top();
         pq_.pop();
 
@@ -1912,6 +1937,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_vertex, &context](const VertexAccessor &vertex, const TypedValue &weight,
                                                                int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        context.db_accessor->PrefetchOutEdges(vertex);
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -1926,6 +1952,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        context.db_accessor->PrefetchInEdges(vertex);
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
@@ -1996,7 +2023,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     auto create_DFS_traversal_tree = [this, &context, &memory, &create_state, &expand_from_vertex]() {
       while (!pq_.empty()) {
-        if (MustAbort(context)) throw HintedAbortError();
+        AbortCheck(context);
 
         const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
         pq_.pop();
@@ -2047,7 +2074,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // On each subsequent Pull run, paths are created from the traversal stack and returned.
     while (true) {
       // Check if there is an external error.
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
 
       // The algorithm is run all at once by create_DFS_traversal_tree, after which we
       // traverse the tree iteratively by preserving the traversal state on stack.
@@ -2465,7 +2492,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   // delete edges first
   for (TypedValue &expression_result : expression_results) {
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto &ea = expression_result.ValueEdge();
 #ifdef MG_ENTERPRISE
@@ -2497,7 +2524,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // delete vertices
   for (TypedValue &expression_result : expression_results) {
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
@@ -3176,9 +3203,7 @@ class EmptyResultCursor : public Cursor {
 
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
-        if (MustAbort(context)) {
-          throw HintedAbortError();
-        }
+        AbortCheck(context);
       }
       pulled_all_input_ = true;
     }
@@ -3234,7 +3259,7 @@ class AccumulateCursor : public Cursor {
       if (self_.advance_command_) dba.AdvanceCommand();
     }
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
@@ -3810,7 +3835,7 @@ class OrderByCursor : public Cursor {
 
     if (cache_it_ == cache_.end()) return false;
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     // place the output values on the frame
     DMG_ASSERT(self_.output_symbols_.size() == cache_it_->remember.size(),
@@ -4034,7 +4059,7 @@ class UnwindCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
-      if (MustAbort(context)) throw HintedAbortError();
+      AbortCheck(context);
       // if we reached the end of our list of values
       // pull from the input
       if (input_value_it_ == input_value_.end()) {
@@ -4293,7 +4318,7 @@ class CartesianCursor : public Cursor {
       restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     restore_frame(self_.left_symbols_, *left_op_frames_it_);
     left_op_frames_it_++;
@@ -4430,7 +4455,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write)
+                             size_t memory_scale, bool is_write, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
@@ -4438,7 +4463,8 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       result_symbols_(symbols),
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
-      is_write_(is_write) {}
+      is_write_(is_write),
+      void_procedure_(void_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -4465,7 +4491,8 @@ namespace {
 
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
-                         utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
+                         utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
+                         const bool call_initializer = false) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4489,6 +4516,11 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   }
 
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
+  if (call_initializer) {
+    MG_ASSERT(proc.initializer);
+    mgp_memory initializer_memory{memory};
+    proc.initializer.value()(&proc_args, &graph, &initializer_memory);
+  }
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
@@ -4516,36 +4548,36 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
   UniqueCursorPtr input_cursor_;
-  mgp_result result_;
-  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
+  mgp_result *result_;
+  decltype(result_->rows.end()) result_row_it_{result_->rows.end()};
   size_t result_signature_size_{0};
+  bool stream_exhausted{true};
+  bool call_initializer{false};
+  std::optional<std::function<void()>> cleanup_{std::nullopt};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_->input_->MakeCursor(mem)),
         // result_ needs to live throughout multiple Pull evaluations, until all
-        // rows are produced. Therefore, we use the memory dedicated for the
-        // whole execution.
-        result_(nullptr, mem) {
+        // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
+        // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
+        result_(utils::Allocator<mgp_result>(self_->memory_resource)
+                    .new_object<mgp_result>(nullptr, self_->memory_resource)) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CallProcedure");
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    while (result_row_it_ == result_.rows.end()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
-      result_.signature = nullptr;
-      result_.rows.clear();
-      result_.error_msg.reset();
+    while (result_row_it_ == result_->rows.end()) {
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -4565,30 +4597,61 @@ class CallProcedureCursor : public Cursor {
                                     self_->procedure_name_, get_proc_type_str(self_->is_write_),
                                     get_proc_type_str(proc->info.is_write));
       }
+      if (!proc->info.is_batched) {
+        stream_exhausted = true;
+      }
+
+      if (stream_exhausted) {
+        if (!input_cursor_->Pull(frame, context)) {
+          if (proc->cleanup) {
+            proc->cleanup.value()();
+          }
+          return false;
+        }
+        stream_exhausted = false;
+        if (proc->initializer) {
+          call_initializer = true;
+          MG_ASSERT(proc->cleanup);
+          proc->cleanup.value()();
+        }
+      }
+      if (!cleanup_ && proc->cleanup) [[unlikely]] {
+        cleanup_.emplace(*proc->cleanup);
+      }
+      // Unpluging memory without calling destruct on each object since everything was allocated with this memory
+      // resource
+      self_->monotonic_memory.Release();
+      result_ =
+          utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_.signature = &proc->results;
-      // Use evaluation memory, as invoking a procedure is akin to a simple
-      // evaluation of an expression.
+      result_->signature = &proc->results;
+
+      // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
-      // generator like procedures which yield a new result on each invocation.
-      auto *memory = context.evaluation_context.memory;
+      // generator like procedures which yield a new result on new query calls.
+      auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          &result_);
+                          result_, call_initializer);
+
+      if (call_initializer) call_initializer = false;
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
-      result_signature_size_ = result_.signature->size();
-      result_.signature = nullptr;
-      if (result_.error_msg) {
-        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
+      result_signature_size_ = result_->signature->size();
+      result_->signature = nullptr;
+      if (result_->error_msg) {
+        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
-      result_row_it_ = result_.rows.begin();
+      result_row_it_ = result_->rows.begin();
+
+      stream_exhausted = result_row_it_ == result_->rows.end();
     }
 
     auto &values = result_row_it_->values;
@@ -4621,10 +4684,68 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    result_.rows.clear();
-    result_.error_msg.reset();
-    input_cursor_->Reset();
+    self_->monotonic_memory.Release();
+    result_ =
+        utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+    if (cleanup_) {
+      cleanup_.value()();
+    }
   }
+
+  void Shutdown() override {
+    self_->monotonic_memory.Release();
+    if (cleanup_) {
+      cleanup_.value()();
+    }
+  }
+};
+
+class CallValidateProcedureCursor : public Cursor {
+  const CallProcedure *self_;
+  UniqueCursorPtr input_cursor_;
+
+ public:
+  CallValidateProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
+
+    AbortCheck(context);
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+
+    const auto args = self_->arguments_;
+    MG_ASSERT(args.size() == 3U);
+
+    const auto predicate = args[0]->Accept(evaluator);
+    const bool predicate_val = predicate.ValueBool();
+
+    if (predicate_val) [[unlikely]] {
+      const auto &message = args[1]->Accept(evaluator);
+      const auto &message_args = args[2]->Accept(evaluator);
+
+      using TString = std::remove_cvref_t<decltype(message.ValueString())>;
+      using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
+
+      utils::JStringFormatter<TString, TElement> formatter;
+
+      try {
+        const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());
+        throw QueryRuntimeException(msg);
+      } catch (const utils::JStringFormatException &e) {
+        throw QueryRuntimeException(e.what());
+      }
+    }
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
 
   void Shutdown() override {}
 };
@@ -4632,6 +4753,14 @@ class CallProcedureCursor : public Cursor {
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
+
+  if (void_procedure_) {
+    // Currently we do not support Call procedures that do not return
+    // anything. This cursor is way too specific, but it provides a workaround
+    // to ensure GraphQL compatibility until we start supporting truly void
+    // procedures.
+    return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
+  }
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
@@ -4720,7 +4849,7 @@ class LoadCsvCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("LoadCsv");
 
-    if (MustAbort(context)) throw HintedAbortError();
+    AbortCheck(context);
 
     // ToDo(the-joksim):
     //  - this is an ungodly hack because the pipeline of creating a plan
@@ -4776,7 +4905,7 @@ class LoadCsvCursor : public Cursor {
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
     return csv::Reader(
-        *maybe_file,
+        csv::CsvSource::Create(*maybe_file),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
         utils::NewDeleteResource());
   }

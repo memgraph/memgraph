@@ -54,7 +54,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk custom-maven3.9.2 # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk custom-maven3.9.3 # for driver tests
     golang custom-golang1.18.9 nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -76,8 +76,8 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.2 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.2/bin/mvn" ]; then
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
               missing="$pkg $missing"
             fi
             continue
@@ -121,8 +121,8 @@ EOF
     apt install -y wget
 
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.2 ]; then
-            install_custom_maven "3.9.2"
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            install_custom_maven "3.9.3"
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
@@ -133,8 +133,8 @@ EOF
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 apt install -y "$pkg"
                 # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
+                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-arm64/bin/javac
             fi
             continue
         fi

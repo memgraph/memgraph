@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,8 @@ struct Vertex;
 
 struct Edge {
   Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
+                  delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Edge must be created with an initial DELETE_OBJECT delta!");
   }
 

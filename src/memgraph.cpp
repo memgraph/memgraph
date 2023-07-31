@@ -53,9 +53,13 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -258,6 +262,8 @@ DEFINE_double(query_execution_timeout_sec, 600,
 DEFINE_uint64(replication_replica_check_frequency_sec, 1,
               "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
               "The MAIN instance allocates a new thread for each REPLICA.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
@@ -349,6 +355,12 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                                          [](const auto &dir) { return dir; });
                           return true;
                         });
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(query_callable_mappings_path, "",
+              "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
+              "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
+              "mapped to ones that exist.");
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -443,21 +455,19 @@ struct SessionData {
   // supplied.
 #if MG_ENTERPRISE
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionData(memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
-      : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::storage::Storage *db;
+      : interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
   memgraph::audit::Log *audit_log;
 
 #else
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionData(memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : db(db), interpreter_context(interpreter_context), auth(auth) {}
-  memgraph::storage::Storage *db;
+      : interpreter_context(interpreter_context), auth(auth) {}
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
@@ -500,6 +510,25 @@ namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
+auto ToQueryExtras(memgraph::communication::bolt::Value const &extra) -> memgraph::query::QueryExtras {
+  auto const &as_map = extra.ValueMap();
+
+  auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
+
+  if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
+    for (const auto &[key, bolt_md] : it->second.ValueMap()) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+    }
+  }
+
+  auto tx_timeout = std::optional<int64_t>{};
+  if (auto const it = as_map.find("tx_timeout"); it != as_map.cend() && it->second.IsInt()) {
+    tx_timeout = it->second.ValueInt();
+  }
+
+  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout};
+}
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -508,7 +537,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
               memgraph::communication::v2::OutputStream *output_stream)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
-        db_(data->db),
         interpreter_context_(data->interpreter_context),
         interpreter_(data->interpreter_context),
         auth_(data->auth),
@@ -529,12 +557,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>::TEncoder;
 
-  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
-    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
-    for (const auto &[key, bolt_value] : metadata) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
-    }
-    interpreter_.BeginTransaction(metadata_pv);
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) override {
+    interpreter_.BeginTransaction(ToQueryExtras(extra));
   }
 
   void CommitTransaction() override { interpreter_.CommitTransaction(); }
@@ -543,19 +567,16 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+      const std::map<std::string, memgraph::communication::bolt::Value> &extra) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &[key, bolt_param] : params) {
       params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
-    }
-    for (const auto &[key, bolt_md] : metadata) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
     }
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();
     }
+
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
@@ -563,7 +584,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
+      auto result = interpreter_.Prepare(query, params_pv, username, ToQueryExtras(extra));
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
@@ -583,7 +604,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, db_);
+    TypedValueResultStream stream(encoder, interpreter_context_->db.get());
     return PullResults(stream, n, qid);
   }
 
@@ -617,7 +638,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::ToBoltValue(kv.second, *db_, memgraph::storage::View::NEW);
+        auto maybe_value =
+            memgraph::glue::ToBoltValue(kv.second, *interpreter_context_->db, memgraph::storage::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -681,7 +703,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   };
 
   // NOTE: Needed only for ToBoltValue conversions
-  const memgraph::storage::Storage *db_;
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
@@ -891,11 +912,19 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replication_state_on_startup = true,
+                     .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
-      .transaction = {.isolation_level = ParseIsolationLevel()}};
+      .transaction = {.isolation_level = ParseIsolationLevel()},
+      .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
+               .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
+               .label_property_index_directory = FLAGS_data_directory + "/rocksdb_label_property_index",
+               .unique_constraints_directory = FLAGS_data_directory + "/rocksdb_unique_constraints",
+               .name_id_mapper_directory = FLAGS_data_directory + "/rocksdb_name_id_mapper",
+               .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
+               .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
+               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
@@ -914,10 +943,9 @@ int main(int argc, char **argv) {
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
-  memgraph::storage::Storage db(db_config);
 
   memgraph::query::InterpreterContext interpreter_context{
-      &db,
+      db_config,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
        .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
@@ -927,13 +955,14 @@ int main(int argc, char **argv) {
        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
       FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
-  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+  SessionData session_data{&interpreter_context, &auth, &audit_log};
 #else
-  SessionData session_data{&db, &interpreter_context, &auth};
+  SessionData session_data{&interpreter_context, &auth};
 #endif
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
   memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   memgraph::glue::AuthChecker auth_checker{&auth};
@@ -969,7 +998,7 @@ int main(int argc, char **argv) {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
-    auto dba = memgraph::query::DbAccessor{&storage_accessor};
+    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
     interpreter_context.trigger_store.RestoreTriggers(
         &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
@@ -1002,8 +1031,8 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
-    telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
-      auto info = db.GetInfo();
+    telemetry->AddCollector("storage", [db_ = interpreter_context.db.get()]() -> nlohmann::json {
+      auto info = db_->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {

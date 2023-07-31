@@ -2253,6 +2253,7 @@ class CallProcedure : public memgraph::query::Clause {
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  bool void_procedure_{false};
 
   CallProcedure *Clone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
@@ -2269,6 +2270,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->void_procedure_ = void_procedure_;
     return object;
   }
 
@@ -3143,7 +3145,7 @@ class StorageModeQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL };
+  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL };
 
   StorageModeQuery() = default;
 

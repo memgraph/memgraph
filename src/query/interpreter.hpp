@@ -32,7 +32,10 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -201,6 +204,15 @@ struct PreparedQuery {
   plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
+/**
+ * Holds data for the Query which is extra
+ * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
+ */
+struct QueryExtras {
+  std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+  std::optional<int64_t> tx_timeout;
+};
+
 class Interpreter;
 
 /**
@@ -208,11 +220,15 @@ class Interpreter;
  * running concurrently).
  *
  */
+/// TODO: andi decouple in a separate file why here?
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
+  explicit InterpreterContext(storage::Config storage_config, InterpreterConfig interpreter_config,
                               const std::filesystem::path &data_directory);
 
-  storage::Storage *db;
+  InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+                     const std::filesystem::path &data_directory);
+
+  std::unique_ptr<storage::Storage> db;
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected
@@ -261,6 +277,7 @@ class Interpreter final {
   std::optional<std::string> username_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
+  std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
   /**
@@ -272,8 +289,7 @@ class Interpreter final {
    * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username,
-                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+                        const std::string *username, QueryExtras const &extras = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -317,11 +333,8 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
-  void BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata = {});
+  void BeginTransaction(QueryExtras const &extras = {});
 
-  /*
-  Returns transaction id or empty if the db_accessor is not initialized.
-  */
   std::optional<uint64_t> GetTransactionId() const;
 
   void CommitTransaction();
@@ -378,6 +391,13 @@ class Interpreter final {
       prepared_query.reset();
       std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
     }
+
+    void CleanRuntimeData() {
+      if (prepared_query.has_value()) {
+        prepared_query.reset();
+      }
+      notifications.clear();
+    }
   };
 
   // Interpreter supports multiple prepared queries at the same time.
@@ -408,8 +428,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper,
-                                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
@@ -533,4 +552,5 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
+
 }  // namespace memgraph::query

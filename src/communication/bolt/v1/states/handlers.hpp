@@ -73,23 +73,6 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
           "should be in database logs."};
 }
 
-namespace helpers {
-
-/** Extracts metadata from the extras field.
- * NOTE: In order to avoid a copy, the metadata in moved.
- * TODO: Update if extra field is used for anything else.
- */
-inline std::map<std::string, Value> ConsumeMetadata(Value &extra) {
-  std::map<std::string, Value> md;
-  auto &md_tv = extra.ValueMap()["tx_metadata"];
-  if (md_tv.IsMap()) {
-    md = std::move(md_tv.ValueMap());
-  }
-  return md;
-}
-
-}  // namespace helpers
-
 namespace details {
 
 template <bool is_pull, typename TSession>
@@ -286,8 +269,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] =
-        session.Interpret(query.ValueString(), params.ValueMap(), helpers::ConsumeMetadata(extra));
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -399,7 +381,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction(helpers::ConsumeMetadata(extra));
+    session.BeginTransaction(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

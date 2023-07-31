@@ -12,6 +12,7 @@
 #include "query/procedure/py_module.hpp"
 
 #include <datetime.h>
+#include <methodobject.h>
 #include <pyerrors.h>
 #include <array>
 #include <optional>
@@ -21,6 +22,7 @@
 #include <string_view>
 
 #include "mg_procedure.h"
+#include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
@@ -53,6 +55,8 @@ PyObject *gMgpImmutableObjectError{nullptr};     // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+constexpr bool kStartGarbageCollection{true};
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
@@ -214,7 +218,7 @@ static PyMethodDef PyVerticesIteratorMethods[] = {
      "Get the current vertex pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyVerticesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next vertex and return it."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -286,7 +290,7 @@ static PyMethodDef PyEdgesIteratorMethods[] = {
      "Get the current edge pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyEdgesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next edge and return it."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -402,7 +406,7 @@ static PyMethodDef PyGraphMethods[] = {
     {"iter_vertices", reinterpret_cast<PyCFunction>(PyGraphIterVertices), METH_NOARGS, "Return _mgp.VerticesIterator."},
     {"must_abort", reinterpret_cast<PyCFunction>(PyGraphMustAbort), METH_NOARGS,
      "Check whether the running procedure should abort"},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -556,7 +560,7 @@ static PyMethodDef PyQueryProcMethods[] = {
      "Add a result field to a procedure."},
     {"add_deprecated_result", reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult), METH_VARARGS,
      "Add a result field to a procedure and mark it as deprecated."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -581,7 +585,7 @@ static PyMethodDef PyMagicFuncMethods[] = {
      "Add a required argument to a function."},
     {"add_opt_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg), METH_VARARGS,
      "Add an optional argument with a default value to a function."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -733,7 +737,7 @@ static PyMethodDef PyMessageMethods[] = {
     {"key", reinterpret_cast<PyCFunction>(PyMessageGetKey), METH_NOARGS, "Get message key."},
     {"timestamp", reinterpret_cast<PyCFunction>(PyMessageGetTimestamp), METH_NOARGS, "Get message timestamp."},
     {"offset", reinterpret_cast<PyCFunction>(PyMessageGetOffset), METH_NOARGS, "Get message offset."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 void PyMessageDealloc(PyMessage *self) {
@@ -812,7 +816,7 @@ static PyMethodDef PyMessagesMethods[] = {
      "Get number of messages available"},
     {"message_at", reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt), METH_VARARGS,
      "Get message at index idx from messages"},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // NOLINTNEXTLINE
@@ -945,20 +949,37 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   return std::nullopt;
 }
 
-std::function<void()> PyObjectCleanup(py::Object &py_object) {
-  return [py_object]() {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
+std::optional<py::ExceptionInfo> AddMultipleBatchRecordsFromPython(mgp_result *result, py::Object py_seq,
+                                                                   mgp_memory *memory) {
+  Py_ssize_t len = PySequence_Size(py_seq.Ptr());
+  if (len == -1) return py::FetchError();
+  result->rows.reserve(len);
+  for (Py_ssize_t i = 0; i < len; ++i) {
+    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
+    if (!py_record) return py::FetchError();
+    auto maybe_exc = AddRecordFromPython(result, py_record, memory);
+    if (maybe_exc) return maybe_exc;
+  }
+  PySequence_DelSlice(py_seq.Ptr(), 0, PySequence_Size(py_seq.Ptr()));
+  return std::nullopt;
+}
 
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
+std::function<void()> PyObjectCleanup(py::Object &py_object, bool start_gc) {
+  return [py_object, start_gc]() {
+    if (start_gc) {
+      // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
+      // sure the procedure cleaned up everything it held references to. If the
+      // user stored a reference to one of our `_mgp` instances then the
+      // internally used `mgp_*` structs will stay unfreed and a memory leak
+      // will be reported at the end of the query execution.
+      py::Object gc(PyImport_ImportModule("gc"));
+      if (!gc) {
+        LOG_FATAL(py::FetchError().value());
+      }
+
+      if (!gc.CallMethod("collect")) {
+        LOG_FATAL(py::FetchError().value());
+      }
     }
 
     // After making sure all references from our side have been cleared,
@@ -973,8 +994,7 @@ std::function<void()> PyObjectCleanup(py::Object &py_object) {
 }
 
 void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
-                         mgp_memory *memory) {
-  // *memory here is memory from `EvalContext`
+                         mgp_memory *memory, bool is_batched) {
   auto gil = py::EnsureGIL();
 
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
@@ -992,10 +1012,12 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
+      if (is_batched) {
+        return AddMultipleBatchRecordsFromPython(result, py_res, memory);
+      }
       return AddMultipleRecordsFromPython(result, py_res, memory);
-    } else {
-      return AddRecordFromPython(result, py_res, memory);
     }
+    return AddRecordFromPython(result, py_res, memory);
   };
 
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
@@ -1010,7 +1032,7 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, !is_batched));
     if (py_graph) {
       maybe_msg = error_to_msg(call(py_graph));
     } else {
@@ -1020,6 +1042,56 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
 
   if (maybe_msg) {
     static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
+  }
+}
+
+void CallPythonCleanup(const py::Object &py_cleanup) {
+  auto gil = py::EnsureGIL();
+
+  auto py_res = py_cleanup.Call();
+
+  py::Object gc(PyImport_ImportModule("gc"));
+  if (!gc) {
+    LOG_FATAL(py::FetchError().value());
+  }
+
+  if (!gc.CallMethod("collect")) {
+    LOG_FATAL(py::FetchError().value());
+  }
+}
+
+void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+  auto gil = py::EnsureGIL();
+
+  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
+    if (!exc_info) return std::nullopt;
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
+  };
+
+  auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
+    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    if (!py_args) return py::FetchError();
+    auto py_res = py_initializer.Call(py_graph, py_args);
+    if (!py_res) return py::FetchError();
+    return std::nullopt;
+  };
+
+  std::optional<std::string> maybe_msg;
+  {
+    py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, !kStartGarbageCollection));
+    if (py_graph) {
+      maybe_msg = error_to_msg(call(py_graph));
+    } else {
+      maybe_msg = error_to_msg(py::FetchError());
+    }
+  }
+  if (maybe_msg) {
+    throw QueryRuntimeException(*maybe_msg);
   }
 }
 
@@ -1059,8 +1131,8 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     py::Object py_graph(MakePyGraph(graph, memory));
     py::Object py_messages(MakePyMessages(msgs, memory));
 
-    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph));
-    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, kStartGarbageCollection));
+    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages, kStartGarbageCollection));
 
     if (py_graph && py_messages) {
       maybe_msg = error_to_msg(call(py_graph, py_messages));
@@ -1111,7 +1183,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, kStartGarbageCollection));
     if (py_graph) {
       auto maybe_result = call(py_graph);
       if (!maybe_result.HasError()) {
@@ -1147,7 +1219,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
   mgp_proc proc(name,
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-                  CallPythonProcedure(py_cb, args, graph, result, memory);
+                  CallPythonProcedure(py_cb, args, graph, result, memory, false);
                 },
                 memory, {.is_write = is_write_procedure});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
@@ -1160,6 +1232,52 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
 }
+
+PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bool is_write_procedure) {
+  MG_ASSERT(self->module);
+  PyObject *cb{nullptr};
+  PyObject *initializer{nullptr};
+  PyObject *cleanup{nullptr};
+
+  if (!PyArg_ParseTuple(args, "OOO", &cb, &initializer, &cleanup)) {
+    return nullptr;
+  }
+
+  if (!PyCallable_Check(cb)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
+    return nullptr;
+  }
+  auto py_cb = py::Object::FromBorrow(cb);
+  auto py_initializer = py::Object::FromBorrow(initializer);
+  auto py_cleanup = py::Object::FromBorrow(cleanup);
+  py::Object py_name(py_cb.GetAttr("__name__"));
+  const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
+  if (!name) return nullptr;
+  if (!IsValidIdentifierName(name)) {
+    PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
+    return nullptr;
+  }
+  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  mgp_proc proc(
+      name,
+      [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+        CallPythonProcedure(py_cb, args, graph, result, memory, true);
+      },
+      [py_initializer](mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+        CallPythonInitializer(py_initializer, args, graph, memory);
+      },
+      [py_cleanup] { CallPythonCleanup(py_cleanup); }, memory, {.is_write = is_write_procedure, .is_batched = true});
+  const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
+  if (!did_insert) {
+    PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
+    return nullptr;
+  }
+  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  if (!py_proc) return nullptr;
+  py_proc->callable = &proc_it->second;
+  return reinterpret_cast<PyObject *>(py_proc);
+}
+
 }  // namespace
 
 PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
@@ -1168,6 +1286,14 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
 
 PyObject *PyQueryModuleAddWriteProcedure(PyQueryModule *self, PyObject *cb) {
   return PyQueryModuleAddProcedure(self, cb, true);
+}
+
+PyObject *PyQueryModuleAddBatchReadProcedure(PyQueryModule *self, PyObject *args) {
+  return PyQueryModuleAddBatchProcedure(self, args, false);
+}
+
+PyObject *PyQueryModuleAddBatchWriteProcedure(PyQueryModule *self, PyObject *args) {
+  return PyQueryModuleAddBatchProcedure(self, args, true);
 }
 
 PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
@@ -1238,11 +1364,15 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a read-only procedure with this module."},
     {"add_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure), METH_O,
      "Register a writeable procedure with this module."},
+    {"add_batch_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure), METH_VARARGS,
+     "Register a read-only batch procedure with this module."},
+    {"add_batch_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure), METH_VARARGS,
+     "Register a writeable batched procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
      "Register a transformation with this module."},
     {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
      "Register a function with this module."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -1336,7 +1466,7 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {"type_local_time", PyMgpModuleTypeLocalTime, METH_NOARGS, "Get the type representing a LocalTime."},
     {"type_local_date_time", PyMgpModuleTypeLocalDateTime, METH_NOARGS, "Get the type representing a LocalDateTime."},
     {"type_duration", PyMgpModuleTypeDuration, METH_NOARGS, "Get the type representing a Duration."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -1411,7 +1541,7 @@ static PyMethodDef PyPropertiesIteratorMethods[] = {
      "Get the current proprety pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next property and return it."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -1569,7 +1699,7 @@ static PyMethodDef PyEdgeMethods[] = {
      "Return edge property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
      "Set the value of the property on the edge."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
@@ -1857,7 +1987,7 @@ static PyMethodDef PyVertexMethods[] = {
      "Return vertex property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
      "Set the value of the property on the vertex."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
@@ -2011,7 +2141,7 @@ static PyMethodDef PyPathMethods[] = {
      "Return the vertex from a path at given index."},
     {"edge_at", reinterpret_cast<PyCFunction>(PyPathEdgeAt), METH_VARARGS,
      "Return the edge from a path at given index."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off
@@ -2129,7 +2259,7 @@ static PyMethodDef PyLoggerMethods[] = {
      "Logs a message with level TRACE on this logger."},
     {"debug", reinterpret_cast<PyCFunction>(PyLoggerLogDebug), METH_VARARGS,
      "Logs a message with level DEBUG on this logger."},
-    {nullptr},
+    {nullptr, {}, {}, {}},
 };
 
 // clang-format off

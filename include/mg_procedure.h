@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -461,6 +461,18 @@ void mgp_map_destroy(struct mgp_map *map);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+/// Insert a mapping from a NULL terminated character string to a value.
+/// If a mapping with the same key already exists, it is replaced.
+/// In case of update, both the string and the value are copied into the map.
+/// Therefore, the map does not take ownership of the original key nor value, so
+/// you still need to free their memory explicitly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
+enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+// Erase a mapping by key.
+// If the key doesn't exist in the map nothing happens
+enum mgp_error mgp_map_erase(struct mgp_map *map, const char *key);
 
 /// Get the number of items stored in mgp_map.
 /// Current implementation always returns without errors.
@@ -1318,6 +1330,13 @@ MGP_ENUM_CLASS mgp_log_level{
 /// to allocate global resources.
 typedef void (*mgp_proc_cb)(struct mgp_list *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
 
+/// Cleanup for a query module read procedure. Can't be invoked through OpenCypher. Cleans batched stream.
+typedef void (*mgp_proc_cleanup)();
+
+/// Initializer for a query module batched read procedure. Can't be invoked through OpenCypher. Initializes batched
+/// stream.
+typedef void (*mgp_proc_initializer)(struct mgp_list *, struct mgp_graph *, struct mgp_memory *);
+
 /// Register a read-only procedure to a module.
 ///
 /// The `name` must be a sequence of digits, underscores, lowercase and
@@ -1341,6 +1360,30 @@ enum mgp_error mgp_module_add_read_procedure(struct mgp_module *module, const ch
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
 enum mgp_error mgp_module_add_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
                                               struct mgp_proc **result);
+
+/// Register a readable batched procedure to a module.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_proc.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
+/// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
+enum mgp_error mgp_module_add_batch_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                   mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                                   struct mgp_proc **result);
+
+/// Register a writeable batched procedure to a module.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_proc.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
+/// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
+enum mgp_error mgp_module_add_batch_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                    mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                                    struct mgp_proc **result);
 
 /// Add a required argument to a procedure.
 ///
@@ -1417,7 +1460,10 @@ enum mgp_error mgp_log(enum mgp_log_level log_level, const char *output);
 /// @{
 
 /// Return non-zero if the currently executing procedure should abort as soon as
-/// possible.
+/// possible. If non-zero the reasons are:
+/// (1) The transaction was requested to be terminated
+/// (2) The server is gracefully shutting down
+/// (3) The transaction has hit its timeout threshold
 ///
 /// Procedures which perform heavyweight processing run the risk of running too
 /// long and going over the query execution time limit. To prevent this, such

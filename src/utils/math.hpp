@@ -81,11 +81,9 @@ bool LessThanDecimal(T a, T b) {
   return (b - a) > std::numeric_limits<T>::epsilon();
 }
 
-/*
- * return 0 if a == b
- * return 1 if a > b
- * return -1 if a < b
- */
+/// @return 0 if a == b
+/// @return 1 if a > b
+/// @return -1 if a < b
 template <FloatingPoint T>
 int CompareDecimal(T a, T b) {
   if (ApproxEqualDecimal(a, b)) return 0;

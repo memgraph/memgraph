@@ -11,9 +11,12 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -984,6 +987,39 @@ bool PropertyStore::HasProperty(PropertyId property) const {
   return FindSpecificProperty(&reader, property, nullptr) == DecodeExpectedPropertyStatus::EQUAL;
 }
 
+/// TODO: andi write a unit test for it
+bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
+  return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
+}
+
+/// TODO: andi write a unit test for it
+bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
+  /// TODO: andi extract this into a private method
+  auto property_map = Properties();
+  std::vector<PropertyValue> all_property_values;
+  transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
+            [](const auto &kv_entry) { return kv_entry.second; });
+
+  return std::all_of(
+      property_values.begin(), property_values.end(), [&all_property_values](const PropertyValue &value) {
+        return std::find(all_property_values.begin(), all_property_values.end(), value) != all_property_values.end();
+      });
+}
+
+std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
+    const std::set<PropertyId> &properties) const {
+  std::vector<PropertyValue> value_array;
+  value_array.reserve(properties.size());
+  for (const auto &prop : properties) {
+    auto value = GetProperty(prop);
+    if (value.IsNull()) {
+      return std::nullopt;
+    }
+    value_array.emplace_back(std::move(value));
+  }
+  return value_array;
+}
+
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   uint64_t size;
   const uint8_t *data;
@@ -1232,6 +1268,42 @@ bool PropertyStore::ClearProperties() {
   if (!in_local_buffer) delete[] data;
   SetSizeData(buffer_, 0, nullptr);
   return true;
+}
+
+std::string PropertyStore::StringBuffer() const {
+  uint64_t size = 0;
+  const uint8_t *data = nullptr;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {  // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  std::string arr(size, ' ');
+  for (uint i = 0; i < size; ++i) {
+    arr[i] = static_cast<char>(data[i]);
+  }
+  return arr;
+}
+
+void PropertyStore::SetBuffer(const std::string_view buffer) {
+  if (buffer.empty()) {
+    return;
+  }
+
+  uint64_t size = 0;
+  uint8_t *data = nullptr;
+  size = buffer.size();
+  if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
+    buffer_[0] = kUseLocalBuffer;
+    data = &buffer_[1];
+  } else {
+    data = new uint8_t[size];
+    SetSizeData(buffer_, size, data);
+  }
+
+  for (uint i = 0; i < size; ++i) {
+    data[i] = static_cast<uint8_t>(buffer[i]);
+  }
 }
 
 }  // namespace memgraph::storage

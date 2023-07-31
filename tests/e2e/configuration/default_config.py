@@ -187,4 +187,14 @@ startup_config_dict = {
         "Path to cypherl file that is used for configuring users and database schema before server starts.",
     ),
     "init_data_file": ("", "", "Path to cypherl file that is used for creating data after server starts."),
+    "replication_restore_state_on_startup": (
+        "false",
+        "false",
+        "Restore replication state on startup, e.g. recover replica",
+    ),
+    "query_callable_mappings_path": (
+        "",
+        "",
+        "The path to mappings that describes aliases to callables in cypher queries in the form of key-value pairs in a json file. With this option query module procedures that do not exist in memgraph can be mapped to ones that exist.",
+    ),
 }
