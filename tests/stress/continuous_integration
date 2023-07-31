@@ -10,6 +10,7 @@ from argparse import Namespace as Args
 from subprocess import Popen
 from typing import Dict, List
 
+from common import execute_till_success_gqlalchemy
 from gqlalchemy import Memgraph
 from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
 
@@ -162,8 +163,8 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
 def _test_run_setup_database(mode: DatabaseMode) -> None:
     memgraph = Memgraph()
 
-    memgraph.execute(f"STORAGE MODE {mode.storage_mode}")
-    memgraph.execute(f"SET GLOBAL TRANSACTION ISOLATION LEVEL {mode.isolation_level}")
+    execute_till_success_gqlalchemy(memgraph, f"STORAGE MODE {mode.storage_mode}")
+    execute_till_success_gqlalchemy(memgraph, f"SET GLOBAL TRANSACTION ISOLATION LEVEL {mode.isolation_level}")
 
 
 def _find_test_binary(args: Args, test: str) -> List[str]:
