@@ -891,6 +891,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // Release engine lock because we don't have to hold it anymore and
       // emplace back could take a long time.
       engine_guard.unlock();
+
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
     mem_storage->deleted_vertices_.WithLock(
@@ -1148,7 +1149,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, &monotonic_memory};
 }
 
 template <bool force>
@@ -1207,7 +1208,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::pair<uint64_t, std::list<Delta>>> unlinked_undo_buffers;
+  utils::pmr::list<std::pair<uint64_t, utils::pmr::list<Delta>>> unlinked_undo_buffers{&monotonic_memory};
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
