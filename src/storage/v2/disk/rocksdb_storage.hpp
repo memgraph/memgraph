@@ -13,10 +13,15 @@
 
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
+#include <rocksdb/filter_policy.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice.h>
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/status.h>
+#include <rocksdb/table/block_based/filter_policy_internal.h>
+#include <rocksdb/util/bloom_impl.h>
+#include <rocksdb/util/hash.h>
 #include <rocksdb/utilities/transaction_db.h>
 #include <string_view>
 
@@ -133,6 +138,52 @@ class VerticalLinePrefixTransform : public rocksdb::SliceTransform {
   bool FullLengthEnabled(size_t * /*len*/) const override { return false; }
 
   bool SameResultWhenAppended(const rocksdb::Slice &prefix) const override { return InDomain(prefix); }
+};
+
+class MemgraphBloomBitsReader : public rocksdb::BuiltinFilterBitsReader {
+ public:
+  MemgraphBloomBitsReader(const char *data, int num_probes, uint32_t len_bytes)
+      : data_(data), num_probes_(num_probes), len_bytes_(len_bytes) {}
+
+  // No Copy allowed
+  MemgraphBloomBitsReader(const MemgraphBloomBitsReader &) = delete;
+  void operator=(const MemgraphBloomBitsReader &) = delete;
+  MemgraphBloomBitsReader(const MemgraphBloomBitsReader &&) = delete;
+  void operator=(const MemgraphBloomBitsReader &&) = delete;
+
+  ~MemgraphBloomBitsReader() override {}
+
+  bool MayMatch(const rocksdb::Slice &key) override {
+    uint64_t h = rocksdb::GetSliceHash64(key);
+    uint32_t byte_offset;
+    rocksdb::FastLocalBloomImpl::PrepareHash(rocksdb::Lower32of64(h), len_bytes_, data_,
+                                             /*out*/ &byte_offset);
+    return rocksdb::FastLocalBloomImpl::HashMayMatchPrepared(rocksdb::Upper32of64(h), num_probes_, data_ + byte_offset);
+  }
+
+  void MayMatch(int num_keys, rocksdb::Slice **keys, bool *may_match) override {
+    std::array<uint32_t, 32> hashes;
+    std::array<uint32_t, 32> byte_offsets;
+    for (int i = 0; i < num_keys; ++i) {
+      uint64_t h = rocksdb::GetSliceHash64(*keys[i]);
+      rocksdb::FastLocalBloomImpl::PrepareHash(rocksdb::Lower32of64(h), len_bytes_, data_,
+                                               /*out*/ &byte_offsets[i]);
+      hashes[i] = rocksdb::Upper32of64(h);
+    }
+    for (int i = 0; i < num_keys; ++i) {
+      may_match[i] = rocksdb::FastLocalBloomImpl::HashMayMatchPrepared(hashes[i], num_probes_, data_ + byte_offsets[i]);
+    }
+  }
+
+  bool HashMayMatch(const uint64_t h) override {
+    return rocksdb::FastLocalBloomImpl::HashMayMatch(rocksdb::Lower32of64(h), rocksdb::Upper32of64(h), len_bytes_,
+                                                     num_probes_, data_);
+  }
+
+ private:
+  const char *data_;
+  const int num_probes_;
+  const uint32_t len_bytes_;
 };
 
 }  // namespace memgraph::storage
