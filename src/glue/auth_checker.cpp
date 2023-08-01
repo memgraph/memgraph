@@ -71,7 +71,8 @@ AuthChecker::AuthChecker(
     : auth_(auth) {}
 
 bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
-                                   const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const {
+                                   const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                   const std::string &db_name) const {
   std::optional<memgraph::auth::User> maybe_user;
   {
     auto locked_auth = auth_->ReadLock();
@@ -83,7 +84,7 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
     }
   }
 
-  return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
+  return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges, db_name);
 }
 
 #ifdef MG_ENTERPRISE
@@ -108,7 +109,13 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
 #endif
 
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
-                                   const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
+                                   const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                   const std::string &db_name) {  // NOLINT
+#ifdef MG_ENTERPRISE
+  if (!db_name.empty() && !user.db_access().Contains(db_name)) {
+    return false;
+  }
+#endif
   const auto user_permissions = user.GetPermissions();
   return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
     return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==

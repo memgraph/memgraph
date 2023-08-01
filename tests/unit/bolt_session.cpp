@@ -20,7 +20,9 @@
 #include "query/exceptions.hpp"
 #include "utils/logging.hpp"
 
+using memgraph::communication::bolt::ChunkedEncoderBuffer;
 using memgraph::communication::bolt::ClientError;
+using memgraph::communication::bolt::Encoder;
 using memgraph::communication::bolt::Session;
 using memgraph::communication::bolt::SessionException;
 using memgraph::communication::bolt::State;
@@ -32,15 +34,14 @@ static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
 static const char *kQueryShowTx = "SHOW TRANSACTIONS";
 static const char *kQueryEmpty = "no results";
 
-class TestSessionData {};
+class TestSessionContext {};
 
-class TestSession : public Session<TestInputStream, TestOutputStream> {
+class TestSession final : public Session<TestInputStream, TestOutputStream> {
  public:
-  using Session<TestInputStream, TestOutputStream>::TEncoder;
+  using TEncoder = Encoder<ChunkedEncoderBuffer<TestOutputStream>>;
 
-  TestSession(TestSessionData *data, TestInputStream *input_stream, TestOutputStream *output_stream)
+  TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
-
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
       const std::map<std::string, Value> &extra) override {
@@ -96,7 +97,9 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
+  std::map<std::string, Value> Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) override {
+    return {};
+  }
 
   void BeginTransaction(const std::map<std::string, Value> &extra) override {
     if (extra.contains("tx_metadata")) {
@@ -109,9 +112,19 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   void Abort() override { md_.clear(); }
 
-  bool Authenticate(const std::string &username, const std::string &password) override { return true; }
+  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
 
   std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
+
+  void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &) override {}
+  std::string GetDatabaseName() const override { return ""; }
+
+#ifdef MG_ENTERPRISE
+  memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
+    return memgraph::dbms::SetForResult::SUCCESS;
+  }
+  bool OnDelete(const std::string &) override { return true; }
+#endif
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
@@ -123,11 +136,11 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS                                                    \
-  TestInputStream input_stream;                                      \
-  TestOutputStream output_stream;                                    \
-  TestSessionData session_data;                                      \
-  TestSession session(&session_data, &input_stream, &output_stream); \
+#define INIT_VARS                                                       \
+  TestInputStream input_stream;                                         \
+  TestOutputStream output_stream;                                       \
+  TestSessionContext session_context;                                   \
+  TestSession session(&session_context, &input_stream, &output_stream); \
   std::vector<uint8_t> &output = output_stream.output;
 
 // Sample testdata that has correct inputs and outputs.

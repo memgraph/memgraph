@@ -13,7 +13,7 @@ PIP_DEPS=(
    "neo4j-driver==4.1.1"
    "parse==1.18.0"
    "parse-type==0.5.2"
-   "pytest==6.2.3"
+   "pytest==7.3.2"
    "pyyaml==5.4.1"
    "six==1.15.0"
    "networkx==2.4"
