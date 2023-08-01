@@ -561,6 +561,19 @@ TYPED_TEST(CppApiTestFixture, TestMapErase) {
   ASSERT_EQ(map.Size(), 0);
 }
 
+TYPED_TEST(CppApiTestFixture, TestNodeRemoveProperty) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node = graph.CreateNode();
+
+  int64_t int1 = 100;
+  mgp::Value value{int1};
+  node.SetProperty("key", value);
+  ASSERT_EQ(node.Properties().size(), 1);
+  node.RemoveProperty("key");
+  ASSERT_EQ(node.Properties().size(), 0);
+}
+
 TYPED_TEST(CppApiTestFixture, TestValuePrint) {
   std::string string_1{"abc"};
   int64_t int_1{4};
