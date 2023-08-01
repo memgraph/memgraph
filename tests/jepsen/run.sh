@@ -156,6 +156,7 @@ PROCESS_RESULTS() {
     start_time="$1"
     end_time="$2"
     INFO "Process results..."
+    echo "Start time: ${start_time}, End time: ${end_time}"
     # Print and pack all test workload runs between start and end time.
     all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
     all_workload_run_folders=""
