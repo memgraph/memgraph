@@ -636,7 +636,7 @@ class Node {
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
 
-  /// @brief Sets the chosen property to the given value.
+  /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
 
   /// @brief Retrieves the value of the chosen property.

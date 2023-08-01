@@ -566,8 +566,9 @@ TYPED_TEST(CppApiTestFixture, TestNodeRemoveProperty) {
   auto node = graph.CreateNode();
 
   int64_t int1 = 100;
-  mgp::Value value = mgp::Value(int1);
+  mgp::Value value{int1};
   node.SetProperty("key", value);
+  ASSERT_EQ(node.Properties().size(), 1);
   node.RemoveProperty("key");
   ASSERT_EQ(node.Properties().size(), 0);
 }
