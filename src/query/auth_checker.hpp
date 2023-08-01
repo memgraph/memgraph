@@ -24,7 +24,8 @@ class AuthChecker {
   virtual ~AuthChecker() = default;
 
   [[nodiscard]] virtual bool IsUserAuthorized(const std::optional<std::string> &username,
-                                              const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
+                                              const std::vector<query::AuthQuery::Privilege> &privileges,
+                                              const std::string &db_name) const = 0;
 
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
@@ -92,7 +93,8 @@ class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAut
 class AllowEverythingAuthChecker final : public query::AuthChecker {
  public:
   bool IsUserAuthorized(const std::optional<std::string> & /*username*/,
-                        const std::vector<query::AuthQuery::Privilege> & /*privileges*/) const override {
+                        const std::vector<query::AuthQuery::Privilege> & /*privileges*/,
+                        const std::string & /*db*/) const override {
     return true;
   }
 

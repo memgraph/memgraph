@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
   memgraph::query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(interpreter_context.db.get());
-  auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);
+  auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
