@@ -560,3 +560,28 @@ TYPED_TEST(CppApiTestFixture, TestMapErase) {
   map.Erase("2");
   ASSERT_EQ(map.Size(), 0);
 }
+
+TYPED_TEST(CppApiTestFixture, TestValuePrint) {
+  std::string string_1{"abc"};
+  int64_t int_1{4};
+  mgp::Date date_1{"2020-12-12"};
+
+  mgp::Value string_value{string_1};
+  mgp::Value int_value{int_1};
+  mgp::Value date_value{date_1};
+
+  std::ostringstream oss_str;
+  oss_str << string_value;
+  std::string str_test = oss_str.str();
+  ASSERT_EQ(string_1, str_test);
+
+  std::ostringstream oss_int;
+  oss_int << int_value;
+  std::string int_test = oss_int.str();
+  ASSERT_EQ("4", int_test);
+
+  std::ostringstream oss_date;
+  oss_date << date_value;
+  std::string date_test = oss_date.str();
+  ASSERT_EQ("2020-12-12", date_test);
+}

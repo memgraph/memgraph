@@ -1196,6 +1196,8 @@ class Value {
 
   bool operator<(const Value &other) const;
 
+  friend std::ostream &operator<<(std::ostream &os, const mgp::Value &value);
+
  private:
   mgp_value *ptr_;
 };
@@ -3477,6 +3479,54 @@ inline bool Value::operator<(const Value &other) const {
       throw ValueException("Operator < is not defined for this Path, List or Map data type");
     default:
       throw ValueException("Undefined behaviour");
+  }
+}
+
+inline std::ostream &operator<<(std::ostream &os, const mgp::Value &value) {
+  switch (value.Type()) {
+    case mgp::Type::Null:
+      return os << "null";
+    case mgp::Type::Any:
+      return os << "any";
+    case mgp::Type::Bool:
+      return os << (value.ValueBool() ? "true" : "false");
+    case mgp::Type::Int:
+      return os << std::to_string(value.ValueInt());
+    case mgp::Type::Double:
+      return os << std::to_string(value.ValueDouble());
+    case mgp::Type::String:
+      return os << std::string(value.ValueString());
+    case mgp::Type::List:
+      return os << "List[]";
+    case mgp::Type::Map:
+      return os << "Map[]";
+    case mgp::Type::Node:
+      return os << "Node[" + std::to_string(value.ValueNode().Id().AsInt()) + "]";
+    case mgp::Type::Relationship:
+      return os << "Relationship[" + std::to_string(value.ValueRelationship().Id().AsInt()) + "]";
+    case mgp::Type::Path:
+      return os << "Path[]";
+    case mgp::Type::Date: {
+      const auto date{value.ValueDate()};
+      return os << std::to_string(date.Year()) + "-" + std::to_string(date.Month()) + "-" + std::to_string(date.Day());
+    }
+    case mgp::Type::LocalTime: {
+      const auto localTime{value.ValueLocalTime()};
+      return os << std::to_string(localTime.Hour()) + ":" + std::to_string(localTime.Minute()) + ":" +
+                       std::to_string(localTime.Second()) + "," + std::to_string(localTime.Millisecond()) +
+                       std::to_string(localTime.Microsecond());
+    }
+    case mgp::Type::LocalDateTime: {
+      const auto localDateTime = value.ValueLocalDateTime();
+      return os << std::to_string(localDateTime.Year()) + "-" + std::to_string(localDateTime.Month()) + "-" +
+                       std::to_string(localDateTime.Day()) + "T" + std::to_string(localDateTime.Hour()) + ":" +
+                       std::to_string(localDateTime.Minute()) + ":" + std::to_string(localDateTime.Second()) + "," +
+                       std::to_string(localDateTime.Millisecond()) + std::to_string(localDateTime.Microsecond());
+    }
+    case mgp::Type::Duration:
+      return os << std::to_string(value.ValueDuration().Microseconds()) + "ms";
+    default:
+      throw mgp::ValueException("Unknown value type");
   }
 }
 
