@@ -793,15 +793,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     TypedValue::TVector result(ctx_->memory);
     result.reserve(list.size());
-    for (const auto &element : list) {
+    for (auto &element : list) {
       if (element.IsNull()) {
         result.emplace_back();
       } else {
-        frame_->at(element_symbol) = element;
+        frame_->at(element_symbol) = std::move(element);
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }

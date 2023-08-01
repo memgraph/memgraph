@@ -179,6 +179,7 @@ EscapedSymbolicName   : ( '`' ~[`]* '`' )+ ;
  */
 IdentifierStart : ID_Start    | Pc ;
 IdentifierPart  : ID_Continue | Sc ;
+UNDERSCORE : '_' ;
 
 /* Hack for case-insensitive reserved words */
 fragment A : 'A' | 'a' ;
