@@ -66,6 +66,11 @@ startup_config_dict = {
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
+    "data_recovery_on_startup": (
+        "false",
+        "false",
+        "Controls whether the database recovers persisted data on startup.",
+    ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",
@@ -133,11 +138,6 @@ startup_config_dict = {
         "The number of edges and vertices stored in a batch in a snapshot file.",
     ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
-    "storage_recover_on_startup": (
-        "false",
-        "false",
-        "Controls whether the storage recovers persisted data on startup.",
-    ),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "0",
@@ -157,6 +157,11 @@ startup_config_dict = {
         "Issue a 'fsync' call after this amount of transactions are written to the WAL file. Set to 1 for fully synchronous operation.",
     ),
     "storage_wal_file_size_kib": ("20480", "20480", "Minimum file size of each WAL file."),
+    "storage_delete_on_drop": (
+        "true",
+        "true",
+        "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.",
+    ),
     "stream_transaction_conflict_retries": (
         "30",
         "30",

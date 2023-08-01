@@ -6,8 +6,10 @@ read_query_modules_cluster: &read_query_modules_cluster
       setup_queries:
         - "CREATE USER admin IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO admin"
+        - "GRANT DATABASE * TO admin"
         - "CREATE USER user IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO user"
+        - "GRANT DATABASE * TO user"
       validation_queries: []
 
 update_query_modules_cluster: &update_query_modules_cluster
@@ -18,8 +20,10 @@ update_query_modules_cluster: &update_query_modules_cluster
       setup_queries:
         - "CREATE USER admin IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO admin"
+        - "GRANT DATABASE * TO admin"
         - "CREATE USER user IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO user"
+        - "GRANT DATABASE * TO user"
       validation_queries: []
 
 show_privileges_cluster: &show_privileges_cluster
@@ -67,8 +71,10 @@ read_permission_queries: &read_permission_queries
       setup_queries:
         - "CREATE USER admin IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO admin"
+        - "GRANT DATABASE * TO admin"
         - "CREATE USER user IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO user"
+        - "GRANT DATABASE * TO user"
       validation_queries: []
 
 create_delete_query_modules_cluster: &create_delete_query_modules_cluster
@@ -79,8 +85,10 @@ create_delete_query_modules_cluster: &create_delete_query_modules_cluster
       setup_queries:
         - "CREATE USER admin IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO admin;"
+        - "GRANT DATABASE * TO admin"
         - "CREATE USER user IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO user;"
+        - "GRANT DATABASE * TO user"
       validation_queries: []
 
 update_permission_queries_cluster: &update_permission_queries_cluster
@@ -91,8 +99,10 @@ update_permission_queries_cluster: &update_permission_queries_cluster
       setup_queries:
         - "CREATE USER admin IDENTIFIED BY 'test';"
         - "GRANT ALL PRIVILEGES TO admin;"
+        - "GRANT DATABASE * TO admin"
         - "CREATE USER user IDENTIFIED BY 'test'"
         - "GRANT ALL PRIVILEGES TO user;"
+        - "GRANT DATABASE * TO user"
       validation_queries: []
 
 workloads:

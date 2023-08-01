@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <exception>
 #include <map>
 #include <optional>
 #include <string>
@@ -207,7 +208,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetDatabaseName(), query.ValueString());
 
   try {
     // Interpret can throw.
@@ -265,7 +266,13 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  try {
+    session.Configure(extra.ValueMap());
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+  spdlog::debug("[Run - {}] '{}'", session.GetDatabaseName(), query.ValueString());
 
   try {
     // Interpret can throw.
@@ -381,6 +388,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
+    session.Configure(extra.ValueMap());
     session.BeginTransaction(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -489,7 +497,7 @@ State HandleRoute(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleLogOff() {
-  // Not arguments sent, the user just needs to reauthenticate
+  // No arguments sent, the user just needs to reauthenticate
   return State::Init;
 }
 }  // namespace memgraph::communication::bolt

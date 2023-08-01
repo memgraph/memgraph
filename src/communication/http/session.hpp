@@ -42,10 +42,10 @@ inline void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
 }
 
-template <class TRequestHandler, typename TSessionData>
-class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSessionData>> {
+template <class TRequestHandler, typename TSessionContext>
+class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSessionContext>> {
   using tcp = boost::asio::ip::tcp;
-  using std::enable_shared_from_this<Session<TRequestHandler, TSessionData>>::shared_from_this;
+  using std::enable_shared_from_this<Session<TRequestHandler, TSessionContext>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -72,7 +72,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
   using PlainSocket = boost::beast::tcp_stream;
   using SSLSocket = boost::beast::ssl_stream<boost::beast::tcp_stream>;
 
-  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &context)
+  explicit Session(tcp::socket &&socket, TSessionContext *data, ServerContext &context)
       : stream_(CreateSocket(std::move(socket), context)),
         handler_(data),
         strand_{boost::asio::make_strand(GetExecutor())} {}

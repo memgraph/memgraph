@@ -13,7 +13,7 @@ PIP_DEPS=(
    "neo4j-driver==4.1.1"
    "parse==1.18.0"
    "parse-type==0.5.2"
-   "pytest==6.2.3"
+   "pytest==7.3.2"
    "pyyaml==5.4.1"
    "six==1.15.0"
    "networkx==2.4"
@@ -49,3 +49,46 @@ popd > /dev/null
 deactivate
 
 "$DIR"/e2e/graphql/setup.sh
+
+# Check if setup needs to setup additional variables
+if [ $# == 1 ]; then
+    toolchain=$1
+    if [ -f "$toolchain" ]; then
+        # Get the LD_LIB from toolchain
+        set +u
+        OLD_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+        source $toolchain
+        NEW_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+        deactivate
+        set -u
+
+        # Wrapper used to setup the correct libraries
+        tee -a ve3/bin/activate_e2e <<EOF
+#!/bin/bash
+
+# Function to set the environment variable
+set_env_variable() {
+    export LD_LIBRARY_PATH=$NEW_LD_LIBRARY_PATH
+}
+
+# Function to activate the virtual environment and set the environment variable
+activate_e2e() {
+    source ve3/bin/activate
+    set_env_variable
+}
+
+# Function to deactivate the virtual environment and unset the environment variable
+deactivate_e2e() {
+    deactivate
+    export LD_LIBRARY_PATH=$OLD_LD_LIBRARY_PATH
+}
+
+# Activate the virtual environment and set the environment variable
+activate_e2e
+EOF
+
+        chmod +x ve3/bin/activate_e2e
+    else
+        echo "Error: The toolchain virtual enviroonment activation is not a file."
+    fi
+fi
