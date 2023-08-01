@@ -14,7 +14,7 @@
 (def mgpid  (str mgdir "/memgraph.pid"))
 
 (defn start-node!
-  [test node]
+  [test]
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
@@ -28,7 +28,7 @@
    :--storage-properties-on-edges))
 
 (defn stop-node!
-  [test node]
+  [test]
   (cu/stop-daemon! (:local-binary test) mgpid))
 
 (defn db
@@ -43,11 +43,11 @@
              (catch Exception e
                (throw (Exception. (str local-binary " is not there.")))))
         (info node "Memgraph binary is there" local-binary)
-        (start-node! test node)
+        (start-node! test)
         (Thread/sleep 5000))) ;; TODO(gitbuda): The sleep after Jepsen starting Memgraph is for sure questionable.
     (teardown! [_ test node]
       (info node "Tearing down Memgraph")
-      (stop-node! test node)
+      (stop-node! test)
       (c/su
        (c/exec :rm :-rf mgdata)
        (c/exec :rm :-rf mglog)))

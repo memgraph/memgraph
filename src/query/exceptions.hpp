@@ -112,16 +112,45 @@ class QueryRuntimeException : public QueryException {
   using QueryException::QueryException;
 };
 
+enum class AbortReason : uint8_t {
+  NO_ABORT = 0,
+
+  // transaction has been requested to terminate, ie. "TERMINATE TRANSACTIONS ..."
+  TERMINATED = 1,
+
+  // server is gracefully shutting down
+  SHUTDOWN = 2,
+
+  // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
+  TIMEOUT = 3,
+};
+
 // This one is inherited from BasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
 class HintedAbortError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  HintedAbortError()
-      : utils::BasicException(
-            "Transaction was asked to abort either because it was executing longer than time specified or another user "
-            "asked it to abort.") {}
+  explicit HintedAbortError(AbortReason reason) : utils::BasicException(AsMsg(reason)), reason_{reason} {}
+
+  auto Reason() const -> AbortReason { return reason_; }
+
+ private:
+  static auto AsMsg(AbortReason reason) -> std::string_view {
+    using namespace std::string_view_literals;
+    switch (reason) {
+      case AbortReason::TERMINATED:
+        return "Transaction was asked to abort by another user."sv;
+      case AbortReason::SHUTDOWN:
+        return "Transaction was asked to abort because of database shutdown."sv;
+      case AbortReason::TIMEOUT:
+        return "Transaction was asked to abort because of transaction timeout."sv;
+      default:
+        // should never happen
+        return "Transaction was asked to abort for an unknown reason."sv;
+    }
+  }
+  AbortReason reason_;
 };
 
 class ExplicitTransactionUsageException : public QueryRuntimeException {
@@ -293,6 +322,12 @@ class IndexPersistenceException : public QueryException {
 class ConstraintsPersistenceException : public QueryException {
  public:
   ConstraintsPersistenceException() : QueryException("Persisting constraints on disk failed.") {}
+};
+
+class MultiDatabaseQueryInMulticommandTxException : public QueryException {
+ public:
+  MultiDatabaseQueryInMulticommandTxException()
+      : QueryException("Multi-database queries are not allowed in multicommand transactions.") {}
 };
 
 }  // namespace memgraph::query
