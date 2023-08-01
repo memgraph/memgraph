@@ -1,0 +1,4 @@
+{
+    "dbms.components": "mgps.components",
+    "apoc.util.validate": "mgps.validate"
+}

@@ -407,4 +407,5 @@ cypherKeyword : ALL
 symbolicName : UnescapedSymbolicName
              | EscapedSymbolicName
              | cypherKeyword
+             | UNDERSCORE
              ;

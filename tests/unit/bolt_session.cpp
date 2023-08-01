@@ -17,6 +17,7 @@
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
+#include "query/exceptions.hpp"
 #include "utils/logging.hpp"
 
 using memgraph::communication::bolt::ClientError;
@@ -42,8 +43,11 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, Value> &metadata) override {
-    if (!metadata.empty()) md_ = metadata;
+      const std::map<std::string, Value> &extra) override {
+    if (extra.contains("tx_metadata")) {
+      auto const &metadata = extra.at("tx_metadata").ValueMap();
+      if (!metadata.empty()) md_ = metadata;
+    }
     if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
       return {{"result_name"}, {}};
@@ -60,6 +64,9 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
   }
 
   std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
+    if (should_abort_) {
+      throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
+    }
     if (query_ == kQueryReturn42) {
       encoder->MessageRecord(std::vector<Value>{Value(42)});
       return {};
@@ -91,7 +98,12 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
 
-  void BeginTransaction(const std::map<std::string, Value> &metadata) override { md_ = metadata; }
+  void BeginTransaction(const std::map<std::string, Value> &extra) override {
+    if (extra.contains("tx_metadata")) {
+      auto const &metadata = extra.at("tx_metadata").ValueMap();
+      if (!metadata.empty()) md_ = metadata;
+    }
+  }
   void CommitTransaction() override { md_.clear(); }
   void RollbackTransaction() override { md_.clear(); }
 
@@ -101,9 +113,12 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
 
+  void TestHook_ShouldAbort() { should_abort_ = true; }
+
  private:
   std::string query_;
   std::map<std::string, Value> md_;
+  bool should_abort_ = false;
 };
 
 // TODO: This could be done in fixture.
@@ -171,9 +186,22 @@ inline constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 
                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 inline constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x03, 0x04};
 inline constexpr uint8_t route[]{0xb3, 0x66, 0xa0, 0x90, 0xc0};
-const std::string extra_w_metadata =
-    "\xa2\x8b\x74\x78\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\xa2\x83\x73\x74\x72\x83\x61\x68\x61\x83\x6e\x75\x6d\x7b\x8a"
-    "\x74\x78\x5f\x74\x69\x6d\x65\x6f\x75\x74\xc9\x07\xd0";
+constexpr std::string_view extra_w_metadata =
+    "\xa2"                                              // Map size 2
+    "\x8b\x74\x78\x5f\x6d\x65\x74\x61\x64\x61\x74\x61"  // "tx_metadata"
+    "\xa2"                                              // Map size 2
+    "\x83\x73\x74\x72"                                  // "str"
+    "\x83\x61\x68\x61"                                  // "aha"
+    "\x83\x6e\x75\x6d"                                  // "num"
+    "\x7b"                                              // 123
+    "\x8a\x74\x78\x5f\x74\x69\x6d\x65\x6f\x75\x74"      // "tx_timeout"
+    "\xc9\x07\xd0";                                     // INT_16 2000
+
+constexpr std::string_view extra_w_127ms_timeout =
+    "\xa1"                                          // Map size 1
+    "\x8a\x74\x78\x5F\x74\x69\x6D\x65\x6F\x75\x74"  // String size 10 "tx_timeout"
+    "\x7f";                                         // Integer 127 (representing 127ms)
+
 inline constexpr uint8_t commit[] = {0xb0, 0x12};
 }  // namespace v4_3
 
@@ -248,7 +276,7 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session, std::vecto
 
 // Write bolt encoded run request
 void WriteRunRequest(TestInputStream &input_stream, const char *str, const bool is_v4 = false,
-                     const std::string &extra = "\xA0") {
+                     std::string_view extra = "\xA0") {
   // write chunk header
   auto len = strlen(str);
   WriteChunkHeader(input_stream, (3 + is_v4 * extra.size()) + 2 + len + 1);
@@ -1163,5 +1191,34 @@ TEST(BoltSession, PassMetadata) {
     EXPECT_NE(find_num, end(output));
     auto find_str = std::search(begin(output), end(output), begin(md_str_aha), end(md_str_aha));
     EXPECT_NE(find_str, end(output));
+  }
+}
+
+TEST(BoltSession, PartialStream) {
+  // v4+
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+
+    WriteRunRequest(input_stream, kQueryReturnMultiple, true, v4_3::extra_w_127ms_timeout);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Result);
+    constexpr std::array<uint8_t, 10> md_has_more_true{0x88, 0x68, 0x61, 0x73, 0x5F, 0x6D, 0x6F, 0x72, 0x65, 0xC3};
+    auto find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
+    EXPECT_NE(find_has_more, cend(output));
+
+    session.TestHook_ShouldAbort();  // pretend the 127ms timeout was hit
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+
+    PrintOutput(output);
+
+    auto const error_msg = std::u8string_view{u8"Transaction was asked to abort by another user."};
+    auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
+    EXPECT_NE(find_msg, cend(output));
   }
 }

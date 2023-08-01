@@ -118,7 +118,7 @@ def run_client(id, data):
             if counter % 100000 == 0:
                 print("Client %d executed %d" % (id, counter))
         except Exception:
-            print("DB isn't reachable any more")
+            print("DB isn't reachable anymore")
             break
     data[id] = counter
     print("Client %d executed %d" % (id, counter))
