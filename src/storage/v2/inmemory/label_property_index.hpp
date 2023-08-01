@@ -135,7 +135,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> index_lookup_;
+  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
   std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
 };
 

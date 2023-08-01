@@ -68,7 +68,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
 
-  index_lookup_[property].insert({label, &index_.at({label, property})});
+  indices_by_property_[property].insert({label, &index_.at({label, property})});
 
   if (!emplaced) {
     // Index already exists.
@@ -101,22 +101,22 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  if (!index_lookup_.contains(property)) {
+  if (!indices_by_property_.contains(property)) {
     return;
   }
 
-  for (const auto &[_, storage] : index_lookup_.at(property)) {
+  for (const auto &[_, storage] : indices_by_property_.at(property)) {
     auto acc = storage->access();
     acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  if (index_lookup_.find(property) != index_lookup_.end()) {
-    index_lookup_.at(property).erase(label);
+  if (indices_by_property_.find(property) != indices_by_property_.end()) {
+    indices_by_property_.at(property).erase(label);
 
-    if (index_lookup_.at(property).empty()) {
-      index_lookup_.erase(property);
+    if (indices_by_property_.at(property).empty()) {
+      indices_by_property_.erase(property);
     }
   }
 
