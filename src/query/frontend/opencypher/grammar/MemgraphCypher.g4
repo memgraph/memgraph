@@ -107,6 +107,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UNCOMMITTED
                       | UNLOCK
                       | UPDATE
+                      | USE
                       | USER
                       | USERS
                       | VERSION
@@ -140,6 +141,8 @@ query : cypherQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
+      | multiDatabaseQuery
+      | showDatabases
       ;
 
 authQuery : createRole
@@ -157,6 +160,10 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
+          | grantDatabaseToUser
+          | revokeDatabaseFromUser
+          | showDatabasePrivileges
+          | setMainDatabase
           ;
 
 replicationQuery : setReplicationRole
@@ -207,6 +214,10 @@ streamQuery : checkStream
             | stopAllStreams
             | showStreams
             ;
+
+databaseName : symbolicName ;
+
+wildcardName : ASTERISK | symbolicName ;
 
 settingQuery : setSetting
              | showSetting
@@ -265,6 +276,14 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
+grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
+
+revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
+
 privilege : CREATE
           | DELETE
           | MATCH
@@ -288,6 +307,8 @@ privilege : CREATE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
           | STORAGE_MODE
+          | MULTI_DATABASE_EDIT
+          | MULTI_DATABASE_USE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -441,3 +462,16 @@ versionQuery : SHOW VERSION ;
 transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
+
+multiDatabaseQuery : createDatabase
+                   | useDatabase
+                   | dropDatabase
+                   ;
+
+createDatabase : CREATE DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
+
+dropDatabase : DROP DATABASE databaseName ;
+
+showDatabases: SHOW DATABASES ;

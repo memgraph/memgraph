@@ -324,4 +324,10 @@ class ConstraintsPersistenceException : public QueryException {
   ConstraintsPersistenceException() : QueryException("Persisting constraints on disk failed.") {}
 };
 
+class MultiDatabaseQueryInMulticommandTxException : public QueryException {
+ public:
+  MultiDatabaseQueryInMulticommandTxException()
+      : QueryException("Multi-database queries are not allowed in multicommand transactions.") {}
+};
+
 }  // namespace memgraph::query

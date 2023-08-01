@@ -14,9 +14,13 @@ while ! nc -z -w 1 127.0.0.1 7687; do
     sleep 0.5
 done
 
-# Start the test.
+# Start the test on default db.
 $binary_dir/tests/integration/transactions/tester
 code=$?
+
+# Start the test on another db.
+$binary_dir/tests/integration/transactions/tester --use-db db1
+code2=$?
 
 # Shutdown the memgraph process.
 kill $pid
@@ -30,4 +34,12 @@ if [ $code_mg -ne 0 ]; then
 fi
 
 # Exit with the exitcode of the test.
-exit $code
+if [ $code -ne 0 ]; then
+    echo "Default database tests failed!"
+    exit $code
+fi
+
+if [ $code2 -ne 0 ]; then
+    echo "Non default database tests failed!"
+    exit $code2
+fi
