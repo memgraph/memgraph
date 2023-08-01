@@ -610,6 +610,7 @@ class Node {
 
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(mgp_vertex *ptr);
+
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
 
@@ -641,15 +642,21 @@ class Node {
 
   /// @brief Returns an iterable structure of the node’s inbound relationships.
   Relationships InRelationships() const;
+
   /// @brief Returns an iterable structure of the node’s outbound relationships.
   Relationships OutRelationships() const;
+
   /// @brief Adds a label to the node.
   void AddLabel(const std::string_view label);
+
+  /// @brief Removes a label from the node.
+  void RemoveLabel(const std::string_view label);
 
   bool operator<(const Node &other) const;
 
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator==(const Node &other) const;
+
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator!=(const Node &other) const;
 
@@ -1195,6 +1202,8 @@ class Value {
   bool operator!=(const Value &other) const;
 
   bool operator<(const Value &other) const;
+
+  friend std::ostream &operator<<(std::ostream &os, const mgp::Value &value);
 
  private:
   mgp_value *ptr_;
@@ -2546,6 +2555,10 @@ inline void Node::AddLabel(const std::string_view label) {
   mgp::vertex_add_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
+inline void Node::RemoveLabel(const std::string_view label) {
+  mgp::vertex_remove_label(this->ptr_, mgp_label{.name = label.data()});
+}
+
 inline std::map<std::string, Value> Node::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, memory);
   std::map<std::string, Value> property_map;
@@ -3477,6 +3490,54 @@ inline bool Value::operator<(const Value &other) const {
       throw ValueException("Operator < is not defined for this Path, List or Map data type");
     default:
       throw ValueException("Undefined behaviour");
+  }
+}
+
+inline std::ostream &operator<<(std::ostream &os, const mgp::Value &value) {
+  switch (value.Type()) {
+    case mgp::Type::Null:
+      return os << "null";
+    case mgp::Type::Any:
+      return os << "any";
+    case mgp::Type::Bool:
+      return os << (value.ValueBool() ? "true" : "false");
+    case mgp::Type::Int:
+      return os << std::to_string(value.ValueInt());
+    case mgp::Type::Double:
+      return os << std::to_string(value.ValueDouble());
+    case mgp::Type::String:
+      return os << std::string(value.ValueString());
+    case mgp::Type::List:
+      throw mgp::ValueException("Printing mgp::List type currently not supported.");
+    case mgp::Type::Map:
+      throw mgp::ValueException("Printing mgp::Map type currently not supported.");
+    case mgp::Type::Node:
+      return os << "Node[" + std::to_string(value.ValueNode().Id().AsInt()) + "]";
+    case mgp::Type::Relationship:
+      return os << "Relationship[" + std::to_string(value.ValueRelationship().Id().AsInt()) + "]";
+    case mgp::Type::Path:
+      throw mgp::ValueException("Printing mgp::Path type currently not supported.");
+    case mgp::Type::Date: {
+      const auto date{value.ValueDate()};
+      return os << std::to_string(date.Year()) + "-" + std::to_string(date.Month()) + "-" + std::to_string(date.Day());
+    }
+    case mgp::Type::LocalTime: {
+      const auto localTime{value.ValueLocalTime()};
+      return os << std::to_string(localTime.Hour()) + ":" + std::to_string(localTime.Minute()) + ":" +
+                       std::to_string(localTime.Second()) + "," + std::to_string(localTime.Millisecond()) +
+                       std::to_string(localTime.Microsecond());
+    }
+    case mgp::Type::LocalDateTime: {
+      const auto localDateTime = value.ValueLocalDateTime();
+      return os << std::to_string(localDateTime.Year()) + "-" + std::to_string(localDateTime.Month()) + "-" +
+                       std::to_string(localDateTime.Day()) + "T" + std::to_string(localDateTime.Hour()) + ":" +
+                       std::to_string(localDateTime.Minute()) + ":" + std::to_string(localDateTime.Second()) + "," +
+                       std::to_string(localDateTime.Millisecond()) + std::to_string(localDateTime.Microsecond());
+    }
+    case mgp::Type::Duration:
+      return os << std::to_string(value.ValueDuration().Microseconds()) + "ms";
+    default:
+      throw mgp::ValueException("Unknown value type");
   }
 }
 
