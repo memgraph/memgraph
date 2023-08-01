@@ -861,17 +861,19 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     int64_t num_expanded_first = -1;
     if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
-      if (expansion_info_.existing_node) {
-        auto existing_node = *expansion_info_.existing_node;
-        context.db_accessor->PrefetchInEdges(vertex);
+      if (self_.common_.existing_node) {
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
+          context.db_accessor->PrefetchInEdges(vertex);
 
-        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
-        in_edges_.emplace(edges_result.edges);
-        num_expanded_first = edges_result.expanded_count;
+          auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
+          in_edges_.emplace(edges_result.edges);
+          num_expanded_first = edges_result.expanded_count;
+        }
       } else {
         context.db_accessor->PrefetchInEdges(vertex);
 
-        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+        auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
         in_edges_.emplace(edges_result.edges);
         num_expanded_first = edges_result.expanded_count;
       }
@@ -882,13 +884,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     int64_t num_expanded_second = -1;
     if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-      if (expansion_info_.existing_node) {
-        auto existing_node = *expansion_info_.existing_node;
-        context.db_accessor->PrefetchOutEdges(vertex);
+      if (self_.common_.existing_node) {
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
+          context.db_accessor->PrefetchOutEdges(vertex);
 
-        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
-        out_edges_.emplace(edges_result.edges);
-        num_expanded_second = edges_result.expanded_count;
+          auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
+          out_edges_.emplace(edges_result.edges);
+          num_expanded_second = edges_result.expanded_count;
+        }
       } else {
         context.db_accessor->PrefetchOutEdges(vertex);
 
