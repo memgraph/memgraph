@@ -3497,15 +3497,15 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Value &value) {
     case mgp::Type::String:
       return os << std::string(value.ValueString());
     case mgp::Type::List:
-      return os << "List[]";
+      throw mgp::ValueException("Printing mgp::List type currently not supported.");
     case mgp::Type::Map:
-      return os << "Map[]";
+      throw mgp::ValueException("Printing mgp::Map type currently not supported.");
     case mgp::Type::Node:
       return os << "Node[" + std::to_string(value.ValueNode().Id().AsInt()) + "]";
     case mgp::Type::Relationship:
       return os << "Relationship[" + std::to_string(value.ValueRelationship().Id().AsInt()) + "]";
     case mgp::Type::Path:
-      return os << "Path[]";
+      throw mgp::ValueException("Printing mgp::Path type currently not supported.");
     case mgp::Type::Date: {
       const auto date{value.ValueDate()};
       return os << std::to_string(date.Year()) + "-" + std::to_string(date.Month()) + "-" + std::to_string(date.Day());
