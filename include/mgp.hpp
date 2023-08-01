@@ -645,6 +645,8 @@ class Node {
   Relationships OutRelationships() const;
   /// @brief Adds a label to the node.
   void AddLabel(const std::string_view label);
+  /// @brief Removes a label from the node.
+  void RemoveLabel(const std::string_view label);
 
   bool operator<(const Node &other) const;
 
@@ -2544,6 +2546,10 @@ inline Relationships Node::OutRelationships() const {
 
 inline void Node::AddLabel(const std::string_view label) {
   mgp::vertex_add_label(this->ptr_, mgp_label{.name = label.data()});
+}
+
+inline void Node::RemoveLabel(const std::string_view label) {
+  mgp::vertex_remove_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
 inline std::map<std::string, Value> Node::Properties() const {
