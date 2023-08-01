@@ -335,7 +335,7 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
     }
     // TODO: Rethink this if we would reuse ReplicationServer for on disk storage.
     if (auto *inmemoryAcc =
-            dynamic_cast<storage::InMemoryStorage::InMemoryAccessor *>(commit_timestamp_and_accessor->second.get())) {
+            static_cast<storage::InMemoryStorage::InMemoryAccessor *>(commit_timestamp_and_accessor->second.get())) {
       return inmemoryAcc;
     }
     throw utils::BasicException("Received transaction for not supported storage!");
