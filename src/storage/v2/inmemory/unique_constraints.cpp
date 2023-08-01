@@ -257,17 +257,6 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
       acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
     }
   }
-
-  // for (auto &[label_props, storage] : constraints_) {
-  //   if (!utils::Contains(vertex->labels, label_props.first)) {
-  //     continue;
-  //   }
-  //   auto values = vertex->properties.ExtractPropertyValues(label_props.second);
-  //   if (values) {
-  //     auto acc = storage.access();
-  //     acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
-  //   }
-  // }
 }
 
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
@@ -393,36 +382,6 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
   }
 
   return std::nullopt;
-
-  // for (const auto &[label_props, storage] : constraints_) {
-  //   const auto &label = label_props.first;
-  //   const auto &properties = label_props.second;
-  //   if (!utils::Contains(vertex.labels, label)) {
-  //     continue;
-  //   }
-
-  //   auto value_array = vertex.properties.ExtractPropertyValues(properties);
-  //   if (!value_array) {
-  //     continue;
-  //   }
-  //   auto acc = storage.access();
-  //   auto it = acc.find_equal_or_greater(*value_array);
-  //   for (; it != acc.end(); ++it) {
-  //     if (*value_array < it->values) {
-  //       break;
-  //     }
-
-  //     // The `vertex` that is going to be committed violates a unique constraint
-  //     // if it's different than a vertex indexed in the list of constraints and
-  //     // has the same label and property value as the last committed version of
-  //     // the vertex from the list.
-  //     if (&vertex != it->vertex &&
-  //         LastCommittedVersionHasLabelProperty(*it->vertex, label, properties, *value_array, tx, commit_timestamp)) {
-  //       return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
-  //     }
-  //   }
-  // }
-  // return std::nullopt;
 }
 
 std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints::ListConstraints() const {

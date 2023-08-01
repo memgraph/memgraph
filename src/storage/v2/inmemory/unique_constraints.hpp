@@ -96,8 +96,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
  private:
   std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
-  // std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_by_label_;
-
   std::map<LabelId, std::map<std::set<PropertyId>, utils::SkipList<Entry> *>> constraints_by_label_;
 };
 
