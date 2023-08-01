@@ -21,7 +21,14 @@ const driver = neo4j.driver(
     neo4j.auth.basic("", "")
 );
 
-const neoSchema = new Neo4jGraphQL({ typeDefs, driver });
+const neoSchema = new Neo4jGraphQL({
+    typeDefs, driver,
+    config: {
+        driverConfig: {
+            database: "memgraph",
+        },
+    }
+});
 
 neoSchema.getSchema().then((schema) => {
     const server = new ApolloServer({

@@ -12,7 +12,6 @@
 import typing
 
 import mgclient
-import pytest
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
