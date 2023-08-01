@@ -636,6 +636,9 @@ class Node {
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
 
+  /// @brief Sets the chosen property to the given value.
+  void RemoveProperty(std::string property);
+
   /// @brief Retrieves the value of the chosen property.
   Value GetProperty(const std::string &property) const;
 
@@ -2560,6 +2563,8 @@ inline std::map<std::string, Value> Node::Properties() const {
 inline void Node::SetProperty(std::string property, Value value) {
   mgp::vertex_set_property(ptr_, property.data(), value.ptr());
 }
+
+inline void Node::RemoveProperty(std::string property) { SetProperty(property, Value()); }
 
 inline Value Node::GetProperty(const std::string &property) const {
   mgp_value *vertex_prop = mgp::vertex_get_property(ptr_, property.data(), memory);

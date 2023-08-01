@@ -560,3 +560,14 @@ TYPED_TEST(CppApiTestFixture, TestMapErase) {
   map.Erase("2");
   ASSERT_EQ(map.Size(), 0);
 }
+TYPED_TEST(CppApiTestFixture, TestNodeRemoveProperty) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node = graph.CreateNode();
+
+  int64_t int1 = 100;
+  mgp::Value value = mgp::Value(int1);
+  node.SetProperty("key", value);
+  node.RemoveProperty("key");
+  ASSERT_EQ(node.Properties().size(), 0);
+}
