@@ -46,6 +46,7 @@ class InMemoryStorage::ReplicationServer {
   std::optional<rpc::Server> rpc_server_;
 
   InMemoryStorage *storage_;
+  io::network::Endpoint endpoint_;
 };
 
 }  // namespace memgraph::storage
