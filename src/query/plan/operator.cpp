@@ -865,13 +865,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         auto existing_node = *expansion_info_.existing_node;
         context.db_accessor->PrefetchInEdges(vertex);
 
-        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
+        auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
         in_edges_.emplace(edges_result.edges);
         num_expanded_first = edges_result.expanded_count;
       } else {
         context.db_accessor->PrefetchInEdges(vertex);
 
-        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+        auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
         in_edges_.emplace(edges_result.edges);
         num_expanded_first = edges_result.expanded_count;
       }
