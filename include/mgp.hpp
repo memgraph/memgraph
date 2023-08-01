@@ -610,6 +610,7 @@ class Node {
 
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(mgp_vertex *ptr);
+
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
 
@@ -641,15 +642,21 @@ class Node {
 
   /// @brief Returns an iterable structure of the node’s inbound relationships.
   Relationships InRelationships() const;
+
   /// @brief Returns an iterable structure of the node’s outbound relationships.
   Relationships OutRelationships() const;
+
   /// @brief Adds a label to the node.
   void AddLabel(const std::string_view label);
+
+  /// @brief Removes a label from the node.
+  void RemoveLabel(const std::string_view label);
 
   bool operator<(const Node &other) const;
 
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator==(const Node &other) const;
+
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator!=(const Node &other) const;
 
@@ -2544,6 +2551,10 @@ inline Relationships Node::OutRelationships() const {
 
 inline void Node::AddLabel(const std::string_view label) {
   mgp::vertex_add_label(this->ptr_, mgp_label{.name = label.data()});
+}
+
+inline void Node::RemoveLabel(const std::string_view label) {
+  mgp::vertex_remove_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
 inline std::map<std::string, Value> Node::Properties() const {
