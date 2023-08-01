@@ -16,7 +16,6 @@
 #include <list>
 #include <memory>
 
-#include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
 #include "storage/v2/delta.hpp"
@@ -26,7 +25,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/pmr/list.hpp"
 
 namespace memgraph::storage {
 
@@ -35,11 +33,10 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, utils::MemoryResource *memory_resource)
+              StorageMode storage_mode)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        deltas(memory_resource),
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode) {}
@@ -74,8 +71,7 @@ struct Transaction {
   // `commited_transactions_` list for GC.
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
-
-  utils::pmr::list<Delta> deltas;
+  std::list<Delta> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;

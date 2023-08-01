@@ -22,7 +22,6 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-#include "utils/memory.hpp"
 
 namespace memgraph::storage {
 
@@ -479,11 +478,8 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
-
   // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<utils::pmr::list<std::pair<uint64_t, utils::pmr::list<Delta>>>, utils::SpinLock>
-      garbage_undo_buffers_{&monotonic_memory};
+  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.

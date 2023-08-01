@@ -41,7 +41,6 @@
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
-#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -1690,7 +1689,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     /// TODO: when we introduce replication to the disk storage, take care of start_timestamp
     start_timestamp = timestamp_++;
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, utils::NewDeleteResource()};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode};
 }
 
 uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
