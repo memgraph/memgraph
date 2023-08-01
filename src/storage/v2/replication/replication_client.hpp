@@ -42,6 +42,11 @@ class InMemoryStorage::ReplicationClient {
   ReplicationClient(std::string name, InMemoryStorage *storage, const io::network::Endpoint &endpoint,
                     replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
 
+  ~ReplicationClient() {
+    auto endpoint = rpc_client_->Endpoint();
+    spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
+  }
+
   // Handler used for transfering the current transaction.
   class ReplicaStream {
    private:
