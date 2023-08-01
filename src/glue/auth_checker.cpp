@@ -100,7 +100,7 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
       if (!maybe_user) {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
-      user_ = *maybe_user;
+      user_ = std::move(*maybe_user);
     }
     return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(user_, dba);
 
