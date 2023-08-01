@@ -95,12 +95,14 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   }
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+    if (username != user_.username()) {
+      auto maybe_user = locked_auth->GetUser(username);
+      if (!maybe_user) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+      user_ = std::move(*maybe_user);
     }
-
-    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*user), dba);
+    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(user_, dba);
 
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
