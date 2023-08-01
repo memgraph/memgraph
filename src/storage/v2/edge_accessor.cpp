@@ -147,8 +147,41 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   return true;
 }
 
-Result<bool> EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> & /*properties*/) {
-  throw std::runtime_error("Method not implemented");
+Result<bool> EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  auto old_properties = edge_.ptr->properties.Properties();
+  edge_.ptr->properties.ClearProperties();
+
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> old_new_change;
+  old_new_change.reserve(properties.size() + old_properties.size());
+  for (auto &kv : properties) {
+    if (!old_properties.contains(kv.first)) {
+      old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
+    }
+  }
+
+  for (auto &[old_key, old_value] : old_properties) {
+    auto it = properties.emplace(old_key, old_value);
+    if (!it.second) {
+      auto &new_value = it.first->second;
+      old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
+    }
+  }
+
+  if (!edge_.ptr->properties.InitProperties(properties)) return false;
+  for (auto &[property, old_value, new_value] : old_new_change) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+  }
+
+  return true;
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
