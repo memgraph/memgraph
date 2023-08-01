@@ -46,7 +46,7 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
 
 InMemoryStorage::ReplicationServer::ReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
                                                       const replication::ReplicationServerConfig &config)
-    : storage_(storage) {
+    : storage_(storage), endpoint_(endpoint) {
   // Create RPC server.
   if (config.ssl) {
     rpc_server_context_.emplace(config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
@@ -318,6 +318,7 @@ void InMemoryStorage::ReplicationServer::TimestampHandler(slk::Reader *req_reade
 
 InMemoryStorage::ReplicationServer::~ReplicationServer() {
   if (rpc_server_) {
+    spdlog::trace("Closing replication server on {}:{}", endpoint_.address, endpoint_.port);
     rpc_server_->Shutdown();
     rpc_server_->AwaitShutdown();
   }
