@@ -18,6 +18,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
@@ -248,8 +249,9 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
     }
     // Stay in Init
     return State::Init;
+  }
 
-  } else if (signature == Signature::LogOn) {
+  if (signature == Signature::LogOn) {
     if (marker != Marker::TinyStruct1) [[unlikely]] {
       spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
       spdlog::trace(
@@ -273,11 +275,10 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
       return State::Close;
     }
     return State::Idle;
-
-  } else [[unlikely]] {
-    spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
-    return State::Close;
   }
+
+  spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+  return State::Close;
 }
 }  // namespace details
 
