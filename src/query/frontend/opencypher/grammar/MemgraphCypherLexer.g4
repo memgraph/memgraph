@@ -23,8 +23,6 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
-UNDERSCORE : '_' ;
-
 AFTER                   : A F T E R ;
 ALTER                   : A L T E R ;
 ANALYZE                 : A N A L Y Z E ;
