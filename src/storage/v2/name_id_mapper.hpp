@@ -68,9 +68,11 @@ class NameIdMapper {
       // two IDs to the same name when the mapping is being inserted
       // concurrently from two threads. One ID is wasted in that case, though.
       id = name_to_id_acc.insert({std::string(name), new_id}).first->id;
+
     } else {
       id = found->id;
     }
+
     auto id_to_name_acc = id_to_name_.access();
     // We have to try to insert the ID to name mapping even if we are not the
     // one who assigned the ID because we have to make sure that after this
@@ -80,6 +82,7 @@ class NameIdMapper {
       // temporary memory allocation when the object already exists.
       id_to_name_acc.insert({id, std::string(name)});
     }
+
     return id;
   }
 
