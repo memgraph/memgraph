@@ -696,22 +696,31 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     TypedValue::TMap result(ctx_->memory);
     TypedValue::TMap all_properties_lookup(ctx_->memory);
+
+    auto map_variable = literal.map_variable_->Accept(*this);
+    // check if map_variable is null
+    // if so, return result
+
     for (const auto &[property_key, property_value] : literal.elements_) {
       if (property_key.name == kAllPropertiesSelector.data()) {
         auto maybe_all_properties_lookup = property_value->Accept(*this);
 
-        switch (maybe_all_properties_lookup.type())
-        case TypedValue::Type::Map:
-          all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
-        case TypedValue::Type::Null:
-          all_properties_lookup = std::move(maybe_all_properties_lookup.ValueNull());
-        default:
-          throw QueryRuntimeException("Expected a map or NULL from AllPropertiesLookup, got {}.",
+        if (maybe_all_properties_lookup.type() == TypedValue::Type::Null) {
+          continue;
+        }
+
+        if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
+          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.",
                                       maybe_all_properties_lookup.type());
+        }
+        all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
+        continue;
       }
 
+      std::cout << "property_key.name: " << property_key.name << std::endl;
       result.emplace(property_key.name, property_value->Accept(*this));
     }
+
     if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
 
     return TypedValue(result, ctx_->memory);
