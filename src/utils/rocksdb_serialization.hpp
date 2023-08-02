@@ -44,10 +44,12 @@ inline std::vector<std::string> TransformIDsToString(const Collection &labels) {
   return transformed_labels;
 }
 
-inline std::vector<storage::LabelId> TransformFromStringLabels(const std::vector<std::string> &labels) {
+inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::string> &&labels) {
   std::vector<storage::LabelId> transformed_labels;
-  std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
-                 [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
+  transformed_labels.reserve(labels.size());
+  for (const std::string &label : labels) {
+    transformed_labels.emplace_back(storage::LabelId::FromUint(std::stoull(label)));
+  }
   return transformed_labels;
 }
 
@@ -115,8 +117,7 @@ inline std::string SerializeVertex(const storage::Vertex &vertex) {
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::string labels_str = key_vector[0];
+  std::string labels_str = key.substr(0, key.find('|'));
   if (SerializedVertexHasLabels(labels_str)) {
     return TransformFromStringLabels(utils::Split(labels_str, ","));
   }
@@ -182,8 +183,8 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &value) {
-  const auto value_splitted = utils::Split(value, "|");
-  return TransformFromStringLabels(utils::Split(value_splitted[0], ","));
+  const auto value_splitted = value.substr(0, value.find('|'));
+  return TransformFromStringLabels(utils::Split(value_splitted, ","));
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelIndexStorage(const std::string &value) {
@@ -215,8 +216,8 @@ inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &ke
 
 /// TODO: refactor into one method with label index storage
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &value) {
-  const auto value_splitted = utils::Split(value, "|");
-  return TransformFromStringLabels(utils::Split(value_splitted[0], ","));
+  const auto value_splitted = value.substr(0, value.find('|'));
+  return TransformFromStringLabels(utils::Split(value_splitted, ","));
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelPropertyIndexStorage(const std::string &value) {
