@@ -25,6 +25,7 @@
 #include "kvstore/kvstore.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
@@ -65,6 +66,19 @@ constexpr const char *label_index_str = "label_index";
 constexpr const char *label_property_index_str = "label_property_index";
 constexpr const char *existence_constraints_str = "existence_constraints";
 constexpr const char *unique_constraints_str = "unique_constraints";
+
+bool VertexNeedsToBeSerialized(const Vertex &vertex) {
+  Delta *head = vertex.delta;
+  while (head != nullptr) {
+    if (head->action == Delta::Action::ADD_LABEL || head->action == Delta::Action::REMOVE_LABEL ||
+        head->action == Delta::Action::DELETE_OBJECT || head->action == Delta::Action::RECREATE_OBJECT ||
+        head->action == Delta::Action::SET_PROPERTY) {
+      return true;
+    }
+    head = head->next;
+  }
+  return false;
+}
 
 bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
   return accessor.find(gid) != accessor.end();
@@ -1233,33 +1247,35 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
   /// TODO: andi I don't like that std::optional is used for checking errors but that's how it was before, refactor!
   for (Vertex &vertex : vertex_acc) {
-    if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
-      return check_result.GetError();
-    }
+    if (VertexNeedsToBeSerialized(vertex)) {
+      if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
+        return check_result.GetError();
+      }
 
-    /// TODO: what if something is changed and then deleted
-    if (vertex.deleted) {
-      continue;
-    }
+      /// TODO: what if something is changed and then deleted and how does this work connected to indices and
+      /// constraints
+      if (vertex.deleted) {
+        continue;
+      }
 
-    /// TODO: expose temporal coupling
-    /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    /// TODO: This has to deal with index storage if read from index cache
-    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-      if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
+      /// TODO: expose temporal coupling
+      /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
+      /// TODO: This has to deal with index storage if read from index cache
+      if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+        if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
+          return StorageDataManipulationError{SerializationError{}};
+        }
+      }
+
+      if (!WriteVertexToDisk(vertex)) {
         return StorageDataManipulationError{SerializationError{}};
       }
-    }
 
-    if (!WriteVertexToDisk(vertex)) {
-      return StorageDataManipulationError{SerializationError{}};
-    }
-
-    /// TODO: andi don't ignore the return value
-    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
-        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
-        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
-      return StorageDataManipulationError{SerializationError{}};
+      if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
+          !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
+          !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
+        return StorageDataManipulationError{SerializationError{}};
+      }
     }
 
     for (auto &edge_entry : vertex.out_edges) {
