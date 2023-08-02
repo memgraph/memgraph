@@ -706,10 +706,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (property_key.name == kAllPropertiesSelector.data()) {
         auto maybe_all_properties_lookup = property_value->Accept(*this);
 
-        if (maybe_all_properties_lookup.type() == TypedValue::Type::Null) {
-          continue;
-        }
-
         if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
           LOG_FATAL("Expected a map from AllPropertiesLookup, got {}.", maybe_all_properties_lookup.type());
         }
