@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
+#include <utility>
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -22,7 +25,9 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -475,15 +480,22 @@ class InMemoryStorage final : public Storage {
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
+
+  using UPPmrLd = std::unique_ptr<utils::pmr::list<Delta>>;
+  using transaction_id_type = decltype(std::declval<Transaction>().transaction_id);
+
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
+  // Every transaction will have its own monotonic buffer resource, mapping between transaction id and
+  // monotonic buffer exist so we can clean resources once deltas are unlinked
+  utils::Synchronized<std::list<std::pair<transaction_id_type, utils::MonotonicBufferResource>>> monotonic_resources_;
 
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<utils::pmr::list<std::pair<uint64_t, utils::pmr::list<Delta>>>, utils::SpinLock>
-      garbage_undo_buffers_{&monotonic_memory};
+  // utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
+
+  // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
+  utils::Synchronized<std::list<std::pair<uint64_t, UPPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.

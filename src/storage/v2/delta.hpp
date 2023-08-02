@@ -207,33 +207,34 @@ struct Delta {
         vertex_edge({edge_type, vertex, edge}) {}
 
   Delta(const Delta &) = delete;
+  Delta(Delta &&other) = delete;
 
-  Delta(Delta &&other) noexcept
-      : action(other.action),
-        timestamp(other.timestamp),
-        command_id(other.command_id),
-        prev(other.prev),
-        next(other.next.load()) {
-    switch (other.action) {
-      case Action::DELETE_OBJECT:
-      case Action::RECREATE_OBJECT:
-        break;
-      case Action::ADD_LABEL:
-      case Action::REMOVE_LABEL:
-        label = other.label;
-      case Action::ADD_IN_EDGE:
-      case Action::ADD_OUT_EDGE:
-      case Action::REMOVE_IN_EDGE:
-      case Action::REMOVE_OUT_EDGE:
-        vertex_edge = other.vertex_edge;
-      case Action::DELETE_DESERIALIZED_OBJECT:
-        old_disk_key = other.old_disk_key;
-        break;
-      case Action::SET_PROPERTY:
-        property = other.property;
-        break;
-    }
-  };
+  // Delta(Delta &&other) noexcept
+  //     : action(other.action),
+  //       timestamp(other.timestamp),
+  //       command_id(other.command_id),
+  //       prev(other.prev),
+  //       next(other.next.load()) {
+  //   switch (other.action) {
+  //     case Action::DELETE_OBJECT:
+  //     case Action::RECREATE_OBJECT:
+  //       break;
+  //     case Action::ADD_LABEL:
+  //     case Action::REMOVE_LABEL:
+  //       label = other.label;
+  //     case Action::ADD_IN_EDGE:
+  //     case Action::ADD_OUT_EDGE:
+  //     case Action::REMOVE_IN_EDGE:
+  //     case Action::REMOVE_OUT_EDGE:
+  //       vertex_edge = other.vertex_edge;
+  //     case Action::DELETE_DESERIALIZED_OBJECT:
+  //       old_disk_key = other.old_disk_key;
+  //       break;
+  //     case Action::SET_PROPERTY:
+  //       property = other.property;
+  //       break;
+  //   }
+  // };
   Delta &operator=(const Delta &) = delete;
   Delta &operator=(Delta &&) = delete;
 

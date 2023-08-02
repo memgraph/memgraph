@@ -1416,8 +1416,8 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
-  if (transaction_.deltas.empty() ||
-      std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+  if (transaction_.deltas->empty() ||
+      std::all_of(transaction_.deltas->begin(), transaction_.deltas->end(),
                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);

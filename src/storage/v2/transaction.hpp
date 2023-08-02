@@ -39,10 +39,13 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        deltas(memory_resource),
+        deltas(nullptr),
         must_abort(false),
         isolation_level(isolation_level),
-        storage_mode(storage_mode) {}
+        storage_mode(storage_mode) {
+    auto *ptr_list = utils::Allocator<utils::pmr::list<Delta>>(memory_resource).new_object<utils::pmr::list<Delta>>();
+    deltas = std::unique_ptr<utils::pmr::list<Delta>>(ptr_list);
+  }
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
@@ -75,7 +78,7 @@ struct Transaction {
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
 
-  utils::pmr::list<Delta> deltas;
+  std::unique_ptr<utils::pmr::list<Delta>> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;

@@ -102,15 +102,15 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                           transaction->command_id);
+  return &transaction->deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+                                            transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
-                                           old_disk_key);
+  return &transaction->deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
+                                            old_disk_key);
 }
 
 /// TODO: what if in-memory analytical
@@ -129,8 +129,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
-                                                 transaction->command_id);
+  auto delta = &transaction->deltas->emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+                                                  transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times
