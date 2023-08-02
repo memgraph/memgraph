@@ -794,7 +794,7 @@ void Expand::ExpandCursor::Reset() {
   out_edges_it_ = std::nullopt;
 }
 
-ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame, ExecutionContext &context) {
+ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
   TypedValue &vertex_value = frame[self_.input_symbol_];
 
   if (vertex_value.IsNull()) {
@@ -828,7 +828,7 @@ ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame, ExecutionCont
   }
 
   auto new_direction = direction;
-  switch (direction) {
+  switch (new_direction) {
     case EdgeAtom::Direction::IN:
       new_direction = EdgeAtom::Direction::OUT;
       break;
@@ -850,7 +850,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
-    expansion_info_ = GetExpansionInfo(frame, context);
+    expansion_info_ = GetExpansionInfo(frame);
 
     if (!expansion_info_.input_node) {
       continue;

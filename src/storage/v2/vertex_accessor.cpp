@@ -376,7 +376,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    expanded_count = vertex_->in_edges.size();
+    expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
     if (edge_types.empty() && !destination) {
       in_edges = vertex_->in_edges;
     } else {
@@ -460,7 +460,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    expanded_count = vertex_->out_edges.size();
+    expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
     if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
     } else {

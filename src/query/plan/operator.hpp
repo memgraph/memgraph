@@ -838,7 +838,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
-    ExpansionInfo GetExpansionInfo(Frame &, ExecutionContext &);
+    ExpansionInfo GetExpansionInfo(Frame &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
