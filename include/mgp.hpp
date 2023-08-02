@@ -2553,13 +2553,15 @@ inline void Node::AddLabel(const std::string_view label) {
 }
 
 inline std::unordered_map<std::string, Value> Node::Properties() const {
-  mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, memory);
   std::unordered_map<std::string, Value> property_map;
-  for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
-       property = mgp::properties_iterator_next(properties_iterator)) {
-    property_map.emplace(std::string(property->name), Value(property->value));
+  mgp_map *map_result = mgp::vertex_get_properties(ptr_, memory);
+
+  auto map_wrapper = mgp::Map(map_result);
+  for (const auto &item : map_wrapper) {
+    property_map.insert({std::string(item.key), Value(item.value)});
   }
-  mgp::properties_iterator_destroy(properties_iterator);
+
+  mgp::map_destroy(map_result);
   return property_map;
 }
 
@@ -2630,13 +2632,15 @@ inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(pt
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
 inline std::unordered_map<std::string, Value> Relationship::Properties() const {
-  mgp_properties_iterator *properties_iterator = mgp::edge_iter_properties(ptr_, memory);
   std::unordered_map<std::string, Value> property_map;
-  for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
-       property = mgp::properties_iterator_next(properties_iterator)) {
-    property_map.emplace(property->name, Value(property->value));
+  mgp_map *map_result = mgp::edge_get_properties(ptr_, memory);
+
+  auto map_wrapper = mgp::Map(map_result);
+  for (const auto &item : map_wrapper) {
+    property_map.insert({std::string(item.key), Value(item.value)});
   }
-  mgp::properties_iterator_destroy(properties_iterator);
+
+  mgp::map_destroy(map_result);
   return property_map;
 }
 

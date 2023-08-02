@@ -393,6 +393,10 @@ inline mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, 
   return MgInvoke<mgp_value *>(mgp_vertex_get_property, v, property_name, memory);
 }
 
+inline mgp_map *vertex_get_properties(mgp_vertex *v, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_vertex_get_properties, v, memory);
+}
+
 inline void vertex_set_property(mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   MgInvokeVoid(mgp_vertex_set_property, v, property_name, property_value);
 }
@@ -431,6 +435,10 @@ inline mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_
 
 inline mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_edge_get_property, e, property_name, memory);
+}
+
+inline mgp_map *edge_get_properties(mgp_edge *e, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_edge_get_properties, e, memory);
 }
 
 inline void edge_set_property(mgp_edge *e, const char *property_name, mgp_value *property_value) {
