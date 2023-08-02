@@ -29,12 +29,13 @@ Feature: Map projection
   Scenario: Projecting from a null value
     When executing query:
       """
+      WITH "value" AS var
       OPTIONAL MATCH (n:Nonexistent)
-      RETURN n {.*} AS result;
+      RETURN n {.*} AS result0, n {.prop} AS result1, n {prop: "value"} AS result2, n {var} AS result3;
       """
     Then the result should be:
-      | result |
-      | {}     |
+      | result0 | result1 | result2 | result3 |
+      | null    | null    | null    | null    |
 
   Scenario: Projecting a nonexistent property
     When executing query:
