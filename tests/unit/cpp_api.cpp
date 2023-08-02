@@ -464,7 +464,7 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
 
   ASSERT_EQ(node_1.Properties().size(), 0);
 
-  std::map<std::string, mgp::Value> node1_prop = node_1.Properties();
+  std::unordered_map<std::string, mgp::Value> node1_prop = node_1.Properties();
   node_1.SetProperty("b", mgp::Value("b"));
 
   ASSERT_EQ(node_1.Properties().size(), 1);
