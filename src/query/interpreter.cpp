@@ -3398,7 +3398,8 @@ void Interpreter::Abort() {
 
 namespace {
 void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
-                             TriggerContext trigger_context, std::atomic<TransactionStatus> *transaction_status) {
+                             TriggerContext original_trigger_context,
+                             std::atomic<TransactionStatus> *transaction_status) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
@@ -3407,6 +3408,9 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto storage_acc = interpreter_context->db->Access();
     DbAccessor db_accessor{storage_acc.get()};
 
+    // On-disk storage removes all Vertex/Edge Accessors after DbAccessor is destroyed.
+    // So we need to adapt TriggerContext based on user transaction which is still alive.
+    auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
