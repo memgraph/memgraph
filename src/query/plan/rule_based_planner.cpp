@@ -132,6 +132,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   bool PostVisit(MapProjectionLiteral &map_projection_literal) override {
     MG_ASSERT(map_projection_literal.elements_.size() <= has_aggregation_.size(),
               "Expected as many has_aggregation_ flags as there are map elements.");
+    has_aggregation_.pop_back();
     PostVisitCollectionLiteral(map_projection_literal, [](auto it) { return it->second; });
     return true;
   }
