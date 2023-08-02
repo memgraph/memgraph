@@ -714,7 +714,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         continue;
       }
 
-      std::cout << "property_key.name: " << property_key.name << std::endl;
       result.emplace(property_key.name, property_value->Accept(*this));
     }
 
