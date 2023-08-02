@@ -376,9 +376,11 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
   auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView(), key.ToString());
-  MG_ASSERT(maybe_edge.HasValue());
-
-  return *maybe_edge;
+  if (maybe_edge.HasValue()) {
+    return *maybe_edge;
+  }
+  // One of vertex for edge could be deleted, so we don't create this edge.
+  return std::nullopt;
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
