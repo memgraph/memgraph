@@ -711,9 +711,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
 
         if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
-          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.",
-                                      maybe_all_properties_lookup.type());
+          LOG_FATAL("Expected a map from AllPropertiesLookup, got {}.", maybe_all_properties_lookup.type());
         }
+
         all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
         continue;
       }
