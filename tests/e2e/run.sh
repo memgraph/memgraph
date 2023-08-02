@@ -1,4 +1,6 @@
 #!/bin/bash
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
 # TODO(gitbuda): Setup mgclient and pymgclient properly.
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
 
@@ -16,6 +18,9 @@ check_license() {
     echo "NOTE: MEMGRAPH_ORGANIZATION_NAME or MEMGRAPH_ENTERPRISE_LICENSE NOT defined -> dependent tests will NOT work"
   fi
 }
+
+source "$SCRIPT_DIR/../util.sh"
+setup_node
 
 if [ "$#" -eq 0 ]; then
   check_license

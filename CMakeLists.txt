@@ -196,7 +196,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=switch -Werror=switch-bool -Werror=return-type \
     -Werror=return-stack-address \
-    -Wno-c99-designator \
+    -Wno-c99-designator -Wmissing-field-initializers \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
@@ -298,7 +298,7 @@ set(ENABLE_JEMALLOC ON)
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
   set(ENABLE_JEMALLOC OFF)
-  # Enable Addres sanitizer and get nicer stack traces in error messages.
+  # Enable Address sanitizer and get nicer stack traces in error messages.
   # NOTE: AddressSanitizer uses llvm-symbolizer binary from the Clang
   # distribution to symbolize the stack traces (note that ideally the
   # llvm-symbolizer version must match the version of ASan runtime library).

@@ -12,3 +12,8 @@ workloads:
     binary: "tests/e2e/module_file_manager/memgraph__e2e__module_file_manager"
     args: ["--bolt-port", *bolt_port]
     <<: *template_cluster
+
+  - name: "Module File Manager multi database"
+    binary: "tests/e2e/module_file_manager/memgraph__e2e__module_file_manager"
+    args: ["--bolt-port", *bolt_port, "--multi-db", "true"]
+    <<: *template_cluster
