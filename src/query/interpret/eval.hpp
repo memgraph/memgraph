@@ -698,8 +698,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TMap all_properties_lookup(ctx_->memory);
 
     auto map_variable = literal.map_variable_->Accept(*this);
-    // check if map_variable is null
-    // if so, return result
+    if (map_variable.type() == TypedValue::Type::Null) {
+      return TypedValue(ctx_->memory);
+    }
 
     for (const auto &[property_key, property_value] : literal.elements_) {
       if (property_key.name == kAllPropertiesSelector.data()) {
