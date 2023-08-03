@@ -3791,7 +3791,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto storage_acc = interpreter_context->db->Access();
     DbAccessor db_accessor{storage_acc.get()};
 
-    // On-disk storage removes all Vertex/Edge Accessors after DbAccessor is destroyed.
+    // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
     // So we need to adapt TriggerContext based on user transaction which is still alive.
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
