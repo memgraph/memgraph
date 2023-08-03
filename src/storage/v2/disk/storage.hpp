@@ -67,7 +67,7 @@ class DiskStorage final : public Storage {
 
     std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
         LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
-        utils::SkipList<Vertex> *indexed_vertices);
+        utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
 
     void LoadVerticesFromDiskLabelPropertyIndex(LabelId label, PropertyId property,
                                                 std::unordered_set<storage::Gid> gids, std::list<Delta> &index_deltas,
@@ -183,7 +183,7 @@ class DiskStorage final : public Storage {
                                                                        const rocksdb::Slice &value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+        std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
