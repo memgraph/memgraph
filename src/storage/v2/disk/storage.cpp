@@ -396,6 +396,10 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
+  if (scanned_all_vertices) {
+    return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
+                                                &storage_->constraints_, storage_->config_.items));
+  }
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -406,6 +410,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     LoadVertexToMainMemoryCache(it->key(), it->value());
   }
+  scanned_all_vertices = true;
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
