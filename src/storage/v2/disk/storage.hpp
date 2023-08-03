@@ -208,7 +208,7 @@ class DiskStorage final : public Storage {
     std::vector<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
-    bool scanned_all_vertices = false;
+    bool scanned_all_vertices_ = false;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
