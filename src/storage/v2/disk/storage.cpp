@@ -401,7 +401,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   }
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
-  ro.async_io = true;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
