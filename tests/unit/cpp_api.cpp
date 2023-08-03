@@ -598,3 +598,47 @@ TYPED_TEST(CppApiTestFixture, TestValuePrint) {
   std::string date_test = oss_date.str();
   ASSERT_EQ("2020-12-12", date_test);
 }
+
+TYPED_TEST(CppApiTestFixture, TestValueToString) {
+  /*null*/
+  ASSERT_EQ(mgp::Value().ToString(), "");
+  /*bool*/
+  ASSERT_EQ(mgp::Value(false).ToString(), "false");
+  /*int*/
+  const int64_t int1 = 60;
+  ASSERT_EQ(mgp::Value(int1).ToString(), "60");
+  /*double*/
+  const double double1 = 2.567891;
+  ASSERT_EQ(mgp::Value(double1).ToString(), "2.567891");
+  /*string*/
+  const std::string str = "string";
+  ASSERT_EQ(mgp::Value(str).ToString(), "string");
+  /*list*/
+  mgp::List list;
+  list.AppendExtend(mgp::Value("inside"));
+  list.AppendExtend(mgp::Value("2"));
+  ASSERT_EQ(mgp::Value(list).ToString(), "[inside, 2]");
+  /*map*/
+  mgp::Map map;
+  map.Insert("key", mgp::Value(int1));
+  ASSERT_EQ(mgp::Value(map).ToString(), "{key=60}");
+  /*date*/
+  mgp::Date date_1{"2020-12-12"};
+  ASSERT_EQ(mgp::Value(date_1).ToString(), "2020-12-12");
+
+  /*relationship*/
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node1 = graph.CreateNode();
+  auto node2 = graph.CreateNode();
+  auto rel = graph.CreateRelationship(node1, node2, "loves");
+  ASSERT_EQ(mgp::Value(rel).ToString(), "(0)-[loves,0]->(1)");
+
+  /*path*/
+  mgp::Path path = mgp::Path(node1);
+  path.Expand(rel);
+  auto node3 = graph.CreateNode();
+  auto rel2 = graph.CreateRelationship(node2, node3, "loves2");
+  path.Expand(rel2);
+  ASSERT_EQ(mgp::Value(path).ToString(), "(0)-[loves,0]->(1)-[loves2,1]->(2)");
+}
