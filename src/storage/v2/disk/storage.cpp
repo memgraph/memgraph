@@ -319,19 +319,18 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 }
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
-std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
-    const rocksdb::Slice &key, const rocksdb::Slice &value) {
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(std::string &&key,
+                                                                                              std::string &&value) {
   auto main_storage_accessor = vertices_.access();
 
-  const std::string key_str = key.ToString();
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key_str)));
+  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key)));
   if (VertexExistsInCache(main_storage_accessor, gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key_str);
-  return CreateVertex(main_storage_accessor, gid, labels_id,
-                      utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key.ToString()));
+  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
+  PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
+  return CreateVertex(main_storage_accessor, gid, std::move(labels_id), std::move(properties),
+                      CreateDeleteDeserializedObjectDelta(&transaction_, key));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -343,9 +342,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   }
 
   const std::string value_str{value.ToString()};
-  const auto labels{utils::DeserializeLabelsFromLabelIndexStorage(value_str)};
-  return CreateVertex(index_accessor, gid, labels, utils::DeserializePropertiesFromLabelIndexStorage(value_str),
-                      index_delta);
+  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(value_str)};
+  PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value_str)};
+  return CreateVertex(index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
@@ -357,9 +356,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   }
 
   const std::string value_str{value.ToString()};
-  const auto labels{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
-  return CreateVertex(index_accessor, gid, labels,
-                      utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()), index_delta);
+  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
+  PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString())};
+  return CreateVertex(index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -402,13 +401,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   }
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
+  ro.async_io = true;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    LoadVertexToMainMemoryCache(it->key(), it->value());
+    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString());
   }
   scanned_all_vertices = true;
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
@@ -740,8 +740,8 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                                       const std::vector<LabelId> &label_ids,
-                                                       PropertyStore &&properties, Delta *delta) {
+                                                       std::vector<LabelId> &&label_ids, PropertyStore &&properties,
+                                                       Delta *delta) {
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
@@ -749,14 +749,9 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
-  /// TODO: move
-  for (auto label_id : label_ids) {
-    it->labels.push_back(label_id);
-  }
+  it->labels = std::move(label_ids);
   it->properties = std::move(properties);
-  if (delta) {
-    delta->prev.Set(&*it);
-  }
+  delta->prev.Set(&*it);
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -784,9 +779,9 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto it = std::unique_ptr<rocksdb::Iterator>(
       disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const auto &key = it->key();
-    if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key.ToString()))) == gid) {
-      return LoadVertexToMainMemoryCache(key, it->value());
+    std::string key = it->key().ToString();
+    if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key))) == gid) {
+      return LoadVertexToMainMemoryCache(std::move(key), it->value().ToString());
     }
   }
   return std::nullopt;

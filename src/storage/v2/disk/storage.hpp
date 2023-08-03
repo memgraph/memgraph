@@ -164,8 +164,7 @@ class DiskStorage final : public Storage {
         const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const rocksdb::Slice &key,
-                                                                       const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
@@ -175,7 +174,7 @@ class DiskStorage final : public Storage {
 
    private:
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
+                                std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
