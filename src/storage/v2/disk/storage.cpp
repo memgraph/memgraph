@@ -1205,7 +1205,7 @@ bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
   auto status = disk_transaction_->Put(disk_storage->kvstore_->vertex_chandle, utils::SerializeVertex(vertex),
                                        utils::SerializeProperties(vertex.properties));
   if (status.ok()) {
-    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
+    spdlog::trace("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
   } else if (status.IsBusy()) {
     spdlog::error("rocksdb: Vertex with key {} and ts {} was changed and committed in another transaction",
                   utils::SerializeVertex(vertex), *commit_timestamp_);
@@ -1229,7 +1229,7 @@ bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const EdgeRef edge, const std::s
     status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey, "");
   }
   if (status.ok()) {
-    spdlog::debug("rocksdb: Saved edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
+    spdlog::trace("rocksdb: Saved edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
   } else if (status.IsBusy()) {
     spdlog::error("rocksdb: Edge with key {} and ts {} was changed and committed in another transaction",
                   serializedEdgeKey, *commit_timestamp_);
@@ -1245,7 +1245,7 @@ bool DiskStorage::DiskAccessor::DeleteVertexFromDisk(const std::string &vertex) 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto status = disk_transaction_->Delete(disk_storage->kvstore_->vertex_chandle, vertex);
   if (status.ok()) {
-    spdlog::debug("rocksdb: Deleted vertex with key {}", vertex);
+    spdlog::trace("rocksdb: Deleted vertex with key {}", vertex);
   } else if (status.IsBusy()) {
     spdlog::error("rocksdb: Vertex with key {} was changed and committed in another transaction", vertex);
     return false;
@@ -1260,7 +1260,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto status = disk_transaction_->Delete(disk_storage->kvstore_->edge_chandle, edge);
   if (status.ok()) {
-    spdlog::debug("rocksdb: Deleted edge with key {}", edge);
+    spdlog::trace("rocksdb: Deleted edge with key {}", edge);
   } else if (status.IsBusy()) {
     spdlog::error("rocksdb: Edge with key {} was changed and committed in another transaction", edge);
     return false;
@@ -1511,7 +1511,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageDataManipulationError{SerializationError{}};
   }
-  spdlog::debug("rocksdb: Commit successful");
+  spdlog::trace("rocksdb: Commit successful");
 
   is_transaction_active_ = false;
 
