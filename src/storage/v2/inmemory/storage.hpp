@@ -481,7 +481,7 @@ class InMemoryStorage final : public Storage {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  using UPPmrLd = std::unique_ptr<utils::pmr::list<Delta>>;
+  using UPPmrLd = std::unique_ptr<utils::pmr::list<Delta>, empty_deleter>;
   using transaction_id_type = decltype(std::declval<Transaction>().transaction_id);
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
@@ -490,9 +490,7 @@ class InMemoryStorage final : public Storage {
 
   // Every transaction will have its own monotonic buffer resource, mapping between transaction id and
   // monotonic buffer exist so we can clean resources once deltas are unlinked
-  utils::Synchronized<std::list<std::pair<transaction_id_type, utils::MonotonicBufferResource>>> monotonic_resources_;
-
-  // utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
+  utils::Synchronized<std::map<transaction_id_type, utils::MonotonicBufferResource>> monotonic_resources_;
 
   // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
   utils::Synchronized<std::list<std::pair<uint64_t, UPPmrLd>>, utils::SpinLock> garbage_undo_buffers_;

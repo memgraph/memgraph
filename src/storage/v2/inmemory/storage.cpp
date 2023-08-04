@@ -1153,8 +1153,11 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   }
   utils::MemoryResource *memory_resource{nullptr};
   monotonic_resources_.WithLock([&transaction_id, &memory_resource](auto &monotonic_resources) {
-    monotonic_resources.emplace_back(std::make_pair(transaction_id, 1024UL * 1024UL));
-    memory_resource = &monotonic_resources.back().second;
+    monotonic_resources.emplace(transaction_id, 1024UL * 1024UL);
+    auto it = monotonic_resources.find(transaction_id);
+    if (it != monotonic_resources.end()) {
+      memory_resource = &(it->second);
+    }
   });
   return {transaction_id, start_timestamp, isolation_level, storage_mode, memory_resource};
 }
@@ -1392,7 +1395,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
       for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
         timestamp = mark_timestamp;
       }
-      garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
+      garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
     });
     for (auto vertex : current_deleted_vertices) {
       garbage_vertices_.emplace_back(mark_timestamp, vertex);
@@ -1409,11 +1412,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
         resources_clean.emplace_back(
             static_cast<utils::MonotonicBufferResource *>(kv.second->get_allocator().GetMemoryResource()));
       }
+      // This might result in dangling pointers for unique_ptrs but check
       undo_buffers.clear();
 
+      // This should clear everything
       for (auto *resource : resources_clean) {
         resource->Release();
       }
+      monotonic_resources_->clear();
 
     } else {
       while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {

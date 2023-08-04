@@ -32,6 +32,12 @@ namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
+using PmrListDelta = utils::pmr::list<Delta>;
+struct empty_deleter {
+  void operator()(PmrListDelta *p) const {
+    std::cout << "call deleter for utils::pmr::list<Delta> object 0x" << std::hex << (void *)p << '\n';
+  }
+};
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
@@ -43,8 +49,8 @@ struct Transaction {
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode) {
-    auto *ptr_list = utils::Allocator<utils::pmr::list<Delta>>(memory_resource).new_object<utils::pmr::list<Delta>>();
-    deltas = std::unique_ptr<utils::pmr::list<Delta>>(ptr_list);
+    auto *ptr_list = utils::Allocator<PmrListDelta>(memory_resource).new_object<PmrListDelta>();
+    deltas = std::unique_ptr<PmrListDelta, empty_deleter>(ptr_list, empty_deleter());
   }
 
   Transaction(Transaction &&other) noexcept
@@ -78,7 +84,7 @@ struct Transaction {
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
 
-  std::unique_ptr<utils::pmr::list<Delta>> deltas;
+  std::unique_ptr<PmrListDelta, empty_deleter> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;
