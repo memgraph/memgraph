@@ -16,12 +16,9 @@
 
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
-#include <rocksdb/iterator.h>
 #include <rocksdb/slice.h>
 
-#include <rocksdb/filter_policy.h>
 #include <rocksdb/options.h>
-#include <rocksdb/table.h>
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
