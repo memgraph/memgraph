@@ -12,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include <rocksdb/comparator.h>
@@ -868,7 +869,40 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
       std::move(deleted_edges));
 }
 
-void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) {
+bool DiskStorage::DiskAccessor::PrefetchEdgeFilter(const std::string_view &diskEdgeKey,
+                                                   const VertexAccessor &vertex_acc, bool isOutEdge) {
+  // diskEdgeKey format: vertex_out_gid | vertex_in_gid | direction | edge_type | GID
+  std::string_view disk_vertex_gid;
+  auto edges_res = (isOutEdge ? vertex_acc.OutEdges(storage::View::NEW) : vertex_acc.InEdges(storage::View::NEW));
+  if (isOutEdge) {
+    disk_vertex_gid = diskEdgeKey.substr(0, diskEdgeKey.find('|'));
+  } else {
+    auto vertex_in_start = diskEdgeKey.find('|') + 1;
+    disk_vertex_gid = diskEdgeKey.substr(vertex_in_start, diskEdgeKey.find('|', vertex_in_start) - vertex_in_start);
+  }
+  auto edge_gid = diskEdgeKey.substr(diskEdgeKey.rfind('|') + 1);
+
+  if (edges_res.HasValue()) {
+    for (const auto &edge_acc : edges_res.GetValue()) {
+      if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
+        // We already inserted this edge into the vertex's in_edges list.
+        return false;
+      }
+    }
+  }
+
+  // We need to iterate through edges_to_delete_ also because removed edges are not presented in edges_res
+  for (auto &deleted_edge_key : edges_to_delete_) {
+    if (deleted_edge_key == diskEdgeKey) {
+      // We already deleted this edge.
+      return false;
+    }
+  }
+
+  return disk_vertex_gid == utils::SerializeIdType(vertex_acc.Gid());
+}
+
+void DiskStorage::DiskAccessor::PrefetchEdges(const VertexAccessor &vertex_acc, bool isOutEdge) {
   rocksdb::ReadOptions read_opts;
   auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
@@ -879,62 +913,15 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const rocksdb::Slice &key = it->key();
     auto keyStr = key.ToStringView();
-    if (prefetch_edge_filter(keyStr)) {
+    if (PrefetchEdgeFilter(keyStr, vertex_acc, isOutEdge)) {
       DeserializeEdge(key, it->value());
     }
   }
 }
 
-void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges([this, &vertex_acc](const std::string_view &diskEdgeKey) -> bool {
-    // Format: vertex_out_gid | vertex_in_gid | direction | edge_type | GID | commit_timestamp
-    // TODO: Refactor code to get rid of Split, move common parts of code to separate function
-    const auto disk_edge_parts = utils::Split(diskEdgeKey, "|");
-    auto disk_vertex_in_edge_gid = disk_edge_parts[1];
-    auto edge_gid = disk_edge_parts[4];
-    auto in_edges_res = vertex_acc.InEdges(storage::View::NEW);
-    if (in_edges_res.HasValue()) {
-      for (const auto &edge_acc : in_edges_res.GetValue()) {
-        if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
-          // We already inserted this edge into the vertex's in_edges list.
-          return false;
-        }
-      }
-    }
-    for (auto &deleted_edge_key : edges_to_delete_) {
-      if (deleted_edge_key == diskEdgeKey) {
-        // We already deleted this edge.
-        return false;
-      }
-    }
-    return disk_vertex_in_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
-  });
-}
+void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) { PrefetchEdges(vertex_acc, false); }
 
-void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges([this, &vertex_acc](const std::string_view &diskEdgeKey) -> bool {
-    // Format: vertex_out_gid | vertex_in_gid | direction | edge_type | GID | commit_timestamp
-    const auto disk_edge_parts = utils::Split(diskEdgeKey, "|");
-    auto disk_vertex_out_edge_gid = disk_edge_parts[0];
-    auto edge_gid = disk_edge_parts[4];
-    auto out_edges_res = vertex_acc.OutEdges(storage::View::NEW);
-    if (out_edges_res.HasValue()) {
-      for (const auto &edge_acc : out_edges_res.GetValue()) {
-        if (utils::SerializeIdType(edge_acc.Gid()) == edge_gid) {
-          // We already inserted this edge into the vertex's out_edges list.
-          return false;
-        }
-      }
-    }
-    for (auto &deleted_edge_key : edges_to_delete_) {
-      if (deleted_edge_key == diskEdgeKey) {
-        // We already deleted this edge.
-        return false;
-      }
-    }
-    return disk_vertex_out_edge_gid == utils::SerializeIdType(vertex_acc.Gid());
-  });
-}
+void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) { PrefetchEdges(vertex_acc, true); }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor *from, const VertexAccessor *to,
                                                            EdgeTypeId edge_type, storage::Gid gid,

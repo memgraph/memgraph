@@ -177,7 +177,8 @@ class DiskStorage final : public Storage {
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                 const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
 
-    void PrefetchEdges(const auto &prefetch_edge_filter);
+    bool PrefetchEdgeFilter(const std::string_view &diskEdgeKey, const VertexAccessor &vertex_acc, bool isOutEdge);
+    void PrefetchEdges(const VertexAccessor &vertex_acc, bool isOutEdge);
 
     Result<EdgeAccessor> CreateEdge(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
                                     storage::Gid gid, std::string_view properties, const std::string &old_disk_key);
