@@ -2815,13 +2815,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       break;
     case TypedValue::Type::Map: {
       for (const auto &[string_key, value] : rhs.ValueMap()) {
-        storage::PropertyId property_id;
-        if (auto it = cached_name_id.find(std::string(string_key)); it == cached_name_id.end()) {
-          property_id = context->db_accessor->NameToProperty(string_key);
-          cached_name_id.emplace(string_key, property_id);
-        } else {
-          property_id = it->second;
-        }
+        auto property_id = context->db_accessor->NameToProperty(string_key);
+        cached_name_id.emplace(string_key, property_id);
         auto old_value = PropsSetChecked(record, property_id, value);
         if (should_register_change) {
           register_set_property(std::move(old_value), property_id, value);

@@ -14,6 +14,8 @@
 #include <atomic>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
@@ -43,6 +45,12 @@ class NameIdMapper {
     bool operator<(uint64_t other) const { return id < other; }
     bool operator==(uint64_t other) const { return id == other; }
   };
+  static thread_local std::unordered_map<decltype(std::declval<MapIdToName>().name),
+                                         decltype(std::declval<MapIdToName>().id)>
+      local_name_to_id_;
+  static thread_local std::unordered_map<decltype(std::declval<MapIdToName>().id),
+                                         decltype(std::declval<MapIdToName>().name)>
+      local_id_to_name_;
 
  public:
   explicit NameIdMapper() = default;
@@ -56,6 +64,9 @@ class NameIdMapper {
 
   /// @throw std::bad_alloc if unable to insert a new mapping
   virtual uint64_t NameToId(const std::string_view name) {
+    if (const auto it = local_name_to_id_.find(std::string(name)); it != local_name_to_id_.end()) {
+      return it->second;
+    }
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
     uint64_t id;
@@ -68,8 +79,10 @@ class NameIdMapper {
       // two IDs to the same name when the mapping is being inserted
       // concurrently from two threads. One ID is wasted in that case, though.
       id = name_to_id_acc.insert({std::string(name), new_id}).first->id;
+      local_name_to_id_.emplace(std::string(name), new_id);
     } else {
       id = found->id;
+      local_name_to_id_.emplace(std::string(name), id);
     }
     auto id_to_name_acc = id_to_name_.access();
     // We have to try to insert the ID to name mapping even if we are not the
@@ -80,6 +93,7 @@ class NameIdMapper {
       // temporary memory allocation when the object already exists.
       id_to_name_acc.insert({id, std::string(name)});
     }
+    local_id_to_name_.emplace(id, std::string(name));
     return id;
   }
 
@@ -112,4 +126,10 @@ class NameIdMapper {
   utils::SkipList<MapNameToId> name_to_id_;
   utils::SkipList<MapIdToName> id_to_name_;
 };
+inline thread_local std::unordered_map<decltype(std::declval<NameIdMapper::MapIdToName>().name),
+                                       decltype(std::declval<NameIdMapper::MapIdToName>().id)>
+    NameIdMapper::local_name_to_id_{};
+inline thread_local std::unordered_map<decltype(std::declval<NameIdMapper::MapIdToName>().id),
+                                       decltype(std::declval<NameIdMapper::MapIdToName>().name)>
+    NameIdMapper::local_id_to_name_{};
 }  // namespace memgraph::storage
