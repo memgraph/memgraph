@@ -287,45 +287,45 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     }
   }
 
-  // bool exists = true;
-  // bool deleted = false;
-  // PropertyValue value;
-  // Delta *delta = nullptr;
-  // {
-  //   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //   deleted = vertex_->deleted;
-  //   value = vertex_->properties.GetProperty(property);
-  //   delta = vertex_->delta;
-  // }
-  // ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
-  //   switch (delta.action) {
-  //     case Delta::Action::SET_PROPERTY: {
-  //       if (delta.property.key == property) {
-  //         value = delta.property.value;
-  //       }
-  //       break;
-  //     }
-  //     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-  //     case Delta::Action::DELETE_OBJECT: {
-  //       exists = false;
-  //       break;
-  //     }
-  //     case Delta::Action::RECREATE_OBJECT: {
-  //       deleted = false;
-  //       break;
-  //     }
-  //     case Delta::Action::ADD_LABEL:
-  //     case Delta::Action::REMOVE_LABEL:
-  //     case Delta::Action::ADD_IN_EDGE:
-  //     case Delta::Action::ADD_OUT_EDGE:
-  //     case Delta::Action::REMOVE_IN_EDGE:
-  //     case Delta::Action::REMOVE_OUT_EDGE:
-  //       break;
-  //   }
-  // });
-  // if (!exists) return Error::NONEXISTENT_OBJECT;
-  // if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  // return std::move(value);
+  bool exists = true;
+  bool deleted = false;
+  PropertyValue value;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    value = vertex_->properties.GetProperty(property);
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::SET_PROPERTY: {
+        if (delta.property.key == property) {
+          value = delta.property.value;
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
