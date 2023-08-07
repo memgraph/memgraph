@@ -79,7 +79,7 @@ class NameIdMapper {
       // two IDs to the same name when the mapping is being inserted
       // concurrently from two threads. One ID is wasted in that case, though.
       id = name_to_id_acc.insert({std::string(name), new_id}).first->id;
-      local_name_to_id_.emplace(std::string(name), new_id);
+      local_name_to_id_.emplace(std::string(name), id);
     } else {
       id = found->id;
       local_name_to_id_.emplace(std::string(name), id);
