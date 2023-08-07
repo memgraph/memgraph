@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -598,7 +599,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  return disk_storage->kvstore_->ApproximateVertexCount();
+  return disk_storage->vertex_count_.load(std::memory_order_acquire);
 }
 
 bool DiskStorage::PersistLabelIndexCreation(LabelId label) const {
@@ -693,19 +694,20 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
 }
 
 StorageInfo DiskStorage::GetInfo() const {
-  auto vertex_count = kvstore_->ApproximateVertexCount();
-  auto edge_count = kvstore_->ApproximateEdgeCount();
+  uint64_t edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
-  if (vertex_count) {
+  if (vertex_count_) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count_;
   }
 
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
+  return {vertex_count_, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  OOMExceptionEnabler oom_exception;
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -717,6 +719,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
     delta->prev.Set(&*it);
   }
 
+  disk_storage->vertex_count_.fetch_add(1, std::memory_order_acq_rel);
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -738,6 +741,8 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
   if (delta) {
     delta->prev.Set(&*it);
   }
+
+  disk_storage->vertex_count_.fetch_add(1, std::memory_order_acq_rel);
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -792,6 +797,9 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
   vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
+
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->vertex_count_.fetch_add(-1, std::memory_order_acq_rel);
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
@@ -862,6 +870,8 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
   vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->vertex_count_.fetch_add(-1, std::memory_order_acq_rel);
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -1516,6 +1526,58 @@ void DiskStorage::DiskAccessor::Abort() {
   disk_transaction_ = nullptr;
 
   is_transaction_active_ = false;
+
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+
+  for (const auto &delta : transaction_.deltas) {
+    auto prev = delta.prev.Get();
+    switch (prev.type) {
+      case PreviousPtr::Type::VERTEX: {
+        auto *vertex = prev.vertex;
+        Delta *current = vertex->delta;
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
+          switch (current->action) {
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+            case Delta::Action::DELETE_OBJECT: {
+              disk_storage->vertex_count_.fetch_add(-1, std::memory_order_acq_rel);
+              break;
+            }
+            case Delta::Action::RECREATE_OBJECT: {
+              disk_storage->vertex_count_.fetch_add(1, std::memory_order_acq_rel);
+              break;
+            }
+            case Delta::Action::REMOVE_IN_EDGE:
+            case Delta::Action::REMOVE_LABEL:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::SET_PROPERTY:
+            case Delta::Action::ADD_IN_EDGE: {
+              break;
+            }
+            case Delta::Action::ADD_OUT_EDGE: {
+              storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+              break;
+            }
+            case Delta::Action::REMOVE_OUT_EDGE: {
+              storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+              break;
+            }
+          }
+          current = current->next.load(std::memory_order_acquire);
+        }
+        vertex->delta = current;
+        if (current != nullptr) {
+          current->prev.Set(vertex);
+        }
+
+        break;
+      }
+      case PreviousPtr::Type::EDGE:
+      case PreviousPtr::Type::DELTA:
+      case PreviousPtr::Type::NULLPTR:
+        break;
+    }
+  }
 }
 
 void DiskStorage::DiskAccessor::FinalizeTransaction() {

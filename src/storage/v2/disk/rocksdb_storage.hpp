@@ -48,18 +48,6 @@ struct RocksDBStorage {
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
-
-  uint64_t ApproximateVertexCount() const {
-    uint64_t estimate_num_keys = 0;
-    db_->GetIntProperty(vertex_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
-    return estimate_num_keys;
-  }
-
-  uint64_t ApproximateEdgeCount() const {
-    uint64_t estimate_num_keys = 0;
-    db_->GetIntProperty(edge_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
-    return estimate_num_keys;
-  }
 };
 
 /// RocksDB comparator that compares keys with timestamps.
