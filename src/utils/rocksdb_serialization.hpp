@@ -95,7 +95,7 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
   std::vector<storage::LabelId> labels_without_target;
   std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
                [&label_to_remove](const auto &label) { return label_to_remove != label; });
-  std::string result = SerializeLabels(TransformIDsToString(vertex_labels)) + "|";
+  std::string result = SerializeLabels(TransformIDsToString(labels_without_target)) + "|";
   return result + SerializeProperties(property_store);
 }
 
