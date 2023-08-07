@@ -161,13 +161,13 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+        LabelId indexing_label, const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
+        LabelId indexing_label, const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);

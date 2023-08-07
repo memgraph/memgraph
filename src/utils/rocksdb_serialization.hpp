@@ -182,13 +182,13 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }
 
-inline storage::LabelId DeserializeLabelFromIndexStorage(const std::string &value) {
-  std::string label = value.substr(0, value.find('|'));
-  return storage::LabelId::FromUint(std::stoull(label));
+inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std::string &value) {
+  std::string labels = value.substr(0, value.find('|'));
+  return TransformFromStringLabels(utils::Split(labels, ","));
 }
 
-inline storage::LabelId DeserializeLabelFromLabelIndexStorage(const std::string &value) {
-  return DeserializeLabelFromIndexStorage(value);
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &value) {
+  return DeserializeLabelsFromIndexStorage(value);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelIndexStorage(const std::string &value) {
@@ -218,8 +218,8 @@ inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &ke
   return key_vector[2];
 }
 
-inline storage::LabelId DeserializeLabelFromLabelPropertyIndexStorage(const std::string &value) {
-  return DeserializeLabelFromIndexStorage(value);
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &value) {
+  return DeserializeLabelsFromIndexStorage(value);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelPropertyIndexStorage(const std::string &value) {
