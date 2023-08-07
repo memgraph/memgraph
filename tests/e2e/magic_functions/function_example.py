@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,16 +9,29 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-import mgclient
 import sys
+import typing
+
+import mgclient
 import pytest
 from common import execute_and_fetch_all, has_n_result_row
 
 
-@pytest.mark.parametrize("function_type", ["py", "c"])
-def test_return_argument(connection, function_type):
+@pytest.fixture(scope="function")
+def multi_db(request, connection):
     cursor = connection.cursor()
+    if request.param:
+        execute_and_fetch_all(cursor, "CREATE DATABASE clean")
+        execute_and_fetch_all(cursor, "USE DATABASE clean")
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    pass
+    yield connection
+
+
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("function_type", ["py", "c"])
+def test_return_argument(multi_db, function_type):
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "CREATE (n:Label {id: 1});")
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 1)
     result = execute_and_fetch_all(
@@ -31,9 +44,10 @@ def test_return_argument(connection, function_type):
     assert vertex.properties == {"id": 1}
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_return_optional_argument(connection, function_type):
-    cursor = connection.cursor()
+def test_return_optional_argument(multi_db, function_type):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(
         cursor,
@@ -44,9 +58,10 @@ def test_return_optional_argument(connection, function_type):
     assert result == 42
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_return_optional_argument_no_arg(connection, function_type):
-    cursor = connection.cursor()
+def test_return_optional_argument_no_arg(multi_db, function_type):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(
         cursor,
@@ -57,9 +72,10 @@ def test_return_optional_argument_no_arg(connection, function_type):
     assert result == 42
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_add_two_numbers(connection, function_type):
-    cursor = connection.cursor()
+def test_add_two_numbers(multi_db, function_type):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(
         cursor,
@@ -70,9 +86,10 @@ def test_add_two_numbers(connection, function_type):
     assert result_sum == 6
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_return_null(connection, function_type):
-    cursor = connection.cursor()
+def test_return_null(multi_db, function_type):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(
         cursor,
@@ -82,9 +99,10 @@ def test_return_null(connection, function_type):
     assert result_null is None
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_too_many_arguments(connection, function_type):
-    cursor = connection.cursor()
+def test_too_many_arguments(multi_db, function_type):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     # Should raise too many arguments
     with pytest.raises(mgclient.DatabaseError):
@@ -94,9 +112,10 @@ def test_too_many_arguments(connection, function_type):
         )
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_try_to_write(connection, function_type):
-    cursor = connection.cursor()
+def test_try_to_write(multi_db, function_type):
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "CREATE (n:Label {id: 1});")
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 1)
     # Should raise non mutable
@@ -106,9 +125,11 @@ def test_try_to_write(connection, function_type):
             f"MATCH (n) RETURN {function_type}_write.try_to_write(n, 'property', 1);",
         )
 
+
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
-def test_case_sensitivity(connection, function_type):
-    cursor = connection.cursor()
+def test_case_sensitivity(multi_db, function_type):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     # Should raise function does not exist
     with pytest.raises(mgclient.DatabaseError):

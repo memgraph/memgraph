@@ -47,10 +47,10 @@ struct MetricsResponse {
   std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 };
 
-template <typename TSessionData>
+template <typename TSessionContext>
 class MetricsService {
  public:
-  explicit MetricsService(TSessionData *data) : db_(data->interpreter_context->db.get()) {}
+  explicit MetricsService(TSessionContext *session_context) : db_(session_context->interpreter_context->db.get()) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -141,10 +141,10 @@ class MetricsService {
   }
 };
 
-template <typename TSessionData>
+template <typename TSessionContext>
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(TSessionData *data) : service_(data) {
+  explicit MetricsRequestHandler(TSessionContext *session_context) : service_(session_context) {
     spdlog::info("Basic request handler started!");
   }
 
@@ -206,6 +206,6 @@ class MetricsRequestHandler final {
   }
 
  private:
-  MetricsService<TSessionData> service_;
+  MetricsService<TSessionContext> service_;
 };
 }  // namespace memgraph::http
