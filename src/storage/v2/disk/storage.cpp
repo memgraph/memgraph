@@ -409,10 +409,10 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 
 std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelIndexCache(
     LabelId label, View view, std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices) {
-  std::unordered_set<Gid> gids;
-  gids.reserve(vertices_.size());
-
   auto main_cache_acc = vertices_.access();
+  std::unordered_set<Gid> gids;
+  gids.reserve(main_cache_acc.size());
+
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, &transaction_, view)) {
@@ -592,7 +592,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   index_deltas_storage_.emplace_back(std::list<Delta>());
   auto &index_deltas = index_deltas_storage_.back();
 
-  auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntevalSearch(
+  auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
       label, property, view, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
   LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(label, property, gids, lower_bound, upper_bound, index_deltas,
@@ -603,7 +603,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 }
 
 std::unordered_set<Gid>
-DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntevalSearch(
+DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
     LabelId label, PropertyId property, View view, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {

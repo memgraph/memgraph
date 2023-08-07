@@ -89,7 +89,7 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
-    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntevalSearch(
+    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
         LabelId label, PropertyId property, View view, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
         const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
         utils::SkipList<Vertex> *indexed_vertices);
