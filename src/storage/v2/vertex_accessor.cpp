@@ -20,6 +20,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -256,7 +257,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   return true;
 }
 
-Result<bool> VertexAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -267,11 +269,11 @@ Result<bool> VertexAccessor::UpdateProperties(std::map<storage::PropertyId, stor
   auto old_properties = vertex_->properties.Properties();
   vertex_->properties.ClearProperties();
 
-  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> old_new_change;
-  old_new_change.reserve(properties.size() + old_properties.size());
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
+  id_old_new_change.reserve(properties.size() + old_properties.size());
   for (auto &kv : properties) {
     if (!old_properties.contains(kv.first)) {
-      old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
+      id_old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
     }
   }
 
@@ -279,17 +281,17 @@ Result<bool> VertexAccessor::UpdateProperties(std::map<storage::PropertyId, stor
     auto it = properties.emplace(old_key, old_value);
     if (!it.second) {
       auto &new_value = it.first->second;
-      old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
+      id_old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
     }
   }
 
-  if (!vertex_->properties.InitProperties(properties)) return false;
-  for (auto &[property, old_value, new_value] : old_new_change) {
+  if (!vertex_->properties.InitProperties(properties)) return Error::SERIALIZATION_ERROR;
+  for (auto &[property, old_value, new_value] : id_old_new_change) {
     indices_->UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, std::move(old_value));
   }
 
-  return true;
+  return id_old_new_change;
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {

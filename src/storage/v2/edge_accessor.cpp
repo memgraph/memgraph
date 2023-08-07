@@ -147,7 +147,8 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   return true;
 }
 
-Result<bool> EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -160,11 +161,11 @@ Result<bool> EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storag
   auto old_properties = edge_.ptr->properties.Properties();
   edge_.ptr->properties.ClearProperties();
 
-  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> old_new_change;
-  old_new_change.reserve(properties.size() + old_properties.size());
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
+  id_old_new_change.reserve(properties.size() + old_properties.size());
   for (auto &kv : properties) {
     if (!old_properties.contains(kv.first)) {
-      old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
+      id_old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
     }
   }
 
@@ -172,16 +173,16 @@ Result<bool> EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storag
     auto it = properties.emplace(old_key, old_value);
     if (!it.second) {
       auto &new_value = it.first->second;
-      old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
+      id_old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
     }
   }
 
-  if (!edge_.ptr->properties.InitProperties(properties)) return false;
-  for (auto &[property, old_value, new_value] : old_new_change) {
+  if (!edge_.ptr->properties.InitProperties(properties)) return Error::SERIALIZATION_ERROR;
+  for (auto &[property, old_value, new_value] : id_old_new_change) {
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
   }
 
-  return true;
+  return id_old_new_change;
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {

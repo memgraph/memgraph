@@ -2718,8 +2718,7 @@ concept AccessorWithProperties = requires(T value, storage::PropertyId property_
 ///     RecordAccessor<Edge>
 template <AccessorWithProperties TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
-                           ExecutionContext *context,
-                           std::unordered_map<std::string, storage::PropertyId> &cached_name_id) {
+                           ExecutionContext *context) {
   std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
   const bool should_register_change =
       context->trigger_context_collector &&
@@ -2812,16 +2811,17 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Map: {
       std::map<storage::PropertyId, storage::PropertyValue> new_properties;
       for (const auto &kv : rhs.ValueMap()) {
-        if (auto it = cached_name_id.find(std::string(kv.first)); it == cached_name_id.end()) {
-          auto key = context->db_accessor->NameToProperty(kv.first);
-          new_properties.emplace(key, kv.second);
-          cached_name_id.emplace(kv.first, key);
-        } else {
-          new_properties.emplace(it->second, kv.second);
-        }
+        auto key = context->db_accessor->NameToProperty(kv.first);
+        new_properties.emplace(key, kv.second);
       }
       auto result = record->UpdateProperties(new_properties);
-      MG_ASSERT(!result.HasError() && *result);
+      if (result.HasError()) {
+      }
+      if (should_register_change) {
+        for (auto &[id, old_value, new_value] : *result) {
+          register_set_property(old_value, id, new_value);
+        }
+      }
       break;
     }
     default:
@@ -2863,7 +2863,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -2872,7 +2872,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).

@@ -1263,7 +1263,6 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
    private:
     const SetProperties &self_;
     const UniqueCursorPtr input_cursor_;
-    std::unordered_map<std::string, storage::PropertyId> cached_name_id_{};
   };
 };
 
