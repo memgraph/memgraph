@@ -341,7 +341,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   }
 
   const std::string value_str{value.ToString()};
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(value_str)};
+  std::vector<LabelId> labels_id{utils::DeserializeLabelFromLabelIndexStorage(value_str)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value_str)};
   return CreateVertex(index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
@@ -355,7 +355,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   }
 
   const std::string value_str{value.ToString()};
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
+  std::vector<LabelId> labels_id{utils::DeserializeLabelFromLabelPropertyIndexStorage(value_str)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString())};
   return CreateVertex(index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
