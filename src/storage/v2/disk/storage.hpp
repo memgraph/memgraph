@@ -63,7 +63,7 @@ class DiskStorage final : public Storage {
                                                                           std::list<Delta> &index_deltas,
                                                                           utils::SkipList<Vertex> *indexed_vertices);
 
-    void LoadVerticesFromDiskLabelIndex(LabelId label, std::unordered_set<storage::Gid> gids,
+    void LoadVerticesFromDiskLabelIndex(LabelId label, const std::unordered_set<storage::Gid> &gids,
                                         std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
 
     VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
@@ -73,14 +73,15 @@ class DiskStorage final : public Storage {
         utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
 
     void LoadVerticesFromDiskLabelPropertyIndex(LabelId label, PropertyId property,
-                                                std::unordered_set<storage::Gid> gids, std::list<Delta> &index_deltas,
+                                                const std::unordered_set<storage::Gid> &gids,
+                                                std::list<Delta> &index_deltas,
                                                 utils::SkipList<Vertex> *indexed_vertices,
                                                 const auto &label_property_filter);
 
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
 
     void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(LabelId label, PropertyId property,
-                                                                    std::unordered_set<storage::Gid> gids,
+                                                                    const std::unordered_set<storage::Gid> &gids,
                                                                     const PropertyValue &value,
                                                                     std::list<Delta> &index_deltas,
                                                                     utils::SkipList<Vertex> *indexed_vertices);
@@ -95,7 +96,7 @@ class DiskStorage final : public Storage {
         utils::SkipList<Vertex> *indexed_vertices);
 
     void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
-        LabelId label, PropertyId property, std::unordered_set<storage::Gid> gids,
+        LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
         const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
         utils::SkipList<Vertex> *indexed_vertices);
@@ -198,8 +199,7 @@ class DiskStorage final : public Storage {
         std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const rocksdb::Slice &key,
-                                                                       const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         std::string &&key, std::string &&value, Delta *index_delta,

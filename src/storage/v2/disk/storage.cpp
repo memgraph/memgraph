@@ -41,6 +41,7 @@
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -305,19 +306,17 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 }
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
-std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
-    const rocksdb::Slice &key, const rocksdb::Slice &value) {
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(std::string &&key,
+                                                                                              std::string &&value) {
   auto main_storage_accessor = vertices_.access();
 
-  const std::string key_str = key.ToString();
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key_str)));
+  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key)));
   if (VertexExistsInCache(main_storage_accessor, gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key_str);
-  return CreateVertex(main_storage_accessor, gid, labels_id,
-                      utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key.ToString()));
+  std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key);
+  return CreateVertex(main_storage_accessor, gid, labels_id, utils::DeserializePropertiesFromMainDiskStorage(value),
+                      CreateDeleteDeserializedObjectDelta(&transaction_, key));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -388,7 +387,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    LoadVertexToMainMemoryCache(it->key(), it->value());
+    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString());
   }
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
@@ -397,7 +396,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back(std::list<Delta>());
+  index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
   auto gids = MergeVerticesFromMainCacheWithLabelIndexCache(label, view, index_deltas, indexed_vertices.get());
@@ -427,7 +426,8 @@ std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWit
   return gids;
 }
 
-void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label, std::unordered_set<storage::Gid> gids,
+void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
+                                                               const std::unordered_set<storage::Gid> &gids,
                                                                std::list<Delta> &index_deltas,
                                                                utils::SkipList<Vertex> *indexed_vertices) {
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -440,7 +440,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label, st
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  const std::string serialized_label = utils::SerializeIdType(label);
+  const auto serialized_label = utils::SerializeIdType(label);
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
@@ -456,7 +456,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label, st
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back(std::list<Delta>());
+  index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
   const auto label_property_filter = [this](const Vertex &vertex, LabelId label, PropertyId property,
@@ -465,8 +465,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
            HasVertexProperty(vertex, property, &transaction_, view);
   };
 
-  auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(label, property, view, index_deltas,
-                                                                    indexed_vertices.get(), label_property_filter);
+  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
+      label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
 
   const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
                                              const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
@@ -503,7 +503,7 @@ std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWit
 }
 
 void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId label, PropertyId property,
-                                                                       std::unordered_set<storage::Gid> gids,
+                                                                       const std::unordered_set<storage::Gid> &gids,
                                                                        std::list<Delta> &index_deltas,
                                                                        utils::SkipList<Vertex> *indexed_vertices,
                                                                        const auto &label_property_filter) {
@@ -518,7 +518,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  const std::string label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
+  const auto label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
@@ -535,7 +535,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      View view) {
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back(std::list<Delta>());
+  index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
   auto label_property_filter = [this, &value](const Vertex &vertex, LabelId label, PropertyId property,
@@ -544,8 +544,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
            VertexHasEqualPropertyValue(vertex, property, value, &transaction_, view);
   };
 
-  auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(label, property, view, index_deltas,
-                                                                    indexed_vertices.get(), label_property_filter);
+  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
+      label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
 
   LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, index_deltas,
                                                              indexed_vertices.get());
@@ -555,7 +555,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 }
 
 void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
-    LabelId label, PropertyId property, std::unordered_set<storage::Gid> gids, const PropertyValue &value,
+    LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids, const PropertyValue &value,
     std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices) {
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
@@ -567,7 +567,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
 
-  const std::string label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
+  const auto label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
     std::string it_value = index_it->value().ToString();
@@ -589,10 +589,10 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      View view) {
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back(std::list<Delta>());
+  index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
-  auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
+  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
       label, property, view, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
   LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(label, property, gids, lower_bound, upper_bound, index_deltas,
@@ -627,7 +627,7 @@ DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelPropertyIndexCache
 }
 
 void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
-    LabelId label, PropertyId property, std::unordered_set<storage::Gid> gids,
+    LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
@@ -647,16 +647,17 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
     std::string key_str = index_it->key().ToString();
     std::string it_value_str = index_it->value().ToString();
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key_str)));
-    // TODO: andi this will be optimized bla bla
+    /// TODO: andi this will be optimized
     /// TODO: couple this condition
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     auto prop_value = properties.GetProperty(property);
-    if (key_str.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
-        IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      LoadVertexToLabelPropertyIndexCache(
-          index_it->key().ToString(), index_it->value().ToString(),
-          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key_str), indexed_vertices->access());
+    if (!key_str.starts_with(label_property_prefix) || utils::Contains(gids, curr_gid) ||
+        !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
+      continue;
     }
+    LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
+                                        CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key_str),
+                                        indexed_vertices->access());
   }
 }
 
@@ -829,9 +830,9 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto it = std::unique_ptr<rocksdb::Iterator>(
       disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const auto &key = it->key();
-    if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key.ToString()))) == gid) {
-      return LoadVertexToMainMemoryCache(key, it->value());
+    std::string key = it->key().ToString();
+    if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key))) == gid) {
+      return LoadVertexToMainMemoryCache(std::move(key), it->value().ToString());
     }
   }
   return std::nullopt;
@@ -1198,6 +1199,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 /// TODO: at which storage naming
 /// TODO: this method should also delete the old key
 bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
+  MG_ASSERT(commit_timestamp_.has_value(), "Writing vertex to disk but commit timestamp not set.");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto status = disk_transaction_->Put(disk_storage->kvstore_->vertex_chandle, utils::SerializeVertex(vertex),
                                        utils::SerializeProperties(vertex.properties));
@@ -1217,6 +1219,7 @@ bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
 
 /// TODO: at which storage naming
 bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const EdgeRef edge, const std::string &serializedEdgeKey) {
+  MG_ASSERT(commit_timestamp_.has_value(), "Writing vertex to disk but commit timestamp not set.");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::Status status;
   if (config_.properties_on_edges) {
