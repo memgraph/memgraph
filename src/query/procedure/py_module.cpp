@@ -2502,7 +2502,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto &duration = value.duration_v->duration;
-      py::Object py_duration(PyDelta_FromDSU(0, 0, duration.microseconds));
+      py::Object py_duration(PyDelta_FromDSU(0, duration.microseconds / 1000000, duration.microseconds % 1000000));
       return py_duration;
     }
   }
