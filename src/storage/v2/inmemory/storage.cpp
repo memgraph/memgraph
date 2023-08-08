@@ -1408,43 +1408,51 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
     // if force is set to true we can simply delete all the leftover undos because
     // no transaction is active
-    std::vector<transaction_id_type> ids_to_remove;
     if constexpr (force) {
       for (auto &[timestamp, transaction_id, transaction_deltas] : undo_buffers) {
         auto *transaction_deltas_ptr = transaction_deltas.release();
         if (transaction_deltas_ptr) {
-          utils::Allocator<UPPmrLd>(transaction_deltas_ptr->get_allocator().GetMemoryResource())
-              .delete_object(transaction_deltas_ptr);
+          auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
+          auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+          auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
+          ;
+          if (monotonic_buffer == nullptr && pool_resource == nullptr) {
+            utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
+          }
         }
       }
-
       undo_buffers.clear();
 
     } else {
       while (!undo_buffers.empty() && std::get<0>(undo_buffers.front()) <= oldest_active_start_timestamp) {
         auto &[timestamp, transaction_id, transaction_deltas] = undo_buffers.front();
-        auto *transaction_deltas_ptr = transaction_deltas.release();
-        ids_to_remove.emplace_back(transaction_id);
-        undo_buffers.pop_front();
 
+        auto *transaction_deltas_ptr = transaction_deltas.release();
         if (transaction_deltas_ptr) {
-          utils::Allocator<UPPmrLd>(transaction_deltas_ptr->get_allocator().GetMemoryResource())
-              .delete_object(transaction_deltas_ptr);
+          auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
+          auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+          auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
+          if (monotonic_buffer == nullptr && pool_resource == nullptr) {
+            utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
+          }
+          if (monotonic_buffer) {
+            monotonic_buffer->Release();
+          }
+          if (pool_resource) {
+            pool_resource->Release();
+          }
         }
+
+        undo_buffers.pop_front();
       }
     }
 
     if constexpr (force) {
-      monotonic_resources_.WithLock([](auto &monotonic_resources) { monotonic_resources.clear(); });
-
-    } else {
-      if (ids_to_remove.empty()) {
-        return;
-      }
-      monotonic_resources_.WithLock([ids_to_remove](auto &monotonic_resources) {
-        for (auto id_copy : ids_to_remove) {
-          monotonic_resources.erase(id_copy);
+      monotonic_resources_.WithLock([](auto &monotonic_resources) {
+        for (auto &[id, monotonic_resource] : monotonic_resources) {
+          monotonic_resource.Release();
         }
+        monotonic_resources.clear();
       });
     }
   });
