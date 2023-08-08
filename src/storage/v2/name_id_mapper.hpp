@@ -60,7 +60,7 @@ class NameIdMapper {
     auto found = name_to_id_acc.find(name);
     uint64_t id;
     if (found == name_to_id_acc.end()) {
-      uint64_t new_id = counter_.fetch_add(1, std::memory_order_acq_rel);
+      uint64_t new_id = ++counter_;
       // Try to insert the mapping with the `new_id`, but use the id that is in
       // the object itself. The object that cointains the mapping is designed to
       // be a map, so that if the inserted name already exists `insert` will
@@ -108,7 +108,7 @@ class NameIdMapper {
     return result->name;
   }
 
-  std::atomic<uint64_t> counter_{0};
+  uint64_t counter_{0};
   utils::SkipList<MapNameToId> name_to_id_;
   utils::SkipList<MapIdToName> id_to_name_;
 };
