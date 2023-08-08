@@ -203,7 +203,7 @@ struct Delta {
         vertex_edge({edge_type, vertex, edge}) {}
 
   Delta(const Delta &) = delete;
-  Delta(Delta &&other) = delete;
+  Delta(Delta &&) = delete;
   Delta &operator=(const Delta &) = delete;
   Delta &operator=(Delta &&) = delete;
 
