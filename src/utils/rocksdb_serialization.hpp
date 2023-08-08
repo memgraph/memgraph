@@ -42,12 +42,13 @@ concept WithSize = requires(const T value) {
 };
 
 template <WithSize TCollection>
-inline std::vector<std::string> TransformIDsToString(const TCollection &labels) {
-  std::vector<std::string> transformed_labels;
-  transformed_labels.reserve(labels.size());
-  std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
-                 [](const auto &label) { return SerializeIdType(label); });
-  return transformed_labels;
+inline std::vector<std::string> TransformIDsToString(const TCollection &col) {
+  std::vector<std::string> transformed_col;
+  transformed_col.reserve(col.size());
+  for (const auto &elem : col) {
+    transformed_col.emplace_back(SerializeIdType(elem));
+  }
+  return transformed_col;
 }
 
 inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::string> &&labels) {
@@ -99,8 +100,8 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
                                                               const std::vector<storage::LabelId> &vertex_labels,
                                                               const storage::PropertyStore &property_store) {
   std::vector<storage::LabelId> labels_without_target;
-  labels_without_target.reserve(vertex_labels.size() - 1);
-  for (const storage::LabelId label : vertex_labels) {
+  labels_without_target.reserve(vertex_labels.size());
+  for (const storage::LabelId &label : vertex_labels) {
     if (label != label_to_remove) {
       labels_without_target.emplace_back(label);
     }
