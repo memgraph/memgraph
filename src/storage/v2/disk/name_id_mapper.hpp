@@ -95,7 +95,7 @@ class DiskNameIdMapper final : public NameIdMapper {
       auto name = itr->first;
       auto id = std::stoull(itr->second);
       InsertNameIdEntryToCache(name, id);
-      counter_++;
+      counter_.fetch_add(1, std::memory_order_release);
     }
     for (auto itr = id_to_name_storage_->begin(); itr != id_to_name_storage_->end(); ++itr) {
       auto id = std::stoull(itr->first);
