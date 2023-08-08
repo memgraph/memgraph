@@ -298,6 +298,11 @@ class DiskStorage final : public Storage {
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
+
+  using transaction_id_type = decltype(std::declval<Transaction>().transaction_id);
+  // Every transaction will have its own monotonic buffer resource, mapping between transaction id and
+  // monotonic buffer exist so we can clean resources once deltas are unlinked
+  utils::Synchronized<std::map<transaction_id_type, utils::MonotonicBufferResource>> monotonic_resources_;
 };
 
 }  // namespace memgraph::storage

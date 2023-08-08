@@ -51,6 +51,7 @@
 #include "utils/skip_list.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::storage {
 
@@ -1448,7 +1449,14 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   spdlog::debug("rocksdb: Commit successful");
 
   is_transaction_active_ = false;
+  auto *memory_resource = transaction_.deltas->get_allocator().GetMemoryResource();
 
+  if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+      monotonic_resource != nullptr) {
+    monotonic_resource->Release();
+  } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
+    pool_resource->Release();
+  }
   return {};
 }
 
@@ -1517,6 +1525,13 @@ void DiskStorage::DiskAccessor::Abort() {
   disk_transaction_ = nullptr;
 
   is_transaction_active_ = false;
+  auto *memory_resource = transaction_.deltas->get_allocator().GetMemoryResource();
+  if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+      monotonic_resource != nullptr) {
+    monotonic_resource->Release();
+  } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
+    pool_resource->Release();
+  }
 }
 
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
@@ -1690,6 +1705,15 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     /// TODO: when we introduce replication to the disk storage, take care of start_timestamp
     start_timestamp = timestamp_++;
   }
+
+  utils::MemoryResource *memory_resource{nullptr};
+  monotonic_resources_.WithLock([&transaction_id, &memory_resource](auto &monotonic_resources) {
+    monotonic_resources.emplace(transaction_id, 1024UL * 1024UL);
+    auto it = monotonic_resources.find(transaction_id);
+    if (it != monotonic_resources.end()) {
+      memory_resource = &(it->second);
+    }
+  });
   return {transaction_id, start_timestamp, isolation_level, storage_mode, utils::NewDeleteResource()};
 }
 

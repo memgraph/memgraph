@@ -114,7 +114,7 @@ StorageMode Storage::Accessor::GetCreationStorageMode() const { return creation_
 
 std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   if (is_transaction_active_) {
-    return transaction_.transaction_id.load(std::memory_order_acquire);
+    return transaction_.transaction_id;
   }
   return {};
 }

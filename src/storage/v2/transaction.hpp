@@ -35,6 +35,8 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 using PmrListDelta = utils::pmr::list<Delta>;
 struct empty_deleter {
   void operator()(PmrListDelta *p) const {
+    // auto allocator = utils::Allocator<PmrListDelta>(p->get_allocator().GetMemoryResource());
+    // allocator.delete_object(p);
     std::cout << "call deleter for utils::pmr::list<Delta> object 0x" << std::hex << (void *)p << '\n';
   }
 };
@@ -54,7 +56,7 @@ struct Transaction {
   }
 
   Transaction(Transaction &&other) noexcept
-      : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
+      : transaction_id(other.transaction_id),
         start_timestamp(other.start_timestamp),
         commit_timestamp(std::move(other.commit_timestamp)),
         command_id(other.command_id),
@@ -72,10 +74,10 @@ struct Transaction {
   /// @throw std::bad_alloc if failed to create the `commit_timestamp`
   void EnsureCommitTimestampExists() {
     if (commit_timestamp != nullptr) return;
-    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id.load(std::memory_order_relaxed));
+    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
 
-  std::atomic<uint64_t> transaction_id;
+  uint64_t transaction_id;
   uint64_t start_timestamp;
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
@@ -91,16 +93,12 @@ struct Transaction {
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
-  return first.transaction_id.load(std::memory_order_acquire) == second.transaction_id.load(std::memory_order_acquire);
+  return first.transaction_id == second.transaction_id;
 }
 inline bool operator<(const Transaction &first, const Transaction &second) {
-  return first.transaction_id.load(std::memory_order_acquire) < second.transaction_id.load(std::memory_order_acquire);
+  return first.transaction_id < second.transaction_id;
 }
-inline bool operator==(const Transaction &first, const uint64_t &second) {
-  return first.transaction_id.load(std::memory_order_acquire) == second;
-}
-inline bool operator<(const Transaction &first, const uint64_t &second) {
-  return first.transaction_id.load(std::memory_order_acquire) < second;
-}
+inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
+inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
 }  // namespace memgraph::storage

@@ -752,8 +752,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         auto *vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
+        while (current != nullptr &&
+               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -840,8 +840,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         auto *edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
+        while (current != nullptr &&
+               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -894,7 +894,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // emplace back could take a long time.
       engine_guard.unlock();
 
-      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
+      garbage_undo_buffers.emplace_back(mark_timestamp, transaction_.transaction_id, std::move(transaction_.deltas));
     });
     mem_storage->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
@@ -1218,7 +1218,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::pair<uint64_t, UPPmrLd>> unlinked_undo_buffers;
+  std::list<std::tuple<uint64_t, transaction_id_type, UPPmrLd>> unlinked_undo_buffers;
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1363,7 +1363,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     }
 
     committed_transactions_.WithLock([&](auto &committed_transactions) {
-      unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
+      unlinked_undo_buffers.emplace_back(0, transaction->transaction_id, std::move(transaction->deltas));
       committed_transactions.pop_front();
     });
   }
@@ -1392,7 +1392,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
       // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
       // transactions from aborting until we're done marking, maybe we should
       // add them one-by-one or something
-      for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
+      for (auto &[timestamp, transaction_id, transaction_deltas] : unlinked_undo_buffers) {
         timestamp = mark_timestamp;
       }
       garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
@@ -1405,29 +1405,40 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
     // if force is set to true we can simply delete all the leftover undos because
     // no transaction is active
+    std::optional<std::vector<transaction_id_type>> ids_to_remove;
     if constexpr (force) {
       std::vector<utils::MonotonicBufferResource *> resources_clean;
 
-      for (const auto &kv : undo_buffers) {
+      for (const auto &[timestamp, transaction_id, transaction_deltas] : undo_buffers) {
         resources_clean.emplace_back(
-            static_cast<utils::MonotonicBufferResource *>(kv.second->get_allocator().GetMemoryResource()));
+            static_cast<utils::MonotonicBufferResource *>(transaction_deltas->get_allocator().GetMemoryResource()));
       }
-      // This might result in dangling pointers for unique_ptrs but check
       undo_buffers.clear();
-
       // This should clear everything
       for (auto *resource : resources_clean) {
         resource->Release();
       }
-      monotonic_resources_->clear();
 
     } else {
-      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
-        auto &front = undo_buffers.front();
+      ids_to_remove.emplace(std::vector<transaction_id_type>{});
+      while (!undo_buffers.empty() && std::get<0>(undo_buffers.front()) <= oldest_active_start_timestamp) {
+        auto &[timestamp, transaction_id, transaction_deltas] = undo_buffers.front();
         auto *buffer_resource =
-            static_cast<utils::MonotonicBufferResource *>(front.second->get_allocator().GetMemoryResource());
-        undo_buffers.pop_front();
+            static_cast<utils::MonotonicBufferResource *>(transaction_deltas->get_allocator().GetMemoryResource());
         buffer_resource->Release();
+        ids_to_remove.emplace(transaction_id);
+        undo_buffers.pop_front();
+      }
+    }
+
+    if constexpr (force) {
+      monotonic_resources_->clear();
+    } else {
+      if (!ids_to_remove) {
+        return;
+      }
+      for (auto id_copy : *ids_to_remove) {
+        monotonic_resources_->erase(id_copy);
       }
     }
   });

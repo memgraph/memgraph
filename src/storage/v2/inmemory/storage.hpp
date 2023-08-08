@@ -493,7 +493,8 @@ class InMemoryStorage final : public Storage {
   utils::Synchronized<std::map<transaction_id_type, utils::MonotonicBufferResource>> monotonic_resources_;
 
   // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
-  utils::Synchronized<std::list<std::pair<uint64_t, UPPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
+  utils::Synchronized<std::list<std::tuple<uint64_t, transaction_id_type, UPPmrLd>>, utils::SpinLock>
+      garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
