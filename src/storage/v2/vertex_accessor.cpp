@@ -283,7 +283,9 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     if (maybe_all_properties.HasValue() && !maybe_all_properties.HasError()) {
       all_properties_ = *maybe_all_properties;
 
-      return all_properties_.at(property);
+      if (all_properties_.contains(property)) {
+        return all_properties_.at(property);
+      }
     }
   }
 
