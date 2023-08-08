@@ -64,7 +64,7 @@ class EdgeAccessor final {
   Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
-      std::map<storage::PropertyId, storage::PropertyValue> &properties);
+      std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc

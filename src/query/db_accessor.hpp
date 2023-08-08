@@ -78,7 +78,7 @@ class EdgeAccessor final {
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
     return impl_.UpdateProperties(properties);
   }
 
@@ -141,7 +141,7 @@ class VertexAccessor final {
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
     return impl_.UpdateProperties(properties);
   }
 

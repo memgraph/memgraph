@@ -148,7 +148,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
 }
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
-    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 

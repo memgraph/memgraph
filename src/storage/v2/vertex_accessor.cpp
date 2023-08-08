@@ -258,7 +258,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 }
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
-    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -286,9 +286,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   }
 
   if (!vertex_->properties.InitProperties(properties)) return Error::SERIALIZATION_ERROR;
-  for (auto &[property, old_value, new_value] : id_old_new_change) {
-    indices_->UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, std::move(old_value));
+  for (auto &[id, old_value, new_value] : id_old_new_change) {
+    indices_->UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
   }
 
   return id_old_new_change;
