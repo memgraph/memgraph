@@ -1410,23 +1410,27 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     // no transaction is active
     std::vector<transaction_id_type> ids_to_remove;
     if constexpr (force) {
-      std::vector<utils::MonotonicBufferResource *> resources_clean;
+      for (auto &[timestamp, transaction_id, transaction_deltas] : undo_buffers) {
+        auto *transaction_deltas_ptr = transaction_deltas.release();
+        if (transaction_deltas_ptr) {
+          utils::Allocator<UPPmrLd>(transaction_deltas_ptr->get_allocator().GetMemoryResource())
+              .delete_object(transaction_deltas_ptr);
+        }
+      }
 
-      for (const auto &[timestamp, transaction_id, transaction_deltas] : undo_buffers) {
-        resources_clean.emplace_back(
-            static_cast<utils::MonotonicBufferResource *>(transaction_deltas->get_allocator().GetMemoryResource()));
-      }
       undo_buffers.clear();
-      // This should clear everything
-      for (auto *resource : resources_clean) {
-        resource->Release();
-      }
 
     } else {
       while (!undo_buffers.empty() && std::get<0>(undo_buffers.front()) <= oldest_active_start_timestamp) {
         auto &[timestamp, transaction_id, transaction_deltas] = undo_buffers.front();
+        auto *transaction_deltas_ptr = transaction_deltas.release();
         ids_to_remove.emplace_back(transaction_id);
         undo_buffers.pop_front();
+
+        if (transaction_deltas_ptr) {
+          utils::Allocator<UPPmrLd>(transaction_deltas_ptr->get_allocator().GetMemoryResource())
+              .delete_object(transaction_deltas_ptr);
+        }
       }
     }
 
