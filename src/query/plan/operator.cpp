@@ -2810,18 +2810,13 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
-      std::map<storage::PropertyId, storage::PropertyValue> new_properties;
       for (const auto &kv : rhs.ValueMap()) {
-        if (auto it = cached_name_id.find(std::string(kv.first)); it == cached_name_id.end()) {
-          auto key = context->db_accessor->NameToProperty(kv.first);
-          new_properties.emplace(key, kv.second);
-          cached_name_id.emplace(kv.first, key);
-        } else {
-          new_properties.emplace(it->second, kv.second);
+        auto key = context->db_accessor->NameToProperty(kv.first);
+        auto old_value = PropsSetChecked(record, key, kv.second);
+        if (should_register_change) {
+          register_set_property(std::move(old_value), key, kv.second);
         }
       }
-      auto result = record->UpdateProperties(new_properties);
-      MG_ASSERT(!result.HasError() && *result);
       break;
     }
     default:
