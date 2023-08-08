@@ -36,9 +36,15 @@ inline std::string SerializeIdType(const auto &id) { return std::to_string(id.As
 
 inline bool SerializedVertexHasLabels(const std::string &labels) { return !labels.empty(); }
 
-template <typename Collection>
-inline std::vector<std::string> TransformIDsToString(const Collection &labels) {
-  std::vector<std::string> transformed_labels{};
+template <typename T>
+concept WithSize = requires(const T value) {
+  { value.size() } -> std::same_as<size_t>;
+};
+
+template <WithSize TCollection>
+inline std::vector<std::string> TransformIDsToString(const TCollection &labels) {
+  std::vector<std::string> transformed_labels;
+  transformed_labels.reserve(labels.size());
   std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
                  [](const auto &label) { return SerializeIdType(label); });
   return transformed_labels;
@@ -93,6 +99,7 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
                                                               const std::vector<storage::LabelId> &vertex_labels,
                                                               const storage::PropertyStore &property_store) {
   std::vector<storage::LabelId> labels_without_target;
+  labels_without_target.reserve(vertex_labels.size() - 1);
   for (const storage::LabelId label : vertex_labels) {
     if (label != label_to_remove) {
       labels_without_target.emplace_back(label);
