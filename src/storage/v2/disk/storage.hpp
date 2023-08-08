@@ -208,7 +208,8 @@ class DiskStorage final : public Storage {
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
-    rocksdb::Transaction *disk_transaction_;
+    rocksdb::Transaction *vertex_disk_transaction_;
+    rocksdb::Transaction *edge_disk_transaction_;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
@@ -219,7 +220,9 @@ class DiskStorage final : public Storage {
     return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
   }
 
-  RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
+  void PrepareRocksDBOptions();
+
+  RocksDBStorage *GetRocksDBStorage() const { return vertex_kvstore_.get(); }
 
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
@@ -296,7 +299,8 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  std::unique_ptr<RocksDBStorage> kvstore_;
+  std::unique_ptr<RocksDBStorage> vertex_kvstore_;
+  std::unique_ptr<RocksDBStorage> edge_kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
 };
 

@@ -69,6 +69,7 @@ struct Config {
 
   struct DiskConfig {
     std::filesystem::path main_storage_directory{"storage/rocksdb_main_storage"};
+    std::filesystem::path main_edge_directory{"storage/rocksdb_main_edge_storage"};
     std::filesystem::path label_index_directory{"storage/rocksdb_label_index"};
     std::filesystem::path label_property_index_directory{"storage/rocksdb_label_property_index"};
     std::filesystem::path unique_constraints_directory{"storage/rocksdb_unique_constraints"};
@@ -76,6 +77,7 @@ struct Config {
     std::filesystem::path id_name_mapper_directory{"storage/rocksdb_id_name_mapper"};
     std::filesystem::path durability_directory{"storage/rocksdb_durability"};
     std::filesystem::path wal_directory{"storage/rocksdb_wal"};
+    std::filesystem::path wal_edge_directory{"storage/rocksdb_wal_edge"};
   } disk;
 
   std::string name;
