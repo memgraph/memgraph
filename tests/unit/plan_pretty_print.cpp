@@ -471,7 +471,8 @@ TYPED_TEST(PrintToJsonTest, SetProperty) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+  last_op = std::make_shared<plan::SetProperty>(last_op, this->GetSymbol("node"), prop,
+                                                PROPERTY_LOOKUP(this->dba, "node", prop),
                                                 ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
 
   this->Check(last_op.get(), R"sep(
@@ -625,7 +626,8 @@ TYPED_TEST(PrintToJsonTest, Accumulate) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+  last_op = std::make_shared<plan::SetProperty>(last_op, this->GetSymbol("node"), prop,
+                                                PROPERTY_LOOKUP(this->dba, "node", prop),
                                                 ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
   last_op = std::make_shared<plan::Accumulate>(last_op, std::vector<Symbol>{node_sym}, true);
 

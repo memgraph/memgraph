@@ -1116,10 +1116,10 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
   auto literal = LITERAL(42);
 
   auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop1);
-  auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, prop1, n_p, literal);
+  auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, n.sym_, prop1, n_p, literal);
 
   auto r_p = PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(r_m.edge_sym_), prop1);
-  auto set_r_p = std::make_shared<plan::SetProperty>(set_n_p, prop1, r_p, literal);
+  auto set_r_p = std::make_shared<plan::SetProperty>(set_n_p, r_m.edge_sym_, prop1, r_p, literal);
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
@@ -1518,7 +1518,7 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
   // SET n.prop = n.prop + 1
   auto set_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop);
   auto add = ADD(set_prop, LITERAL(1));
-  auto set = std::make_shared<plan::SetProperty>(node_filter, prop.second, set_prop, add);
+  auto set = std::make_shared<plan::SetProperty>(node_filter, scan_all.sym_, prop.second, set_prop, add);
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
@@ -1608,11 +1608,11 @@ TYPED_TEST(QueryPlanTest, Merge) {
   auto r_m = MakeExpand(this->storage, symbol_table, std::make_shared<Once>(), n.sym_, "r", EdgeAtom::Direction::BOTH,
                         {}, "m", false, memgraph::storage::View::OLD);
   auto m_p = PROPERTY_LOOKUP(dba, IDENT("m")->MapTo(r_m.node_sym_), prop);
-  auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p, LITERAL(1));
+  auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, r_m.node_sym_, prop.second, m_p, LITERAL(1));
 
   // merge_create branch
   auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
-  auto n_set = std::make_shared<plan::SetProperty>(std::make_shared<Once>(), prop.second, n_p, LITERAL(2));
+  auto n_set = std::make_shared<plan::SetProperty>(std::make_shared<Once>(), n.sym_, prop.second, n_p, LITERAL(2));
 
   auto merge = std::make_shared<plan::Merge>(n.op_, m_set, n_set);
   auto context = MakeContext(this->storage, symbol_table, &dba);
@@ -1659,7 +1659,8 @@ TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
   auto literal = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP(dba, null, prop);
   auto once = std::make_shared<Once>();
-  auto set_op = std::make_shared<plan::SetProperty>(once, prop.second, n_prop, literal);
+  auto set_op =
+      std::make_shared<plan::SetProperty>(once, symbol_table.CreateAnonymousSymbol(), prop.second, n_prop, literal);
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
@@ -1735,7 +1736,7 @@ TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   auto prop = PROPERTY_PAIR(dba, "property");
   auto n_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
-  auto set_op = std::make_shared<plan::SetProperty>(delete_op, prop.second, n_prop, LITERAL(42));
+  auto set_op = std::make_shared<plan::SetProperty>(delete_op, n.sym_, prop.second, n_prop, LITERAL(42));
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
 }
@@ -1866,7 +1867,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
     auto literal = LITERAL(new_property_value);
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), entity_prop);
-    auto set_property = std::make_shared<plan::SetProperty>(scan_all.op_, entity_prop, n_p, literal);
+    auto set_property = std::make_shared<plan::SetProperty>(scan_all.op_, scan_all.sym_, entity_prop, n_p, literal);
 
     // produce the node
     auto output =
@@ -1888,7 +1889,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
     // set property to 2 on n
     auto literal = LITERAL(new_property_value);
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(expand.edge_sym_), entity_prop);
-    auto set_property = std::make_shared<plan::SetProperty>(expand.op_, entity_prop, n_p, literal);
+    auto set_property = std::make_shared<plan::SetProperty>(expand.op_, scan_all.sym_, entity_prop, n_p, literal);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);

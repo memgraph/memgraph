@@ -2550,6 +2550,10 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
     auto *set_property = storage_->Create<SetProperty>();
     set_property->property_lookup_ = std::any_cast<PropertyLookup *>(ctx->propertyExpression()->accept(this));
     set_property->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
+    if (ctx->propertyExpression()->atom()->variable()) {
+      set_property->identifier_ = storage_->Create<Identifier>(
+          std::any_cast<std::string>(ctx->propertyExpression()->atom()->variable()->accept(this)));
+    }
     return static_cast<Clause *>(set_property);
   }
 

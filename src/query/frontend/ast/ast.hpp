@@ -2517,16 +2517,18 @@ class SetProperty : public memgraph::query::Clause {
 
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      property_lookup_->Accept(visitor) && expression_->Accept(visitor);
+      identifier_->Accept(visitor) && property_lookup_->Accept(visitor) && expression_->Accept(visitor);
     }
     return visitor.PostVisit(*this);
   }
 
+  memgraph::query::Identifier *identifier_{nullptr};
   memgraph::query::PropertyLookup *property_lookup_{nullptr};
   memgraph::query::Expression *expression_{nullptr};
 
   SetProperty *Clone(AstStorage *storage) const override {
     SetProperty *object = storage->Create<SetProperty>();
+    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     return object;

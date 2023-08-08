@@ -1170,8 +1170,8 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
   SetProperty() {}
 
-  SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs,
-              Expression *rhs);
+  SetProperty(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, storage::PropertyId property,
+              PropertyLookup *lhs, Expression *rhs);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1181,6 +1181,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Symbol input_symbol_;
   storage::PropertyId property_;
   PropertyLookup *lhs_;
   Expression *rhs_;
@@ -1188,6 +1189,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<SetProperty>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->input_symbol_ = input_symbol_;
     object->property_ = property_;
     object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
     object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;

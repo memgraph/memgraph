@@ -2605,9 +2605,9 @@ void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
 
-SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
-                         PropertyLookup *lhs, Expression *rhs)
-    : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
+SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                         storage::PropertyId property, PropertyLookup *lhs, Expression *rhs)
+    : input_(input), input_symbol_(input_symbol), property_(property), lhs_(lhs), rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetProperty)
 

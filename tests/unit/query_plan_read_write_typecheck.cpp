@@ -171,7 +171,8 @@ TYPED_TEST(ReadWriteTypeCheckTest, SetRemovePropertiesLabels) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+  last_op = std::make_shared<plan::SetProperty>(last_op, this->GetSymbol("node"), prop,
+                                                PROPERTY_LOOKUP(this->dba, "node", prop),
                                                 ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
   last_op = std::make_shared<plan::RemoveProperty>(
       last_op, this->dba.NameToProperty("prop"), PROPERTY_LOOKUP(this->dba, "node", this->dba.NameToProperty("prop")));

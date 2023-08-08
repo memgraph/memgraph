@@ -114,9 +114,9 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
 
     auto one = LITERAL(1);
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
-    auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, prop, n_p, ADD(n_p, one));
+    auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, n.sym_, prop, n_p, ADD(n_p, one));
     auto m_p = PROPERTY_LOOKUP(dba, IDENT("m")->MapTo(r_m.node_sym_), prop);
-    auto set_m_p = std::make_shared<plan::SetProperty>(set_n_p, prop, m_p, ADD(m_p, one));
+    auto set_m_p = std::make_shared<plan::SetProperty>(set_n_p, r_m.node_sym_, prop, m_p, ADD(m_p, one));
 
     std::shared_ptr<LogicalOperator> last_op = set_m_p;
     if (accumulate) {
