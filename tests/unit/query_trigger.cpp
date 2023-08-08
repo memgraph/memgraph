@@ -40,8 +40,9 @@ const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
 
 class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
-  MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
-                                            const std::vector<memgraph::query::AuthQuery::Privilege> &privileges));
+  MOCK_CONST_METHOD3(IsUserAuthorized,
+                     bool(const std::optional<std::string> &username,
+                          const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, const std::string &db));
 #ifdef MG_ENTERPRISE
   MOCK_CONST_METHOD2(GetFineGrainedAuthChecker,
                      std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
@@ -1074,8 +1075,11 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
   store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
                    memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
                    memgraph::query::InterpreterConfig::Query{}, std::nullopt, &this->auth_checker);
-  expected_info.push_back({"trigger", "RETURN 1", memgraph::query::TriggerEventType::VERTEX_CREATE,
-                           memgraph::query::TriggerPhase::BEFORE_COMMIT});
+  expected_info.push_back({"trigger",
+                           "RETURN 1",
+                           memgraph::query::TriggerEventType::VERTEX_CREATE,
+                           memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                           {/* no owner */}});
 
   const auto check_trigger_info = [&] {
     const auto trigger_info = store.GetTriggerInfo();
@@ -1094,8 +1098,11 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
   store.AddTrigger("edge_update_trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::EDGE_UPDATE,
                    memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
                    memgraph::query::InterpreterConfig::Query{}, std::nullopt, &this->auth_checker);
-  expected_info.push_back({"edge_update_trigger", "RETURN 1", memgraph::query::TriggerEventType::EDGE_UPDATE,
-                           memgraph::query::TriggerPhase::AFTER_COMMIT});
+  expected_info.push_back({"edge_update_trigger",
+                           "RETURN 1",
+                           memgraph::query::TriggerEventType::EDGE_UPDATE,
+                           memgraph::query::TriggerPhase::AFTER_COMMIT,
+                           {/* no owner */}});
 
   check_trigger_info();
 
@@ -1224,10 +1231,12 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
 
   ::testing::InSequence s;
 
-  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE)))
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE), ""))
       .Times(1)
       .WillOnce(Return(true));
-  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
+  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE), ""))
+      .Times(1)
+      .WillOnce(Return(true));
 
   ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {},
                                     memgraph::query::TriggerEventType::EDGE_UPDATE,
@@ -1239,7 +1248,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
                                     memgraph::query::InterpreterConfig::Query{}, owner, &mock_checker));
 
-  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::MATCH)))
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::MATCH), ""))
       .Times(1)
       .WillOnce(Return(false));
 
@@ -1250,10 +1259,12 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                , memgraph::utils::BasicException);
 
   store.emplace(this->testing_directory);
-  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE)))
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE), ""))
       .Times(1)
       .WillOnce(Return(false));
-  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
+  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE), ""))
+      .Times(1)
+      .WillOnce(Return(true));
 
   ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},
                                          &mock_checker));

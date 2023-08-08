@@ -17,14 +17,14 @@ disk_template_cluster: &disk_template_cluster
   cluster:
     main:
       args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--storage-properties-on-edges=True"]
-      log_file: "triggers-e2e.log"
-      setup_queries: []
+      log_file: "triggers-e2e-disk.log"
+      setup_queries: ["storage mode on_disk_transactional"]
       validation_queries: []
 disk_storage_properties_edges_false: &disk_storage_properties_edges_false
   cluster:
     main:
       args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=False"]
-      log_file: "triggers-e2e.log"
+      log_file: "triggers-e2e-disk.log"
       setup_queries: []
       validation_queries: []
 

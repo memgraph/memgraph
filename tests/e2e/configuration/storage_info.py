@@ -16,6 +16,7 @@ import mgclient
 import pytest
 
 default_storage_info_dict = {
+    "name": "memgraph",
     "vertex_count": 0,
     "edge_count": 0,
     "average_degree": 0,
@@ -55,7 +56,7 @@ def test_does_default_config_match():
     machine_dependent_configurations = ["memory_usage", "disk_usage", "memory_allocated", "allocation_limit"]
 
     # Number of different data-points returned by SHOW STORAGE INFO
-    assert len(config) == 11
+    assert len(config) == 12
 
     for conf in config:
         conf_name = conf[0]

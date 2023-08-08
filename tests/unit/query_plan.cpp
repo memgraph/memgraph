@@ -949,7 +949,7 @@ TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
   CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
+TYPED_TEST(TestPlanner, AggregationWithListWithAggregationAndGroupBy) {
   // Test RETURN sum(2), [sum(3), 42]
   auto sum2 = SUM(LITERAL(2), false);
   auto sum3 = SUM(LITERAL(3), false);

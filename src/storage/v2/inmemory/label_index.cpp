@@ -25,7 +25,7 @@ void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_af
 }
 
 bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                                     const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                     const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   const auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                        std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -40,10 +40,10 @@ bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Acc
 
   const auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                        std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                       const ParalellizedIndexCreationInfo &paralell_exec_info) {
+                                       const ParallelizedIndexCreationInfo &parallel_exec_info) {
     using IndexAccessor = decltype(label_it->second.access());
 
-    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, paralell_exec_info,
+    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, parallel_exec_info,
                                  [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
                                    TryInsertLabelIndex(vertex, label, index_accessor);
                                  });
@@ -57,8 +57,8 @@ bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Acc
     return false;
   }
 
-  if (paralell_exec_info) {
-    return create_index_par(label, vertices, it, *paralell_exec_info);
+  if (parallel_exec_info) {
+    return create_index_par(label, vertices, it, *parallel_exec_info);
   }
   return create_index_seq(label, vertices, it);
 }
