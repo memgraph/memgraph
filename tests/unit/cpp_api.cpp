@@ -630,9 +630,11 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
   mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
   auto graph = mgp::Graph(&raw_graph);
   auto node1 = graph.CreateNode();
+  node1.AddLabel("Label1");
   auto node2 = graph.CreateNode();
   auto rel = graph.CreateRelationship(node1, node2, "loves");
-  ASSERT_EQ(mgp::Value(rel).ToString(), "(0)-[loves,0]->(1)");
+  rel.SetProperty("key", mgp::Value("property"));
+  ASSERT_EQ(mgp::Value(rel).ToString(), "(id: 0 :Label1 )-[type: loves, id: 0, properties: {key=property}]->(id: 1 )");
 
   /*path*/
   mgp::Path path = mgp::Path(node1);
@@ -640,5 +642,7 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
   auto node3 = graph.CreateNode();
   auto rel2 = graph.CreateRelationship(node2, node3, "loves2");
   path.Expand(rel2);
-  ASSERT_EQ(mgp::Value(path).ToString(), "(0)-[loves,0]->(1)-[loves2,1]->(2)");
+  ASSERT_EQ(mgp::Value(path).ToString(),
+            "(id: 0 :Label1 )-[type: loves, id: 0, properties: {key=property}]->(id: 1 )-[type: loves2, id: 1, "
+            "properties: {}]->(id: 2 )");
 }

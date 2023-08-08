@@ -2350,6 +2350,9 @@ inline bool List::operator!=(const List &other) const { return !(*this == other)
 inline const std::string List::ToString() const {
   std::string return_str{"["};
   const size_t size = Size();
+  if (size == 0) {
+    return "[]";
+  }
   size_t i = 0;
   while (i < size - 1) {
     return_str += (*this)[i].ToString() + ", ";
@@ -2529,16 +2532,19 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
 
 inline const std::string Map::ToString() const {
-  std::string return_string = "{";
+  std::string return_string{"{"};
   const size_t map_size = Size();
+  if (map_size == 0) {
+    return "{}";
+  }
   size_t i = 0;
   for (auto item : *this) {
-    if (i < map_size - 1) {
-      return_string += std::string(item.key) + "=" + item.value.ToString() + ", ";
-      i++;
-      continue;
+    if (i == map_size - 1) {
+      return_string += std::string(item.key) + "=" + item.value.ToString() + "}";
+      break;
     }
-    return_string += std::string(item.key) + "=" + item.value.ToString() + "}";
+    return_string += std::string(item.key) + "=" + item.value.ToString() + ", ";
+    ++i;
   }
   return return_string;
 }
@@ -2647,7 +2653,25 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 
 inline bool Node::operator!=(const Node &other) const { return !(*this == other); }
 
-inline const std::string Node::ToString() const { return "Node[" + std::to_string(Id().AsInt()) + "]"; }
+inline const std::string Node::ToString() const {
+  std::string labels{""};
+  for (auto label : Labels()) {
+    labels += ":" + std::string(label) + " ";
+  }
+  std::string properties = "";
+  std::map<std::string, Value> properties_map{Properties()};
+  const size_t map_size = properties_map.size();
+  size_t i = 0;
+  for (auto item : properties_map) {
+    if (i == map_size - 1) {
+      properties += std::string(item.first) + "=" + item.second.ToString();
+      break;
+    }
+    properties += std::string(item.first) + "=" + item.second.ToString() + ", ";
+    ++i;
+  }
+  return "Node(id: " + std::to_string(Id().AsInt()) + " " + labels + "properties: {" + properties + "} )";
+}
 
 // Relationship:
 
@@ -2722,13 +2746,37 @@ inline bool Relationship::operator==(const Relationship &other) const {
 inline bool Relationship::operator!=(const Relationship &other) const { return !(*this == other); }
 
 inline const std::string Relationship::ToString() const {
-  const std::string node_from{"(" + std::to_string(From().Id().AsInt()) + ")"};
+  std::string from_labels{""};
+  const auto from = From();
+  for (auto label : from.Labels()) {
+    from_labels += ":" + std::string(label) + " ";
+  }
+  const std::string node_from{"(id: " + std::to_string(from.Id().AsInt()) + " " + from_labels + ")"};
+
   const std::string type{Type()};
-  const std::string relationship{"[" + type + "," + std::to_string(Id().AsInt()) + "]"};
-  const std::string node_to{"(" + std::to_string(To().Id().AsInt()) + ")"};
+  std::string properties = "";
+  std::map<std::string, Value> properties_map{Properties()};
+  const size_t map_size = properties_map.size();
+  size_t i = 0;
+  for (auto item : properties_map) {
+    if (i == map_size - 1) {
+      properties += std::string(item.first) + "=" + item.second.ToString();
+      break;
+    }
+    properties += std::string(item.first) + "=" + item.second.ToString() + ", ";
+    ++i;
+  }
+  const std::string relationship{"[type: " + type + ", id: " + std::to_string(Id().AsInt()) + ", properties: {" +
+                                 properties + "}]"};
+
+  std::string to_labels{""};
+  const auto to = To();
+  for (auto label : to.Labels()) {
+    to_labels += ":" + std::string(label) + " ";
+  }
+  const std::string node_to{"(id: " + std::to_string(to.Id().AsInt()) + " " + to_labels + ")"};
   return node_from + "-" + relationship + "->" + node_to;
 }
-
 // Path:
 
 inline Path::Path(mgp_path *ptr) : ptr_(mgp::path_copy(ptr, memory)) {}
@@ -2791,15 +2839,39 @@ inline bool Path::operator==(const Path &other) const { return util::PathsEqual(
 inline bool Path::operator!=(const Path &other) const { return !(*this == other); }
 
 inline const std::string Path::ToString() const {
-  const size_t length = Length();
+  const auto length = Length();
   size_t i = 0;
   std::string return_string = "";
   for (i = 0; i < length; i++) {
-    return_string += "(" + std::to_string(GetNodeAt(i).Id().AsInt()) + ")-";
+    std::string labels{""};
+    const auto node = GetNodeAt(i);
+    for (auto label : node.Labels()) {
+      labels += ":" + std::string(label) + " ";
+    }
+    return_string += "(id: " + std::to_string(node.Id().AsInt()) + " " + labels + ")-";
+
     const Relationship rel = GetRelationshipAt(i);
-    return_string += "[" + std::string(rel.Type()) + "," + std::to_string(rel.Id().AsInt()) + "]->";
+    std::string properties = "";
+    std::map<std::string, Value> properties_map{rel.Properties()};
+    const size_t map_size = properties_map.size();
+    size_t i = 0;
+    for (auto item : properties_map) {
+      if (i == map_size - 1) {
+        properties += std::string(item.first) + "=" + item.second.ToString();
+        break;
+      }
+      properties += std::string(item.first) + "=" + item.second.ToString() + ", ";
+      ++i;
+    }
+    return_string += "[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
+                     ", properties: {" + properties + "}]->";
   }
-  return_string += "(" + std::to_string(GetNodeAt(i).Id().AsInt()) + ")";
+  std::string labels{""};
+  const auto node = GetNodeAt(i);
+  for (auto label : node.Labels()) {
+    labels += ":" + std::string(label) + " ";
+  }
+  return_string += "(id: " + std::to_string(node.Id().AsInt()) + " " + labels + ")";
   return return_string;
 }
 
