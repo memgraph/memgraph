@@ -1,6 +1,10 @@
 [{"n1" {:replication-role :main}
   "n2" {:replication-role :replica :replication-mode :async :port 10000}
-  "n3" {:replication-role :replica :replication-mode :async :port 10000}}
+  "n3" {:replication-role :replica :replication-mode :async :port 10000}
+  "n4" {:replication-role :replica :replication-mode :sync :port 10000}
+  "n5" {:replication-role :replica :replication-mode :sync :port 10000}}
  {"n1" {:replication-role :main}
   "n2" {:replication-role :replica :replication-mode :async :port 10000}
-  "n3" {:replication-role :replica :replication-mode :sync :port 10000}}]
+  "n3" {:replication-role :replica :replication-mode :sync :port 10000}
+  "n4" {:replication-role :replica :replication-mode :sync :port 10000}
+  "n5" {:replication-role :replica :replication-mode :sync :port 10000}}]
