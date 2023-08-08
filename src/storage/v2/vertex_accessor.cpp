@@ -12,8 +12,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <memory>
-#include <tuple>
-#include <utility>
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -251,42 +249,6 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
     indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
-  }
-
-  return true;
-}
-
-Result<bool> VertexAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-
-  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
-
-  auto old_properties = vertex_->properties.Properties();
-  vertex_->properties.ClearProperties();
-
-  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> old_new_change;
-  old_new_change.reserve(properties.size() + old_properties.size());
-  for (auto &kv : properties) {
-    if (!old_properties.contains(kv.first)) {
-      old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
-    }
-  }
-
-  for (auto &[old_key, old_value] : old_properties) {
-    auto it = properties.emplace(old_key, old_value);
-    if (!it.second) {
-      auto &new_value = it.first->second;
-      old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
-    }
-  }
-
-  if (!vertex_->properties.InitProperties(properties)) return false;
-  for (auto &[property, old_value, new_value] : old_new_change) {
-    indices_->UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, std::move(old_value));
   }
 
   return true;

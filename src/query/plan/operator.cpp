@@ -2705,11 +2705,9 @@ namespace {
 
 template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+                                          storage::PropertyValue property_value) {
   { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
 };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.

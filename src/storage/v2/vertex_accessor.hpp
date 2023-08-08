@@ -73,8 +73,6 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
-  Result<bool> UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
-
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
