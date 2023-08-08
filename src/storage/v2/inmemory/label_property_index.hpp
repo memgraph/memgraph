@@ -21,7 +21,7 @@ struct LabelPropertyIndexStats {
 };
 
 /// TODO: andi. Too many copies, extract at one place
-using ParalellizedIndexCreationInfo =
+using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
@@ -43,7 +43,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
+                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
