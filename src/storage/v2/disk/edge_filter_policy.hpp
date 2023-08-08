@@ -36,7 +36,7 @@ class EdgeFilterPolicy : public rocksdb::FilterPolicy {
 
     bool MayMatch(const rocksdb::Slice &entry) override {
       spdlog::trace("Entry received in MayMatch: {}", entry.ToString());
-      return true;
+      return orig_reader_->MayMatch(entry);
     }
 
    private:
@@ -59,7 +59,10 @@ class EdgeFilterPolicy : public rocksdb::FilterPolicy {
     // and duplicated keys are possible, so typically, the builder will
     // only add this key if its hash is different from the most recently
     // added.
-    void AddKey(const rocksdb::Slice &key) override;
+    void AddKey(const rocksdb::Slice &key) override {
+      spdlog::trace("Request for AddKey: {}", key.ToString());
+      orig_builder_->AddKey(key);
+    }
 
     // Called by RocksDB before Finish to populate
     // TableProperties::num_filter_entries, so should represent the
@@ -86,6 +89,10 @@ class EdgeFilterPolicy : public rocksdb::FilterPolicy {
   EdgeFilterPolicy(EdgeFilterPolicy &&) = delete;
   EdgeFilterPolicy &operator=(EdgeFilterPolicy &&) = delete;
   ~EdgeFilterPolicy() override { delete orig_policy_; }
+
+  const char *Name() const override { return "EdgeFilterPolicy"; }
+
+  const char *CompatibilityName() const override { return "EdgeFilterPolicy"; }
 
   rocksdb::FilterBitsBuilder *GetBuilderWithContext(const rocksdb::FilterBuildingContext &context) const override {
     return new EdgeFilterBitsBuilder(orig_policy_->GetBuilderWithContext(context));

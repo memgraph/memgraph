@@ -249,6 +249,12 @@ DiskStorage::DiskStorage(Config config)
   kvstore_->options_.wal_compression = rocksdb::kNoCompression;
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+  // Set up bloom filter
+  rocksdb::BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(new EdgeFilterPolicy());
+  kvstore_->options_.table_factory.reset(
+      rocksdb::NewBlockBasedTableFactory(table_options));  // For multiple column family setting, set up spec
+
   if (utils::DirExists(config.disk.main_storage_directory)) {
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
@@ -743,9 +749,25 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
+  rocksdb::ReadOptions read_opts_1;
+  auto strTs_1 = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts_1(strTs_1);
+  read_opts_1.timestamp = &ts_1;
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+
+  std::string value;
+  auto maybe_res =
+      disk_transaction_->Get(read_opts_1, disk_storage->kvstore_->vertex_chandle, utils::SerializeIdType(gid), &value);
+  if (maybe_res.ok()) {
+    spdlog::trace("Found vertex with gid using Get: {}", value);
+  } else {
+    spdlog::trace("Nothing found with single get, status: {}", maybe_res.getState());
+  }
+
   auto acc = vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
+    spdlog::trace("Found in main cache");
     return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                   view);
   }
@@ -753,6 +775,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
     acc = vec->access();
     auto index_it = acc.find(gid);
     if (index_it != acc.end()) {
+      spdlog::trace("Found in index cache");
       return VertexAccessor::Create(&*index_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                     view);
     }
@@ -762,9 +785,9 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
   read_opts.timestamp = &ts;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto it = std::unique_ptr<rocksdb::Iterator>(
       disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
+
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
     if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key.ToString()))) == gid) {
