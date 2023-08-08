@@ -174,13 +174,15 @@ class DiskStorage final : public Storage {
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
    private:
-    VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
+    VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
+                                        const std::vector<LabelId> &label_ids, PropertyStore &&properties,
+                                        Delta *delta);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
-    Result<EdgeAccessor> CreateEdge(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
-                                    storage::Gid gid, std::string_view properties, const std::string &old_disk_key);
+    Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
+                                            storage::Gid gid, std::string_view properties,
+                                            const std::string &old_disk_key);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.

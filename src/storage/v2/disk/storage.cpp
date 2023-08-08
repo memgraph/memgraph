@@ -316,9 +316,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
     return std::nullopt;
   }
   std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key_str);
-  return CreateVertex(main_storage_accessor, gid, labels_id,
-                      utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key.ToString()));
+  return CreateVertexFromDisk(main_storage_accessor, gid, labels_id,
+                              utils::DeserializePropertiesFromMainDiskStorage(value.ToStringView()),
+                              CreateDeleteDeserializedObjectDelta(&transaction_, key.ToString()));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -331,8 +331,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
   const std::string value_str{value.ToString()};
   const auto labels{utils::DeserializeLabelsFromLabelIndexStorage(value_str)};
-  return CreateVertex(index_accessor, gid, labels, utils::DeserializePropertiesFromLabelIndexStorage(value_str),
-                      index_delta);
+  return CreateVertexFromDisk(index_accessor, gid, labels, utils::DeserializePropertiesFromLabelIndexStorage(value_str),
+                              index_delta);
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
@@ -345,8 +345,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
   const std::string value_str{value.ToString()};
   const auto labels{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
-  return CreateVertex(index_accessor, gid, labels,
-                      utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()), index_delta);
+  return CreateVertexFromDisk(index_accessor, gid, labels,
+                              utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString()), index_delta);
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -376,7 +376,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
-  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView(), key.ToString());
+  auto maybe_edge =
+      CreateEdgeFromDisk(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView(), key.ToString());
   MG_ASSERT(maybe_edge.HasValue());
 
   return *maybe_edge;
@@ -723,9 +724,9 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
-VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                                       const std::vector<LabelId> &label_ids,
-                                                       PropertyStore &&properties, Delta *delta) {
+VertexAccessor DiskStorage::DiskAccessor::CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor,
+                                                               storage::Gid gid, const std::vector<LabelId> &label_ids,
+                                                               PropertyStore &&properties, Delta *delta) {
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
@@ -742,7 +743,6 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
     delta->prev.Set(&*it);
   }
 
-  disk_storage->vertex_count_.fetch_add(1, std::memory_order_acq_rel);
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -929,10 +929,10 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
   });
 }
 
-Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor *from, const VertexAccessor *to,
-                                                           EdgeTypeId edge_type, storage::Gid gid,
-                                                           const std::string_view properties,
-                                                           const std::string &old_disk_key) {
+Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
+                                                                   EdgeTypeId edge_type, storage::Gid gid,
+                                                                   const std::string_view properties,
+                                                                   const std::string &old_disk_key) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
@@ -986,8 +986,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-
-  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
