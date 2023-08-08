@@ -139,5 +139,41 @@ bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::Pro
   }
 }
 
+template <typename T>
+concept AccessorWithUpdateProperties = requires(T accessor,
+                                                std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  {
+    accessor.UpdateProperties(properties)
+    } -> std::same_as<
+        storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
+};
+
+/// Set property `values` mapped with given `key` on a `record`.
+///
+/// @throw QueryRuntimeException if value cannot be set as a property value
+template <AccessorWithUpdateProperties T>
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) ->
+    typename std::remove_reference<decltype(record->UpdateProperties(properties).GetValue())>::type {
+  try {
+    auto maybe_values = record->UpdateProperties(properties);
+    if (maybe_values.HasError()) {
+      switch (maybe_values.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw TransactionSerializationException();
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to set properties on a deleted object.");
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Unexpected error when setting a property.");
+      }
+    }
+    return std::move(*maybe_values);
+  } catch (const TypedValueException &) {
+    throw QueryRuntimeException("Cannot update properties.");
+  }
+}
+
 int64_t QueryTimestamp();
 }  // namespace memgraph::query

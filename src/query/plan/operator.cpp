@@ -2814,11 +2814,10 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         auto key = context->db_accessor->NameToProperty(kv.first);
         new_properties.emplace(key, kv.second);
       }
-      auto result = record->UpdateProperties(new_properties);
-      if (result.HasError()) {
-      }
+      auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+
       if (should_register_change) {
-        for (auto &[id, old_value, new_value] : *result) {
+        for (auto &[id, old_value, new_value] : updated_properties) {
           register_set_property(old_value, id, new_value);
         }
       }
