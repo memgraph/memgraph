@@ -35,9 +35,13 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 using PmrListDelta = utils::pmr::list<Delta>;
 struct empty_deleter {
   void operator()(PmrListDelta *p) const {
-    // auto allocator = utils::Allocator<PmrListDelta>(p->get_allocator().GetMemoryResource());
-    // allocator.delete_object(p);
-    std::cout << "call deleter for utils::pmr::list<Delta> object 0x" << std::hex << (void *)p << '\n';
+    auto *memory_resource = p->get_allocator().GetMemoryResource();
+    if (auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+        monotonic_buffer != nullptr) {
+      // auto allocator = utils::Allocator<PmrListDelta>(monotonic_buffer);
+      // allocator.delete_object(p);
+      // std::cout << "call deleter for utils::pmr::list<Delta> object 0x" << std::hex << (void *)p << '\n';
+    }
   }
 };
 

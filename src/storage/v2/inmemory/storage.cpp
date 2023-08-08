@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <stdexcept>
 #include <utility>
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -1157,6 +1158,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     auto it = monotonic_resources.find(transaction_id);
     if (it != monotonic_resources.end()) {
       memory_resource = &(it->second);
+    } else {
+      throw std::runtime_error("memory resource was not created");
     }
   });
   return {transaction_id, start_timestamp, isolation_level, storage_mode, memory_resource};
@@ -1405,7 +1408,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
     // if force is set to true we can simply delete all the leftover undos because
     // no transaction is active
-    std::optional<std::vector<transaction_id_type>> ids_to_remove;
+    std::vector<transaction_id_type> ids_to_remove;
     if constexpr (force) {
       std::vector<utils::MonotonicBufferResource *> resources_clean;
 
@@ -1420,26 +1423,25 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
       }
 
     } else {
-      ids_to_remove.emplace(std::vector<transaction_id_type>{});
       while (!undo_buffers.empty() && std::get<0>(undo_buffers.front()) <= oldest_active_start_timestamp) {
         auto &[timestamp, transaction_id, transaction_deltas] = undo_buffers.front();
-        auto *buffer_resource =
-            static_cast<utils::MonotonicBufferResource *>(transaction_deltas->get_allocator().GetMemoryResource());
-        buffer_resource->Release();
-        ids_to_remove.emplace(transaction_id);
+        ids_to_remove.emplace_back(transaction_id);
         undo_buffers.pop_front();
       }
     }
 
     if constexpr (force) {
-      monotonic_resources_->clear();
+      monotonic_resources_.WithLock([](auto &monotonic_resources) { monotonic_resources.clear(); });
+
     } else {
-      if (!ids_to_remove) {
+      if (ids_to_remove.empty()) {
         return;
       }
-      for (auto id_copy : *ids_to_remove) {
-        monotonic_resources_->erase(id_copy);
-      }
+      monotonic_resources_.WithLock([ids_to_remove](auto &monotonic_resources) {
+        for (auto id_copy : ids_to_remove) {
+          monotonic_resources.erase(id_copy);
+        }
+      });
     }
   });
 
