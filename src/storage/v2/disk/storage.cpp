@@ -874,12 +874,7 @@ bool DiskStorage::DiskAccessor::PrefetchEdgeFilter(const std::string_view disk_e
   bool isOutEdge = (edge_direction == EdgeDirection::OUT);
   DiskEdgeKey disk_edge_key(disk_edge_key_str);
   auto edges_res = (isOutEdge ? vertex_acc.OutEdges(storage::View::NEW) : vertex_acc.InEdges(storage::View::NEW));
-  std::string disk_vertex_gid;
-  if (isOutEdge) {
-    disk_vertex_gid = disk_edge_key.GetVertexOutGid();
-  } else {
-    disk_vertex_gid = disk_edge_key.GetVertexInGid();
-  }
+  const std::string disk_vertex_gid = (isOutEdge ? disk_edge_key.GetVertexOutGid() : disk_edge_key.GetVertexInGid());
   auto edge_gid = disk_edge_key.GetEdgeGid();
 
   if (disk_vertex_gid != utils::SerializeIdType(vertex_acc.Gid())) {
@@ -1269,8 +1264,8 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
     for (auto &edge_entry : vertex.out_edges) {
       EdgeRef edge = std::get<2>(edge_entry);
-      DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
-                               config_.properties_on_edges);
+      const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
+                                     config_.properties_on_edges);
 
       /// TODO: expose temporal coupling
       /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
