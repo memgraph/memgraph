@@ -25,7 +25,7 @@ disk_storage_properties_edges_false: &disk_storage_properties_edges_false
     main:
       args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=False"]
       log_file: "triggers-e2e-disk.log"
-      setup_queries: []
+      setup_queries: ["storage mode on_disk_transactional"]
       validation_queries: []
 
 workloads:
