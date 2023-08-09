@@ -37,7 +37,7 @@ InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, Constra
 
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
-                                             const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                             const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -53,11 +53,11 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto create_index_par =
       [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParalellizedIndexCreationInfo &paralell_exec_info) {
+             const ParallelizedIndexCreationInfo &parallel_exec_info) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), paralell_exec_info,
+            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             });
@@ -72,8 +72,8 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
     return false;
   }
 
-  if (paralell_exec_info) {
-    return create_index_par(label, property, vertices, it, *paralell_exec_info);
+  if (parallel_exec_info) {
+    return create_index_par(label, property, vertices, it, *parallel_exec_info);
   }
   return create_index_seq(label, property, vertices, it);
 }
