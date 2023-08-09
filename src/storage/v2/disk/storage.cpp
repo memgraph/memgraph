@@ -316,8 +316,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
     return std::nullopt;
   }
   std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(key);
-  return CreateVertex(main_storage_accessor, gid, labels_id, utils::DeserializePropertiesFromMainDiskStorage(value),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key));
+  return CreateVertexFromDisk(main_storage_accessor, gid, labels_id,
+                              utils::DeserializePropertiesFromMainDiskStorage(value),
+                              CreateDeleteDeserializedObjectDelta(&transaction_, key));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -330,7 +331,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(value)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
-  return CreateVertex(index_accessor, gid, labels_id, std::move(properties), index_delta);
+  return CreateVertexFromDisk(index_accessor, gid, labels_id, std::move(properties), index_delta);
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
@@ -343,7 +344,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
-  return CreateVertex(index_accessor, gid, labels_id, std::move(properties), index_delta);
+  return CreateVertexFromDisk(index_accessor, gid, labels_id, std::move(properties), index_delta);
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
