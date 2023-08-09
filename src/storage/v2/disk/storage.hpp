@@ -315,6 +315,8 @@ class DiskStorage final : public Storage {
 
   void LoadTimestampIfExists();
 
+  void LoadVertexAndEdgeCountIfExists();
+
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 
