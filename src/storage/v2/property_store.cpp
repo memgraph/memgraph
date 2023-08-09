@@ -1242,7 +1242,7 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
 std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
     std::map<PropertyId, PropertyValue> &properties) {
   auto old_properties = Properties();
-  MG_ASSERT(ClearProperties());
+  ClearProperties();
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
   id_old_new_change.reserve(properties.size() + old_properties.size());
