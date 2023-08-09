@@ -696,13 +696,14 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
 
 StorageInfo DiskStorage::GetInfo() const {
   uint64_t edge_count = edge_count_.load(std::memory_order_acquire);
+  uint64_t vertex_count = vertex_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
-  if (vertex_count_) {
+  if (vertex_count) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count_;
+    average_degree = 2.0 * edge_count / static_cast<double>(vertex_count);
   }
 
-  return {vertex_count_, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
@@ -799,7 +800,7 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
   vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->vertex_count_.fetch_add(-1, std::memory_order_acq_rel);
+  disk_storage->vertex_count_.fetch_sub(1, std::memory_order_acq_rel);
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
@@ -871,7 +872,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   vertex_ptr->deleted = true;
   vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->vertex_count_.fetch_add(-1, std::memory_order_acq_rel);
+  disk_storage->vertex_count_.fetch_sub(1, std::memory_order_acq_rel);
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -1133,7 +1134,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
 
   // Decrement edge count.
-  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+  storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
                                           &storage_->indices_, &storage_->constraints_, config_, true);
@@ -1527,18 +1528,18 @@ void DiskStorage::DiskAccessor::Abort() {
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
+  uint64_t transaction_id = transaction_.transaction_id.load(std::memory_order_acquire);
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
         Delta *current = vertex->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) == transaction_id) {
           switch (current->action) {
             case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
-              disk_storage->vertex_count_.fetch_add(-1, std::memory_order_acq_rel);
+              disk_storage->vertex_count_.fetch_sub(1, std::memory_order_acq_rel);
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -1557,7 +1558,7 @@ void DiskStorage::DiskAccessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_OUT_EDGE: {
-              storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+              storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
               break;
             }
           }
