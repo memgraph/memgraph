@@ -221,8 +221,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!mem_storage->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
-    }
-    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+    } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
