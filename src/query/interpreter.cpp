@@ -1382,7 +1382,7 @@ InterpreterContext::InterpreterContext(const storage::Config storage_config, con
   }
 }
 
-InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
                                        query::AuthChecker *ac)
     : db(std::move(db)),
