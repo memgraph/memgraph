@@ -71,15 +71,9 @@ bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid 
 }
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
-  bool deleted = false;
-  bool has_label = false;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
-    deleted = vertex.deleted;
-    has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
-    delta = vertex.delta;
-  }
+  bool deleted = vertex.deleted;
+  bool has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
+  Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
@@ -114,15 +108,9 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 }
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
-  bool deleted = false;
-  PropertyValue value;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
-    deleted = vertex.deleted;
-    value = vertex.properties.GetProperty(property);
-    delta = vertex.delta;
-  }
+  bool deleted = vertex.deleted;
+  PropertyValue value = vertex.properties.GetProperty(property);
+  Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -779,8 +767,6 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_ptr->deleted) {
@@ -808,16 +794,12 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+  if (vertex_ptr->deleted) return std::optional<ReturnType>{};
 
-    if (vertex_ptr->deleted) return std::optional<ReturnType>{};
-
-    in_edges = vertex_ptr->in_edges;
-    out_edges = vertex_ptr->out_edges;
-  }
+  in_edges = vertex_ptr->in_edges;
+  out_edges = vertex_ptr->out_edges;
 
   std::vector<EdgeAccessor> deleted_edges;
   for (const auto &item : in_edges) {
@@ -848,8 +830,6 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
       deleted_edges.push_back(*ret.GetValue());
     }
   }
-
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
   // We need to check again for serialization errors because we unlocked the
   // vertex. Some other transaction could have modified the vertex in the
@@ -934,20 +914,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
@@ -995,20 +961,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
@@ -1050,10 +1002,8 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   const auto edge_ref = edge->edge_;
   const auto edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
     const auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -1062,20 +1012,6 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   auto *from_vertex = edge->from_vertex_;
   auto *to_vertex = edge->to_vertex_;
-
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
