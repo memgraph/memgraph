@@ -22,6 +22,7 @@
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
+#include <unordered_set>
 
 namespace memgraph::storage {
 
@@ -211,7 +212,9 @@ class DiskStorage final : public Storage {
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                 const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
 
-    void PrefetchEdges(const auto &prefetch_edge_filter);
+    bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
+                            EdgeDirection edge_direction);
+    void PrefetchEdges(const VertexAccessor &vertex_acc, EdgeDirection edge_direction);
 
     Result<EdgeAccessor> CreateEdge(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
                                     storage::Gid gid, std::string_view properties, const std::string &old_disk_key);
@@ -240,7 +243,7 @@ class DiskStorage final : public Storage {
     std::vector<std::list<Delta>> index_deltas_storage_;
     utils::SkipList<storage::Edge> edges_;
     Config::Items config_;
-    std::vector<std::string> edges_to_delete_;
+    std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
   };
