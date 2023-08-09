@@ -112,8 +112,6 @@ class VertexAccessor final {
   Constraints *constraints_;
   Config::Items config_;
 
-  mutable std::map<PropertyId, PropertyValue> all_properties_;
-
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this
   // flag.
