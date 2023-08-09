@@ -341,10 +341,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
     return std::nullopt;
   }
 
-  const std::string value_str{value.ToString()};
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(value_str)};
+  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(value)};
   labels_id.push_back(indexing_label);
-  PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value_str)};
+  PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
   return CreateVertex(index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
 
@@ -356,10 +355,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
     return std::nullopt;
   }
 
-  const std::string value_str{value.ToString()};
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value_str)};
+  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(value)};
   labels_id.push_back(indexing_label);
-  PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value.ToString())};
+  PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
   return CreateVertex(index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
 
@@ -470,7 +468,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
     spdlog::trace("Loaded vertex with key: {} from label index storage", key);
     if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
-      LoadVertexToLabelIndexCache(index_it->key().ToString(), index_it->value().ToString(),
+      LoadVertexToLabelIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
                                   CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
                                   indexed_vertices->access());
     }
@@ -548,7 +546,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
     /// TODO: optimize
     if (label_property_filter(key, label_property_prefix, gids, curr_gid)) {
-      LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
+      LoadVertexToLabelPropertyIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
                                           CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
                                           indexed_vertices->access());
     }
@@ -590,7 +588,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
-  
+
   const auto label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
@@ -600,7 +598,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value);
     if (key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
         properties.IsPropertyEqual(property, value)) {
-      LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
+      LoadVertexToLabelPropertyIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
                                           CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
                                           indexed_vertices->access());
     }
@@ -679,7 +677,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
         !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       continue;
     }
-    LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
+    LoadVertexToLabelPropertyIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
                                         CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key_str),
                                         indexed_vertices->access());
   }
