@@ -762,9 +762,6 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 }
 
 Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(VertexAccessor *vertex) {
-  MG_ASSERT(vertex->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
   if (vertex_ptr->deleted) {
@@ -784,10 +781,6 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-  MG_ASSERT(vertex->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-
   auto *vertex_ptr = vertex->vertex_;
 
   if (vertex_ptr->deleted) return std::optional<ReturnType>{};
@@ -892,21 +885,10 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
                                                            const std::string_view properties,
                                                            const std::string &old_disk_key) {
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
-
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
+  if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
@@ -937,21 +919,10 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-  MG_ASSERT(to->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
+  if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
