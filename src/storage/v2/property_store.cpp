@@ -1238,6 +1238,32 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
 
   return true;
 }
+
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties) {
+  auto old_properties = Properties();
+  MG_ASSERT(ClearProperties());
+
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
+  id_old_new_change.reserve(properties.size() + old_properties.size());
+  for (const auto &[prop_id, new_value] : properties) {
+    if (!old_properties.contains(prop_id)) {
+      id_old_new_change.emplace_back(std::make_tuple(prop_id, PropertyValue(), new_value));
+    }
+  }
+
+  for (const auto &[old_key, old_value] : old_properties) {
+    auto [it, inserted] = properties.emplace(old_key, old_value);
+    if (!inserted) {
+      auto &new_value = it->second;
+      id_old_new_change.emplace_back(std::make_tuple(it->first, old_value, new_value));
+    }
+  }
+
+  MG_ASSERT(InitProperties(properties));
+  return id_old_new_change;
+}
+
 template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
     const std::map<PropertyId, PropertyValue> &);
 template bool PropertyStore::DoInitProperties<std::vector<std::pair<PropertyId, PropertyValue>>>(

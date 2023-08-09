@@ -158,26 +158,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
-  auto old_properties = edge_.ptr->properties.Properties();
-  edge_.ptr->properties.ClearProperties();
+  auto id_old_new_change = edge_.ptr->properties.UpdateProperties(properties);
 
-  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
-  id_old_new_change.reserve(properties.size() + old_properties.size());
-  for (auto &kv : properties) {
-    if (!old_properties.contains(kv.first)) {
-      id_old_new_change.emplace_back(std::make_tuple(kv.first, PropertyValue(), kv.second));
-    }
-  }
-
-  for (auto &[old_key, old_value] : old_properties) {
-    auto it = properties.emplace(old_key, old_value);
-    if (!it.second) {
-      auto &new_value = it.first->second;
-      id_old_new_change.emplace_back(std::make_tuple(it.first->first, old_value, new_value));
-    }
-  }
-
-  if (!edge_.ptr->properties.InitProperties(properties)) return Error::SERIALIZATION_ERROR;
   for (auto &[property, old_value, new_value] : id_old_new_change) {
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
   }

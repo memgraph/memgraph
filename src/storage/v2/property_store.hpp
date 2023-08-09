@@ -91,6 +91,9 @@ class PropertyStore {
   /// @throw std::bad_alloc
   bool InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties);
 
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties);
+
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time
   /// complexity of this function is O(1).
