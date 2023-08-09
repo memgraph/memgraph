@@ -15,7 +15,7 @@
 namespace memgraph::storage {
 
 /// TODO: andi. Too many copies, extract at one place
-using ParalellizedIndexCreationInfo =
+using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
