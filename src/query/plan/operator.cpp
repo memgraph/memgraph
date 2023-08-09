@@ -2789,7 +2789,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     auto updated_properties = UpdatePropertiesChecked(record, new_properties);
 
     if (should_register_change) {
-      for (auto &[id, old_value, new_value] : updated_properties) {
+      for (const auto &[id, old_value, new_value] : updated_properties) {
         register_set_property(std::move(old_value), id, std::move(new_value));
       }
     }
@@ -2808,9 +2808,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     }
     case TypedValue::Type::Map: {
       PropertiesMap new_properties;
-      for (const auto &kv : rhs.ValueMap()) {
-        auto key = context->db_accessor->NameToProperty(kv.first);
-        new_properties.emplace(key, kv.second);
+      for (const auto &[prop_id, prop_value] : rhs.ValueMap()) {
+        auto key = context->db_accessor->NameToProperty(prop_id);
+        new_properties.emplace(key, prop_value);
       }
       update_props(new_properties);
       break;
