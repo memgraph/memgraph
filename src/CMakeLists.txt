@@ -31,6 +31,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
         memgraph.cpp
+        SessionHL.cpp
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
