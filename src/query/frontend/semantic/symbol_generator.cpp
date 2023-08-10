@@ -400,7 +400,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(MapLiteral &) { return true; }
+bool SymbolGenerator::PreVisit(MapLiteral & /*unused*/) { return true; }
 
 bool SymbolGenerator::PostVisit(MapLiteral &ml) {
   std::cout << "PostVisit(MapLiteral &ml)" << std::endl;
