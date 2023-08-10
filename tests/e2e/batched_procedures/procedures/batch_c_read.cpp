@@ -30,7 +30,7 @@ static int returned_strings{0};
 const char *kReturnOutput = "output";
 
 void NumsBatchInit(struct mgp_list *args, mgp_graph *graph, struct mgp_memory *memory) {
-  mgp::memory = memory;
+  mgp::MemoryResourceDistributorGuard guard(memory);
   const auto arguments = mgp::List(args);
   if (arguments.Empty()) {
     throw std::runtime_error("Expected to recieve argument");
@@ -43,7 +43,7 @@ void NumsBatchInit(struct mgp_list *args, mgp_graph *graph, struct mgp_memory *m
 }
 
 void NumsBatch(struct mgp_list *args, mgp_graph *graph, mgp_result *result, struct mgp_memory *memory) {
-  mgp::memory = memory;
+  mgp::MemoryResourceDistributorGuard guard(memory);
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   if (returned_ints < num_ints) {
@@ -58,7 +58,7 @@ void NumsBatchCleanup() {
 }
 
 void StringsBatchInit(struct mgp_list *args, mgp_graph *graph, struct mgp_memory *memory) {
-  mgp::memory = memory;
+  mgp::MemoryResourceDistributorGuard guard(memory);
   const auto arguments = mgp::List(args);
   if (arguments.Empty()) {
     throw std::runtime_error("Expected to recieve argument");
@@ -71,7 +71,7 @@ void StringsBatchInit(struct mgp_list *args, mgp_graph *graph, struct mgp_memory
 }
 
 void StringsBatch(struct mgp_list *args, mgp_graph *graph, mgp_result *result, struct mgp_memory *memory) {
-  mgp::memory = memory;
+  mgp::MemoryResourceDistributorGuard guard(memory);
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
@@ -117,7 +117,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
   {
     try {
-      mgp::memory = memory;
+      mgp::MemoryResourceDistributorGuard guard(memory);
       mgp::AddBatchProcedure(StringsBatch, StringsBatchInit, StringsBatchCleanup, "batch_strings",
                              mgp::ProcedureType::Read, {mgp::Parameter("num_strings", mgp::Type::Int)},
                              {mgp::Return("output", mgp::Type::String)}, module, memory);

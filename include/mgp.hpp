@@ -18,6 +18,8 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "_mgp.hpp"
@@ -91,7 +93,77 @@ class Value;
 struct StealType {};
 inline constexpr StealType steal{};
 
-inline mgp_memory *memory{nullptr};
+class SpinLock final {
+ public:
+  void lock() {
+    while (flag_.test_and_set(std::memory_order_acquire))
+      ;
+  }
+
+  void unlock() { flag_.clear(std::memory_order_release); }
+
+ private:
+  std::atomic_flag flag_{ATOMIC_FLAG_INIT};
+};
+
+class MemoryResourceDistributorGuard;
+
+class MemoryResourceDistributor final {
+ public:
+  MemoryResourceDistributor() = default;
+  ~MemoryResourceDistributor() = default;
+  MemoryResourceDistributor(const MemoryResourceDistributor &) = delete;
+  MemoryResourceDistributor(MemoryResourceDistributor &&) = delete;
+  MemoryResourceDistributor &operator=(const MemoryResourceDistributor &) = delete;
+  MemoryResourceDistributor &operator=(MemoryResourceDistributor &&) = delete;
+
+  mgp_memory *GetMemoryResource() noexcept {
+    const auto this_id = std::this_thread::get_id();
+    std::lock_guard lg(lock_);
+    return map_[this_id];
+  }
+
+  void Register(mgp_memory *mem) noexcept {
+    const auto this_id = std::this_thread::get_id();
+    std::lock_guard lg(lock_);
+    map_[this_id] = mem;
+  }
+
+  void UnRegister() noexcept {
+    const auto this_id = std::this_thread::get_id();
+    std::lock_guard lg(lock_);
+    map_.erase(this_id);
+  }
+
+ private:
+  std::unordered_map<std::thread::id, mgp_memory *> map_;
+  SpinLock lock_;
+};
+
+// TODO(gvolfing) - check if we can get away with an inline
+// variable with internal linkage. That might speed up non-overlapping
+// query modules.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+inline extern MemoryResourceDistributor mrd{};
+
+class MemoryResourceDistributorGuard final {
+ public:
+  explicit MemoryResourceDistributorGuard(mgp_memory *mem) { mrd.Register(mem); };
+
+  MemoryResourceDistributorGuard(const MemoryResourceDistributorGuard &) = delete;
+  MemoryResourceDistributorGuard(MemoryResourceDistributorGuard &&) = delete;
+  MemoryResourceDistributorGuard &operator=(const MemoryResourceDistributorGuard &) = delete;
+  MemoryResourceDistributorGuard &operator=(MemoryResourceDistributorGuard &&) = delete;
+
+  ~MemoryResourceDistributorGuard() { mrd.UnRegister(); }
+};
+
+// TODO(gvolfing) find a way these two methods of specifing
+// the used memory resource can coexist until deprecation.
+// TODO - Once we deprecate this we should remove this
+// and make sure nothing relies on it anymore. This alone
+// can not guarantee threadsafe use of query procedures.
+// inline mgp_memory *memory{nullptr};
 
 /* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships & Labels) */
 
@@ -1529,7 +1601,7 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (mgp::map_size(map1) != mgp::map_size(map2)) {
     return false;
   }
-  auto items_it = mgp::map_iter_items(map1, memory);
+  auto items_it = mgp::map_iter_items(map1, mrd.GetMemoryResource());
   for (auto item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
     if (mgp::map_item_key(item) == mgp::map_item_key(item)) {
       return false;
@@ -1794,7 +1866,7 @@ inline int64_t Graph::Size() const {
 }
 
 inline GraphNodes Graph::Nodes() const {
-  auto nodes_it = mgp::graph_iter_vertices(graph_, memory);
+  auto nodes_it = mgp::graph_iter_vertices(graph_, mrd.GetMemoryResource());
   if (nodes_it == nullptr) {
     throw mg_exception::NotEnoughMemoryException();
   }
@@ -1804,7 +1876,8 @@ inline GraphNodes Graph::Nodes() const {
 inline GraphRelationships Graph::Relationships() const { return GraphRelationships(graph_); }
 
 inline Node Graph::GetNodeById(const Id node_id) const {
-  auto mgp_node = mgp::graph_get_vertex_by_id(graph_, mgp_vertex_id{.as_int = node_id.AsInt()}, memory);
+  auto mgp_node =
+      mgp::graph_get_vertex_by_id(graph_, mgp_vertex_id{.as_int = node_id.AsInt()}, mrd.GetMemoryResource());
   if (mgp_node == nullptr) {
     mgp::vertex_destroy(mgp_node);
     throw NotFoundException("Node with ID " + std::to_string(node_id.AsUint()) + " not found!");
@@ -1815,7 +1888,8 @@ inline Node Graph::GetNodeById(const Id node_id) const {
 }
 
 inline bool Graph::ContainsNode(const Id node_id) const {
-  auto mgp_node = mgp::graph_get_vertex_by_id(graph_, mgp_vertex_id{.as_int = node_id.AsInt()}, memory);
+  auto mgp_node =
+      mgp::graph_get_vertex_by_id(graph_, mgp_vertex_id{.as_int = node_id.AsInt()}, mrd.GetMemoryResource());
   if (mgp_node == nullptr) {
     return false;
   }
@@ -1847,7 +1921,7 @@ inline bool Graph::ContainsRelationship(const Relationship &relationship) const 
 inline bool Graph::IsMutable() const { return mgp::graph_is_mutable(graph_); }
 
 inline Node Graph::CreateNode() {
-  auto *vertex = mgp::graph_create_vertex(graph_, memory);
+  auto *vertex = mgp::graph_create_vertex(graph_, mrd.GetMemoryResource());
   auto node = Node(vertex);
 
   mgp::vertex_destroy(vertex);
@@ -1860,7 +1934,8 @@ inline void Graph::DeleteNode(const Node &node) { mgp::graph_delete_vertex(graph
 inline void Graph::DetachDeleteNode(const Node &node) { mgp::graph_detach_delete_vertex(graph_, node.ptr_); };
 
 inline Relationship Graph::CreateRelationship(const Node &from, const Node &to, const std::string_view type) {
-  auto *edge = mgp::graph_create_edge(graph_, from.ptr_, to.ptr_, mgp_edge_type{.name = type.data()}, memory);
+  auto *edge =
+      mgp::graph_create_edge(graph_, from.ptr_, to.ptr_, mgp_edge_type{.name = type.data()}, mrd.GetMemoryResource());
   auto relationship = Relationship(edge);
 
   mgp::edge_destroy(edge);
@@ -1967,7 +2042,7 @@ inline GraphRelationships::Iterator::Iterator(mgp_vertices_iterator *nodes_itera
     }
 
     // Check if node has out-relationships
-    out_relationships_iterator_ = mgp::vertex_iter_out_edges(node, memory);
+    out_relationships_iterator_ = mgp::vertex_iter_out_edges(node, mrd.GetMemoryResource());
     auto relationship = mgp::edges_iterator_get(out_relationships_iterator_);
     if (relationship != nullptr) {
       return;
@@ -2018,7 +2093,7 @@ inline GraphRelationships::Iterator &GraphRelationships::Iterator::operator++() 
       }
 
       // Check if node has out-relationships
-      out_relationships_iterator_ = mgp::vertex_iter_out_edges(node, memory);
+      out_relationships_iterator_ = mgp::vertex_iter_out_edges(node, mrd.GetMemoryResource());
       auto relationship = mgp::edges_iterator_get(out_relationships_iterator_);
       if (relationship != nullptr) {
         return *this;
@@ -2062,13 +2137,13 @@ inline const Relationship GraphRelationships::Iterator::operator*() const {
 }
 
 inline GraphRelationships::Iterator GraphRelationships::begin() const {
-  return Iterator(mgp::graph_iter_vertices(graph_, memory));
+  return Iterator(mgp::graph_iter_vertices(graph_, mrd.GetMemoryResource()));
 }
 
 inline GraphRelationships::Iterator GraphRelationships::end() const { return Iterator(nullptr); }
 
 inline GraphRelationships::Iterator GraphRelationships::cbegin() const {
-  return Iterator(mgp::graph_iter_vertices(graph_, memory));
+  return Iterator(mgp::graph_iter_vertices(graph_, mrd.GetMemoryResource()));
 }
 
 inline GraphRelationships::Iterator GraphRelationships::cend() const { return Iterator(nullptr); }
@@ -2150,7 +2225,7 @@ inline Relationships::Iterator Relationships::cend() const { return Iterator(nul
 
 // Labels:
 
-inline Labels::Labels(mgp_vertex *node_ptr) : node_ptr_(mgp::vertex_copy(node_ptr, memory)) {}
+inline Labels::Labels(mgp_vertex *node_ptr) : node_ptr_(mgp::vertex_copy(node_ptr, mrd.GetMemoryResource())) {}
 
 inline Labels::Labels(const Labels &other) noexcept : Labels(other.node_ptr_) {}
 
@@ -2160,7 +2235,7 @@ inline Labels &Labels::operator=(const Labels &other) noexcept {
   if (this != &other) {
     mgp::vertex_destroy(node_ptr_);
 
-    node_ptr_ = mgp::vertex_copy(other.node_ptr_, memory);
+    node_ptr_ = mgp::vertex_copy(other.node_ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2216,27 +2291,30 @@ inline Labels::Iterator Labels::cend() { return Iterator(this, Size()); }
 
 // List:
 
-inline List::List(mgp_list *ptr) : ptr_(mgp::list_copy(ptr, memory)) {}
+inline List::List(mgp_list *ptr) : ptr_(mgp::list_copy(ptr, mrd.GetMemoryResource())) {}
 
-inline List::List(const mgp_list *const_ptr) : ptr_(mgp::list_copy(const_cast<mgp_list *>(const_ptr), memory)) {}
+inline List::List(const mgp_list *const_ptr)
+    : ptr_(mgp::list_copy(const_cast<mgp_list *>(const_ptr), mrd.GetMemoryResource())) {}
 
-inline List::List() : ptr_(mgp::list_make_empty(0, memory)) {}
+inline List::List() : ptr_(mgp::list_make_empty(0, mrd.GetMemoryResource())) {}
 
-inline List::List(size_t capacity) : ptr_(mgp::list_make_empty(capacity, memory)) {}
+inline List::List(size_t capacity) : ptr_(mgp::list_make_empty(capacity, mrd.GetMemoryResource())) {}
 
-inline List::List(const std::vector<Value> &values) : ptr_(mgp::list_make_empty(values.size(), memory)) {
+inline List::List(const std::vector<Value> &values)
+    : ptr_(mgp::list_make_empty(values.size(), mrd.GetMemoryResource())) {
   for (const auto &value : values) {
     AppendExtend(value);
   }
 }
 
-inline List::List(std::vector<Value> &&values) : ptr_(mgp::list_make_empty(values.size(), memory)) {
+inline List::List(std::vector<Value> &&values) : ptr_(mgp::list_make_empty(values.size(), mrd.GetMemoryResource())) {
   for (auto &value : values) {
     Append(std::move(value));
   }
 }
 
-inline List::List(const std::initializer_list<Value> values) : ptr_(mgp::list_make_empty(values.size(), memory)) {
+inline List::List(const std::initializer_list<Value> values)
+    : ptr_(mgp::list_make_empty(values.size(), mrd.GetMemoryResource())) {
   for (const auto &value : values) {
     AppendExtend(value);
   }
@@ -2250,7 +2328,7 @@ inline List &List::operator=(const List &other) noexcept {
   if (this != &other) {
     mgp::list_destroy(ptr_);
 
-    ptr_ = mgp::list_copy(other.ptr_, memory);
+    ptr_ = mgp::list_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2327,26 +2405,27 @@ inline bool MapItem::operator<(const MapItem &other) const { return key < other.
 
 // Map:
 
-inline Map::Map(mgp_map *ptr) : ptr_(mgp::map_copy(ptr, memory)) {}
+inline Map::Map(mgp_map *ptr) : ptr_(mgp::map_copy(ptr, mrd.GetMemoryResource())) {}
 
-inline Map::Map(const mgp_map *const_ptr) : ptr_(mgp::map_copy(const_cast<mgp_map *>(const_ptr), memory)) {}
+inline Map::Map(const mgp_map *const_ptr)
+    : ptr_(mgp::map_copy(const_cast<mgp_map *>(const_ptr), mrd.GetMemoryResource())) {}
 
-inline Map::Map() : ptr_(mgp::map_make_empty(memory)) {}
+inline Map::Map() : ptr_(mgp::map_make_empty(mrd.GetMemoryResource())) {}
 
-inline Map::Map(const std::map<std::string_view, Value> &items) : ptr_(mgp::map_make_empty(memory)) {
+inline Map::Map(const std::map<std::string_view, Value> &items) : ptr_(mgp::map_make_empty(mrd.GetMemoryResource())) {
   for (const auto &[key, value] : items) {
     Insert(key, value);
   }
 }
 
-inline Map::Map(std::map<std::string_view, Value> &&items) : ptr_(mgp::map_make_empty(memory)) {
+inline Map::Map(std::map<std::string_view, Value> &&items) : ptr_(mgp::map_make_empty(mrd.GetMemoryResource())) {
   for (auto &[key, value] : items) {
     Insert(key, value);
   }
 }
 
 inline Map::Map(const std::initializer_list<std::pair<std::string_view, Value>> items)
-    : ptr_(mgp::map_make_empty(memory)) {
+    : ptr_(mgp::map_make_empty(mrd.GetMemoryResource())) {
   for (const auto &[key, value] : items) {
     Insert(key, value);
   }
@@ -2360,7 +2439,7 @@ inline Map &Map::operator=(const Map &other) noexcept {
   if (this != &other) {
     mgp::map_destroy(ptr_);
 
-    ptr_ = mgp::map_copy(other.ptr_, memory);
+    ptr_ = mgp::map_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2456,11 +2535,11 @@ inline const MapItem Map::Iterator::operator*() const {
   return MapItem{.key = map_key, .value = map_value};
 }
 
-inline Map::Iterator Map::begin() const { return Iterator(mgp::map_iter_items(ptr_, memory)); }
+inline Map::Iterator Map::begin() const { return Iterator(mgp::map_iter_items(ptr_, mrd.GetMemoryResource())); }
 
 inline Map::Iterator Map::end() const { return Iterator(nullptr); }
 
-inline Map::Iterator Map::cbegin() const { return Iterator(mgp::map_iter_items(ptr_, memory)); }
+inline Map::Iterator Map::cbegin() const { return Iterator(mgp::map_iter_items(ptr_, mrd.GetMemoryResource())); }
 
 inline Map::Iterator Map::cend() const { return Iterator(nullptr); }
 
@@ -2492,9 +2571,10 @@ inline bool Map::operator!=(const Map &other) const { return !(*this == other); 
 
 // Node:
 
-inline Node::Node(mgp_vertex *ptr) : ptr_(mgp::vertex_copy(ptr, memory)) {}
+inline Node::Node(mgp_vertex *ptr) : ptr_(mgp::vertex_copy(ptr, mrd.GetMemoryResource())) {}
 
-inline Node::Node(const mgp_vertex *const_ptr) : ptr_(mgp::vertex_copy(const_cast<mgp_vertex *>(const_ptr), memory)) {}
+inline Node::Node(const mgp_vertex *const_ptr)
+    : ptr_(mgp::vertex_copy(const_cast<mgp_vertex *>(const_ptr), mrd.GetMemoryResource())) {}
 
 inline Node::Node(const Node &other) noexcept : Node(other.ptr_) {}
 
@@ -2504,7 +2584,7 @@ inline Node &Node::operator=(const Node &other) noexcept {
   if (this != &other) {
     mgp::vertex_destroy(ptr_);
 
-    ptr_ = mgp::vertex_copy(other.ptr_, memory);
+    ptr_ = mgp::vertex_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2539,7 +2619,7 @@ inline bool Node::HasLabel(std::string_view label) const {
 }
 
 inline Relationships Node::InRelationships() const {
-  auto relationship_iterator = mgp::vertex_iter_in_edges(ptr_, memory);
+  auto relationship_iterator = mgp::vertex_iter_in_edges(ptr_, mrd.GetMemoryResource());
   if (relationship_iterator == nullptr) {
     throw mg_exception::NotEnoughMemoryException();
   }
@@ -2547,7 +2627,7 @@ inline Relationships Node::InRelationships() const {
 }
 
 inline Relationships Node::OutRelationships() const {
-  auto relationship_iterator = mgp::vertex_iter_out_edges(ptr_, memory);
+  auto relationship_iterator = mgp::vertex_iter_out_edges(ptr_, mrd.GetMemoryResource());
   if (relationship_iterator == nullptr) {
     throw mg_exception::NotEnoughMemoryException();
   }
@@ -2563,7 +2643,7 @@ inline void Node::RemoveLabel(const std::string_view label) {
 }
 
 inline std::map<std::string, Value> Node::Properties() const {
-  mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, memory);
+  mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, mrd.GetMemoryResource());
   std::map<std::string, Value> property_map;
   for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
@@ -2580,7 +2660,7 @@ inline void Node::SetProperty(std::string property, Value value) {
 inline void Node::RemoveProperty(std::string property) { SetProperty(property, Value()); }
 
 inline Value Node::GetProperty(const std::string &property) const {
-  mgp_value *vertex_prop = mgp::vertex_get_property(ptr_, property.data(), memory);
+  mgp_value *vertex_prop = mgp::vertex_get_property(ptr_, property.data(), mrd.GetMemoryResource());
   return Value(steal, vertex_prop);
 }
 
@@ -2592,10 +2672,10 @@ inline bool Node::operator!=(const Node &other) const { return !(*this == other)
 
 // Relationship:
 
-inline Relationship::Relationship(mgp_edge *ptr) : ptr_(mgp::edge_copy(ptr, memory)) {}
+inline Relationship::Relationship(mgp_edge *ptr) : ptr_(mgp::edge_copy(ptr, mrd.GetMemoryResource())) {}
 
 inline Relationship::Relationship(const mgp_edge *const_ptr)
-    : ptr_(mgp::edge_copy(const_cast<mgp_edge *>(const_ptr), memory)) {}
+    : ptr_(mgp::edge_copy(const_cast<mgp_edge *>(const_ptr), mrd.GetMemoryResource())) {}
 
 inline Relationship::Relationship(const Relationship &other) noexcept : Relationship(other.ptr_) {}
 
@@ -2605,7 +2685,7 @@ inline Relationship &Relationship::operator=(const Relationship &other) noexcept
   if (this != &other) {
     mgp::edge_destroy(ptr_);
 
-    ptr_ = mgp::edge_copy(other.ptr_, memory);
+    ptr_ = mgp::edge_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2631,7 +2711,7 @@ inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(pt
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
 inline std::map<std::string, Value> Relationship::Properties() const {
-  mgp_properties_iterator *properties_iterator = mgp::edge_iter_properties(ptr_, memory);
+  mgp_properties_iterator *properties_iterator = mgp::edge_iter_properties(ptr_, mrd.GetMemoryResource());
   std::map<std::string, Value> property_map;
   for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
@@ -2646,7 +2726,7 @@ inline void Relationship::SetProperty(std::string property, Value value) {
 }
 
 inline Value Relationship::GetProperty(const std::string &property) const {
-  mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), memory);
+  mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), mrd.GetMemoryResource());
   return Value(steal, edge_prop);
 }
 
@@ -2664,11 +2744,12 @@ inline bool Relationship::operator!=(const Relationship &other) const { return !
 
 // Path:
 
-inline Path::Path(mgp_path *ptr) : ptr_(mgp::path_copy(ptr, memory)) {}
+inline Path::Path(mgp_path *ptr) : ptr_(mgp::path_copy(ptr, mrd.GetMemoryResource())) {}
 
-inline Path::Path(const mgp_path *const_ptr) : ptr_(mgp::path_copy(const_cast<mgp_path *>(const_ptr), memory)) {}
+inline Path::Path(const mgp_path *const_ptr)
+    : ptr_(mgp::path_copy(const_cast<mgp_path *>(const_ptr), mrd.GetMemoryResource())) {}
 
-inline Path::Path(const Node &start_node) : ptr_(mgp::path_make_with_start(start_node.ptr_, memory)) {}
+inline Path::Path(const Node &start_node) : ptr_(mgp::path_make_with_start(start_node.ptr_, mrd.GetMemoryResource())) {}
 
 inline Path::Path(const Path &other) noexcept : Path(other.ptr_) {}
 
@@ -2678,7 +2759,7 @@ inline Path &Path::operator=(const Path &other) noexcept {
   if (this != &other) {
     mgp::path_destroy(ptr_);
 
-    ptr_ = mgp::path_copy(other.ptr_, memory);
+    ptr_ = mgp::path_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2729,15 +2810,16 @@ inline bool Path::operator!=(const Path &other) const { return !(*this == other)
 
 // Date:
 
-inline Date::Date(mgp_date *ptr) : ptr_(mgp::date_copy(ptr, memory)) {}
+inline Date::Date(mgp_date *ptr) : ptr_(mgp::date_copy(ptr, mrd.GetMemoryResource())) {}
 
-inline Date::Date(const mgp_date *const_ptr) : ptr_(mgp::date_copy(const_cast<mgp_date *>(const_ptr), memory)) {}
+inline Date::Date(const mgp_date *const_ptr)
+    : ptr_(mgp::date_copy(const_cast<mgp_date *>(const_ptr), mrd.GetMemoryResource())) {}
 
-inline Date::Date(std::string_view string) : ptr_(mgp::date_from_string(string.data(), memory)) {}
+inline Date::Date(std::string_view string) : ptr_(mgp::date_from_string(string.data(), mrd.GetMemoryResource())) {}
 
 inline Date::Date(int year, int month, int day) {
   mgp_date_parameters params{.year = year, .month = month, .day = day};
-  ptr_ = mgp::date_from_parameters(&params, memory);
+  ptr_ = mgp::date_from_parameters(&params, mrd.GetMemoryResource());
 }
 
 inline Date::Date(const Date &other) noexcept : Date(other.ptr_) {}
@@ -2748,7 +2830,7 @@ inline Date &Date::operator=(const Date &other) noexcept {
   if (this != &other) {
     mgp::date_destroy(ptr_);
 
-    ptr_ = mgp::date_copy(other.ptr_, memory);
+    ptr_ = mgp::date_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2770,7 +2852,7 @@ inline Date::~Date() {
 }
 
 inline Date Date::Now() {
-  auto mgp_date = mgp::date_now(memory);
+  auto mgp_date = mgp::date_now(mrd.GetMemoryResource());
   auto date = Date(mgp_date);
   mgp::date_destroy(mgp_date);
 
@@ -2788,7 +2870,7 @@ inline int64_t Date::Timestamp() const { return mgp::date_timestamp(ptr_); }
 inline bool Date::operator==(const Date &other) const { return util::DatesEqual(ptr_, other.ptr_); }
 
 inline Date Date::operator+(const Duration &dur) const {
-  auto mgp_sum = mgp::date_add_duration(ptr_, dur.ptr_, memory);
+  auto mgp_sum = mgp::date_add_duration(ptr_, dur.ptr_, mrd.GetMemoryResource());
   auto sum = Date(mgp_sum);
   mgp::date_destroy(mgp_sum);
 
@@ -2796,7 +2878,7 @@ inline Date Date::operator+(const Duration &dur) const {
 }
 
 inline Date Date::operator-(const Duration &dur) const {
-  auto mgp_difference = mgp::date_add_duration(ptr_, dur.ptr_, memory);
+  auto mgp_difference = mgp::date_add_duration(ptr_, dur.ptr_, mrd.GetMemoryResource());
   auto difference = Date(mgp_difference);
   mgp::date_destroy(mgp_difference);
 
@@ -2804,7 +2886,7 @@ inline Date Date::operator-(const Duration &dur) const {
 }
 
 inline Duration Date::operator-(const Date &other) const {
-  auto mgp_difference = mgp::date_diff(ptr_, other.ptr_, memory);
+  auto mgp_difference = mgp::date_diff(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto difference = Duration(mgp_difference);
   mgp::duration_destroy(mgp_difference);
 
@@ -2812,7 +2894,7 @@ inline Duration Date::operator-(const Date &other) const {
 }
 
 inline bool Date::operator<(const Date &other) const {
-  auto difference = mgp::date_diff(ptr_, other.ptr_, memory);
+  auto difference = mgp::date_diff(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto is_less = (mgp::duration_get_microseconds(difference) < 0);
   mgp::duration_destroy(difference);
 
@@ -2821,17 +2903,18 @@ inline bool Date::operator<(const Date &other) const {
 
 // LocalTime:
 
-inline LocalTime::LocalTime(mgp_local_time *ptr) : ptr_(mgp::local_time_copy(ptr, memory)) {}
+inline LocalTime::LocalTime(mgp_local_time *ptr) : ptr_(mgp::local_time_copy(ptr, mrd.GetMemoryResource())) {}
 
 inline LocalTime::LocalTime(const mgp_local_time *const_ptr)
-    : ptr_(mgp::local_time_copy(const_cast<mgp_local_time *>(const_ptr), memory)) {}
+    : ptr_(mgp::local_time_copy(const_cast<mgp_local_time *>(const_ptr), mrd.GetMemoryResource())) {}
 
-inline LocalTime::LocalTime(std::string_view string) : ptr_(mgp::local_time_from_string(string.data(), memory)) {}
+inline LocalTime::LocalTime(std::string_view string)
+    : ptr_(mgp::local_time_from_string(string.data(), mrd.GetMemoryResource())) {}
 
 inline LocalTime::LocalTime(int hour, int minute, int second, int millisecond, int microsecond) {
   mgp_local_time_parameters params{
       .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond};
-  ptr_ = mgp::local_time_from_parameters(&params, memory);
+  ptr_ = mgp::local_time_from_parameters(&params, mrd.GetMemoryResource());
 }
 
 inline LocalTime::LocalTime(const LocalTime &other) noexcept : LocalTime(other.ptr_) {}
@@ -2842,7 +2925,7 @@ inline LocalTime &LocalTime::operator=(const LocalTime &other) noexcept {
   if (this != &other) {
     mgp::local_time_destroy(ptr_);
 
-    ptr_ = mgp::local_time_copy(other.ptr_, memory);
+    ptr_ = mgp::local_time_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2864,7 +2947,7 @@ inline LocalTime::~LocalTime() {
 }
 
 inline LocalTime LocalTime::Now() {
-  auto mgp_local_time = mgp::local_time_now(memory);
+  auto mgp_local_time = mgp::local_time_now(mrd.GetMemoryResource());
   auto local_time = LocalTime(mgp_local_time);
   mgp::local_time_destroy(mgp_local_time);
 
@@ -2886,7 +2969,7 @@ inline int64_t LocalTime::Timestamp() const { return mgp::local_time_timestamp(p
 inline bool LocalTime::operator==(const LocalTime &other) const { return util::LocalTimesEqual(ptr_, other.ptr_); }
 
 inline LocalTime LocalTime::operator+(const Duration &dur) const {
-  auto mgp_sum = mgp::local_time_add_duration(ptr_, dur.ptr_, memory);
+  auto mgp_sum = mgp::local_time_add_duration(ptr_, dur.ptr_, mrd.GetMemoryResource());
   auto sum = LocalTime(mgp_sum);
   mgp::local_time_destroy(mgp_sum);
 
@@ -2894,7 +2977,7 @@ inline LocalTime LocalTime::operator+(const Duration &dur) const {
 }
 
 inline LocalTime LocalTime::operator-(const Duration &dur) const {
-  auto mgp_difference = mgp::local_time_sub_duration(ptr_, dur.ptr_, memory);
+  auto mgp_difference = mgp::local_time_sub_duration(ptr_, dur.ptr_, mrd.GetMemoryResource());
   auto difference = LocalTime(mgp_difference);
   mgp::local_time_destroy(mgp_difference);
 
@@ -2902,7 +2985,7 @@ inline LocalTime LocalTime::operator-(const Duration &dur) const {
 }
 
 inline Duration LocalTime::operator-(const LocalTime &other) const {
-  auto mgp_difference = mgp::local_time_diff(ptr_, other.ptr_, memory);
+  auto mgp_difference = mgp::local_time_diff(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto difference = Duration(mgp_difference);
   mgp::duration_destroy(mgp_difference);
 
@@ -2910,7 +2993,7 @@ inline Duration LocalTime::operator-(const LocalTime &other) const {
 }
 
 inline bool LocalTime::operator<(const LocalTime &other) const {
-  auto difference = mgp::local_time_diff(ptr_, other.ptr_, memory);
+  auto difference = mgp::local_time_diff(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto is_less = (mgp::duration_get_microseconds(difference) < 0);
   mgp::duration_destroy(difference);
 
@@ -2919,13 +3002,14 @@ inline bool LocalTime::operator<(const LocalTime &other) const {
 
 // LocalDateTime:
 
-inline LocalDateTime::LocalDateTime(mgp_local_date_time *ptr) : ptr_(mgp::local_date_time_copy(ptr, memory)) {}
+inline LocalDateTime::LocalDateTime(mgp_local_date_time *ptr)
+    : ptr_(mgp::local_date_time_copy(ptr, mrd.GetMemoryResource())) {}
 
 inline LocalDateTime::LocalDateTime(const mgp_local_date_time *const_ptr)
-    : ptr_(mgp::local_date_time_copy(const_cast<mgp_local_date_time *>(const_ptr), memory)) {}
+    : ptr_(mgp::local_date_time_copy(const_cast<mgp_local_date_time *>(const_ptr), mrd.GetMemoryResource())) {}
 
 inline LocalDateTime::LocalDateTime(std::string_view string)
-    : ptr_(mgp::local_date_time_from_string(string.data(), memory)) {}
+    : ptr_(mgp::local_date_time_from_string(string.data(), mrd.GetMemoryResource())) {}
 
 inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
                                     int microsecond) {
@@ -2936,7 +3020,7 @@ inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int 
     .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
   };
   mgp_local_date_time_parameters params{.date_parameters = &date_params, .local_time_parameters = &local_time_params};
-  ptr_ = mgp::local_date_time_from_parameters(&params, memory);
+  ptr_ = mgp::local_date_time_from_parameters(&params, mrd.GetMemoryResource());
 }
 
 inline LocalDateTime::LocalDateTime(const LocalDateTime &other) noexcept : LocalDateTime(other.ptr_) {}
@@ -2947,7 +3031,7 @@ inline LocalDateTime &LocalDateTime::operator=(const LocalDateTime &other) noexc
   if (this != &other) {
     mgp::local_date_time_destroy(ptr_);
 
-    ptr_ = mgp::local_date_time_copy(other.ptr_, memory);
+    ptr_ = mgp::local_date_time_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -2969,7 +3053,7 @@ inline LocalDateTime::~LocalDateTime() {
 }
 
 inline LocalDateTime LocalDateTime::Now() {
-  auto mgp_local_date_time = mgp::local_date_time_now(memory);
+  auto mgp_local_date_time = mgp::local_date_time_now(mrd.GetMemoryResource());
   auto local_date_time = LocalDateTime(mgp_local_date_time);
   mgp::local_date_time_destroy(mgp_local_date_time);
 
@@ -2999,7 +3083,7 @@ inline bool LocalDateTime::operator==(const LocalDateTime &other) const {
 }
 
 inline LocalDateTime LocalDateTime::operator+(const Duration &dur) const {
-  auto mgp_sum = mgp::local_date_time_add_duration(ptr_, dur.ptr_, memory);
+  auto mgp_sum = mgp::local_date_time_add_duration(ptr_, dur.ptr_, mrd.GetMemoryResource());
   auto sum = LocalDateTime(mgp_sum);
   mgp::local_date_time_destroy(mgp_sum);
 
@@ -3007,7 +3091,7 @@ inline LocalDateTime LocalDateTime::operator+(const Duration &dur) const {
 }
 
 inline LocalDateTime LocalDateTime::operator-(const Duration &dur) const {
-  auto mgp_difference = mgp::local_date_time_sub_duration(ptr_, dur.ptr_, memory);
+  auto mgp_difference = mgp::local_date_time_sub_duration(ptr_, dur.ptr_, mrd.GetMemoryResource());
   auto difference = LocalDateTime(mgp_difference);
   mgp::local_date_time_destroy(mgp_difference);
 
@@ -3015,7 +3099,7 @@ inline LocalDateTime LocalDateTime::operator-(const Duration &dur) const {
 }
 
 inline Duration LocalDateTime::operator-(const LocalDateTime &other) const {
-  auto mgp_difference = mgp::local_date_time_diff(ptr_, other.ptr_, memory);
+  auto mgp_difference = mgp::local_date_time_diff(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto difference = Duration(mgp_difference);
   mgp::duration_destroy(mgp_difference);
 
@@ -3023,7 +3107,7 @@ inline Duration LocalDateTime::operator-(const LocalDateTime &other) const {
 }
 
 inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
-  auto difference = mgp::local_date_time_diff(ptr_, other.ptr_, memory);
+  auto difference = mgp::local_date_time_diff(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto is_less = (mgp::duration_get_microseconds(difference) < 0);
   mgp::duration_destroy(difference);
 
@@ -3032,14 +3116,16 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
 
 // Duration:
 
-inline Duration::Duration(mgp_duration *ptr) : ptr_(mgp::duration_copy(ptr, memory)) {}
+inline Duration::Duration(mgp_duration *ptr) : ptr_(mgp::duration_copy(ptr, mrd.GetMemoryResource())) {}
 
 inline Duration::Duration(const mgp_duration *const_ptr)
-    : ptr_(mgp::duration_copy(const_cast<mgp_duration *>(const_ptr), memory)) {}
+    : ptr_(mgp::duration_copy(const_cast<mgp_duration *>(const_ptr), mrd.GetMemoryResource())) {}
 
-inline Duration::Duration(std::string_view string) : ptr_(mgp::duration_from_string(string.data(), memory)) {}
+inline Duration::Duration(std::string_view string)
+    : ptr_(mgp::duration_from_string(string.data(), mrd.GetMemoryResource())) {}
 
-inline Duration::Duration(int64_t microseconds) : ptr_(mgp::duration_from_microseconds(microseconds, memory)) {}
+inline Duration::Duration(int64_t microseconds)
+    : ptr_(mgp::duration_from_microseconds(microseconds, mrd.GetMemoryResource())) {}
 
 inline Duration::Duration(double day, double hour, double minute, double second, double millisecond,
                           double microsecond) {
@@ -3049,7 +3135,7 @@ inline Duration::Duration(double day, double hour, double minute, double second,
                                  .second = second,
                                  .millisecond = millisecond,
                                  .microsecond = microsecond};
-  ptr_ = mgp::duration_from_parameters(&params, memory);
+  ptr_ = mgp::duration_from_parameters(&params, mrd.GetMemoryResource());
 }
 
 inline Duration::Duration(const Duration &other) noexcept : Duration(other.ptr_) {}
@@ -3060,7 +3146,7 @@ inline Duration &Duration::operator=(const Duration &other) noexcept {
   if (this != &other) {
     mgp::duration_destroy(ptr_);
 
-    ptr_ = mgp::duration_copy(other.ptr_, memory);
+    ptr_ = mgp::duration_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -3086,7 +3172,7 @@ inline int64_t Duration::Microseconds() const { return mgp::duration_get_microse
 inline bool Duration::operator==(const Duration &other) const { return util::DurationsEqual(ptr_, other.ptr_); }
 
 inline Duration Duration::operator+(const Duration &other) const {
-  auto mgp_sum = mgp::duration_add(ptr_, other.ptr_, memory);
+  auto mgp_sum = mgp::duration_add(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto sum = Duration(mgp_sum);
   mgp::duration_destroy(mgp_sum);
 
@@ -3094,7 +3180,7 @@ inline Duration Duration::operator+(const Duration &other) const {
 }
 
 inline Duration Duration::operator-(const Duration &other) const {
-  auto mgp_difference = mgp::duration_sub(ptr_, other.ptr_, memory);
+  auto mgp_difference = mgp::duration_sub(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto difference = Duration(mgp_difference);
   mgp::duration_destroy(mgp_difference);
 
@@ -3102,7 +3188,7 @@ inline Duration Duration::operator-(const Duration &other) const {
 }
 
 inline Duration Duration::operator-() const {
-  auto mgp_neg = mgp::duration_neg(ptr_, memory);
+  auto mgp_neg = mgp::duration_neg(ptr_, mrd.GetMemoryResource());
   auto neg = Duration(mgp_neg);
   mgp::duration_destroy(mgp_neg);
 
@@ -3110,7 +3196,7 @@ inline Duration Duration::operator-() const {
 }
 
 inline bool Duration::operator<(const Duration &other) const {
-  auto difference = mgp::duration_sub(ptr_, other.ptr_, memory);
+  auto difference = mgp::duration_sub(ptr_, other.ptr_, mrd.GetMemoryResource());
   auto is_less = (mgp::duration_get_microseconds(difference) < 0);
   mgp::duration_destroy(difference);
 
@@ -3123,36 +3209,39 @@ inline bool Duration::operator<(const Duration &other) const {
 
 /* #region Value */
 
-inline Value::Value(mgp_value *ptr) : ptr_(mgp::value_copy(ptr, memory)) {}
+inline Value::Value(mgp_value *ptr) : ptr_(mgp::value_copy(ptr, mrd.GetMemoryResource())) {}
 inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {}
 
-inline Value::Value() : ptr_(mgp::value_make_null(memory)) {}
+inline Value::Value() : ptr_(mgp::value_make_null(mrd.GetMemoryResource())) {}
 
-inline Value::Value(const bool value) : ptr_(mgp::value_make_bool(value, memory)) {}
+inline Value::Value(const bool value) : ptr_(mgp::value_make_bool(value, mrd.GetMemoryResource())) {}
 
-inline Value::Value(const int64_t value) : ptr_(mgp::value_make_int(value, memory)) {}
+inline Value::Value(const int64_t value) : ptr_(mgp::value_make_int(value, mrd.GetMemoryResource())) {}
 
-inline Value::Value(const double value) : ptr_(mgp::value_make_double(value, memory)) {}
+inline Value::Value(const double value) : ptr_(mgp::value_make_double(value, mrd.GetMemoryResource())) {}
 
-inline Value::Value(const char *value) : ptr_(mgp::value_make_string(value, memory)) {}
+inline Value::Value(const char *value) : ptr_(mgp::value_make_string(value, mrd.GetMemoryResource())) {}
 
-inline Value::Value(const std::string_view value) : ptr_(mgp::value_make_string(value.data(), memory)) {}
+inline Value::Value(const std::string_view value)
+    : ptr_(mgp::value_make_string(value.data(), mrd.GetMemoryResource())) {}
 
-inline Value::Value(const List &list) : ptr_(mgp::value_make_list(mgp::list_copy(list.ptr_, memory))) {}
+inline Value::Value(const List &list)
+    : ptr_(mgp::value_make_list(mgp::list_copy(list.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(List &&list) {
   ptr_ = mgp::value_make_list(list.ptr_);
   list.ptr_ = nullptr;
 }
 
-inline Value::Value(const Map &map) : ptr_(mgp::value_make_map(mgp::map_copy(map.ptr_, memory))) {}
+inline Value::Value(const Map &map) : ptr_(mgp::value_make_map(mgp::map_copy(map.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(Map &&map) {
   ptr_ = mgp::value_make_map(map.ptr_);
   map.ptr_ = nullptr;
 }
 
-inline Value::Value(const Node &node) : ptr_(mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, memory))) {}
+inline Value::Value(const Node &node)
+    : ptr_(mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(Node &&node) {
   ptr_ = mgp::value_make_vertex(const_cast<mgp_vertex *>(node.ptr_));
@@ -3160,21 +3249,23 @@ inline Value::Value(Node &&node) {
 }
 
 inline Value::Value(const Relationship &relationship)
-    : ptr_(mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, memory))) {}
+    : ptr_(mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(Relationship &&relationship) {
   ptr_ = mgp::value_make_edge(const_cast<mgp_edge *>(relationship.ptr_));
   relationship.ptr_ = nullptr;
 }
 
-inline Value::Value(const Path &path) : ptr_(mgp::value_make_path(mgp::path_copy(path.ptr_, memory))) {}
+inline Value::Value(const Path &path)
+    : ptr_(mgp::value_make_path(mgp::path_copy(path.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(Path &&path) {
   ptr_ = mgp::value_make_path(path.ptr_);
   path.ptr_ = nullptr;
 }
 
-inline Value::Value(const Date &date) : ptr_(mgp::value_make_date(mgp::date_copy(date.ptr_, memory))) {}
+inline Value::Value(const Date &date)
+    : ptr_(mgp::value_make_date(mgp::date_copy(date.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(Date &&date) {
   ptr_ = mgp::value_make_date(date.ptr_);
@@ -3182,7 +3273,7 @@ inline Value::Value(Date &&date) {
 }
 
 inline Value::Value(const LocalTime &local_time)
-    : ptr_(mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, memory))) {}
+    : ptr_(mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(LocalTime &&local_time) {
   ptr_ = mgp::value_make_local_time(local_time.ptr_);
@@ -3190,7 +3281,7 @@ inline Value::Value(LocalTime &&local_time) {
 }
 
 inline Value::Value(const LocalDateTime &local_date_time)
-    : ptr_(mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, memory))) {}
+    : ptr_(mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(LocalDateTime &&local_date_time) {
   ptr_ = mgp::value_make_local_date_time(local_date_time.ptr_);
@@ -3198,7 +3289,7 @@ inline Value::Value(LocalDateTime &&local_date_time) {
 }
 
 inline Value::Value(const Duration &duration)
-    : ptr_(mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory))) {}
+    : ptr_(mgp::value_make_duration(mgp::duration_copy(duration.ptr_, mrd.GetMemoryResource()))) {}
 
 inline Value::Value(Duration &&duration) {
   ptr_ = mgp::value_make_duration(duration.ptr_);
@@ -3213,7 +3304,7 @@ inline Value &Value::operator=(const Value &other) noexcept {
   if (this != &other) {
     mgp::value_destroy(ptr_);
 
-    ptr_ = mgp::value_copy(other.ptr_, memory);
+    ptr_ = mgp::value_copy(other.ptr_, mrd.GetMemoryResource());
   }
   return *this;
 }
@@ -3589,85 +3680,86 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
 inline Record::Record(mgp_result_record *record) : record_(record) {}
 
 inline void Record::Insert(const char *field_name, bool value) {
-  auto mgp_val = mgp::value_make_bool(value, memory);
+  auto mgp_val = mgp::value_make_bool(value, mrd.GetMemoryResource());
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, std::int64_t value) {
-  auto mgp_val = mgp::value_make_int(value, memory);
+  auto mgp_val = mgp::value_make_int(value, mrd.GetMemoryResource());
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, double value) {
-  auto mgp_val = mgp::value_make_double(value, memory);
+  auto mgp_val = mgp::value_make_double(value, mrd.GetMemoryResource());
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, std::string_view value) {
-  auto mgp_val = mgp::value_make_string(value.data(), memory);
+  auto mgp_val = mgp::value_make_string(value.data(), mrd.GetMemoryResource());
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const char *value) {
-  auto mgp_val = mgp::value_make_string(value, memory);
+  auto mgp_val = mgp::value_make_string(value, mrd.GetMemoryResource());
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const List &list) {
-  auto mgp_val = mgp::value_make_list(mgp::list_copy(list.ptr_, memory));
+  auto mgp_val = mgp::value_make_list(mgp::list_copy(list.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Map &map) {
-  auto mgp_val = mgp::value_make_map(mgp::map_copy(map.ptr_, memory));
+  auto mgp_val = mgp::value_make_map(mgp::map_copy(map.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Node &node) {
-  auto mgp_val = mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, memory));
+  auto mgp_val = mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Relationship &relationship) {
-  auto mgp_val = mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, memory));
+  auto mgp_val = mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Path &path) {
-  auto mgp_val = mgp::value_make_path(mgp::path_copy(path.ptr_, memory));
+  auto mgp_val = mgp::value_make_path(mgp::path_copy(path.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Date &date) {
-  auto mgp_val = mgp::value_make_date(mgp::date_copy(date.ptr_, memory));
+  auto mgp_val = mgp::value_make_date(mgp::date_copy(date.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const LocalTime &local_time) {
-  auto mgp_val = mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, memory));
+  auto mgp_val = mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const LocalDateTime &local_date_time) {
-  auto mgp_val = mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, memory));
+  auto mgp_val =
+      mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Duration &duration) {
-  auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory));
+  auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, mrd.GetMemoryResource()));
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
@@ -3731,95 +3823,96 @@ inline void RecordFactory::SetErrorMessage(const char *error_msg) const {
 inline Result::Result(mgp_func_result *result) : result_(result) {}
 
 inline void Result::SetValue(bool value) {
-  auto mgp_val = mgp::value_make_bool(value, memory);
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_bool(value, mrd.GetMemoryResource());
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(std::int64_t value) {
-  auto mgp_val = mgp::value_make_int(value, memory);
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_int(value, mrd.GetMemoryResource());
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(double value) {
-  auto mgp_val = mgp::value_make_double(value, memory);
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_double(value, mrd.GetMemoryResource());
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(std::string_view value) {
-  auto mgp_val = mgp::value_make_string(value.data(), memory);
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_string(value.data(), mrd.GetMemoryResource());
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const char *value) {
-  auto mgp_val = mgp::value_make_string(value, memory);
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_string(value, mrd.GetMemoryResource());
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const List &list) {
-  auto mgp_val = mgp::value_make_list(mgp::list_copy(list.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_list(mgp::list_copy(list.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Map &map) {
-  auto mgp_val = mgp::value_make_map(mgp::map_copy(map.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_map(mgp::map_copy(map.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Node &node) {
-  auto mgp_val = mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Relationship &relationship) {
-  auto mgp_val = mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Path &path) {
-  auto mgp_val = mgp::value_make_path(mgp::path_copy(path.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_path(mgp::path_copy(path.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Date &date) {
-  auto mgp_val = mgp::value_make_date(mgp::date_copy(date.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_date(mgp::date_copy(date.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const LocalTime &local_time) {
-  auto mgp_val = mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const LocalDateTime &local_date_time) {
-  auto mgp_val = mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val =
+      mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Duration &duration) {
-  auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory));
-  { mgp::func_result_set_value(result_, mgp_val, memory); }
+  auto mgp_val = mgp::value_make_duration(mgp::duration_copy(duration.ptr_, mrd.GetMemoryResource()));
+  { mgp::func_result_set_value(result_, mgp_val, mrd.GetMemoryResource()); }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetErrorMessage(const std::string_view error_msg) const {
-  mgp::func_result_set_error_msg(result_, error_msg.data(), memory);
+  mgp::func_result_set_error_msg(result_, error_msg.data(), mrd.GetMemoryResource());
 }
 
 inline void Result::SetErrorMessage(const char *error_msg) const {
-  mgp::func_result_set_error_msg(result_, error_msg, memory);
+  mgp::func_result_set_error_msg(result_, error_msg, mrd.GetMemoryResource());
 }
 
 /* #endregion */
