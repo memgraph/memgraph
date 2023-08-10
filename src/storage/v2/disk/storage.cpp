@@ -1804,6 +1804,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     auto it = monotonic_resources.find(transaction_id);
     if (it != monotonic_resources.end()) {
       memory_resource = &(it->second);
+    } else {
+      throw std::runtime_error("memory resource not allocated");
     }
   });
   return {transaction_id, start_timestamp, isolation_level, storage_mode, memory_resource};
