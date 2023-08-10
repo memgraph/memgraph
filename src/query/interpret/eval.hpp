@@ -703,7 +703,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) {
       if (pair.second->GetTypeInfo() == PropertyLookup::kType) {
-        auto property_lookup = static_cast<PropertyLookup *>(pair.second);
+        auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
         if (property_lookup->expression_->GetTypeInfo() == Identifier::kType) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
 

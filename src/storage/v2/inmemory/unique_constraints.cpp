@@ -241,7 +241,7 @@ bool InMemoryUniqueConstraints::Entry::operator<(const std::vector<PropertyValue
 bool InMemoryUniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
 
 void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
-  for (auto &label : vertex->labels) {
+  for (const auto &label : vertex->labels) {
     if (!constraints_by_label_.contains(label)) {
       continue;
     }
@@ -308,10 +308,10 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
     // be removed.
     constraints_.erase(constraint);
     return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
-  } else {
-    // Add the new constraint to the optimized structure only if there are no violations.
-    constraints_by_label_[label].insert({properties, &constraints_.at({label, properties})});
   }
+
+  // Add the new constraint to the optimized structure only if there are no violations.
+  constraints_by_label_[label].insert({properties, &constraints_.at({label, properties})});
   return CreationStatus::SUCCESS;
 }
 
@@ -350,12 +350,12 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
   if (vertex.deleted) {
     return std::nullopt;
   }
-  for (auto &label : vertex.labels) {
+  for (const auto &label : vertex.labels) {
     if (!constraints_by_label_.contains(label)) {
       continue;
     }
 
-    for (auto &[properties, storage] : constraints_by_label_.at(label)) {
+    for (const auto &[properties, storage] : constraints_by_label_.at(label)) {
       auto value_array = vertex.properties.ExtractPropertyValues(properties);
 
       if (!value_array) {

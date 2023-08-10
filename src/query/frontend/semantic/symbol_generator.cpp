@@ -400,7 +400,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(MapLiteral &ml) { return true; }
+bool SymbolGenerator::PreVisit(MapLiteral &) { return true; }
 
 bool SymbolGenerator::PostVisit(MapLiteral &ml) {
   std::cout << "PostVisit(MapLiteral &ml)" << std::endl;
@@ -410,7 +410,7 @@ bool SymbolGenerator::PostVisit(MapLiteral &ml) {
 
   for (const auto &pair : ml.elements_) {
     if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
-    auto property_lookup = static_cast<PropertyLookup *>(pair.second);
+    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
     if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
 
     auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
@@ -423,7 +423,7 @@ bool SymbolGenerator::PostVisit(MapLiteral &ml) {
 
   for (const auto &pair : ml.elements_) {
     if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
-    auto property_lookup = static_cast<PropertyLookup *>(pair.second);
+    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
     if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
 
     auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
