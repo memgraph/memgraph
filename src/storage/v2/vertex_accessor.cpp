@@ -12,12 +12,15 @@
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <memory>
+#include <tuple>
+#include <utility>
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -252,6 +255,25 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   }
 
   return true;
+}
+
+Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  auto id_old_new_change = vertex_->properties.UpdateProperties(properties);
+
+  for (auto &[id, old_value, new_value] : id_old_new_change) {
+    indices_->UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
+  }
+
+  return id_old_new_change;
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
