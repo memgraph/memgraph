@@ -1079,6 +1079,7 @@ class MapLiteral : public memgraph::query::BaseLiteral {
       PropertyIx key = storage->GetPropertyIx(entry.first.name);
       object->elements_[key] = entry.second->Clone(storage);
     }
+    object->cacheable_property_lookups_ = cacheable_property_lookups_;
     return object;
   }
 
@@ -1214,6 +1215,7 @@ class PropertyLookup : public memgraph::query::Expression {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->evaluation_mode_ = evaluation_mode_;
     return object;
   }
 
