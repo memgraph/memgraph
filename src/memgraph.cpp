@@ -23,16 +23,12 @@
 //#include <optional>
 //#include <regex>
 //#include <string>
-//#include <string_view>
+#include <string_view>
 //#include <thread>
 
 #include <fmt/core.h>
 #include <fmt/format.h>
-#include <gflags/gflags.h>
 #include <spdlog/common.h>
-#include <spdlog/sinks/daily_file_sink.h>
-#include <spdlog/sinks/dist_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 //
 #include "audit/log.hpp"
 //#include "auth/models.hpp"
@@ -79,7 +75,11 @@
 //#include "utils/settings.hpp"
 #include "utils/signals.hpp"
 //#include "utils/string.hpp"
-//#include "utils/synchronized.hpp"
+//#include "utils/synchronized.hpp
+#include "flags/general.hpp"
+#include "flags/isolation_level.hpp"
+#include "flags/log_level.hpp"
+#include "flags/memory_limit.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
@@ -101,365 +101,15 @@
 //#include "glue/communication.hpp"
 
 #include "SessionHL.hpp"
-//#include "auth/auth.hpp"
-//#include "glue/auth.hpp"
+
+// #include "auth/auth.hpp"
+//#include "glue/auth.hpp
+
+using namespace std::string_view_literals;
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
-
-// Short help flag.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
-
-// Bolt server flags.
-DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(monitoring_address, "0.0.0.0",
-              "IP address on which the websocket server for Memgraph monitoring should listen.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(metrics_address, "0.0.0.0",
-              "IP address on which the Memgraph server for exposing metrics should listen.");
-DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(monitoring_port, 7444,
-                       "Port on which the websocket server for Memgraph monitoring should listen.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
-                       "Number of workers used by the Bolt server. By default, this will be the "
-                       "number of processing units available on the machine.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
-                       "Time in seconds after which inactive Bolt sessions will be "
-                       "closed.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the Bolt server.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(init_file, "",
-              "Path to cypherl file that is used for configuring users and database schema before server starts.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
-
-// General purpose flags.
-// NOTE: The `data_directory` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(data_recovery_on_startup, false, "Controls whether the database recovers persisted data on startup.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(memory_warning_threshold, 1024,
-              "Memory warning threshold, in MB. If Memgraph detects there is "
-              "less available RAM it will log a warning. Set to 0 to "
-              "disable.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
-
-// Storage flags.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
-                        FLAG_IN_RANGE(1, 24 * 3600));
-// NOTE: The `storage_properties_on_edges` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
-
-// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
-                   "Controls whether the storage recovers persisted data on startup.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
-                        "Storage snapshot creation interval (in seconds). Set "
-                        "to 0 to disable periodic snapshot creation.",
-                        FLAG_IN_RANGE(0, 7 * 24 * 3600));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_wal_enabled, false,
-            "Controls whether the storage uses write-ahead-logging. To enable "
-            "WAL periodic snapshots must be enabled.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
-                        FLAG_IN_RANGE(1, 1000000));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::Config::Durability().wal_file_size_kibibytes,
-                        "Minimum file size of each WAL file.",
-                        FLAG_IN_RANGE(1, static_cast<unsigned long>(1000) * 1024));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
-                        memgraph::storage::Config::Durability().wal_file_flush_every_n_tx,
-                        "Issue a 'fsync' call after this amount of transactions are written to the "
-                        "WAL file. Set to 1 for fully synchronous operation.",
-                        FLAG_IN_RANGE(1, 1000000));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
-              "The number of edges and vertices stored in a batch in a snapshot file.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_parallel_index_recovery, false,
-            "Controls whether the index creation can be done in a multithreaded fashion.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(storage_recovery_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
-                       memgraph::storage::Config::Durability().recovery_thread_count),
-              "The number of threads used to recover persisted data from disk.");
-
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_delete_on_drop, true,
-            "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.");
-#endif
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(telemetry_enabled, false,
-            "Set to true to enable telemetry. We collect information about the "
-            "running system (CPU and memory information) and information about "
-            "the database runtime (vertex and edge counts and resource usage) "
-            "to allow for easier improvement of the product.");
-
-// Streams flags
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(
-    stream_transaction_conflict_retries, 30,
-    "Number of times to retry when a stream transformation fails to commit because of conflicting transactions");
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(
-    stream_transaction_retry_interval, 500,
-    "Retry interval in milliseconds when a stream transformation fails to commit because of conflicting transactions");
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(kafka_bootstrap_servers, "",
-              "List of default Kafka brokers as a comma separated list of broker host or host:port.");
-
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
-
-// Audit logging flags.
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(audit_buffer_size, memgraph::audit::kBufferSizeDefault,
-                       "Maximum number of items in the audit log buffer.", FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferFlushIntervalMillisDefault,
-                       "Interval (in milliseconds) used for flushing the audit log buffer.",
-                       FLAG_IN_RANGE(10, INT32_MAX));
-#endif
-
-// Query flags.
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_double(query_execution_timeout_sec, 600,
-              "Maximum allowed query execution time. Queries exceeding this "
-              "limit will be aborted. Value of 0 means no limit.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(replication_replica_check_frequency_sec, 1,
-              "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
-              "The MAIN instance allocates a new thread for each REPLICA.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
-
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(
-    memory_limit, 0,
-    "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
-    "is enabled and 90\% of the physical memory otherwise.");
-
-namespace {
-using namespace std::literals;
-inline constexpr std::array isolation_level_mappings{
-    std::pair{"SNAPSHOT_ISOLATION"sv, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION},
-    std::pair{"READ_COMMITTED"sv, memgraph::storage::IsolationLevel::READ_COMMITTED},
-    std::pair{"READ_UNCOMMITTED"sv, memgraph::storage::IsolationLevel::READ_UNCOMMITTED}};
-
-const std::string isolation_level_help_string =
-    fmt::format("Default isolation level used for the transactions. Allowed values: {}",
-                memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings));
-}  // namespace
-
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
-  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
-    const auto error = result.GetError();
-    switch (error) {
-      case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Isolation level cannot be empty." << std::endl;
-        break;
-      }
-      case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for isolation level. Allowed values: "
-                  << memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
-        break;
-      }
-    }
-    return false;
-  }
-
-  return true;
-});
-
-namespace {
-memgraph::storage::IsolationLevel ParseIsolationLevel() {
-  const auto isolation_level =
-      memgraph::utils::StringToEnum<memgraph::storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
-  MG_ASSERT(isolation_level, "Invalid isolation level");
-  return *isolation_level;
-}
-
-int64_t GetMemoryLimit() {
-  if (FLAGS_memory_limit == 0) {
-    auto maybe_total_memory = memgraph::utils::sysinfo::TotalMemory();
-    MG_ASSERT(maybe_total_memory, "Failed to fetch the total physical memory");
-    const auto maybe_swap_memory = memgraph::utils::sysinfo::SwapTotalMemory();
-    MG_ASSERT(maybe_swap_memory, "Failed to fetch the total swap memory");
-
-    if (*maybe_swap_memory == 0) {
-      // take only 90% of the total memory
-      *maybe_total_memory *= 9;
-      *maybe_total_memory /= 10;
-    }
-    return *maybe_total_memory * 1024;
-  }
-
-  // We parse the memory as MiB every time
-  return FLAGS_memory_limit * 1024 * 1024;
-}
-}  // namespace
-
-namespace {
-std::vector<std::filesystem::path> query_modules_directories;
-}  // namespace
-DEFINE_VALIDATED_string(query_modules_directory, "",
-                        "Directory where modules with custom query procedures are stored. "
-                        "NOTE: Multiple comma-separated directories can be defined.",
-                        {
-                          query_modules_directories.clear();
-                          if (value.empty()) return true;
-                          const auto directories = memgraph::utils::Split(value, ",");
-                          for (const auto &dir : directories) {
-                            if (!memgraph::utils::DirExists(dir)) {
-                              std::cout << "Expected --" << flagname << " to point to directories." << std::endl;
-                              std::cout << dir << " is not a directory." << std::endl;
-                              return false;
-                            }
-                          }
-                          query_modules_directories.reserve(directories.size());
-                          std::transform(directories.begin(), directories.end(),
-                                         std::back_inserter(query_modules_directories),
-                                         [](const auto &dir) { return dir; });
-                          return true;
-                        });
-
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(query_callable_mappings_path, "",
-              "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
-              "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
-              "mapped to ones that exist.");
-
-// Logging flags
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
-DEFINE_string(log_file, "", "Path to where the log should be stored.");
-
-namespace {
-inline constexpr std::array log_level_mappings{
-    std::pair{"TRACE"sv, spdlog::level::trace}, std::pair{"DEBUG"sv, spdlog::level::debug},
-    std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
-    std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
-
-const std::string log_level_help_string = fmt::format("Minimum log level. Allowed values: {}",
-                                                      memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
-}  // namespace
-
-DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
-  if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
-    const auto error = result.GetError();
-    switch (error) {
-      case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Log level cannot be empty." << std::endl;
-        break;
-      }
-      case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: "
-                  << memgraph::utils::GetAllowedEnumValuesString(log_level_mappings) << std::endl;
-        break;
-      }
-    }
-    return false;
-  }
-
-  return true;
-});
-
-namespace {
-spdlog::level::level_enum ParseLogLevel() {
-  const auto log_level = memgraph::utils::StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
-  MG_ASSERT(log_level, "Invalid log level");
-  return *log_level;
-}
-
-// 5 weeks * 7 days
-inline constexpr auto log_retention_count = 35;
-void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
-  auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
-  logger->set_level(log_level);
-  logger->flush_on(spdlog::level::trace);
-  spdlog::set_default_logger(std::move(logger));
-}
-
-void InitializeLogger() {
-  std::vector<spdlog::sink_ptr> sinks;
-
-  if (FLAGS_also_log_to_stderr) {
-    sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
-  }
-
-  if (!FLAGS_log_file.empty()) {
-    // get local time
-    time_t current_time{0};
-    struct tm *local_time{nullptr};
-
-    time(&current_time);
-    local_time = localtime(&current_time);
-
-    sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
-  }
-  CreateLoggerFromSink(sinks, ParseLogLevel());
-}
-
-void AddLoggerSink(spdlog::sink_ptr new_sink) {
-  auto default_logger = spdlog::default_logger();
-  auto sinks = default_logger->sinks();
-  sinks.push_back(new_sink);
-  CreateLoggerFromSink(sinks, default_logger->level());
-}
-
-}  // namespace
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
-              "Set to the regular expression that each user or role name must fulfill.");
 
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path,
                          memgraph::audit::Log *audit_log = nullptr) {
@@ -542,7 +192,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  InitializeLogger();
+  memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -626,7 +276,7 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
-  const auto memory_limit = GetMemoryLimit();
+  const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   spdlog::info("Memory limit in config is set to {}", memgraph::utils::GetReadableSize(memory_limit));
   memgraph::utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
@@ -689,7 +339,7 @@ int main(int argc, char **argv) {
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
-      .transaction = {.isolation_level = ParseIsolationLevel()},
+      .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
                .label_property_index_directory = FLAGS_data_directory + "/rocksdb_label_property_index",
@@ -769,7 +419,8 @@ int main(int argc, char **argv) {
   auto *auth = session_context.auth;
   auto &interpreter_context = *session_context.interpreter_context;  // TODO remove
 
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
+  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
+                                                                  FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
   memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
@@ -860,7 +511,7 @@ int main(int argc, char **argv) {
   memgraph::communication::websocket::SafeAuth websocket_auth{auth};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
-  AddLoggerSink(websocket_server.GetLoggingSink());
+  memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
   MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
