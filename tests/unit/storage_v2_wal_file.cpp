@@ -64,6 +64,25 @@ class DeltaGenerator final {
                        gen->storage_mode_, memgraph::utils::NewDeleteResource()) {}
 
    public:
+    ~Transaction() {
+      auto *transaction_deltas_ptr = transaction_.deltas.release();
+      if (transaction_deltas_ptr) {
+        auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
+        auto *monotonic_buffer = dynamic_cast<memgraph::utils::MonotonicBufferResource *>(memory_resource);
+        auto *pool_resource = dynamic_cast<memgraph::utils::PoolResource *>(memory_resource);
+
+        if (monotonic_buffer) {
+          monotonic_buffer->Release();
+          memgraph::utils::Allocator<memgraph::storage::PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
+        } else if (pool_resource) {
+          pool_resource->Release();
+          memgraph::utils::Allocator<memgraph::storage::PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
+        } else {
+          memgraph::utils::Allocator<memgraph::storage::PmrListDelta>(memory_resource)
+              .delete_object(transaction_deltas_ptr);
+        }
+      }
+    }
     memgraph::storage::Vertex *CreateVertex() {
       auto gid = memgraph::storage::Gid::FromUint(gen_->vertices_count_++);
       auto delta = memgraph::storage::CreateDeleteObjectDelta(&transaction_);

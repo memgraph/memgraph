@@ -304,6 +304,26 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
+
+  // C-P THAT HERE:
+  auto *transaction_ptr = transaction_.deltas.release();
+  if (transaction_ptr) {
+    auto *memory_resource = transaction_ptr->get_allocator().GetMemoryResource();
+    utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
+    if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+        monotonic_resource != nullptr) {
+      monotonic_resource->Release();
+    } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
+      pool_resource->Release();
+    }
+  }
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->monotonic_resources_.WithLock(
+      [transaction_id = transaction_.transaction_id](auto &monotonic_resources) {
+        if (monotonic_resources.contains(transaction_id)) {
+          monotonic_resources.erase(transaction_id);
+        }
+      });
 }
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
@@ -1449,20 +1469,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   spdlog::debug("rocksdb: Commit successful");
 
   is_transaction_active_ = false;
-  auto *transaction_ptr = transaction_.deltas.release();
-  auto *memory_resource = transaction_ptr->get_allocator().GetMemoryResource();
-  utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
-  if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
-      monotonic_resource != nullptr) {
-    monotonic_resource->Release();
-  } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
-    pool_resource->Release();
-  }
 
-  disk_storage->monotonic_resources_.WithLock(
-      [transaction_id = transaction_.transaction_id](auto &monotonic_resources) {
-        monotonic_resources.erase(transaction_id);
-      });
   return {};
 }
 
@@ -1531,21 +1538,6 @@ void DiskStorage::DiskAccessor::Abort() {
   disk_transaction_ = nullptr;
 
   is_transaction_active_ = false;
-  auto *transaction_ptr = transaction_.deltas.release();
-  auto *memory_resource = transaction_ptr->get_allocator().GetMemoryResource();
-  utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
-  if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
-      monotonic_resource != nullptr) {
-    monotonic_resource->Release();
-  } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
-    pool_resource->Release();
-  }
-
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->monotonic_resources_.WithLock(
-      [transaction_id = transaction_.transaction_id](auto &monotonic_resources) {
-        monotonic_resources.erase(transaction_id);
-      });
 }
 
 void DiskStorage::DiskAccessor::FinalizeTransaction() {

@@ -219,7 +219,7 @@ InMemoryStorage::~InMemoryStorage() {
           auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
           auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
           if (monotonic_buffer == nullptr && pool_resource == nullptr) {
-            utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
+            utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
           }
           if (monotonic_buffer) {
             monotonic_buffer->Release();
@@ -1433,8 +1433,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
           auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
           auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
           auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
-          if (monotonic_buffer == nullptr && pool_resource == nullptr) {
-            utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
+          utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
+          if (monotonic_buffer) {
+            monotonic_buffer->Release();
+          }
+          if (pool_resource) {
+            pool_resource->Release();
           }
         }
       }
@@ -1449,9 +1453,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
           auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
           auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
           auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
-          if (monotonic_buffer == nullptr && pool_resource == nullptr) {
-            utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
-          }
+          utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
           if (monotonic_buffer) {
             monotonic_buffer->Release();
           }
