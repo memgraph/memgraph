@@ -107,7 +107,8 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction,
+                                                  const std::optional<std::string> &old_disk_key) {
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
                                             old_disk_key);
@@ -115,7 +116,7 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std:
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key) {
+                                                       const std::optional<std::string> &old_disk_key) {
   transaction->EnsureCommitTimestampExists();
   return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
 }

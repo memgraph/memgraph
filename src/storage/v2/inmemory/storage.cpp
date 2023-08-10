@@ -210,6 +210,24 @@ InMemoryStorage::~InMemoryStorage() {
       }
     }
   }
+  if (!committed_transactions_->empty()) {
+    committed_transactions_.WithLock([](auto &transactions) {
+      for (auto &transaction : transactions) {
+        auto *transaction_deltas_ptr = transaction.deltas.release();
+        if (transaction_deltas_ptr) {
+          auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
+          auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
+          auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
+          if (monotonic_buffer == nullptr && pool_resource == nullptr) {
+            utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
+          }
+          if (monotonic_buffer) {
+            monotonic_buffer->Release();
+          }
+        }
+      }
+    });
+  }
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level,
@@ -1415,7 +1433,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
           auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
           auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
           auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
-          ;
           if (monotonic_buffer == nullptr && pool_resource == nullptr) {
             utils::Allocator<UPPmrLd>(memory_resource).destroy(transaction_deltas_ptr);
           }
@@ -1442,7 +1459,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
             pool_resource->Release();
           }
         }
-
+        // this will trigger destory of object
+        // but since we release pointer, it will just destory other stuff
         undo_buffers.pop_front();
       }
     }
