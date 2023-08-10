@@ -2430,6 +2430,9 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
+  static constexpr auto kMicrosecondsInMillisecond{1000};
+  static constexpr auto kMicrosecondsInSecond{1000000};
+
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
@@ -2488,21 +2491,23 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto &local_time = value.local_time_v->local_time;
-      py::Object py_local_time(PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
-                                               local_time.millisecond * 1000 + local_time.microsecond));
+      py::Object py_local_time(
+          PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
+                          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto &local_time = value.local_date_time_v->local_date_time.local_time;
       const auto &date = value.local_date_time_v->local_date_time.date;
-      py::Object py_local_date_time(PyDateTime_FromDateAndTime(date.year, date.month, date.day, local_time.hour,
-                                                               local_time.minute, local_time.second,
-                                                               local_time.millisecond * 1000 + local_time.microsecond));
+      py::Object py_local_date_time(PyDateTime_FromDateAndTime(
+          date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
+          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto &duration = value.duration_v->duration;
-      py::Object py_duration(PyDelta_FromDSU(0, duration.microseconds / 1000000, duration.microseconds % 1000000));
+      py::Object py_duration(PyDelta_FromDSU(0, duration.microseconds / kMicrosecondsInSecond,
+                                             duration.microseconds % kMicrosecondsInSecond));
       return py_duration;
     }
   }
