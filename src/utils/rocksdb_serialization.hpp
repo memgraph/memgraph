@@ -115,7 +115,7 @@ inline std::string ExtractGidFromKey(const std::string &key) {
 }
 
 inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const std::string &value) {
-  auto properties_str = utils::GetSecondPartOfSplit(value, '|');
+  std::string_view properties_str = utils::GetSecondPartOfSplit(value, '|');
   return storage::PropertyStore::CreateFromBuffer(properties_str);
 }
 
@@ -163,8 +163,8 @@ inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::Labe
 }
 
 inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
-  auto firstPartKey = utils::GetFirstPartOfSplit(key, '|');
-  auto constraint_key = utils::GetFirstPartOfSplit(firstPartKey, ',');
+  std::string_view firstPartKey = utils::GetFirstPartOfSplit(key, '|');
+  std::string_view constraint_key = utils::GetFirstPartOfSplit(firstPartKey, ',');
   /// TODO: andi Change this to deserialization method directly into the LabelId class
   return storage::LabelId::FromUint(std::stoull(std::string(constraint_key)));
 }
@@ -221,8 +221,7 @@ inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId 
 }
 
 inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  return key_vector[2];
+  return std::string(GetThirdPartOfSplit(key, '|'));
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &value) {
