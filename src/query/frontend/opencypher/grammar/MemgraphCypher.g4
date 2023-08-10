@@ -60,6 +60,7 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | NULLIF
+                      | IMPORT
                       | ISOLATION
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -73,6 +74,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NOTHING
+                      | OFF
                       | PASSWORD
                       | PULSAR
                       | PORT
@@ -143,6 +145,7 @@ query : cypherQuery
       | transactionQueueQuery
       | multiDatabaseQuery
       | showDatabases
+      | edgeImportModeQuery
       ;
 
 authQuery : createRole
@@ -475,3 +478,5 @@ useDatabase : USE DATABASE databaseName ;
 dropDatabase : DROP DATABASE databaseName ;
 
 showDatabases: SHOW DATABASES ;
+
+edgeImportModeQuery : EDGE IMPORT MODE ( ON | OFF ) ;

@@ -64,6 +64,8 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_import_mode.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -2495,6 +2497,13 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
   }
 }
 
+constexpr auto ToEdgeImportMode(const EdgeImportModeQuery::Status status) noexcept {
+  if (status == EdgeImportModeQuery::Status::ON) {
+    return storage::EdgeImportMode::ON;
+  }
+  return storage::EdgeImportMode::OFF;
+}
+
 bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
   return (current_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
           current_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) &&
@@ -2627,6 +2636,29 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
       return [interpreter_context, requested_mode] { interpreter_context->db->SetStorageMode(requested_mode); };
     }();
   }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                         InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw EdgeImportModeModificationInMulticommandTxException();
+  }
+  auto *edge_import_mode_query = utils::Downcast<EdgeImportModeQuery>(parsed_query.query);
+  MG_ASSERT(edge_import_mode_query);
+  const auto requested_status = ToEdgeImportMode(edge_import_mode_query->status_);
+
+  auto callback = [requested_status, interpreter_context]() -> std::function<void()> {
+    return [interpreter_context, requested_status] { interpreter_context->db->SetEdgeImportMode(requested_status); };
+  }();
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -3705,6 +3737,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                  &query_execution->summary, &*execution_db_accessor_,
                                                  &query_execution->execution_memory_with_exception, username_,
                                                  &transaction_status_, std::move(current_timer));
+    } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareEdgeImportModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

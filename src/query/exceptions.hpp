@@ -271,6 +271,12 @@ class StorageModeModificationInMulticommandTxException : public QueryException {
       : QueryException("Storage mode cannot be modified in multicommand transactions.") {}
 };
 
+class EdgeImportModeModificationInMulticommandTxException : public QueryException {
+ public:
+  EdgeImportModeModificationInMulticommandTxException()
+      : QueryException("Edge import mode cannot be modified in multicommand transactions.") {}
+};
+
 class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()

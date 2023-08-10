@@ -18,6 +18,7 @@
 #include <climits>
 #include <codecvt>
 #include <cstring>
+#include <exception>
 #include <iterator>
 #include <limits>
 #include <string>
@@ -267,6 +268,19 @@ antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::Replicati
   auto *replication_query = std::any_cast<ReplicationQuery *>(ctx->children[0]->accept(this));
   query_ = replication_query;
   return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeImportModeQueryContext *ctx) {
+  auto *edge_import_mode_query = storage_->Create<EdgeImportModeQuery>();
+  if (ctx->ON()) {
+    edge_import_mode_query->status_ = EdgeImportModeQuery::Status::ON;
+    spdlog::info("Mode is on");
+  } else {
+    edge_import_mode_query->status_ = EdgeImportModeQuery::Status::OFF;
+    spdlog::info("Mode is off");
+  }
+  query_ = edge_import_mode_query;
+  return edge_import_mode_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) {

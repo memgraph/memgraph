@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <mutex>
 #include "spdlog/spdlog.h"
 
 #include "storage/v2/disk/name_id_mapper.hpp"
+#include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -95,6 +97,12 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
     storage_mode_ = storage_mode;
     FreeMemory(std::move(main_guard));
   }
+}
+
+void Storage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
+  std::unique_lock main_guard{main_lock_};
+  edge_import_status_ = edge_import_status;
+  spdlog::trace("Edge import mode changed to: {}", EdgeImportModeToString(edge_import_status));
 }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
