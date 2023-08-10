@@ -252,10 +252,14 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 #endif
 }
 SessionHL::~SessionHL() { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
-SessionHL::SessionHL(memgraph::dbms::SessionContextHandler &sc_handler,
-                     const memgraph::communication::v2::ServerEndpoint &endpoint,
-                     memgraph::communication::v2::InputStream *input_stream,
-                     memgraph::communication::v2::OutputStream *output_stream, const std::string &default_db)  // NOLINT
+SessionHL::SessionHL(
+#ifdef MG_ENTERPRISE
+    memgraph::dbms::SessionContextHandler &sc_handler,
+#else
+    memgraph::dbms::SessionContext sc,
+#endif
+    const memgraph::communication::v2::ServerEndpoint &endpoint, memgraph::communication::v2::InputStream *input_stream,
+    memgraph::communication::v2::OutputStream *output_stream, const std::string &default_db)  // NOLINT
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
 #ifdef MG_ENTERPRISE

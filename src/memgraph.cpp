@@ -9,22 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <csignal>
-#include <cstdint>
-#include <exception>
-#include <filesystem>
-#include <functional>
-#include <limits>
-#include <map>
-#include <memory>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <thread>
+//#include <algorithm>
+//#include <atomic>
+//#include <chrono>
+//#include <csignal>
+//#include <cstdint>
+//#include <exception>
+//#include <filesystem>
+//#include <functional>
+//#include <limits>
+//#include <map>
+//#include <memory>
+//#include <optional>
+//#include <regex>
+//#include <string>
+//#include <string_view>
+//#include <thread>
 
 #include <fmt/core.h>
 #include <fmt/format.h>
@@ -33,50 +33,53 @@
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
-
+//
 #include "audit/log.hpp"
-#include "auth/models.hpp"
-#include "communication/bolt/v1/constants.hpp"
+//#include "auth/models.hpp"
+//#include "communication/bolt/v1/constants.hpp"
 #include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
-#include "dbms/constants.hpp"
-#include "dbms/global.hpp"
+//#include "dbms/constants.hpp"
+//#include "dbms/global.hpp
+#ifndef MG_ENTERPRISE
+#include "dbms/session_context_handler.hpp"
+#endif
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
 #include "http_handlers/metrics.hpp"
 #include "license/license_sender.hpp"
-#include "py/py.hpp"
-#include "query/auth_checker.hpp"
+//#include "py/py.hpp"
+//#include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/plan/operator.hpp"
+//#include "query/exceptions.hpp"
+//#include "query/frontend/ast/ast.hpp"
+//#include "query/plan/operator.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
-#include "storage/v2/config.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
-#include "storage/v2/view.hpp"
+//#include "storage/v2/config.hpp"
+//#include "storage/v2/disk/storage.hpp"
+//#include "storage/v2/inmemory/storage.hpp"
+//#include "storage/v2/isolation_level.hpp"
+//#include "storage/v2/storage.hpp"
+//#include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/enum.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/file.hpp"
-#include "utils/flag_validation.hpp"
-#include "utils/logging.hpp"
-#include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
-#include "utils/readable_size.hpp"
-#include "utils/rw_lock.hpp"
-#include "utils/settings.hpp"
+//#include "utils/event_counter.hpp"
+//#include "utils/file.hpp"
+//#include "utils/flag_validation.hpp"
+//#include "utils/logging.hpp"
+//#include "utils/memory_tracker.hpp"
+//#include "utils/message.hpp"
+//#include "utils/readable_size.hpp"
+//#include "utils/rw_lock.hpp"
+//#include "utils/settings.hpp"
 #include "utils/signals.hpp"
-#include "utils/string.hpp"
-#include "utils/synchronized.hpp"
+//#include "utils/string.hpp"
+//#include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
@@ -93,13 +96,13 @@
 // Because of that the definitions of `TRUE` and `FALSE` that are inherited
 // from `libkrb5` must be included after the Antlr includes. Hence,
 // communication headers must be included after query headers.
-#include "communication/bolt/v1/session.hpp"
-#include "communication/init.hpp"
-#include "glue/communication.hpp"
+//#include "communication/bolt/v1/session.hpp"
+//#include "communication/init.hpp"
+//#include "glue/communication.hpp"
 
 #include "SessionHL.hpp"
-#include "auth/auth.hpp"
-#include "glue/auth.hpp"
+//#include "auth/auth.hpp"
+//#include "glue/auth.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";

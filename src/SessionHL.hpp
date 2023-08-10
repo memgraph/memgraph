@@ -16,6 +16,8 @@
 
 #ifdef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
+#else
+#include "dbms/session_context.hpp"
 #endif
 
 struct ContextWrapper {
