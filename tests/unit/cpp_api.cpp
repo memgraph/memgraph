@@ -574,6 +574,22 @@ TYPED_TEST(CppApiTestFixture, TestNodeRemoveProperty) {
   ASSERT_EQ(node.Properties().size(), 0);
 }
 
+TYPED_TEST(CppApiTestFixture, TestRelationshipRemoveProperty) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto relationship = graph.CreateRelationship(node_1, node_2, "RELATIONSHIP");
+
+  int64_t int_1{0};
+  mgp::Value value{int_1};
+  relationship.SetProperty("property", value);
+
+  ASSERT_EQ(relationship.Properties().size(), 1);
+  relationship.RemoveProperty("property");
+  ASSERT_EQ(relationship.Properties().size(), 0);
+}
+
 TYPED_TEST(CppApiTestFixture, TestValuePrint) {
   std::string string_1{"abc"};
   int64_t int_1{4};

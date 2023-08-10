@@ -703,6 +703,9 @@ class Relationship {
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
 
+  /// @brief Removes the chosen property.
+  void RemoveProperty(std::string property);
+
   /// @brief Retrieves the value of the chosen property.
   Value GetProperty(const std::string &property) const;
 
@@ -2644,6 +2647,8 @@ inline std::map<std::string, Value> Relationship::Properties() const {
 inline void Relationship::SetProperty(std::string property, Value value) {
   mgp::edge_set_property(ptr_, property.data(), value.ptr());
 }
+
+inline void Relationship::RemoveProperty(std::string property) { SetProperty(property, Value()); }
 
 inline Value Relationship::GetProperty(const std::string &property) const {
   mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), memory);
