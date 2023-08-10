@@ -111,13 +111,11 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
 }
 
 inline std::string ExtractGidFromKey(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  return key_vector[1];
+  return std::string(utils::GetSecondPartOfSplit(key, '|'));
 }
 
 inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const std::string &value) {
-  std::vector<std::string> value_vector = utils::Split(value, "|");
-  std::string properties_str = value_vector[1];
+  auto properties_str = utils::GetSecondPartOfSplit(value, '|');
   return storage::PropertyStore::CreateFromBuffer(properties_str);
 }
 
@@ -136,9 +134,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const 
 }
 
 inline std::vector<std::string> ExtractLabelsFromMainDiskStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::string labels_str = key_vector[0];
-  return utils::Split(labels_str, ",");
+  return utils::Split(utils::GetFirstPartOfSplit(key, '|'), ",");
 }
 
 inline storage::PropertyStore DeserializePropertiesFromMainDiskStorage(const std::string_view value) {
@@ -167,10 +163,10 @@ inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::Labe
 }
 
 inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
+  auto firstPartKey = utils::GetFirstPartOfSplit(key, '|');
+  auto constraint_key = utils::GetFirstPartOfSplit(firstPartKey, ',');
   /// TODO: andi Change this to deserialization method directly into the LabelId class
-  return storage::LabelId::FromUint(std::stoull(constraint_key[0]));
+  return storage::LabelId::FromUint(std::stoull(std::string(constraint_key)));
 }
 
 inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(const std::string &value) {

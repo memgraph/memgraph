@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -299,6 +299,26 @@ inline std::vector<std::string> RSplit(const std::string_view src, const std::st
   std::vector<std::string> res;
   RSplit(&res, src, delimiter, splits);
   return res;
+}
+
+/**
+ * Get a first part of a string by `delimiter` into a string.
+ */
+inline std::string_view GetFirstPartOfSplit(const std::string_view src, const char delimiter) {
+  auto delimPos = src.find(delimiter);
+  return delimPos == std::string::npos ? src : src.substr(0, delimPos);
+}
+
+/**
+ * Get a second part of a string by `delimiter` into a string.
+ */
+inline std::string_view GetSecondPartOfSplit(const std::string_view src, const char delimiter) {
+  auto firstDelimPos = src.find(delimiter);
+  if (firstDelimPos == std::string::npos) return src;
+  ++firstDelimPos;
+  auto secondDelimPos = src.find(delimiter, firstDelimPos);
+  if (secondDelimPos == std::string::npos) return src.substr(firstDelimPos);
+  return src.substr(firstDelimPos, secondDelimPos - firstDelimPos);
 }
 
 /**
