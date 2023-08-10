@@ -482,9 +482,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           if (property_lookup.cache_.size() == 0) {
             auto props = GetAllProperties(expression_result_ptr->ValueVertex());
-            // TODO exception if props is empty or doesn't contain the looked-up property
             property_lookup.cache_ = props;
           }
+
+          if (!property_lookup.cache_.contains(ctx_->properties[property_lookup.property_.ix])) {
+            return TypedValue(ctx_->memory);
+          }
+
           return TypedValue(property_lookup.cache_.at(ctx_->properties[property_lookup.property_.ix]), ctx_->memory);
         } else {
           return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
