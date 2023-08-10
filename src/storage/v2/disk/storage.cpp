@@ -1451,13 +1451,12 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   is_transaction_active_ = false;
   auto *transaction_ptr = transaction_.deltas.release();
   auto *memory_resource = transaction_ptr->get_allocator().GetMemoryResource();
+  utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
   if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
       monotonic_resource != nullptr) {
     monotonic_resource->Release();
   } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
     pool_resource->Release();
-  } else {
-    utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
   }
 
   disk_storage->monotonic_resources_.WithLock(
@@ -1534,14 +1533,14 @@ void DiskStorage::DiskAccessor::Abort() {
   is_transaction_active_ = false;
   auto *transaction_ptr = transaction_.deltas.release();
   auto *memory_resource = transaction_ptr->get_allocator().GetMemoryResource();
+  utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
   if (auto *monotonic_resource = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
       monotonic_resource != nullptr) {
     monotonic_resource->Release();
   } else if (auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource); pool_resource != nullptr) {
     pool_resource->Release();
-  } else {
-    utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_ptr);
   }
+
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   disk_storage->monotonic_resources_.WithLock(
       [transaction_id = transaction_.transaction_id](auto &monotonic_resources) {
@@ -1721,15 +1720,15 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     start_timestamp = timestamp_++;
   }
 
-  // utils::MemoryResource *memory_resource{nullptr};
-  // monotonic_resources_.WithLock([&transaction_id, &memory_resource](auto &monotonic_resources) {
-  //   monotonic_resources.emplace(transaction_id, 1024UL * 1024UL);
-  //   auto it = monotonic_resources.find(transaction_id);
-  //   if (it != monotonic_resources.end()) {
-  //     memory_resource = &(it->second);
-  //   }
-  // });
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, utils::NewDeleteResource()};
+  utils::MemoryResource *memory_resource{nullptr};
+  monotonic_resources_.WithLock([&transaction_id, &memory_resource](auto &monotonic_resources) {
+    monotonic_resources.emplace(transaction_id, 1024UL * 1024UL);
+    auto it = monotonic_resources.find(transaction_id);
+    if (it != monotonic_resources.end()) {
+      memory_resource = &(it->second);
+    }
+  });
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, memory_resource};
 }
 
 uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
