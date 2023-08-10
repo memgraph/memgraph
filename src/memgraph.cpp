@@ -284,9 +284,9 @@ DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication st
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
-    memory_limit, 0,
+    memory_limit, -1,
     "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
-    "is enabled and 90\% of the physical memory otherwise.");
+    "is enabled and 90\% of the physical memory otherwise. Set to -1, value is infinity.");
 
 namespace {
 using namespace std::literals;
@@ -330,6 +330,9 @@ memgraph::storage::IsolationLevel ParseIsolationLevel() {
 }
 
 int64_t GetMemoryLimit() {
+  if (FLAGS_memory_limit == -1) {
+    return std::numeric_limits<int64_t>::max();
+  }
   if (FLAGS_memory_limit == 0) {
     auto maybe_total_memory = memgraph::utils::sysinfo::TotalMemory();
     MG_ASSERT(maybe_total_memory, "Failed to fetch the total physical memory");

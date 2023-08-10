@@ -92,7 +92,7 @@ modifications:
     override: false
 
   - name: "memory_limit"
-    value: "0"
+    value: "-1"
     override: true
 
   - name: "isolation_level"
