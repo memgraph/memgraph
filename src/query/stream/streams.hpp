@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -159,7 +159,7 @@ class Streams final {
   /// nullable parameters map.
   ///
   /// @throws StreamsException if the stream doesn't exist
-  /// @throws ConsumerRunningException if the consumer is alredy running
+  /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
   TransformationResult Check(const std::string &stream_name,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,

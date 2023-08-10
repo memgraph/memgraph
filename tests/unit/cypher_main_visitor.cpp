@@ -19,9 +19,9 @@
 #include <vector>
 
 //////////////////////////////////////////////////////
-// "json.hpp" should always come before "antrl4-runtime.h"
+// "json.hpp" should always come before "antlr4-runtime.h"
 // "json.hpp" uses libc's EOF macro while
-// "antrl4-runtime.h" contains a static variable of the
+// "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
