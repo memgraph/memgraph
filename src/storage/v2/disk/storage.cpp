@@ -30,6 +30,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
+#include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -320,6 +321,21 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToEdgeImportCache(std::string &&key,
+                                                                                              std::string &&value) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto cache_accessor = disk_storage->edge_import_mode_cache_->cache_.access();
+
+  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key)));
+  if (VertexExistsInCache(cache_accessor, gid)) {
+    return std::nullopt;
+  }
+  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
+  PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
+  return CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
+                      CreateDeleteDeserializedObjectDelta(&transaction_, key));
+}
+
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(std::string &&key,
                                                                                               std::string &&value) {
@@ -396,11 +412,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   return *maybe_edge;
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  if (scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
-                                                &storage_->constraints_, storage_->config_.items));
-  }
+void DiskStorage::DiskAccessor::LoadVerticesToMainMemoryCache() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -411,7 +423,33 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString());
   }
-  scanned_all_vertices_ = true;
+}
+
+/// TODO: how to remove this
+void DiskStorage::DiskAccessor::LoadVerticesToEdgeImportCache() {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it =
+      std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    LoadVertexToEdgeImportCache(it->key().ToString(), it->value().ToString());
+  }
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_) {
+      LoadVerticesToEdgeImportCache();
+    }
+    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->cache_.access(), &transaction_,
+                                                view, &storage_->indices_, &storage_->constraints_,
+                                                storage_->config_.items));
+  }
+  LoadVerticesToMainMemoryCache();
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
@@ -836,6 +874,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
                                                        Delta *delta) {
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  /// TODO: I don't think we need here
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                  std::memory_order_release);
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});

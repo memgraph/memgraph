@@ -58,6 +58,10 @@ class DiskStorage final : public Storage {
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
+    void LoadVerticesToMainMemoryCache();
+
+    void LoadVerticesToEdgeImportCache();
+
     VerticesIterable Vertices(View view) override;
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -204,6 +208,8 @@ class DiskStorage final : public Storage {
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
 
+    std::optional<storage::VertexAccessor> LoadVertexToEdgeImportCache(std::string &&key, std::string &&value);
+
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
@@ -248,7 +254,6 @@ class DiskStorage final : public Storage {
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
-    bool scanned_all_vertices_ = false;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {

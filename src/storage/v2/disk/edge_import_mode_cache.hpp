@@ -24,19 +24,7 @@ namespace memgraph::storage {
 class EdgeImportModeCache {
  public:
   explicit EdgeImportModeCache(const DiskLabelIndex *disk_label_index,
-                               const DiskLabelPropertyIndex *disk_label_property_index) {
-    const std::unordered_set<LabelId> label_index_info = disk_label_index->GetInfo();
-    for (const LabelId label : label_index_info) {
-      /// TODO: Parallel index creation
-      label_index_->CreateIndex(label, cache_.access(), {});
-    }
-    using LabelPropertyInfo = std::pair<LabelId, PropertyId>;
-    const std::set<LabelPropertyInfo> label_property_index_info = disk_label_property_index->GetInfo();
-    for (const LabelPropertyInfo &label_property : label_property_index_info) {
-      /// TODO: Parallel index creation
-      label_property_index_->CreateIndex(label_property.first, label_property.second, cache_.access(), {});
-    }
-  }
+                               const DiskLabelPropertyIndex *disk_label_property_index);
 
   EdgeImportModeCache(const EdgeImportModeCache &) = delete;
   EdgeImportModeCache &operator=(const EdgeImportModeCache &) = delete;
@@ -44,10 +32,12 @@ class EdgeImportModeCache {
   EdgeImportModeCache &operator=(EdgeImportModeCache &&) = delete;
   ~EdgeImportModeCache() = default;
 
- private:
   utils::SkipList<Vertex> cache_;
   std::unique_ptr<InMemoryLabelIndex> label_index_;
   std::unique_ptr<InMemoryLabelPropertyIndex> label_property_index_;
+  bool scanned_all_vertices_{false};
+  std::set<LabelId> scanned_labels_;
+  std::set<std::pair<LabelId, PropertyId>> scanned_label_property_indices_;
 };
 
 }  // namespace memgraph::storage

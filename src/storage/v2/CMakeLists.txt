@@ -17,6 +17,7 @@ set(storage_v2_src_files
     inmemory/label_index.cpp
     inmemory/label_property_index.cpp
     inmemory/unique_constraints.cpp
+    disk/edge_import_mode_cache.cpp
     disk/storage.cpp
     disk/rocksdb_storage.cpp
     disk/label_index.cpp
