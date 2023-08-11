@@ -8,17 +8,13 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
 #pragma once
 
 #include <cstdint>
 
 namespace memgraph::storage {
-
-/// Indicator for obtaining the state before or after a transaction & command.
-enum class View : uint8_t {
-  OLD,
-  NEW,
+enum class EdgeDirection : uint8_t {
+  OUT = 0,
+  IN = 1,
 };
-
-}  // namespace memgraph::storage
+}
