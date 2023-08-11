@@ -57,6 +57,8 @@ PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 constexpr bool kStartGarbageCollection{true};
+constexpr auto kMicrosecondsInMillisecond{1000};
+constexpr auto kMicrosecondsInSecond{1000000};
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
@@ -2430,9 +2432,6 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
-  static constexpr auto kMicrosecondsInMillisecond{1000};
-  static constexpr auto kMicrosecondsInSecond{1000000};
-
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
