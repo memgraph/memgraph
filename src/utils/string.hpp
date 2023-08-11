@@ -28,35 +28,6 @@
 
 namespace memgraph::utils {
 
-namespace {
-struct StartEndPositions {
-  size_t start;
-  size_t end;
-
-  size_t Size() const { return end - start; }
-  bool Valid() const { return start != std::string::npos; }
-};
-
-inline StartEndPositions FindPartStartEndPositions(const std::string_view str, const char delim,
-                                                   unsigned int partNumber) {
-  StartEndPositions result{0, 0};
-  for (int i = 0; i < partNumber; ++i) {
-    result.start = result.end;
-    result.end = str.find(delim, result.start);
-    if (result.end == std::string::npos) {
-      if (i < partNumber - 1) {
-        // We didn't find enough parts.
-        result.start = std::string::npos;
-      }
-      return result;
-    }
-    ++result.end;
-  }
-  return result;
-}
-
-}  // namespace
-
 /** Remove whitespace characters from the start of a string. */
 inline std::string_view LTrim(const std::string_view s) {
   size_t start = 0;
@@ -328,21 +299,6 @@ inline std::vector<std::string> RSplit(const std::string_view src, const std::st
   std::vector<std::string> res;
   RSplit(&res, src, delimiter, splits);
   return res;
-}
-
-inline std::string_view GetFirstPartOfSplit(const std::string_view src, const char delimiter) {
-  size_t delimPos = src.find(delimiter);
-  return delimPos == std::string::npos ? src : src.substr(0, delimPos);
-}
-
-inline std::string_view GetSecondPartOfSplit(const std::string_view src, const char delimiter) {
-  StartEndPositions startEndPos = FindPartStartEndPositions(src, delimiter, 2);
-  return (startEndPos.Valid() ? src.substr(startEndPos.start, startEndPos.Size()) : src);
-}
-
-inline std::string_view GetThirdPartOfSplit(const std::string_view src, const char delimiter) {
-  StartEndPositions startEndPos = FindPartStartEndPositions(src, delimiter, 3);
-  return (startEndPos.Valid() ? src.substr(startEndPos.start, startEndPos.Size()) : src);
 }
 
 /**
