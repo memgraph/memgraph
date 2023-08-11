@@ -1071,7 +1071,6 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   }
 
   std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements_;
-  std::unordered_set<int32_t> cacheable_property_lookups_{};
 
   MapLiteral *Clone(AstStorage *storage) const override {
     MapLiteral *object = storage->Create<MapLiteral>();
@@ -1079,7 +1078,6 @@ class MapLiteral : public memgraph::query::BaseLiteral {
       PropertyIx key = storage->GetPropertyIx(entry.first.name);
       object->elements_[key] = entry.second->Clone(storage);
     }
-    object->cacheable_property_lookups_ = cacheable_property_lookups_;
     return object;
   }
 
@@ -1201,21 +1199,10 @@ class PropertyLookup : public memgraph::query::Expression {
   memgraph::query::Expression *expression_{nullptr};
   memgraph::query::PropertyIx property_;
 
-  enum class EvaluationMode {
-    GET_OWN_PROPERTY,  // default
-    GET_ALL_PROPERTIES,
-  };
-
-  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_ = EvaluationMode::GET_OWN_PROPERTY;
-  std::map<storage::PropertyId, storage::PropertyValue> empty_cache{};
-  std::map<storage::PropertyId, storage::PropertyValue> &cache_ = empty_cache;
-  // TODO replace the above two lines with e.g. optional cache_ and std::nullopt
-
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
-    object->evaluation_mode_ = evaluation_mode_;
     return object;
   }
 

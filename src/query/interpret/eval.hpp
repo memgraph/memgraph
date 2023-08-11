@@ -479,20 +479,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-          if (property_lookup.cache_.size() == 0) {
-            auto props = GetAllProperties(expression_result_ptr->ValueVertex());
-            property_lookup.cache_ = props;
-          }
-
-          if (!property_lookup.cache_.contains(ctx_->properties[property_lookup.property_.ix])) {
-            return TypedValue(ctx_->memory);
-          }
-
-          return TypedValue(property_lookup.cache_.at(ctx_->properties[property_lookup.property_.ix]), ctx_->memory);
-        } else {
-          return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
-        }
+        return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Edge:
         return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Map: {
@@ -699,26 +686,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(MapLiteral &literal) override {
-    std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_caches;
-    for (auto symbol_pos : literal.cacheable_property_lookups_) {
-      property_lookup_caches.insert({symbol_pos, {}});
-    }
-
     TypedValue::TMap result(ctx_->memory);
-    for (const auto &pair : literal.elements_) {
-      if (pair.second->GetTypeInfo() == PropertyLookup::kType) {
-        auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
-        if (property_lookup->expression_->GetTypeInfo() == Identifier::kType) {
-          auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
-
-          if (property_lookup_caches.contains(symbol_pos)) {
-            property_lookup->cache_ = property_lookup_caches.at(symbol_pos);
-          }
-        }
-      }
-
-      result.emplace(pair.first.name, pair.second->Accept(*this));
-    }
+    for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
     return TypedValue(result, ctx_->memory);
   }
 
@@ -1005,33 +974,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
-  template <class TRecordAccessor>
-  std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    auto maybe_props = record_accessor.Properties(view_);
-    if (maybe_props.HasError() && maybe_props.GetError() == storage::Error::NONEXISTENT_OBJECT) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_props = record_accessor.Properties(storage::View::NEW);
-    }
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting properties.");
-      }
-    }
-    return *maybe_props;
-  }
-
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
