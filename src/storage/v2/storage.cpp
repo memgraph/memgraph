@@ -99,15 +99,12 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
   }
 }
 
-void Storage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
-  std::unique_lock main_guard{main_lock_};
-  edge_import_status_ = edge_import_status;
-  spdlog::trace("Edge import mode changed to: {}", EdgeImportModeToString(edge_import_status));
+StorageMode Storage::GetStorageMode() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return storage_mode_;
 }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
-
-StorageMode Storage::GetStorageMode() const { return storage_mode_; }
 
 utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};

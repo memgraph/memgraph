@@ -2652,12 +2652,20 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, const bool in
   if (in_explicit_transaction) {
     throw EdgeImportModeModificationInMulticommandTxException();
   }
+
+  if (interpreter_context->db->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw EdgeImportModeQueryDisabledOnDiskStorage();
+  }
+
   auto *edge_import_mode_query = utils::Downcast<EdgeImportModeQuery>(parsed_query.query);
   MG_ASSERT(edge_import_mode_query);
   const auto requested_status = ToEdgeImportMode(edge_import_mode_query->status_);
 
   auto callback = [requested_status, interpreter_context]() -> std::function<void()> {
-    return [interpreter_context, requested_status] { interpreter_context->db->SetEdgeImportMode(requested_status); };
+    return [interpreter_context, requested_status] {
+      auto *disk_storage = static_cast<storage::DiskStorage *>(interpreter_context->db.get());
+      disk_storage->SetEdgeImportMode(requested_status);
+    };
   }();
 
   return PreparedQuery{{},

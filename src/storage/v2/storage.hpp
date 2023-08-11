@@ -215,8 +215,6 @@ class Storage {
 
   void SetStorageMode(StorageMode storage_mode);
 
-  void SetEdgeImportMode(EdgeImportMode edge_import_status);
-
   StorageMode GetStorageMode() const;
 
   virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
@@ -302,7 +300,6 @@ class Storage {
 
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
-  EdgeImportMode edge_import_status_{EdgeImportMode::OFF};
 
   Indices indices_;
   Constraints constraints_;

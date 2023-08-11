@@ -288,6 +288,12 @@ class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
   CreateSnapshotDisabledOnDiskStorage() : QueryException("In the on-disk storage mode data is already persistent.") {}
 };
 
+class EdgeImportModeQueryDisabledOnDiskStorage final : public QueryException {
+ public:
+  EdgeImportModeQueryDisabledOnDiskStorage()
+      : QueryException("Edge import mode is only allowed for on-disk storage mode.") {}
+};
+
 class SettingConfigInMulticommandTxException final : public QueryException {
  public:
   SettingConfigInMulticommandTxException()

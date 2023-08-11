@@ -216,4 +216,6 @@ void DiskLabelIndex::LoadIndexInfo(const std::vector<std::string> &labels) {
 
 RocksDBStorage *DiskLabelIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
+std::unordered_set<LabelId> DiskLabelIndex::GetInfo() const { return index_; }
+
 }  // namespace memgraph::storage

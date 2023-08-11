@@ -228,4 +228,6 @@ void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys)
 
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
+std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
+
 }  // namespace memgraph::storage

@@ -11,8 +11,13 @@
 
 #pragma once
 
+#include <rocksdb/db.h>
+
+#include <unordered_set>
+
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -20,9 +25,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/rw_lock.hpp"
-
-#include <rocksdb/db.h>
-#include <unordered_set>
 
 namespace memgraph::storage {
 
@@ -285,6 +287,10 @@ class DiskStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+  void SetEdgeImportMode(EdgeImportMode edge_import_status);
+
+  EdgeImportMode GetEdgeImportMode() const;
+
  private:
   void LoadIndexInfoIfExists() const;
 
@@ -333,6 +339,9 @@ class DiskStorage final : public Storage {
   void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+
+  EdgeImportMode edge_import_status_{EdgeImportMode::OFF};
+  std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;

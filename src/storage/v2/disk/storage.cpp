@@ -26,6 +26,7 @@
 #include "kvstore/kvstore.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
@@ -790,6 +791,28 @@ StorageInfo DiskStorage::GetInfo() const {
   }
 
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
+}
+
+void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
+  std::unique_lock main_guard{main_lock_};
+  if (edge_import_status == edge_import_status_) {
+    return;
+  }
+  if (edge_import_status == EdgeImportMode::ON) {
+    const auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+    const auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
+    edge_import_mode_cache_ = std::make_unique<EdgeImportModeCache>(disk_label_index, disk_label_property_index);
+  } else {
+    edge_import_mode_cache_ = nullptr;
+  }
+
+  edge_import_status_ = edge_import_status;
+  spdlog::trace("Edge import mode changed to: {}", EdgeImportModeToString(edge_import_status));
+}
+
+EdgeImportMode DiskStorage::GetEdgeImportMode() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return edge_import_status_;
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
