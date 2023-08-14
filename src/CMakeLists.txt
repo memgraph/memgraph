@@ -36,6 +36,8 @@ set(mg_single_node_v2_sources
         flags/memory_limit.cpp
         flags/log_level.cpp
         flags/general.cpp
+        flags/audit.cpp
+        flags/bolt.cpp
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads

@@ -19,16 +19,13 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
 
-// Bolt server flags.
-DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(monitoring_address, "0.0.0.0",
               "IP address on which the websocket server for Memgraph monitoring should listen.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(metrics_address, "0.0.0.0",
               "IP address on which the Memgraph server for exposing metrics should listen.");
-DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port on which the websocket server for Memgraph monitoring should listen.",
@@ -36,20 +33,7 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
-                       "Number of workers used by the Bolt server. By default, this will be the "
-                       "number of processing units available on the machine.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
-                       "Time in seconds after which inactive Bolt sessions will be "
-                       "closed.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the Bolt server.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(init_file, "",
               "Path to cypherl file that is used for configuring users and database schema before server starts.");
@@ -154,19 +138,6 @@ DEFINE_string(kafka_bootstrap_servers, "",
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
-
-// Audit logging flags.
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(audit_buffer_size, memgraph::audit::kBufferSizeDefault,
-                       "Maximum number of items in the audit log buffer.", FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferFlushIntervalMillisDefault,
-                       "Interval (in milliseconds) used for flushing the audit log buffer.",
-                       FLAG_IN_RANGE(10, INT32_MAX));
-#endif
 
 // Query flags.
 

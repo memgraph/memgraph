@@ -76,10 +76,7 @@
 #include "utils/signals.hpp"
 //#include "utils/string.hpp"
 //#include "utils/synchronized.hpp
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
+#include "flags/all.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"

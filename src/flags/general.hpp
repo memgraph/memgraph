@@ -19,25 +19,16 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(h);
 
-// Bolt server flags.
-DECLARE_string(bolt_address);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(monitoring_address);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(metrics_address);
-DECLARE_int32(bolt_port);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(monitoring_port);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(metrics_address);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(metrics_port);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(bolt_num_workers);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(bolt_session_inactivity_timeout);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(bolt_cert_file);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(bolt_key_file);
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(init_file);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -65,7 +56,6 @@ DECLARE_uint64(storage_gc_cycle_sec);
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_properties_on_edges);
-
 // storage_recover_on_startup deprecated; use data_recovery_on_startup instead
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_recover_on_startup);
@@ -81,16 +71,12 @@ DECLARE_uint64(storage_wal_file_size_kib);
 DECLARE_uint64(storage_wal_file_flush_every_n_tx);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_snapshot_on_exit);
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_items_per_batch);
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_parallel_index_recovery);
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_recovery_thread_count);
-
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_delete_on_drop);
@@ -104,36 +90,28 @@ DECLARE_bool(telemetry_enabled);
 DECLARE_uint32(stream_transaction_conflict_retries);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint32(stream_transaction_retry_interval);
+
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(kafka_bootstrap_servers);
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(pulsar_service_url);
 
-// Audit logging flags.
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(audit_enabled);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(audit_buffer_size);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(audit_buffer_flush_interval_ms);
-#endif
-
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_double(query_execution_timeout_sec);
+DECLARE_string(query_modules_directory);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(query_callable_mappings_path);
+namespace memgraph::flags {
+auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(replication_replica_check_frequency_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(replication_restore_state_on_startup);
-
-DECLARE_string(query_modules_directory);
-
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(query_callable_mappings_path);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(license_key);
@@ -141,7 +119,3 @@ DECLARE_string(license_key);
 DECLARE_string(organization_name);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(auth_user_or_role_name_regex);
-
-namespace memgraph::flags {
-auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
-}
