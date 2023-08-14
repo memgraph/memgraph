@@ -9,27 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <string_view>
-
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <spdlog/common.h>
-
-#include "audit/log.hpp"
-#include "communication/http/server.hpp"
-#include "communication/websocket/auth.hpp"
-#include "communication/websocket/server.hpp"
 #ifndef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
 #endif
+
+#include "audit/log.hpp"
+#include "communication/websocket/auth.hpp"
+#include "communication/websocket/server.hpp"
 #include "flags/all.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
-#include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
-#include "http_handlers/metrics.hpp"
 #include "license/license_sender.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -37,14 +29,11 @@
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/enum.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
-
-using namespace std::string_view_literals;
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";

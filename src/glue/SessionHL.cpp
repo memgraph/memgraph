@@ -97,9 +97,9 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
 TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::query::InterpreterContext *interpreterContext)
     : interpreter_context_(interpreterContext) {}
 
-#ifdef MG_ENTERPRISE
-
 namespace memgraph::glue {
+
+#ifdef MG_ENTERPRISE
 
 void SessionHL::UpdateAndDefunct(const std::string &db_name) {
   UpdateAndDefunct(ContextWrapper(sc_handler_.Get(db_name)));
@@ -382,4 +382,4 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSum
 
   return decoded_summary;
 }
-}
+}  // namespace memgraph::glue
