@@ -31,7 +31,6 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
         memgraph.cpp
-        SessionHL.cpp
         flags/isolation_level.cpp
         flags/memory_limit.cpp
         flags/log_level.cpp

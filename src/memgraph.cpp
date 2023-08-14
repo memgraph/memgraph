@@ -97,7 +97,8 @@
 //#include "communication/init.hpp"
 //#include "glue/communication.hpp"
 
-#include "SessionHL.hpp"
+#include "glue/ServerT.hpp"
+#include "glue/SessionHL.hpp"
 
 // #include "auth/auth.hpp"
 //#include "glue/auth.hpp
@@ -134,11 +135,6 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   file.close();
 }
 
-#ifdef MG_ENTERPRISE
-using ServerT = memgraph::communication::v2::Server<SessionHL, memgraph::dbms::SessionContextHandler>;
-#else
-using ServerT = memgraph::communication::v2::Server<SessionHL, memgraph::dbms::SessionContext>;
-#endif
 using MonitoringServerT =
     memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
                                           memgraph::dbms::SessionContext>;
@@ -464,11 +460,11 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
 #ifdef MG_ENTERPRISE
-  ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
-                 FLAGS_bolt_num_workers);
+  memgraph::ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+                           FLAGS_bolt_num_workers);
 #else
-  ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
-                 FLAGS_bolt_num_workers);
+  memgraph::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
+                           service_name, FLAGS_bolt_num_workers);
 #endif
 
   const auto machine_id = memgraph::utils::GetMachineId();

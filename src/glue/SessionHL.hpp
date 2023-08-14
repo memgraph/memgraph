@@ -20,6 +20,8 @@
 #include "dbms/session_context.hpp"
 #endif
 
+namespace memgraph::glue {
+
 struct ContextWrapper {
   explicit ContextWrapper(memgraph::dbms::SessionContext sc);
   ~ContextWrapper();
@@ -155,3 +157,5 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;
 };
+
+}  // namespace memgraph::glue

@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "SessionHL.hpp"
+#include "glue/SessionHL.hpp"
 
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
@@ -72,7 +72,34 @@ class TypedValueResultStream : public TypedValueResultStreamBase {
   TEncoder *encoder_;
 };
 
+std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::DecodeValues(
+    const std::vector<memgraph::query::TypedValue> &values) const {
+  std::vector<memgraph::communication::bolt::Value> decoded_values;
+  decoded_values.reserve(values.size());
+  for (const auto &v : values) {
+    auto maybe_value = memgraph::glue::ToBoltValue(v, *interpreter_context_->db, memgraph::storage::View::NEW);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+          throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
+      }
+    }
+    decoded_values.emplace_back(std::move(*maybe_value));
+  }
+  return decoded_values;
+}
+TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::query::InterpreterContext *interpreterContext)
+    : interpreter_context_(interpreterContext) {}
+
 #ifdef MG_ENTERPRISE
+
+namespace memgraph::glue {
 
 void SessionHL::UpdateAndDefunct(const std::string &db_name) {
   UpdateAndDefunct(ContextWrapper(sc_handler_.Get(db_name)));
@@ -93,7 +120,7 @@ void SessionHL::Update(ContextWrapper &&cntxt) {
   interpreter_context_ = current_.interpreter_context();
 }
 void SessionHL::MultiDatabaseAuth(const std::string &db) {
-  if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, {}, db)) {
+  if (user_ && !AuthChecker::IsUserAuthorized(*user_, {}, db)) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
@@ -174,7 +201,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
     const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
   std::map<std::string, memgraph::storage::PropertyValue> params_pv;
   for (const auto &[key, bolt_param] : params) {
-    params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
+    params_pv.emplace(key, ToPropertyValue(bolt_param));
   }
   const std::string *username{nullptr};
   if (user_) {
@@ -190,7 +217,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   try {
     auto result = interpreter_->Prepare(query, params_pv, username, ToQueryExtras(extra), UUID());
     const std::string db_name = result.db ? *result.db : "";
-    if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
+    if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
       interpreter_->Abort();
       if (db_name.empty()) {
         throw memgraph::communication::bolt::ClientError(
@@ -322,35 +349,12 @@ bool ContextWrapper::defunct() const { return defunct_; }
 #ifdef MG_ENTERPRISE
 memgraph::audit::Log *ContextWrapper::audit_log() const { return session_context.audit_log; }
 #endif
-std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::DecodeValues(
-    const std::vector<memgraph::query::TypedValue> &values) const {
-  std::vector<memgraph::communication::bolt::Value> decoded_values;
-  decoded_values.reserve(values.size());
-  for (const auto &v : values) {
-    auto maybe_value = memgraph::glue::ToBoltValue(v, *interpreter_context_->db, memgraph::storage::View::NEW);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
-          throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
-          throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-          throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
-      }
-    }
-    decoded_values.emplace_back(std::move(*maybe_value));
-  }
-  return decoded_values;
-}
-TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::query::InterpreterContext *interpreterContext)
-    : interpreter_context_(interpreterContext) {}
+
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
     const std::map<std::string, memgraph::query::TypedValue> &summary) {
   std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = memgraph::glue::ToBoltValue(kv.second, *interpreter_context_->db, memgraph::storage::View::NEW);
+    auto maybe_value = ToBoltValue(kv.second, *interpreter_context_->db, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -377,4 +381,5 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSum
   }
 
   return decoded_summary;
+}
 }
