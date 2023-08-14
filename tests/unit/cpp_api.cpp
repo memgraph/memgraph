@@ -621,7 +621,7 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
   /*map*/
   mgp::Map map;
   map.Insert("key", mgp::Value(int1));
-  ASSERT_EQ(mgp::Value(map).ToString(), "{key=60}");
+  ASSERT_EQ(mgp::Value(map).ToString(), "{key: 60}");
   /*date*/
   mgp::Date date_1{"2020-12-12"};
   ASSERT_EQ(mgp::Value(date_1).ToString(), "2020-12-12");
@@ -632,17 +632,19 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
   auto node1 = graph.CreateNode();
   node1.AddLabel("Label1");
   auto node2 = graph.CreateNode();
-  auto rel = graph.CreateRelationship(node1, node2, "loves");
+  auto rel = graph.CreateRelationship(node1, node2, "Loves");
   rel.SetProperty("key", mgp::Value("property"));
-  ASSERT_EQ(mgp::Value(rel).ToString(), "(id: 0 :Label1 )-[type: loves, id: 0, properties: {key=property}]->(id: 1 )");
+  ASSERT_EQ(
+      mgp::Value(rel).ToString(),
+      "(id: 0 :Label1 properties: {} )-[type: Loves, id: 0, properties: {key: property}]->(id: 1 properties: {} )");
 
   /*path*/
   mgp::Path path = mgp::Path(node1);
   path.Expand(rel);
   auto node3 = graph.CreateNode();
-  auto rel2 = graph.CreateRelationship(node2, node3, "loves2");
+  auto rel2 = graph.CreateRelationship(node2, node3, "Loves2");
   path.Expand(rel2);
   ASSERT_EQ(mgp::Value(path).ToString(),
-            "(id: 0 :Label1 )-[type: loves, id: 0, properties: {key=property}]->(id: 1 )-[type: loves2, id: 1, "
-            "properties: {}]->(id: 2 )");
+            "(id: 0 :Label1 properties: {} )-[type: Loves, id: 0, properties: {key: property}]->(id: 1 properties: {} "
+            ")-[type: Loves2, id: 1, properties: {}]->(id: 2 properties: {} )");
 }

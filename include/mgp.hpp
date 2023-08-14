@@ -2540,10 +2540,10 @@ inline const std::string Map::ToString() const {
   size_t i = 0;
   for (auto item : *this) {
     if (i == map_size - 1) {
-      return_string += std::string(item.key) + "=" + item.value.ToString() + "}";
+      return_string += std::string(item.key) + ": " + item.value.ToString() + "}";
       break;
     }
-    return_string += std::string(item.key) + "=" + item.value.ToString() + ", ";
+    return_string += std::string(item.key) + ": " + item.value.ToString() + ", ";
     ++i;
   }
   return return_string;
@@ -2653,24 +2653,30 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 
 inline bool Node::operator!=(const Node &other) const { return !(*this == other); }
 
+// this functions is used both in relationship and node ToString
+inline std::string PropertiesToString(const std::map<std::string, Value> &property_map) {
+  std::string properties{""};
+  const auto map_size = property_map.size();
+  size_t i = 0;
+  for (const auto item : property_map) {
+    if (i == map_size - 1) {
+      properties += std::string(item.first) + ": " + item.second.ToString();
+      break;
+    }
+    properties += std::string(item.first) + ": " + item.second.ToString() + ", ";
+    ++i;
+  }
+  return properties;
+}
+
 inline const std::string Node::ToString() const {
   std::string labels{""};
   for (auto label : Labels()) {
     labels += ":" + std::string(label) + " ";
   }
-  std::string properties = "";
   std::map<std::string, Value> properties_map{Properties()};
-  const size_t map_size = properties_map.size();
-  size_t i = 0;
-  for (auto item : properties_map) {
-    if (i == map_size - 1) {
-      properties += std::string(item.first) + "=" + item.second.ToString();
-      break;
-    }
-    properties += std::string(item.first) + "=" + item.second.ToString() + ", ";
-    ++i;
-  }
-  return "Node(id: " + std::to_string(Id().AsInt()) + " " + labels + "properties: {" + properties + "} )";
+  std::string properties{PropertiesToString(properties_map)};
+  return "(id: " + std::to_string(Id().AsInt()) + " " + labels + "properties: {" + properties + "} )";
 }
 
 // Relationship:
@@ -2746,36 +2752,16 @@ inline bool Relationship::operator==(const Relationship &other) const {
 inline bool Relationship::operator!=(const Relationship &other) const { return !(*this == other); }
 
 inline const std::string Relationship::ToString() const {
-  std::string from_labels{""};
   const auto from = From();
-  for (auto label : from.Labels()) {
-    from_labels += ":" + std::string(label) + " ";
-  }
-  const std::string node_from{"(id: " + std::to_string(from.Id().AsInt()) + " " + from_labels + ")"};
+  const auto to = To();
 
   const std::string type{Type()};
-  std::string properties = "";
   std::map<std::string, Value> properties_map{Properties()};
-  const size_t map_size = properties_map.size();
-  size_t i = 0;
-  for (auto item : properties_map) {
-    if (i == map_size - 1) {
-      properties += std::string(item.first) + "=" + item.second.ToString();
-      break;
-    }
-    properties += std::string(item.first) + "=" + item.second.ToString() + ", ";
-    ++i;
-  }
+  std::string properties{PropertiesToString(properties_map)};
   const std::string relationship{"[type: " + type + ", id: " + std::to_string(Id().AsInt()) + ", properties: {" +
                                  properties + "}]"};
 
-  std::string to_labels{""};
-  const auto to = To();
-  for (auto label : to.Labels()) {
-    to_labels += ":" + std::string(label) + " ";
-  }
-  const std::string node_to{"(id: " + std::to_string(to.Id().AsInt()) + " " + to_labels + ")"};
-  return node_from + "-" + relationship + "->" + node_to;
+  return from.ToString() + "-" + relationship + "->" + to.ToString();
 }
 // Path:
 
@@ -2843,35 +2829,18 @@ inline const std::string Path::ToString() const {
   size_t i = 0;
   std::string return_string = "";
   for (i = 0; i < length; i++) {
-    std::string labels{""};
     const auto node = GetNodeAt(i);
-    for (auto label : node.Labels()) {
-      labels += ":" + std::string(label) + " ";
-    }
-    return_string += "(id: " + std::to_string(node.Id().AsInt()) + " " + labels + ")-";
+    return_string += node.ToString() + "-";
 
     const Relationship rel = GetRelationshipAt(i);
-    std::string properties = "";
     std::map<std::string, Value> properties_map{rel.Properties()};
-    const size_t map_size = properties_map.size();
-    size_t i = 0;
-    for (auto item : properties_map) {
-      if (i == map_size - 1) {
-        properties += std::string(item.first) + "=" + item.second.ToString();
-        break;
-      }
-      properties += std::string(item.first) + "=" + item.second.ToString() + ", ";
-      ++i;
-    }
+    std::string properties = PropertiesToString(properties_map);
     return_string += "[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
                      ", properties: {" + properties + "}]->";
   }
-  std::string labels{""};
+
   const auto node = GetNodeAt(i);
-  for (auto label : node.Labels()) {
-    labels += ":" + std::string(label) + " ";
-  }
-  return_string += "(id: " + std::to_string(node.Id().AsInt()) + " " + labels + ")";
+  return_string += node.ToString();
   return return_string;
 }
 
