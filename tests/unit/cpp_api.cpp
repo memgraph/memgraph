@@ -579,7 +579,7 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipRemoveProperty) {
   auto graph = mgp::Graph(&raw_graph);
   auto node_1 = graph.CreateNode();
   auto node_2 = graph.CreateNode();
-  auto relationship = graph.CreateRelationship(node_1, node_2, "RELATIONSHIP");
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Relationship");
 
   int64_t int_1{0};
   mgp::Value value{int_1};
