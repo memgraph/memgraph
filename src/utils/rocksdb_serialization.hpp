@@ -46,14 +46,14 @@ inline std::string_view FindPartOfStringView(const std::string_view str, const c
   for (int i = 0; i < partNumber; ++i) {
     startEndPos.start = startEndPos.end;
     startEndPos.end = str.find(delim, startEndPos.start);
-    if (startEndPos.end == std::string::npos) {
-      if (i < partNumber - 1) {
+    if (i < partNumber - 1) {
+      if (startEndPos.end == std::string::npos) {
         // We didn't find enough parts.
         startEndPos.start = std::string::npos;
+        break;
       }
-      break;
+      ++startEndPos.end;
     }
-    ++startEndPos.end;
   }
   return startEndPos.Valid() ? str.substr(startEndPos.start, startEndPos.Size()) : str;
 }
