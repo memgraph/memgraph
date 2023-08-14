@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <charconv>
 #include <cstdint>
 #include <iomanip>
 #include <iterator>
@@ -36,40 +37,39 @@ struct StartEndPositions {
   size_t end;
 
   size_t Size() const { return end - start; }
-  bool Valid() const { return start != std::string::npos; }
+  bool Valid() const { return start != std::string::npos && start <= end; }
 };
 
-inline StartEndPositions FindPartStartEndPositions(const std::string_view str, const char delim,
-                                                   unsigned int partNumber) {
-  StartEndPositions result{0, 0};
+template <typename T>
+inline std::string_view FindPartOfStringView(const std::string_view str, const char delim, T partNumber) {
+  StartEndPositions startEndPos{0, 0};
   for (int i = 0; i < partNumber; ++i) {
-    result.start = result.end;
-    result.end = str.find(delim, result.start);
-    if (result.end == std::string::npos) {
+    startEndPos.start = startEndPos.end;
+    startEndPos.end = str.find(delim, startEndPos.start);
+    if (startEndPos.end == std::string::npos) {
       if (i < partNumber - 1) {
         // We didn't find enough parts.
-        result.start = std::string::npos;
+        startEndPos.start = std::string::npos;
       }
-      return result;
+      break;
     }
-    ++result.end;
+    ++startEndPos.end;
   }
-  return result;
+  return startEndPos.Valid() ? str.substr(startEndPos.start, startEndPos.Size()) : str;
 }
 
 inline std::string_view GetViewOfFirstPartOfSplit(const std::string_view src, const char delimiter) {
-  size_t delimPos = src.find(delimiter);
-  return delimPos == std::string::npos ? src : src.substr(0, delimPos);
+  return FindPartOfStringView(src, delimiter, 1);
+  // size_t delimPos = src.find(delimiter);
+  // return delimPos == std::string::npos ? src : src.substr(0, delimPos);
 }
 
 inline std::string_view GetViewOfSecondPartOfSplit(const std::string_view src, const char delimiter) {
-  StartEndPositions startEndPos = FindPartStartEndPositions(src, delimiter, 2);
-  return (startEndPos.Valid() ? src.substr(startEndPos.start, startEndPos.Size()) : src);
+  return FindPartOfStringView(src, delimiter, 2);
 }
 
 inline std::string_view GetViewOfThirdPartOfSplit(const std::string_view src, const char delimiter) {
-  StartEndPositions startEndPos = FindPartStartEndPositions(src, delimiter, 3);
-  return (startEndPos.Valid() ? src.substr(startEndPos.start, startEndPos.Size()) : src);
+  return FindPartOfStringView(src, delimiter, 3);
 }
 
 }  // namespace
@@ -159,7 +159,7 @@ inline std::string ExtractGidFromKey(const std::string &key) {
 }
 
 inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const std::string &value) {
-  std::string_view properties_str = GetViewOfSecondPartOfSplit(value, '|');
+  const std::string_view properties_str = GetViewOfSecondPartOfSplit(value, '|');
   return storage::PropertyStore::CreateFromBuffer(properties_str);
 }
 
@@ -207,10 +207,16 @@ inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::Labe
 }
 
 inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
-  std::string_view firstPartKey = GetViewOfFirstPartOfSplit(key, '|');
-  std::string_view constraint_key = GetViewOfFirstPartOfSplit(firstPartKey, ',');
+  const std::string_view firstPartKey = GetViewOfFirstPartOfSplit(key, '|');
+  const std::string_view constraint_key = GetViewOfFirstPartOfSplit(firstPartKey, ',');
   /// TODO: andi Change this to deserialization method directly into the LabelId class
-  return storage::LabelId::FromUint(std::stoull(std::string(constraint_key)));
+  uint64_t labelID = 0;
+  const char *endOfConstraintKey = constraint_key.data() + constraint_key.size();
+  auto [ptr, ec] = std::from_chars(constraint_key.data(), endOfConstraintKey, labelID);
+  if (ec != std::errc() || ptr != endOfConstraintKey) {
+    throw std::invalid_argument("Failed to deserialize label id from unique constraint storage");
+  }
+  return storage::LabelId::FromUint(labelID);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(const std::string &value) {
