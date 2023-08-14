@@ -119,3 +119,44 @@ TEST_F(RocksDBStorageTest, SerializePropertiesExternalBuffer) {
     ASSERT_TRUE(deserialized_props.IsPropertyEqual(prop_id, prop_value));
   }
 }
+
+TEST_F(RocksDBStorageTest, ExtractVertexGidFromVertexKeyNoLabels) {
+  auto gid = memgraph::storage::Gid::FromInt(1);
+  memgraph::storage::Vertex vertex(gid, nullptr);
+  std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
+
+  ASSERT_EQ(memgraph::utils::ExtractGidFromKey(serializedVertex), "1");
+}
+
+TEST_F(RocksDBStorageTest, ExtractVertexGidFromVertexKeyWithOneLabel) {
+  auto gid = memgraph::storage::Gid::FromInt(1);
+  memgraph::storage::Vertex vertex(gid, nullptr);
+  vertex.labels.push_back(memgraph::storage::LabelId::FromInt(2));
+  std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
+
+  ASSERT_EQ(memgraph::utils::ExtractGidFromKey(serializedVertex), "1");
+}
+
+TEST_F(RocksDBStorageTest, ExtractVertexGidFromVertexKeyWithMultipleLabels) {
+  auto gid = memgraph::storage::Gid::FromInt(1);
+  memgraph::storage::Vertex vertex(gid, nullptr);
+  vertex.labels.push_back(memgraph::storage::LabelId::FromInt(2));
+  vertex.labels.push_back(memgraph::storage::LabelId::FromInt(3));
+  vertex.labels.push_back(memgraph::storage::LabelId::FromInt(4));
+  std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
+
+  ASSERT_EQ(memgraph::utils::ExtractGidFromKey(serializedVertex), "1");
+}
+
+TEST_F(RocksDBStorageTest, ExtractLabelsFromMainDiskStorage) {
+  auto gid = memgraph::storage::Gid::FromInt(1);
+  memgraph::storage::Vertex vertex(gid, nullptr);
+  std::vector<unsigned> labels = {2, 3, 4};
+  std::vector<std::string> labelsStr = {"2", "3", "4"};
+  for (unsigned label : labels) {
+    vertex.labels.push_back(memgraph::storage::LabelId::FromInt(label));
+  }
+  std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
+
+  ASSERT_EQ(memgraph::utils::ExtractLabelsFromMainDiskStorage(serializedVertex), labelsStr);
+}
