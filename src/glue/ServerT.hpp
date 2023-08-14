@@ -19,13 +19,17 @@
 #include "dbms/session_context.hpp"
 #endif
 
-namespace memgraph {
 #ifdef MG_ENTERPRISE
 extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL,
                                                           memgraph::dbms::SessionContextHandler>;
-using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContextHandler>;
 #else
 extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContext>;
+#endif
+
+namespace memgraph::glue {
+#ifdef MG_ENTERPRISE
+using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContextHandler>;
+#else
 using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContext>;
 #endif
-}  // namespace memgraph
+}  // namespace memgraph::glue

@@ -97,6 +97,7 @@
 //#include "communication/init.hpp"
 //#include "glue/communication.hpp"
 
+#include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/SessionHL.hpp"
 
@@ -135,9 +136,6 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   file.close();
 }
 
-using MonitoringServerT =
-    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
-                                          memgraph::dbms::SessionContext>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -460,11 +458,11 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
 #ifdef MG_ENTERPRISE
-  memgraph::ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
-                           FLAGS_bolt_num_workers);
+  memgraph::glue::ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout,
+                                 service_name, FLAGS_bolt_num_workers);
 #else
-  memgraph::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
-                           service_name, FLAGS_bolt_num_workers);
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
+                                 service_name, FLAGS_bolt_num_workers);
 #endif
 
   const auto machine_id = memgraph::utils::GetMachineId();
@@ -506,7 +504,7 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
-  MonitoringServerT metrics_server{
+  memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
 
 #ifdef MG_ENTERPRISE

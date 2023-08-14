@@ -42,6 +42,8 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
+add_compile_options(-ftime-trace)
+
 #TODO: upgrade to cmake 3.24 + CheckIPOSupported
 #cmake_policy(SET CMP0138 NEW)
 #include(CheckIPOSupported)
