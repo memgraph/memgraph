@@ -11,6 +11,7 @@
 
 #include "glue/SessionHL.hpp"
 
+#include "audit/log.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
