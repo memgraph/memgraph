@@ -73,7 +73,7 @@ class Server final {
    * invokes workers_count workers
    */
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         const int inactivity_timeout_sec, const std::string_view service_name,
+         int inactivity_timeout_sec, std::string_view service_name,
          size_t workers_count = std::thread::hardware_concurrency());
 
   ~Server();

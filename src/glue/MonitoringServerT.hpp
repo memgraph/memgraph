@@ -22,4 +22,4 @@ namespace memgraph::glue {
 using MonitoringServerT =
     memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
                                           memgraph::dbms::SessionContext>;
-}
+}  // namespace memgraph::glue

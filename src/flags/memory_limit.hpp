@@ -14,4 +14,4 @@
 
 namespace memgraph::flags {
 int64_t GetMemoryLimit();
-}
+}  // namespace memgraph::flags

@@ -83,6 +83,7 @@ using memgraph::communication::ServerContext;
 // when we are exiting main, inside destructors of database::GraphDb and
 // similar. The signal handler may then initiate another shutdown on memgraph
 // which is in half destructed state, causing invalid memory access and crash.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 volatile sig_atomic_t is_shutting_down = 0;
 
 void InitSignalHandlers(const std::function<void()> &shutdown_fun) {

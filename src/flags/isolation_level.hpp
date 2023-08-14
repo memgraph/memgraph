@@ -16,4 +16,4 @@ namespace memgraph::flags {
 
 memgraph::storage::IsolationLevel ParseIsolationLevel();
 
-}
+}  // namespace memgraph::flags
