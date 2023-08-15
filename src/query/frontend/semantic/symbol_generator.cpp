@@ -400,6 +400,40 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   return true;
 }
 
+bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
+  std::cout << "PostVisit(MapLiteral &map_literal)" << std::endl;
+
+  std::unordered_set<int32_t> property_lookups{};
+  std::unordered_set<int32_t> cacheable_property_lookups{};
+
+  for (const auto &pair : map_literal.elements_) {
+    if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
+    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
+    if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
+
+    auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
+    if (property_lookups.contains(symbol_pos)) {
+      cacheable_property_lookups.insert(symbol_pos);
+      continue;
+    }
+    property_lookups.insert(symbol_pos);
+  }
+
+  for (const auto &pair : map_literal.elements_) {
+    if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
+    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
+    if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
+
+    auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
+    if (cacheable_property_lookups.contains(symbol_pos)) {
+      property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+    }
+  }
+  map_literal.cacheable_property_lookups_ = cacheable_property_lookups;
+
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   auto &scope = scopes_.back();
   // Check if the aggregation can be used in this context. This check should
