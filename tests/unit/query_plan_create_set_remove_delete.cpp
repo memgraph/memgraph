@@ -1665,6 +1665,41 @@ TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
+TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  // Add a single vertex. ( {property: 43})
+  auto vertex_accessor = dba.InsertVertex();
+  auto old_value = vertex_accessor.SetProperty(dba.NameToProperty("property"), memgraph::storage::PropertyValue{43});
+  EXPECT_EQ(old_value.HasError(), false);
+  EXPECT_EQ(*old_value, memgraph::storage::PropertyValue());
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  SymbolTable symbol_table;
+  // MATCH (n) SET n += {property: "updated", new_property:"a"}
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+
+  auto prop_property = PROPERTY_PAIR(dba, "property");
+  auto prop_new_property = PROPERTY_PAIR(dba, "new_property");
+
+  std::unordered_map<PropertyIx, Expression *> prop_map;
+  prop_map.emplace(this->storage.GetPropertyIx(prop_property.first), LITERAL("updated"));
+  prop_map.emplace(this->storage.GetPropertyIx(prop_new_property.first), LITERAL("a"));
+  auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
+
+  auto op_type{plan::SetProperties::Op::UPDATE};
+  auto set_op = std::make_shared<plan::SetProperties>(n.op_, n.sym_, rhs, op_type);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  PullAll(*set_op, &context);
+  dba.AdvanceCommand();
+  auto new_properties = vertex_accessor.Properties(memgraph::storage::View::OLD);
+  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> expected_properties;
+  expected_properties.emplace(dba.NameToProperty("property"), memgraph::storage::PropertyValue("updated"));
+  expected_properties.emplace(dba.NameToProperty("new_property"), memgraph::storage::PropertyValue("a"));
+  EXPECT_EQ(new_properties.HasError(), false);
+  EXPECT_EQ(*new_properties, expected_properties);
+}
+
 TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
   auto storage_dba = this->db->Access();

@@ -82,6 +82,8 @@ class Storage {
 
   virtual ~Storage() {}
 
+  const std::string &id() const { return id_; }
+
   class Accessor {
    public:
     Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
@@ -189,6 +191,8 @@ class Storage {
     EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
     StorageMode GetCreationStorageMode() const;
+
+    const std::string &id() const { return storage_->id(); }
 
    protected:
     Storage *storage_;
@@ -322,6 +326,7 @@ class Storage {
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
+  const std::string id_;  //!< High-level assigned ID
 };
 
 }  // namespace memgraph::storage

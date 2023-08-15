@@ -131,6 +131,9 @@ bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t t
 
 bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
                                                                     uint64_t transaction_commit_timestamp) {
+  if (entries_for_deletion->empty()) {
+    return true;
+  }
   auto disk_transaction = CreateAllReadingRocksDBTransaction();
 
   rocksdb::ReadOptions ro;

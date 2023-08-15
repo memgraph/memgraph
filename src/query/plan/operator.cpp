@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -51,6 +52,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -2693,9 +2695,11 @@ namespace {
 
 template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value) {
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
   { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
 };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
@@ -2705,7 +2709,8 @@ concept AccessorWithProperties = requires(T value, storage::PropertyId property_
 template <AccessorWithProperties TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
                            ExecutionContext *context) {
-  std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
+  using PropertiesMap = std::map<storage::PropertyId, storage::PropertyValue>;
+  std::optional<PropertiesMap> old_values;
   const bool should_register_change =
       context->trigger_context_collector &&
       context->trigger_context_collector->ShouldRegisterObjectPropertyChange<TRecordAccessor>();
@@ -2764,44 +2769,34 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
   };
 
-  auto set_props = [&, record](auto properties) {
-    for (auto &kv : properties) {
-      auto maybe_error = record->SetProperty(kv.first, kv.second);
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-          case storage::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::Error::PROPERTIES_DISABLED:
-            throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-          case storage::Error::VERTEX_HAS_EDGES:
-          case storage::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting properties.");
-        }
-      }
+  auto update_props = [&, record](PropertiesMap &new_properties) {
+    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
 
-      if (should_register_change) {
-        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+    if (should_register_change) {
+      for (const auto &[id, old_value, new_value] : updated_properties) {
+        register_set_property(std::move(old_value), id, std::move(new_value));
       }
     }
   };
 
   switch (rhs.type()) {
-    case TypedValue::Type::Edge:
-      set_props(get_props(rhs.ValueEdge()));
+    case TypedValue::Type::Edge: {
+      PropertiesMap new_properties = get_props(rhs.ValueEdge());
+      update_props(new_properties);
       break;
-    case TypedValue::Type::Vertex:
-      set_props(get_props(rhs.ValueVertex()));
+    }
+    case TypedValue::Type::Vertex: {
+      PropertiesMap new_properties = get_props(rhs.ValueVertex());
+      update_props(new_properties);
       break;
+    }
     case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.ValueMap()) {
-        auto key = context->db_accessor->NameToProperty(kv.first);
-        auto old_value = PropsSetChecked(record, key, kv.second);
-        if (should_register_change) {
-          register_set_property(std::move(old_value), key, kv.second);
-        }
+      PropertiesMap new_properties;
+      for (const auto &[prop_id, prop_value] : rhs.ValueMap()) {
+        auto key = context->db_accessor->NameToProperty(prop_id);
+        new_properties.emplace(key, prop_value);
       }
+      update_props(new_properties);
       break;
     }
     default:
@@ -2842,7 +2837,6 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 #endif
-
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
@@ -4437,7 +4431,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write)
+                             size_t memory_scale, bool is_write, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
@@ -4445,7 +4439,8 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       result_symbols_(symbols),
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
-      is_write_(is_write) {}
+      is_write_(is_write),
+      void_procedure_(void_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -4681,9 +4676,67 @@ class CallProcedureCursor : public Cursor {
   }
 };
 
+class CallValidateProcedureCursor : public Cursor {
+  const CallProcedure *self_;
+  UniqueCursorPtr input_cursor_;
+
+ public:
+  CallValidateProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
+
+    AbortCheck(context);
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+
+    const auto args = self_->arguments_;
+    MG_ASSERT(args.size() == 3U);
+
+    const auto predicate = args[0]->Accept(evaluator);
+    const bool predicate_val = predicate.ValueBool();
+
+    if (predicate_val) [[unlikely]] {
+      const auto &message = args[1]->Accept(evaluator);
+      const auto &message_args = args[2]->Accept(evaluator);
+
+      using TString = std::remove_cvref_t<decltype(message.ValueString())>;
+      using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
+
+      utils::JStringFormatter<TString, TElement> formatter;
+
+      try {
+        const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());
+        throw QueryRuntimeException(msg);
+      } catch (const utils::JStringFormatException &e) {
+        throw QueryRuntimeException(e.what());
+      }
+    }
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+  void Shutdown() override {}
+};
+
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
+
+  if (void_procedure_) {
+    // Currently we do not support Call procedures that do not return
+    // anything. This cursor is way too specific, but it provides a workaround
+    // to ensure GraphQL compatibility until we start supporting truly void
+    // procedures.
+    return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
+  }
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }

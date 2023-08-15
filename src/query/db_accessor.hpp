@@ -78,6 +78,11 @@ class EdgeAccessor final {
     return impl_.InitProperties(properties);
   }
 
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
+  }
+
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
   }
@@ -134,6 +139,11 @@ class VertexAccessor final {
 
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.InitProperties(properties);
+  }
+
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
@@ -543,6 +553,8 @@ class DbAccessor final {
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+
+  const std::string &id() const { return accessor_->id(); }
 };
 
 class SubgraphDbAccessor final {

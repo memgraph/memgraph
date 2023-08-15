@@ -15,6 +15,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/stat.hpp"
@@ -361,6 +362,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
@@ -432,6 +436,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -560,6 +567,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       return StorageDataManipulationError{*unique_constraint_violation};
     }
   }
+
   is_transaction_active_ = false;
 
   if (!could_replicate_all_sync_replicas) {
@@ -1808,28 +1816,26 @@ void InMemoryStorage::RestoreReplicationRole() {
   }
 
   spdlog::info("Restoring replication role.");
-
   uint16_t port = replication::kDefaultReplicationPort;
-  for (const auto &[replica_name, replica_data] : *storage_) {
-    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
-    if (!maybe_replica_status.has_value()) {
-      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
-    }
 
-    if (replica_name != replication::kReservedReplicationRoleName) {
-      continue;
-    }
+  const auto replication_data = storage_->Get(replication::kReservedReplicationRoleName);
+  if (!replication_data.has_value()) {
+    spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
+    return;
+  }
 
-    auto replica_status = *maybe_replica_status;
+  const auto maybe_replication_status = replication::JSONToReplicationStatus(nlohmann::json::parse(*replication_data));
+  if (!maybe_replication_status.has_value()) {
+    LOG_FATAL("Cannot parse previously saved configuration of replication role {}.",
+              replication::kReservedReplicationRoleName);
+  }
 
-    if (!replica_status.role.has_value()) {
-      replication_role_.store(replication::ReplicationRole::MAIN);
-    } else {
-      replication_role_.store(*replica_status.role);
-      port = replica_status.port;
-    }
-
-    break;
+  const auto replication_status = *maybe_replication_status;
+  if (!replication_status.role.has_value()) {
+    replication_role_.store(replication::ReplicationRole::MAIN);
+  } else {
+    replication_role_.store(*replication_status.role);
+    port = replication_status.port;
   }
 
   if (replication_role_ == replication::ReplicationRole::REPLICA) {
