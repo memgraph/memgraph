@@ -1203,9 +1203,6 @@ class PropertyLookup : public memgraph::query::Expression {
   memgraph::query::Expression *expression_{nullptr};
   memgraph::query::PropertyIx property_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_ = EvaluationMode::GET_OWN_PROPERTY;
-  // TODO replace the next two lines with e.g. optional cache_ and std::nullopt
-  // std::map<storage::PropertyId, storage::PropertyValue> empty_cache{};
-  // std::map<storage::PropertyId, storage::PropertyValue> &cache_ = empty_cache;
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
