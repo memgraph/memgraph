@@ -21,7 +21,7 @@ struct LabelIndexStats {
   double avg_degree;
 };
 
-using ParalellizedIndexCreationInfo =
+using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class InMemoryLabelIndex : public storage::LabelIndex {
@@ -46,7 +46,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
+                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;

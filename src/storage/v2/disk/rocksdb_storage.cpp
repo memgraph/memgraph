@@ -80,4 +80,38 @@ int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const r
   return 0;
 }
 
+DiskEdgeKey::DiskEdgeKey(storage::EdgeAccessor *edge_acc) {
+  auto from_gid = utils::SerializeIdType(edge_acc->FromVertex().Gid());
+  auto to_gid = utils::SerializeIdType(edge_acc->ToVertex().Gid());
+  auto edge_type = utils::SerializeIdType(edge_acc->EdgeType());
+  auto edge_gid = utils::SerializeIdType(edge_acc->Gid());
+
+  key = fmt::format("{}|{}|{}|{}|{}", from_gid, to_gid, utils::outEdgeDirection, edge_type, edge_gid);
+}
+
+DiskEdgeKey::DiskEdgeKey(storage::Gid src_vertex_gid, storage::Gid dest_vertex_gid, storage::EdgeTypeId edge_type_id,
+                         const storage::EdgeRef edge_ref, bool properties_on_edges) {
+  auto from_gid = utils::SerializeIdType(src_vertex_gid);
+  auto to_gid = utils::SerializeIdType(dest_vertex_gid);
+  auto edge_type = utils::SerializeIdType(edge_type_id);
+  std::string edge_gid;
+
+  if (properties_on_edges) {
+    edge_gid = utils::SerializeIdType(edge_ref.ptr->gid);
+  } else {
+    edge_gid = utils::SerializeIdType(edge_ref.gid);
+  }
+
+  key = fmt::format("{}|{}|{}|{}|{}", from_gid, to_gid, utils::outEdgeDirection, edge_type, edge_gid);
+}
+
+std::string DiskEdgeKey::GetVertexOutGid() const { return key.substr(0, key.find('|')); }
+
+std::string DiskEdgeKey::GetVertexInGid() const {
+  auto vertex_in_start = key.find('|') + 1;
+  return key.substr(vertex_in_start, key.find('|', vertex_in_start) - vertex_in_start);
+}
+
+std::string DiskEdgeKey::GetEdgeGid() const { return key.substr(key.rfind('|') + 1); }
+
 }  // namespace memgraph::storage

@@ -9,7 +9,9 @@ create_delete_filtering_cluster: &create_delete_filtering_cluster
           "CREATE USER admin IDENTIFIED BY 'test';",
           "CREATE USER user IDENTIFIED BY 'test';",
           "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT DATABASE * TO admin;",
           "GRANT ALL PRIVILEGES TO user;",
+          "GRANT DATABASE * TO user;",
         ]
 
 edge_type_filtering_cluster: &edge_type_filtering_cluster
@@ -22,7 +24,9 @@ edge_type_filtering_cluster: &edge_type_filtering_cluster
           "CREATE USER admin IDENTIFIED BY 'test';",
           "CREATE USER user IDENTIFIED BY 'test';",
           "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT DATABASE * TO admin;",
           "GRANT ALL PRIVILEGES TO user;",
+          "GRANT DATABASE * TO user;",
           "GRANT CREATE_DELETE ON LABELS * TO admin;",
           "GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;",
           "MERGE (l1:label1 {name: 'test1'});",
@@ -32,6 +36,17 @@ edge_type_filtering_cluster: &edge_type_filtering_cluster
           "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3);",
           "MERGE (mix:label3:label1  {name: 'test4'});",
           "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix);",
+          "CREATE DATABASE clean;",
+          "USE DATABASE clean",
+          "MATCH (n) DETACH DELETE n;",
+          "MERGE (l1:label1 {name: 'test1'});",
+          "MERGE (l2:label2  {name: 'test2'});",
+          "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2);",
+          "MERGE (l3:label3  {name: 'test3'});",
+          "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3);",
+          "MERGE (mix:label3:label1  {name: 'test4'});",
+          "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix);",
+          "USE DATABASE memgraph",
         ]
       validation_queries: []
 
@@ -45,7 +60,9 @@ path_filtering_cluster: &path_filtering_cluster
           "CREATE USER admin IDENTIFIED BY 'test';",
           "CREATE USER user IDENTIFIED BY 'test';",
           "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT DATABASE * TO admin;",
           "GRANT ALL PRIVILEGES TO user;",
+          "GRANT DATABASE * TO user;",
           "MERGE (a:label0 {id: 0}) MERGE (b:label1 {id: 1}) CREATE (a)-[:edge_type_1 {weight: 6}]->(b);",
           "MERGE (a:label0 {id: 0}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_1 {weight: 14}]->(b);",
           "MERGE (a:label1 {id: 1}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_2 {weight: 1}]->(b);",
@@ -56,6 +73,47 @@ path_filtering_cluster: &path_filtering_cluster
           "MERGE (a:label3 {id: 4}) MERGE (b:label3 {id: 3}) CREATE (a)-[:edge_type_4 {weight: 1}]->(b);",
           "MERGE (a:label3 {id: 3}) MERGE (b:label4 {id: 5}) CREATE (a)-[:edge_type_4 {weight: 14}]->(b);",
           "MERGE (a:label3 {id: 4}) MERGE (b:label4 {id: 5}) CREATE (a)-[:edge_type_4 {weight: 8}]->(b);",
+          "CREATE DATABASE clean;",
+          "USE DATABASE clean",
+          "MATCH (n) DETACH DELETE n;",
+          "MERGE (a:label0 {id: 0}) MERGE (b:label1 {id: 1}) CREATE (a)-[:edge_type_1 {weight: 6}]->(b);",
+          "MERGE (a:label0 {id: 0}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_1 {weight: 14}]->(b);",
+          "MERGE (a:label1 {id: 1}) MERGE (b:label2 {id: 2}) CREATE (a)-[:edge_type_2 {weight: 1}]->(b);",
+          "MERGE (a:label2 {id: 2}) MERGE (b:label3 {id: 4}) CREATE (a)-[:edge_type_2 {weight: 10}]->(b);",
+          "MERGE (a:label1 {id: 1}) MERGE (b:label3 {id: 3}) CREATE (a)-[:edge_type_3 {weight: 5}]->(b);",
+          "MERGE (a:label2 {id: 2}) MERGE (b:label3 {id: 3}) CREATE (a)-[:edge_type_3 {weight: 7}]->(b);",
+          "MERGE (a:label3 {id: 3}) MERGE (b:label3 {id: 4}) CREATE (a)-[:edge_type_4 {weight: 1}]->(b);",
+          "MERGE (a:label3 {id: 4}) MERGE (b:label3 {id: 3}) CREATE (a)-[:edge_type_4 {weight: 1}]->(b);",
+          "MERGE (a:label3 {id: 3}) MERGE (b:label4 {id: 5}) CREATE (a)-[:edge_type_4 {weight: 14}]->(b);",
+          "MERGE (a:label3 {id: 4}) MERGE (b:label4 {id: 5}) CREATE (a)-[:edge_type_4 {weight: 8}]->(b);",
+          "USE DATABASE memgraph",
+        ]
+
+show_databases_w_user: &show_databases_w_user
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "fine_grained_access.log"
+      setup_queries:
+        [
+          "CREATE USER admin IDENTIFIED BY 'test';",
+          "CREATE USER user IDENTIFIED BY 'test';",
+          "CREATE USER user2 IDENTIFIED BY 'test';",
+          "CREATE USER user3 IDENTIFIED BY 'test';",
+          "CREATE DATABASE db1;",
+          "CREATE DATABASE db2;",
+          "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT DATABASE * TO admin;",
+          "GRANT ALL PRIVILEGES TO user;",
+          "GRANT DATABASE db1 TO user;",
+          "GRANT ALL PRIVILEGES TO user2;",
+          "GRANT DATABASE db2 TO user2;",
+          "REVOKE DATABASE memgraph FROM user2;",
+          "SET MAIN DATABASE db2 FOR user2",
+          "GRANT ALL PRIVILEGES TO user3;",
+          "GRANT DATABASE * TO user3;",
+          "REVOKE DATABASE memgraph FROM user3;",
+          "SET MAIN DATABASE db1 FOR user3",
         ]
 
 workloads:
@@ -63,7 +121,6 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/create_delete_filtering_tests.py"]
     <<: *create_delete_filtering_cluster
-
   - name: "EdgeType filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
@@ -72,3 +129,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/path_filtering_tests.py"]
     <<: *path_filtering_cluster
+  - name: "Show databases with users"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/show_db.py"]
+    <<: *show_databases_w_user

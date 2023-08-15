@@ -389,6 +389,10 @@ inline bool vertex_has_label_named(mgp_vertex *v, const char *label_name) {
 
 inline void vertex_add_label(mgp_vertex *vertex, mgp_label label) { MgInvokeVoid(mgp_vertex_add_label, vertex, label); }
 
+inline void vertex_remove_label(mgp_vertex *vertex, mgp_label label) {
+  MgInvokeVoid(mgp_vertex_remove_label, vertex, label);
+}
+
 inline mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_vertex_get_property, v, property_name, memory);
 }

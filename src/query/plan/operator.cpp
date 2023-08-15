@@ -2724,9 +2724,9 @@ concept AccessorWithProperties = requires(T value, storage::PropertyId property_
 ///     RecordAccessor<Edge>
 template <AccessorWithProperties TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
-                           ExecutionContext *context,
-                           std::unordered_map<std::string, storage::PropertyId> &cached_name_id) {
-  std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
+                           ExecutionContext *context) {
+  using PropertiesMap = std::map<storage::PropertyId, storage::PropertyValue>;
+  std::optional<PropertiesMap> old_values;
   const bool should_register_change =
       context->trigger_context_collector &&
       context->trigger_context_collector->ShouldRegisterObjectPropertyChange<TRecordAccessor>();
@@ -2785,49 +2785,34 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
   };
 
-  auto set_props = [&, record](auto properties) {
-    for (auto &kv : properties) {
-      auto maybe_error = record->SetProperty(kv.first, kv.second);
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-          case storage::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::Error::PROPERTIES_DISABLED:
-            throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-          case storage::Error::VERTEX_HAS_EDGES:
-          case storage::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting properties.");
-        }
-      }
+  auto update_props = [&, record](PropertiesMap &new_properties) {
+    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
 
-      if (should_register_change) {
-        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+    if (should_register_change) {
+      for (const auto &[id, old_value, new_value] : updated_properties) {
+        register_set_property(std::move(old_value), id, std::move(new_value));
       }
     }
   };
 
   switch (rhs.type()) {
-    case TypedValue::Type::Edge:
-      set_props(get_props(rhs.ValueEdge()));
+    case TypedValue::Type::Edge: {
+      PropertiesMap new_properties = get_props(rhs.ValueEdge());
+      update_props(new_properties);
       break;
-    case TypedValue::Type::Vertex:
-      set_props(get_props(rhs.ValueVertex()));
+    }
+    case TypedValue::Type::Vertex: {
+      PropertiesMap new_properties = get_props(rhs.ValueVertex());
+      update_props(new_properties);
       break;
+    }
     case TypedValue::Type::Map: {
-      std::map<storage::PropertyId, storage::PropertyValue> new_properties;
-      for (const auto &kv : rhs.ValueMap()) {
-        if (auto it = cached_name_id.find(std::string(kv.first)); it == cached_name_id.end()) {
-          auto key = context->db_accessor->NameToProperty(kv.first);
-          new_properties.emplace(key, kv.second);
-          cached_name_id.emplace(kv.first, key);
-        } else {
-          new_properties.emplace(it->second, kv.second);
-        }
+      PropertiesMap new_properties;
+      for (const auto &[prop_id, prop_value] : rhs.ValueMap()) {
+        auto key = context->db_accessor->NameToProperty(prop_id);
+        new_properties.emplace(key, prop_value);
       }
-      auto result = record->UpdateProperties(new_properties);
-      MG_ASSERT(!result.HasError() && *result);
+      update_props(new_properties);
       break;
     }
     default:
@@ -2869,7 +2854,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
