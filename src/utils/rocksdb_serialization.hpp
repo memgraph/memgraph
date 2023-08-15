@@ -60,8 +60,6 @@ inline std::string_view FindPartOfStringView(const std::string_view str, const c
 
 inline std::string_view GetViewOfFirstPartOfSplit(const std::string_view src, const char delimiter) {
   return FindPartOfStringView(src, delimiter, 1);
-  // size_t delimPos = src.find(delimiter);
-  // return delimPos == std::string::npos ? src : src.substr(0, delimPos);
 }
 
 inline std::string_view GetViewOfSecondPartOfSplit(const std::string_view src, const char delimiter) {
