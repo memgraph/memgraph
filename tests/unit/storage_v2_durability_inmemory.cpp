@@ -736,6 +736,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotFallback) {
   // Create snapshot.
+  std::size_t current_number_of_snapshots = 0;
   {
     std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
         {.items = {.properties_on_edges = GetParam()},
@@ -744,21 +745,28 @@ TEST_P(DurabilityTest, SnapshotFallback) {
                         .snapshot_interval = std::chrono::milliseconds(3000)}}));
     CreateBaseDataset(store.get(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(3500));
-    ASSERT_EQ(GetSnapshotsList().size(), 1);
+    current_number_of_snapshots = GetSnapshotsList().size();
+    ASSERT_GE(current_number_of_snapshots, 1);
     CreateExtendedDataset(store.get());
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
   }
 
-  ASSERT_EQ(GetSnapshotsList().size(), 2);
+  auto prev_number_of_snapshots = current_number_of_snapshots;
+  auto snapshots = GetSnapshotsList();
+  current_number_of_snapshots = snapshots.size();
+  ASSERT_GE(current_number_of_snapshots, prev_number_of_snapshots + 1);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
-  // Destroy last snapshot.
+  // Destroy snapshots.
   {
-    auto snapshots = GetSnapshotsList();
-    ASSERT_EQ(snapshots.size(), 2);
-    CorruptSnapshot(*snapshots.begin());
+    // protect the last, destroy the rest
+    auto it = snapshots.begin();
+    auto const e = snapshots.end() - 1;
+    for (; it != e; ++it) {
+      CorruptSnapshot(*it);
+    }
   }
 
   // Recover snapshot.

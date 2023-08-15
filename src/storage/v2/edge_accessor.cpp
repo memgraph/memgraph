@@ -12,11 +12,13 @@
 #include "storage/v2/edge_accessor.hpp"
 
 #include <memory>
+#include <stdexcept>
 #include <tuple>
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -143,6 +145,26 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   }
 
   return true;
+}
+
+Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  auto id_old_new_change = edge_.ptr->properties.UpdateProperties(properties);
+
+  for (auto &[property, old_value, new_value] : id_old_new_change) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+  }
+
+  return id_old_new_change;
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {

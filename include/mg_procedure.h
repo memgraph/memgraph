@@ -462,6 +462,18 @@ void mgp_map_destroy(struct mgp_map *map);
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_value *value);
 
+/// Insert a mapping from a NULL terminated character string to a value.
+/// If a mapping with the same key already exists, it is replaced.
+/// In case of update, both the string and the value are copied into the map.
+/// Therefore, the map does not take ownership of the original key nor value, so
+/// you still need to free their memory explicitly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
+enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+// Erase a mapping by key.
+// If the key doesn't exist in the map nothing happens
+enum mgp_error mgp_map_erase(struct mgp_map *map, const char *key);
+
 /// Get the number of items stored in mgp_map.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_map_size(struct mgp_map *map, size_t *result);
@@ -1448,7 +1460,10 @@ enum mgp_error mgp_log(enum mgp_log_level log_level, const char *output);
 /// @{
 
 /// Return non-zero if the currently executing procedure should abort as soon as
-/// possible.
+/// possible. If non-zero the reasons are:
+/// (1) The transaction was requested to be terminated
+/// (2) The server is gracefully shutting down
+/// (3) The transaction has hit its timeout threshold
 ///
 /// Procedures which perform heavyweight processing run the risk of running too
 /// long and going over the query execution time limit. To prevent this, such

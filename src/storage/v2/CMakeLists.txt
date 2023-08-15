@@ -9,6 +9,9 @@ set(storage_v2_src_files
     edge_accessor.cpp
     property_store.cpp
     vertex_accessor.cpp
+    vertex_info_cache_fwd.hpp
+    vertex_info_cache.hpp
+    vertex_info_cache.cpp
     storage.cpp
     indices/indices.cpp
     all_vertices_iterable.cpp
@@ -40,6 +43,17 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 
 add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
-target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags)
+target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags absl::flat_hash_map)
 
 target_link_libraries(mg-storage-v2 mg-rpc mg-slk)
+
+# Until we get LTO there is an advantage to do some unity builds
+set_target_properties(mg-storage-v2
+        PROPERTIES
+        UNITY_BUILD ON
+        UNITY_BUILD_MODE GROUP
+)
+set_source_files_properties(
+        vertex_info_cache.cpp vertex_accessor.cpp
+        PROPERTIES UNITY_GROUP "ensure inline of vertex_info_cache"
+)

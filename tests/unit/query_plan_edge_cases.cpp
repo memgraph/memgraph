@@ -60,7 +60,7 @@ class QueryExecution : public testing::Test {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(this->interpreter_context_->db.get());
 
-    auto [header, _, qid] = interpreter_->Prepare(query, {}, nullptr);
+    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
     stream.Header(header);
     auto summary = interpreter_->PullAll(&stream);
     stream.Summary(summary);

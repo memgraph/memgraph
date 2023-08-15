@@ -787,7 +787,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                   .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS);
 }
 
-TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
+TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   auto main_config = configuration;
   main_config.durability.restore_replication_state_on_startup = true;
   std::unique_ptr<memgraph::storage::Storage> main_store{new memgraph::storage::InMemoryStorage(main_config)};

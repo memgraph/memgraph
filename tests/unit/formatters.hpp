@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 /// `TAccessor` supplied must have the functions `NameToLabel`, `LabelToName`,
 /// `NameToProperty`, `PropertyToName`, `NameToEdgeType` and `EdgeTypeToName`.
 /// For example, both `memgraph::storage::Storage` and `Storage::Accessor` will
-/// be apropriate.
+/// be appropriate.
 
 template <class TAccessor>
 inline std::string ToString(const memgraph::query::VertexAccessor &vertex, const TAccessor &acc) {

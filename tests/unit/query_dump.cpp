@@ -209,7 +209,7 @@ auto Execute(memgraph::query::InterpreterContext *context, const std::string &qu
   memgraph::query::Interpreter interpreter(context);
   ResultStreamFaker stream(context->db.get());
 
-  auto [header, _, qid] = interpreter.Prepare(query, {}, nullptr);
+  auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -790,7 +790,7 @@ class StatefulInterpreter {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(context_->db.get());
 
-    auto [header, _, qid] = interpreter_.Prepare(query, {}, nullptr);
+    auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, nullptr);
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

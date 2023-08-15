@@ -1043,6 +1043,25 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
   });
 }
 
+mgp_error mgp_map_update(mgp_map *map, const char *key, mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, *value);
+    if (!emplace_result.second) {
+      map->items.erase(emplace_result.first);
+      map->items.emplace(key, *value);
+    }
+  });
+}
+
+mgp_error mgp_map_erase(mgp_map *map, const char *key) {
+  return WrapExceptions([&] {
+    auto iterator = map->items.find(key);
+    if (iterator != map->items.end()) {
+      map->items.erase(iterator);
+    }
+  });
+}
+
 mgp_error mgp_map_size(mgp_map *map, size_t *result) {
   static_assert(noexcept(map->items.size()));
   *result = map->items.size();
@@ -2943,7 +2962,18 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_t
 int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
-  return memgraph::query::MustAbort(*graph->ctx) ? 1 : 0;
+  auto const reason = memgraph::query::MustAbort(*graph->ctx);
+  // NOTE: deliberately decoupled to avoid accidental ABI breaks
+  switch (reason) {
+    case memgraph::query::AbortReason::TERMINATED:
+      return 1;
+    case memgraph::query::AbortReason::SHUTDOWN:
+      return 2;
+    case memgraph::query::AbortReason::TIMEOUT:
+      return 3;
+    case memgraph::query::AbortReason::NO_ABORT:
+      return 0;
+  }
 }
 
 namespace memgraph::query::procedure {
