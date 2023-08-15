@@ -708,6 +708,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     for (const auto &pair : literal.elements_) {
       result.emplace(pair.first.name, pair.second->Accept(*this));
     }
+
+    ctx_->property_lookups_cache.clear();
+
     return TypedValue(result, ctx_->memory);
   }
 
