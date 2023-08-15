@@ -15,7 +15,9 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -93,21 +95,6 @@ class Value;
 struct StealType {};
 inline constexpr StealType steal{};
 
-class SpinLock final {
- public:
-  void lock() {
-    while (flag_.test_and_set(std::memory_order_acquire))
-      ;
-  }
-
-  void unlock() { flag_.clear(std::memory_order_release); }
-
- private:
-  std::atomic_flag flag_{ATOMIC_FLAG_INIT};
-};
-
-class MemoryResourceDistributorGuard;
-
 class MemoryResourceDistributor final {
  public:
   MemoryResourceDistributor() = default;
@@ -119,25 +106,25 @@ class MemoryResourceDistributor final {
 
   mgp_memory *GetMemoryResource() noexcept {
     const auto this_id = std::this_thread::get_id();
-    std::lock_guard lg(lock_);
+    std::shared_lock lock(mut_);
     return map_[this_id];
   }
 
   void Register(mgp_memory *mem) noexcept {
     const auto this_id = std::this_thread::get_id();
-    std::lock_guard lg(lock_);
+    std::unique_lock lock(mut_);
     map_[this_id] = mem;
   }
 
   void UnRegister() noexcept {
     const auto this_id = std::this_thread::get_id();
-    std::lock_guard lg(lock_);
+    std::unique_lock lock(mut_);
     map_.erase(this_id);
   }
 
  private:
   std::unordered_map<std::thread::id, mgp_memory *> map_;
-  SpinLock lock_;
+  std::shared_mutex mut_;
 };
 
 // TODO(gvolfing) - check if we can get away with an inline
