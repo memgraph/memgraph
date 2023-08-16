@@ -452,7 +452,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
       if (auto resInEdges = cache.GetInEdges(view, vertex_, destination_vertex, edge_types); resInEdges)
-        return {build_result(*resInEdges)};
+        return EdgesVertexAccessorResult{.edges = build_result(*resInEdges), .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -530,7 +530,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
       if (auto resOutEdges = cache.GetOutEdges(view, vertex_, dst_vertex, edge_types); resOutEdges)
-        return {build_result(*resOutEdges)};
+        return EdgesVertexAccessorResult{.edges = build_result(*resOutEdges), .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
