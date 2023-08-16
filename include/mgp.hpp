@@ -2539,12 +2539,12 @@ inline const std::string Map::ToString() const {
     return "{}";
   }
   size_t i = 0;
-  for (auto item : *this) {
+  for (const auto &[key, value] : *this) {
     if (i == map_size - 1) {
-      return_string.append(std::string(item.key) + ": " + item.value.ToString() + "}");
+      return_string.append(std::string(key) + ": " + value.ToString() + "}");
       break;
     }
-    return_string.append(std::string(item.key) + ": " + item.value.ToString() + ", ");
+    return_string.append(std::string(key) + ": " + value.ToString() + ", ");
     ++i;
   }
   return return_string;
@@ -2659,12 +2659,12 @@ inline std::string PropertiesToString(const std::map<std::string, Value> &proper
   std::string properties{""};
   const auto map_size = property_map.size();
   size_t i = 0;
-  for (const auto item : property_map) {
+  for (const auto &[key, value] : property_map) {
     if (i == map_size - 1) {
-      properties.append(std::string(item.first) + ": " + item.second.ToString());
+      properties.append(std::string(key) + ": " + value.ToString());
       break;
     }
-    properties.append(std::string(item.first) + ": " + item.second.ToString() + ", ");
+    properties.append(std::string(key) + ": " + value.ToString() + ", ");
     ++i;
   }
   return properties;
