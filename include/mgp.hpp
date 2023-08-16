@@ -2354,11 +2354,12 @@ inline const std::string List::ToString() const {
     return "[]";
   }
   size_t i = 0;
+  const mgp::List &list = (*this);
   while (i < size - 1) {
-    return_str += (*this)[i].ToString() + ", ";
+    return_str.append(list[i].ToString() + ", ");
     i++;
   }
-  return_str += (*this)[i].ToString() + "]";
+  return_str.append(list[i].ToString() + "]");
   return return_str;
 }
 
@@ -2540,10 +2541,10 @@ inline const std::string Map::ToString() const {
   size_t i = 0;
   for (auto item : *this) {
     if (i == map_size - 1) {
-      return_string += std::string(item.key) + ": " + item.value.ToString() + "}";
+      return_string.append(std::string(item.key) + ": " + item.value.ToString() + "}");
       break;
     }
-    return_string += std::string(item.key) + ": " + item.value.ToString() + ", ";
+    return_string.append(std::string(item.key) + ": " + item.value.ToString() + ", ");
     ++i;
   }
   return return_string;
@@ -2660,10 +2661,10 @@ inline std::string PropertiesToString(const std::map<std::string, Value> &proper
   size_t i = 0;
   for (const auto item : property_map) {
     if (i == map_size - 1) {
-      properties += std::string(item.first) + ": " + item.second.ToString();
+      properties.append(std::string(item.first) + ": " + item.second.ToString());
       break;
     }
-    properties += std::string(item.first) + ": " + item.second.ToString() + ", ";
+    properties.append(std::string(item.first) + ": " + item.second.ToString() + ", ");
     ++i;
   }
   return properties;
@@ -2672,7 +2673,7 @@ inline std::string PropertiesToString(const std::map<std::string, Value> &proper
 inline const std::string Node::ToString() const {
   std::string labels{""};
   for (auto label : Labels()) {
-    labels += ":" + std::string(label) + " ";
+    labels.append(":" + std::string(label) + " ");
   }
   std::map<std::string, Value> properties_map{Properties()};
   std::string properties{PropertiesToString(properties_map)};
@@ -2830,17 +2831,17 @@ inline const std::string Path::ToString() const {
   std::string return_string = "";
   for (i = 0; i < length; i++) {
     const auto node = GetNodeAt(i);
-    return_string += node.ToString() + "-";
+    return_string.append(node.ToString() + "-");
 
     const Relationship rel = GetRelationshipAt(i);
     std::map<std::string, Value> properties_map{rel.Properties()};
     std::string properties = PropertiesToString(properties_map);
-    return_string += "[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
-                     ", properties: {" + properties + "}]->";
+    return_string.append("[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
+                         ", properties: {" + properties + "}]->");
   }
 
   const auto node = GetNodeAt(i);
-  return_string += node.ToString();
+  return_string.append(node.ToString());
   return return_string;
 }
 
