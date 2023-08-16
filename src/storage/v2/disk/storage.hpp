@@ -19,6 +19,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
@@ -333,6 +334,8 @@ class DiskStorage final : public Storage {
   void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+
+  void EstablishNewEpoch() override { throw utils::BasicException("OnDisk does not support replication."); }
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;

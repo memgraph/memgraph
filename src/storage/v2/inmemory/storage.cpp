@@ -33,15 +33,16 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
-std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError error) {
+static std::string RegisterReplicaErrorToString(InMemoryStorage::ReplicationState::RegisterReplicaError error) {
+  using enum InMemoryStorage::ReplicationState::RegisterReplicaError;
   switch (error) {
-    case InMemoryStorage::RegisterReplicaError::NAME_EXISTS:
+    case NAME_EXISTS:
       return "NAME_EXISTS";
-    case InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS:
+    case END_POINT_EXISTS:
       return "END_POINT_EXISTS";
-    case InMemoryStorage::RegisterReplicaError::CONNECTION_FAILED:
+    case CONNECTION_FAILED:
       return "CONNECTION_FAILED";
-    case InMemoryStorage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+    case COULD_NOT_BE_PERSISTED:
       return "COULD_NOT_BE_PERSISTED";
   }
 }
@@ -1764,29 +1765,19 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-bool InMemoryStorage::SetReplicaRole(io::network::Endpoint endpoint,
-                                     const replication::ReplicationServerConfig &config) {
-  return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
+void InMemoryStorage::EstablishNewEpoch() {
+  std::unique_lock engine_guard{engine_lock_};
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_.reset();
+  }
+
+  // Generate new epoch id and save the last one to the history.
+  if (epoch_history_.size() == kEpochHistoryRetention) {
+    epoch_history_.pop_front();
+  }
+  epoch_history_.emplace_back(std::exchange(epoch_id_, utils::GenerateUUID()), last_commit_timestamp_);
 }
-
-bool InMemoryStorage::SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
-
-utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-  return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
-                                            config, this);
-}
-
-bool InMemoryStorage::UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
-
-replication::ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_state_.GetRole(); }
-
-std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() { return replication_state_.ReplicasInfo(); }
-
-void InMemoryStorage::RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
-
-void InMemoryStorage::RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
   auto locker_accessor = global_locker_.Access();
@@ -1818,7 +1809,7 @@ void storage::InMemoryStorage::ReplicationState::Reset() {
   replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
 }
 
-bool storage::InMemoryStorage::ReplicationState::SetMainReplicationRole(storage::InMemoryStorage *storage) {
+bool storage::InMemoryStorage::ReplicationState::SetMainReplicationRole(storage::Storage *storage) {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
   if (GetRole() == replication::ReplicationRole::MAIN) {
@@ -1829,20 +1820,7 @@ bool storage::InMemoryStorage::ReplicationState::SetMainReplicationRole(storage:
   // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
-  {
-    std::unique_lock engine_guard{storage->engine_lock_};
-    if (storage->wal_file_) {
-      storage->wal_file_->FinalizeWal();
-      storage->wal_file_.reset();
-    }
-
-    // Generate new epoch id and save the last one to the history.
-    if (storage->epoch_history_.size() == kEpochHistoryRetention) {
-      storage->epoch_history_.pop_front();
-    }
-    storage->epoch_history_.emplace_back(std::move(storage->epoch_id_), storage->last_commit_timestamp_);
-    storage->epoch_id_ = utils::GenerateUUID();
-  }
+  storage->EstablishNewEpoch();
 
   if (ShouldStoreAndRestoreReplicationState()) {
     // Only thing that matters here is the role saved as MAIN
@@ -1932,10 +1910,12 @@ bool storage::InMemoryStorage::ReplicationState::FinalizeTransaction(uint64_t ti
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::ReplicationState::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
-    InMemoryStorage *storage) {
+utils::BasicResult<InMemoryStorage::ReplicationState::RegisterReplicaError>
+InMemoryStorage::ReplicationState::RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                                                   const replication::ReplicationMode replication_mode,
+                                                   const replication::RegistrationMode registration_mode,
+                                                   const replication::ReplicationClientConfig &config,
+                                                   InMemoryStorage *storage) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
@@ -1980,22 +1960,24 @@ utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::Repli
     spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
-  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<InMemoryStorage::RegisterReplicaError> {
-    // Another thread could have added a client with same name while
-    // we were connecting to this client.
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
-      return RegisterReplicaError::NAME_EXISTS;
-    }
+  return replication_clients_.WithLock(
+      [&](auto &clients) -> utils::BasicResult<InMemoryStorage::ReplicationState::RegisterReplicaError> {
+        // Another thread could have added a client with same name while
+        // we were connecting to this client.
+        if (std::any_of(clients.begin(), clients.end(),
+                        [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
+          return RegisterReplicaError::NAME_EXISTS;
+        }
 
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
-      return RegisterReplicaError::END_POINT_EXISTS;
-    }
+        if (std::any_of(clients.begin(), clients.end(), [&client](const auto &other_client) {
+              return client->Endpoint() == other_client->Endpoint();
+            })) {
+          return RegisterReplicaError::END_POINT_EXISTS;
+        }
 
-    clients.push_back(std::move(client));
-    return {};
-  });
+        clients.push_back(std::move(client));
+        return {};
+      });
 }
 
 bool InMemoryStorage::ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
@@ -2030,7 +2012,7 @@ bool InMemoryStorage::ReplicationState::SetReplicaRole(io::network::Endpoint end
   return true;
 }
 
-bool InMemoryStorage::ReplicationState::UnregisterReplica(const std::string &name) {
+bool InMemoryStorage::ReplicationState::UnregisterReplica(std::string_view name) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can unregister a replica!");
   if (ShouldStoreAndRestoreReplicationState()) {
     if (!durability_->Delete(name)) {

@@ -38,13 +38,6 @@ class InMemoryStorage final : public Storage {
   friend class ReplicationClient;
 
  public:
-  enum class RegisterReplicaError : uint8_t {
-    NAME_EXISTS,
-    END_POINT_EXISTS,
-    CONNECTION_FAILED,
-    COULD_NOT_BE_PERSISTED
-  };
-
   struct TimestampInfo {
     uint64_t current_timestamp_of_replica;
     uint64_t current_number_of_timestamp_behind_master;
@@ -382,24 +375,32 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config);
+  auto SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
+  }
 
-  bool SetMainReplicationRole();
+  auto SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
-  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                                                                 replication::ReplicationMode replication_mode,
-                                                                 replication::RegistrationMode registration_mode,
-                                                                 const replication::ReplicationClientConfig &config);
+  auto RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                       const replication::ReplicationMode replication_mode,
+                       const replication::RegistrationMode registration_mode,
+                       const replication::ReplicationClientConfig &config) {
+    return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
+                                              config, this);
+  }
+
   /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name);
+  auto UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
 
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
+  auto GetReplicationRole() const { return replication_state_.GetRole(); }
 
-  replication::ReplicationRole GetReplicationRole() const;
+  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
 
-  std::vector<ReplicaInfo> ReplicasInfo();
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
+    return replication_state_.GetReplicaState(name);
+  }
 
   void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
 
@@ -439,9 +440,11 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void RestoreReplicas();
+  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
 
-  void RestoreReplicationRole();
+  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
+
+  void EstablishNewEpoch() override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
@@ -523,7 +526,15 @@ class InMemoryStorage final : public Storage {
 
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
+ public:
   struct ReplicationState {
+    enum class RegisterReplicaError : uint8_t {
+      NAME_EXISTS,
+      END_POINT_EXISTS,
+      CONNECTION_FAILED,
+      COULD_NOT_BE_PERSISTED
+    };
+
     // NOTE: Server is not in MAIN it is in REPLICA
     std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
@@ -549,7 +560,8 @@ class InMemoryStorage final : public Storage {
     // TODO: Just check if server exists -> you are REPLICA
     replication::ReplicationRole GetRole() const { return replication_role_.load(); }
 
-    bool SetMainReplicationRole(InMemoryStorage *storage);  // Set the instance to MAIN
+    bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
+    // TODO: ReplicationServer/Client uses InMemoryStorage* for RPC callbacks
     bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
                         InMemoryStorage *storage);  // Sets the instance to REPLICA
     // Generic restoration
@@ -564,16 +576,18 @@ class InMemoryStorage final : public Storage {
     bool FinalizeTransaction(uint64_t timestamp);
 
     // MAIN connecting to replicas
-    utils::BasicResult<InMemoryStorage::RegisterReplicaError> RegisterReplica(
-        std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-        replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
-        InMemoryStorage *storage);
-    bool UnregisterReplica(const std::string &name);
+    utils::BasicResult<RegisterReplicaError> RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                                                             replication::ReplicationMode replication_mode,
+                                                             replication::RegistrationMode registration_mode,
+                                                             const replication::ReplicationClientConfig &config,
+                                                             InMemoryStorage *storage);
+    bool UnregisterReplica(std::string_view name);
 
     // MAIN reconnecting to replicas
     void RestoreReplicas(InMemoryStorage *storage);
 
     // MAIN getting info from replicas
+    // TODO make into const (problem with SpinLock and WithReadLock)
     std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
     std::vector<InMemoryStorage::ReplicaInfo> ReplicasInfo();
 
@@ -583,6 +597,7 @@ class InMemoryStorage final : public Storage {
     void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
   };
 
+ private:
   ReplicationState replication_state_;
 };
 
