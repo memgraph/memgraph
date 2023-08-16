@@ -25,12 +25,18 @@
 
 namespace memgraph::storage {
 
+class ReplicationServer;
+class ReplicationClient;
+
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
 
 class InMemoryStorage final : public Storage {
+  friend class ReplicationServer;
+  friend class ReplicationClient;
+
  public:
   enum class RegisterReplicaError : uint8_t {
     NAME_EXISTS,
@@ -69,7 +75,7 @@ class InMemoryStorage final : public Storage {
 
   ~InMemoryStorage() override;
 
-  class InMemoryAccessor final : public Storage::Accessor {
+  class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
 
@@ -268,14 +274,31 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-   private:
+   protected:
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertexEx(storage::Gid gid);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
+    Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
     Config::Items config_;
+  };
+
+  class ReplicationAccessor final : public InMemoryAccessor {
+   public:
+    ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
+
+    /// @throw std::bad_alloc
+    VertexAccessor CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
+
+    /// @throw std::bad_alloc
+    Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
+                                      storage::Gid gid) {
+      return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
+    }
+
+    const auto &GetTransaction() const { return transaction_; }
+    auto &GetTransaction() { return transaction_; }
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
@@ -420,8 +443,6 @@ class InMemoryStorage final : public Storage {
 
   void RestoreReplicationRole();
 
-  bool ShouldStoreAndRestoreReplicationState() const;
-
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;
@@ -430,7 +451,7 @@ class InMemoryStorage final : public Storage {
   std::filesystem::path snapshot_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
-  std::unique_ptr<kvstore::KVStore> storage_;
+  // std::unique_ptr<kvstore::KVStore> storage_;
   std::filesystem::path wal_directory_;
 
   utils::Scheduler snapshot_runner_;
@@ -455,7 +476,10 @@ class InMemoryStorage final : public Storage {
   // and register it on S1.
   // Without using the epoch_id, we don't know that S1 and S2 have completely
   // different transactions, we think that the S2 is behind only by 5 commits.
-  std::string epoch_id_;
+  std::string epoch_id_;  // TODO: Move to replication level
+  // Questions:
+  //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
+  //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
@@ -499,24 +523,67 @@ class InMemoryStorage final : public Storage {
 
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
-  class ReplicationServer;
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+  struct ReplicationState {
+    // NOTE: Server is not in MAIN it is in REPLICA
+    std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
-  class ReplicationClient;
-  // We create ReplicationClient using unique_ptr so we can move
-  // newly created client into the vector.
-  // We cannot move the client directly because it contains ThreadPool
-  // which cannot be moved. Also, the move is necessary because
-  // we don't want to create the client directly inside the vector
-  // because that would require the lock on the list putting all
-  // commits (they iterate list of clients) to halt.
-  // This way we can initialize client in main thread which means
-  // that we can immediately notify the user if the initialization
-  // failed.
-  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-  ReplicationClientList replication_clients_;
+    // We create ReplicationClient using unique_ptr so we can move
+    // newly created client into the vector.
+    // We cannot move the client directly because it contains ThreadPool
+    // which cannot be moved. Also, the move is necessary because
+    // we don't want to create the client directly inside the vector
+    // because that would require the lock on the list putting all
+    // commits (they iterate list of clients) to halt.
+    // This way we can initialize client in main thread which means
+    // that we can immediately notify the user if the initialization
+    // failed.
+    using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
+    ReplicationClientList replication_clients_;
 
-  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
+    std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
+
+    std::unique_ptr<kvstore::KVStore> durability_;
+
+    // Generic API
+    void Reset();
+    // TODO: Just check if server exists -> you are REPLICA
+    replication::ReplicationRole GetRole() const { return replication_role_.load(); }
+
+    bool SetMainReplicationRole(InMemoryStorage *storage);  // Set the instance to MAIN
+    bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
+                        InMemoryStorage *storage);  // Sets the instance to REPLICA
+    // Generic restoration
+    void RestoreReplicationRole(InMemoryStorage *storage);
+
+    // MAIN actually doing the replication
+    bool AppendToWalDataDefinition(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
+                                   const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+    void InitializeTransaction(uint64_t seq_num);
+    void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
+    void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
+    bool FinalizeTransaction(uint64_t timestamp);
+
+    // MAIN connecting to replicas
+    utils::BasicResult<InMemoryStorage::RegisterReplicaError> RegisterReplica(
+        std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
+        replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
+        InMemoryStorage *storage);
+    bool UnregisterReplica(const std::string &name);
+
+    // MAIN reconnecting to replicas
+    void RestoreReplicas(InMemoryStorage *storage);
+
+    // MAIN getting info from replicas
+    std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
+    std::vector<InMemoryStorage::ReplicaInfo> ReplicasInfo();
+
+   private:
+    bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
+
+    void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
+  };
+
+  ReplicationState replication_state_;
 };
 
 }  // namespace memgraph::storage

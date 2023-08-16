@@ -30,10 +30,9 @@ template <typename>
 }  // namespace
 
 ////// ReplicationClient //////
-InMemoryStorage::ReplicationClient::ReplicationClient(std::string name, InMemoryStorage *storage,
-                                                      const io::network::Endpoint &endpoint,
-                                                      const replication::ReplicationMode mode,
-                                                      const replication::ReplicationClientConfig &config)
+ReplicationClient::ReplicationClient(std::string name, InMemoryStorage *storage, const io::network::Endpoint &endpoint,
+                                     const replication::ReplicationMode mode,
+                                     const replication::ReplicationClientConfig &config)
     : name_(std::move(name)), storage_(storage), mode_(mode) {
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
   if (config.ssl) {
@@ -41,7 +40,6 @@ InMemoryStorage::ReplicationClient::ReplicationClient(std::string name, InMemory
   } else {
     rpc_context_.emplace();
   }
-
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
   TryInitializeClientSync();
@@ -52,14 +50,14 @@ InMemoryStorage::ReplicationClient::ReplicationClient(std::string name, InMemory
   }
 }
 
-void InMemoryStorage::ReplicationClient::TryInitializeClientAsync() {
+void ReplicationClient::TryInitializeClientAsync() {
   thread_pool_.AddTask([this] {
     rpc_client_->Abort();
     this->TryInitializeClientSync();
   });
 }
 
-void InMemoryStorage::ReplicationClient::FrequentCheck() {
+void ReplicationClient::FrequentCheck() {
   const auto is_success = std::invoke([this]() {
     try {
       auto stream{rpc_client_->Stream<replication::FrequentHeartbeatRpc>()};
@@ -85,7 +83,7 @@ void InMemoryStorage::ReplicationClient::FrequentCheck() {
 }
 
 /// @throws rpc::RpcFailedException
-void InMemoryStorage::ReplicationClient::InitializeClient() {
+void ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
   std::optional<std::string> epoch_id;
@@ -137,7 +135,7 @@ void InMemoryStorage::ReplicationClient::InitializeClient() {
   }
 }
 
-void InMemoryStorage::ReplicationClient::TryInitializeClientSync() {
+void ReplicationClient::TryInitializeClientSync() {
   try {
     InitializeClient();
   } catch (const rpc::RpcFailedException &) {
@@ -148,20 +146,19 @@ void InMemoryStorage::ReplicationClient::TryInitializeClientSync() {
   }
 }
 
-void InMemoryStorage::ReplicationClient::HandleRpcFailure() {
+void ReplicationClient::HandleRpcFailure() {
   spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
   TryInitializeClientAsync();
 }
 
-replication::SnapshotRes InMemoryStorage::ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
+replication::SnapshotRes ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
   auto stream{rpc_client_->Stream<replication::SnapshotRpc>()};
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
 }
 
-replication::WalFilesRes InMemoryStorage::ReplicationClient::TransferWalFiles(
-    const std::vector<std::filesystem::path> &wal_files) {
+replication::WalFilesRes ReplicationClient::TransferWalFiles(const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
   auto stream{rpc_client_->Stream<replication::WalFilesRpc>(wal_files.size())};
   replication::Encoder encoder(stream.GetBuilder());
@@ -173,7 +170,7 @@ replication::WalFilesRes InMemoryStorage::ReplicationClient::TransferWalFiles(
   return stream.AwaitResponse();
 }
 
-void InMemoryStorage::ReplicationClient::StartTransactionReplication(const uint64_t current_wal_seq_num) {
+void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_seq_num) {
   std::unique_lock guard(client_lock_);
   const auto status = replica_state_.load();
   switch (status) {
@@ -207,8 +204,7 @@ void InMemoryStorage::ReplicationClient::StartTransactionReplication(const uint6
   }
 }
 
-void InMemoryStorage::ReplicationClient::IfStreamingTransaction(
-    const std::function<void(ReplicaStream &handler)> &callback) {
+void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -228,7 +224,7 @@ void InMemoryStorage::ReplicationClient::IfStreamingTransaction(
   }
 }
 
-bool InMemoryStorage::ReplicationClient::FinalizeTransactionReplication() {
+bool ReplicationClient::FinalizeTransactionReplication() {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -245,7 +241,7 @@ bool InMemoryStorage::ReplicationClient::FinalizeTransactionReplication() {
   }
 }
 
-bool InMemoryStorage::ReplicationClient::FinalizeTransactionReplicationInternal() {
+bool ReplicationClient::FinalizeTransactionReplicationInternal() {
   MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
   try {
     auto response = replica_stream_->Finalize();
@@ -269,7 +265,7 @@ bool InMemoryStorage::ReplicationClient::FinalizeTransactionReplicationInternal(
   return false;
 }
 
-void InMemoryStorage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
+void ReplicationClient::RecoverReplica(uint64_t replica_commit) {
   spdlog::debug("Starting replica recover");
   while (true) {
     auto file_locker = storage_->file_retainer_.AddLocker();
@@ -337,7 +333,7 @@ void InMemoryStorage::ReplicationClient::RecoverReplica(uint64_t replica_commit)
   }
 }
 
-uint64_t InMemoryStorage::ReplicationClient::ReplicateCurrentWal() {
+uint64_t ReplicationClient::ReplicateCurrentWal() {
   const auto &wal_file = storage_->wal_file_;
   auto stream = TransferCurrentWalFile();
   stream.AppendFilename(wal_file->Path().filename());
@@ -371,7 +367,7 @@ uint64_t InMemoryStorage::ReplicationClient::ReplicateCurrentWal() {
 /// recovery steps, so we can safely send it to the replica.
 /// We assume that the property of preserving at least 1 WAL before the snapshot
 /// is satisfied as we extract the timestamp information from it.
-std::vector<InMemoryStorage::ReplicationClient::RecoveryStep> InMemoryStorage::ReplicationClient::GetRecoverySteps(
+std::vector<ReplicationClient::RecoveryStep> ReplicationClient::GetRecoverySteps(
     const uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker) {
   // First check if we can recover using the current wal file only
   // otherwise save the seq_num of the current wal file
@@ -517,7 +513,7 @@ std::vector<InMemoryStorage::ReplicationClient::RecoveryStep> InMemoryStorage::R
   return recovery_steps;
 }
 
-InMemoryStorage::TimestampInfo InMemoryStorage::ReplicationClient::GetTimestampInfo() {
+InMemoryStorage::TimestampInfo ReplicationClient::GetTimestampInfo() {
   InMemoryStorage::TimestampInfo info;
   info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_master = 0;
@@ -546,71 +542,63 @@ InMemoryStorage::TimestampInfo InMemoryStorage::ReplicationClient::GetTimestampI
 }
 
 ////// ReplicaStream //////
-InMemoryStorage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self,
-                                                                 const uint64_t previous_commit_timestamp,
-                                                                 const uint64_t current_seq_num)
+ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
+                                                const uint64_t current_seq_num)
     : self_(self),
       stream_(self_->rpc_client_->Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(self_->storage_->epoch_id_);
 }
 
-void InMemoryStorage::ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex,
-                                                                    uint64_t final_commit_timestamp) {
+void ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex,
+                                                   uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->storage_->name_id_mapper_.get(), self_->storage_->config_.items, delta, vertex,
               final_commit_timestamp);
 }
 
-void InMemoryStorage::ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge,
-                                                                    uint64_t final_commit_timestamp) {
+void ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge,
+                                                   uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
-void InMemoryStorage::ReplicationClient::ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
+void ReplicationClient::ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void InMemoryStorage::ReplicationClient::ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation,
-                                                                        LabelId label,
-                                                                        const std::set<PropertyId> &properties,
-                                                                        uint64_t timestamp) {
+void ReplicationClient::ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
+                                                       const std::set<PropertyId> &properties, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeOperation(&encoder, self_->storage_->name_id_mapper_.get(), operation, label, properties, timestamp);
 }
 
-replication::AppendDeltasRes InMemoryStorage::ReplicationClient::ReplicaStream::Finalize() {
-  return stream_.AwaitResponse();
-}
+replication::AppendDeltasRes ReplicationClient::ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
-InMemoryStorage::ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
+ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
     : self_(self), stream_(self_->rpc_client_->Stream<replication::CurrentWalRpc>()) {}
 
-void InMemoryStorage::ReplicationClient::CurrentWalHandler::AppendFilename(const std::string &filename) {
+void ReplicationClient::CurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteString(filename);
 }
 
-void InMemoryStorage::ReplicationClient::CurrentWalHandler::AppendSize(const size_t size) {
+void ReplicationClient::CurrentWalHandler::AppendSize(const size_t size) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteUint(size);
 }
 
-void InMemoryStorage::ReplicationClient::CurrentWalHandler::AppendFileData(utils::InputFile *file) {
+void ReplicationClient::CurrentWalHandler::AppendFileData(utils::InputFile *file) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteFileData(file);
 }
 
-void InMemoryStorage::ReplicationClient::CurrentWalHandler::AppendBufferData(const uint8_t *buffer,
-                                                                             const size_t buffer_size) {
+void ReplicationClient::CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-replication::CurrentWalRes InMemoryStorage::ReplicationClient::CurrentWalHandler::Finalize() {
-  return stream_.AwaitResponse();
-}
+replication::CurrentWalRes ReplicationClient::CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 }  // namespace memgraph::storage
