@@ -49,6 +49,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE
                       | EDGE_TYPES
                       | EXECUTE
                       | FOR
