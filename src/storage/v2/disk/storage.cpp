@@ -445,7 +445,7 @@ void DiskStorage::DiskAccessor::LoadVerticesToEdgeImportCache(const auto &filter
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_) {
       LoadVerticesToEdgeImportCache([](const std::string & /*key*/, const std::string & /*value*/) { return true; });
     }
@@ -460,7 +460,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     /// TODO: andi Put into a separate method
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
         !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label)) {
@@ -534,7 +534,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
         !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
@@ -630,7 +630,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
         !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
@@ -702,7 +702,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
         !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
@@ -909,7 +909,7 @@ void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
   if (edge_import_status == edge_import_status_) {
     return;
   }
-  if (edge_import_status == EdgeImportMode::ON) {
+  if (edge_import_status == EdgeImportMode::ACTIVE) {
     const auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
     const auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
     edge_import_mode_cache_ = std::make_unique<EdgeImportModeCache>(disk_label_index, disk_label_property_index);

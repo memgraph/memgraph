@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ACTIVE
                       | AFTER
                       | ALTER
                       | ANALYZE
@@ -61,9 +62,10 @@ memgraphCypherKeyword : cypherKeyword
                       | IDENTIFIED
                       | NULLIF
                       | IMPORT
-                      | ISOLATION
+                      | INACTIVE
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
+                      | ISOLATION
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -74,7 +76,6 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NOTHING
-                      | OFF
                       | PASSWORD
                       | PULSAR
                       | PORT
@@ -479,4 +480,4 @@ dropDatabase : DROP DATABASE databaseName ;
 
 showDatabases: SHOW DATABASES ;
 
-edgeImportModeQuery : EDGE IMPORT MODE ( ON | OFF ) ;
+edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;

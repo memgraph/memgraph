@@ -16,13 +16,13 @@
 
 namespace memgraph::storage {
 
-enum class EdgeImportMode : std::uint8_t { ON, OFF };
+enum class EdgeImportMode : std::uint8_t { ACTIVE, INACTIVE };
 
 constexpr const char *EdgeImportModeToString(memgraph::storage::EdgeImportMode edge_import_mode) {
-  if (edge_import_mode == EdgeImportMode::OFF) {
-    return "OFF";
+  if (edge_import_mode == EdgeImportMode::INACTIVE) {
+    return "INACTIVE";
   }
-  return "ON";
+  return "ACTIVE";
 }
 
 }  // namespace memgraph::storage

@@ -3008,7 +3008,7 @@ class EdgeImportModeQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Status { ON, OFF };
+  enum class Status { ACTIVE, INACTIVE };
 
   EdgeImportModeQuery() = default;
 

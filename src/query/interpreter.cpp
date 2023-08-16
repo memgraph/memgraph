@@ -2497,10 +2497,10 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
 }
 
 constexpr auto ToEdgeImportMode(const EdgeImportModeQuery::Status status) noexcept {
-  if (status == EdgeImportModeQuery::Status::ON) {
-    return storage::EdgeImportMode::ON;
+  if (status == EdgeImportModeQuery::Status::ACTIVE) {
+    return storage::EdgeImportMode::ACTIVE;
   }
-  return storage::EdgeImportMode::OFF;
+  return storage::EdgeImportMode::INACTIVE;
 }
 
 bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
