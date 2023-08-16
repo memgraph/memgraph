@@ -263,7 +263,6 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = this->CreateVertex(acc.get());
-    spdlog::debug("Created vertex with gid: {}", memgraph::utils::SerializeIdType(vertex.Gid()));
     ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
   }
 

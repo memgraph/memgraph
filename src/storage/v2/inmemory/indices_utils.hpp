@@ -14,6 +14,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -156,62 +157,12 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
       });
 }
 
-// Helper function for iterating through label index. Returns true if this
-// transaction can see the given vertex, and the visible version has the given
-// label.
-inline bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
-  bool deleted = false;
-  bool has_label = false;
-  const Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    delta = vertex.delta;
-  }
-  ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::REMOVE_LABEL: {
-        if (delta.label == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      }
-      case Delta::Action::ADD_LABEL: {
-        if (delta.label == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-  });
-  return !deleted && has_label;
-}
-
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
 inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key,
                                            const PropertyValue &value, Transaction *transaction, View view) {
+  bool exists = true;
   bool deleted = false;
   bool has_label = false;
   bool current_value_equal_to_value = value.IsNull();
@@ -223,46 +174,46 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
     delta = vertex.delta;
   }
-  ApplyDeltasForRead(transaction, delta, view,
-                     [&deleted, &has_label, &current_value_equal_to_value, key, label, &value](const Delta &delta) {
-                       switch (delta.action) {
-                         case Delta::Action::SET_PROPERTY: {
-                           if (delta.property.key == key) {
-                             current_value_equal_to_value = delta.property.value == value;
-                           }
-                           break;
-                         }
-                         case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                         case Delta::Action::DELETE_OBJECT: {
-                           MG_ASSERT(!deleted, "Invalid database state!");
-                           deleted = true;
-                           break;
-                         }
-                         case Delta::Action::RECREATE_OBJECT: {
-                           MG_ASSERT(deleted, "Invalid database state!");
-                           deleted = false;
-                           break;
-                         }
-                         case Delta::Action::ADD_LABEL:
-                           if (delta.label == label) {
-                             MG_ASSERT(!has_label, "Invalid database state!");
-                             has_label = true;
-                           }
-                           break;
-                         case Delta::Action::REMOVE_LABEL:
-                           if (delta.label == label) {
-                             MG_ASSERT(has_label, "Invalid database state!");
-                             has_label = false;
-                           }
-                           break;
-                         case Delta::Action::ADD_IN_EDGE:
-                         case Delta::Action::ADD_OUT_EDGE:
-                         case Delta::Action::REMOVE_IN_EDGE:
-                         case Delta::Action::REMOVE_OUT_EDGE:
-                           break;
-                       }
-                     });
-  return !deleted && has_label && current_value_equal_to_value;
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
+    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    if (useCache) {
+      auto const &cache = transaction->manyDeltasCache;
+      if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
+      auto resLabel = cache.GetHasLabel(view, &vertex, label);
+      if (resLabel && *resLabel) {
+        auto resProp = cache.GetProperty(view, &vertex, key);
+        if (resProp && *resProp == value) return true;
+      }
+    }
+
+    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, label, key](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        HasLabel_ActionMethod(has_label, label),
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
+      });
+      // clang-format on
+    });
+
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+      auto &cache = transaction->manyDeltasCache;
+      cache.StoreExists(view, &vertex, exists);
+      cache.StoreDeleted(view, &vertex, deleted);
+      cache.StoreHasLabel(view, &vertex, label, has_label);
+      if (current_value_equal_to_value) {
+        cache.StoreProperty(view, &vertex, key, value);
+      }
+    }
+  }
+
+  return exists && !deleted && has_label && current_value_equal_to_value;
 }
 
 template <typename TIndexAccessor>
