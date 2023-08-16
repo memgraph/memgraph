@@ -18,7 +18,6 @@
 #include <climits>
 #include <codecvt>
 #include <cstring>
-#include <exception>
 #include <iterator>
 #include <limits>
 #include <string>

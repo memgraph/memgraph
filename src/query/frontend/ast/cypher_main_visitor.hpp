@@ -11,13 +11,11 @@
 
 #pragma once
 
-#include <support/Any.h>
 #include <string>
 #include <unordered_set>
 #include <utility>
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"

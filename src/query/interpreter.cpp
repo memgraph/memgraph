@@ -65,7 +65,6 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
-#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
