@@ -1689,12 +1689,10 @@ bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperati
     return true;
   }
 
-  auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-  replication_state_.AppendToWalDataDefinition(wal_file_->SequenceNumber(), operation, label, properties,
-                                               final_commit_timestamp);
   FinalizeWalFile();
-  return finalized_on_all_replicas;
+  return replication_state_.AppendToWalDataDefinition(wal_file_->SequenceNumber(), operation, label, properties,
+                                                      final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
