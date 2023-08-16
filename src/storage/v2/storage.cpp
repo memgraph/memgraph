@@ -9,11 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <mutex>
 #include "spdlog/spdlog.h"
 
 #include "storage/v2/disk/name_id_mapper.hpp"
-#include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -99,10 +97,7 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
   }
 }
 
-StorageMode Storage::GetStorageMode() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return storage_mode_;
-}
+StorageMode Storage::GetStorageMode() const { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 

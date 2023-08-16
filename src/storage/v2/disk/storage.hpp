@@ -19,6 +19,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
@@ -60,7 +61,7 @@ class DiskStorage final : public Storage {
 
     void LoadVerticesToMainMemoryCache();
 
-    void LoadVerticesToEdgeImportCache();
+    void LoadVerticesToEdgeImportCache(const auto &filter);
 
     VerticesIterable Vertices(View view) override;
 

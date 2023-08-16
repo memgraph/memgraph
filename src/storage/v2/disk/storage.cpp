@@ -41,6 +41,8 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/algorithm.hpp"
+#include "utils/bound.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -426,7 +428,7 @@ void DiskStorage::DiskAccessor::LoadVerticesToMainMemoryCache() {
 }
 
 /// TODO: how to remove this
-void DiskStorage::DiskAccessor::LoadVerticesToEdgeImportCache() {
+void DiskStorage::DiskAccessor::LoadVerticesToEdgeImportCache(const auto &filter) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -435,7 +437,11 @@ void DiskStorage::DiskAccessor::LoadVerticesToEdgeImportCache() {
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    LoadVertexToEdgeImportCache(it->key().ToString(), it->value().ToString());
+    std::string key = it->key().ToString();
+    std::string value = it->value().ToString();
+    if (filter(key, value)) {
+      LoadVertexToEdgeImportCache(std::move(key), std::move(value));
+    }
   }
 }
 
@@ -443,7 +449,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_) {
-      LoadVerticesToEdgeImportCache();
+      LoadVerticesToEdgeImportCache([](const std::string & /*key*/, const std::string & /*value*/) { return true; });
     }
     return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->cache_.access(), &transaction_,
                                                 view, &storage_->indices_, &storage_->constraints_,
@@ -455,6 +461,19 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+    /// TODO: andi Put into a separate method
+    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label)) {
+      LoadVerticesToEdgeImportCache([label](const std::string &key, const std::string & /*value*/) {
+        const std::string label_prefix = utils::SerializeIdType(label);
+        return key.starts_with(label_prefix);
+      });
+    }
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->label_index_->Vertices(label, view, &transaction_));
+  }
+
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
   index_deltas_storage_.emplace_back();
@@ -516,6 +535,23 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
+    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_label_property_indices_,
+                         std::make_pair(label, property))) {
+      LoadVerticesToEdgeImportCache([label, property](const std::string &key, const std::string & /*value*/) {
+        const std::string label_property_prefix =
+            utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
+        return key.starts_with(label_property_prefix);
+      });
+    }
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->label_property_index_->Vertices(
+        label, property, std::nullopt, std::nullopt, view, &transaction_));
+  }
+
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
   index_deltas_storage_.emplace_back();
@@ -595,6 +631,24 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
+    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_label_property_indices_,
+                         std::make_pair(label, property))) {
+      LoadVerticesToEdgeImportCache([label, property, value](const std::string &key, const std::string &val) {
+        const std::string label_property_prefix =
+            utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
+        PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(val);
+        return key.starts_with(label_property_prefix) && properties.IsPropertyEqual(property, value);
+      });
+    }
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->label_property_index_->Vertices(
+        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
+  }
+
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
   index_deltas_storage_.emplace_back();
@@ -649,6 +703,27 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ON) {
+    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
+    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
+        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_label_property_indices_,
+                         std::make_pair(label, property))) {
+      LoadVerticesToEdgeImportCache(
+          [label, property, lower_bound, upper_bound](const std::string &key, const std::string &val) {
+            PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(val);
+            PropertyValue prop_value = properties.GetProperty(property);
+            const std::string label_property_prefix =
+                utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
+            return key.starts_with(label_property_prefix) &&
+                   !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound);
+          });
+    }
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->label_property_index_->Vertices(
+        label, property, lower_bound, upper_bound, view, &transaction_));
+  }
+
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = index_storage_.back();
   index_deltas_storage_.emplace_back();
@@ -712,7 +787,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
     /// TODO: andi this will be optimized
     /// TODO: couple this condition
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
-    auto prop_value = properties.GetProperty(property);
+    PropertyValue prop_value = properties.GetProperty(property);
     if (!key_str.starts_with(label_property_prefix) || utils::Contains(gids, curr_gid) ||
         !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       continue;
