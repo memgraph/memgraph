@@ -469,7 +469,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
         return key.starts_with(label_prefix);
       });
     }
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->label_index_->Vertices(label, view, &transaction_));
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->label_index_->Vertices(label, view, &transaction_,
+                                                                                          &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());

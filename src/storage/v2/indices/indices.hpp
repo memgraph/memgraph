@@ -26,10 +26,10 @@ struct Indices {
   Indices(Constraints *constraints, const Config &config, StorageMode storage_mode) {
     std::invoke([this, constraints, config, storage_mode]() {
       if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-        label_index_ = std::make_unique<InMemoryLabelIndex>(this, constraints, config);
+        label_index_ = std::make_unique<InMemoryLabelIndex>(this, config);
         label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(this, constraints, config);
       } else {
-        label_index_ = std::make_unique<DiskLabelIndex>(this, constraints, config);
+        label_index_ = std::make_unique<DiskLabelIndex>(this, config);
         label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(this, constraints, config);
       }
     });

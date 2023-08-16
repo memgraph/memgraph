@@ -23,7 +23,7 @@
 namespace memgraph::storage {
 class DiskLabelIndex : public storage::LabelIndex {
  public:
-  DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config);
+  DiskLabelIndex(Indices *indices, const Config &config);
 
   [[nodiscard]] bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
