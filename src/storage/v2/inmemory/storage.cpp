@@ -303,6 +303,10 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     }
   }
 
+  for (const auto &vertex : deleted_vertices) {
+    transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
+  }
+
   return maybe_result;
 }
 

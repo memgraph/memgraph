@@ -875,16 +875,19 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   auto &[deleted_vertices, deleted_edges] = *value;
 
-  for (const auto &deleted_vertex : deleted_vertices) {
-    vertices_to_delete_.emplace_back(utils::SerializeIdType(deleted_vertex.vertex_->gid),
-                                     utils::SerializeVertex(*deleted_vertex.vertex_));
+  for (const auto &vertex : deleted_vertices) {
+    vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex.vertex_->gid),
+                                     utils::SerializeVertex(*vertex.vertex_));
+    transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
   }
 
-  for (const auto &deleted_edge : deleted_edges) {
-    const std::string src_dest_del_key{utils::SerializeEdge(deleted_edge.from_vertex_->gid,
-                                                            deleted_edge.to_vertex_->gid, deleted_edge.edge_type_,
-                                                            deleted_edge.edge_, config_.properties_on_edges)};
-    edges_to_delete_.emplace_back(src_dest_del_key);
+  for (const auto &edge : deleted_edges) {
+    const DiskEdgeKey disk_edge_key(edge.from_vertex_->gid, edge.to_vertex_->gid, edge.edge_type_, edge.edge_,
+                                    config_.properties_on_edges);
+    edges_to_delete_.emplace(disk_edge_key.GetSerializedKey());
+
+    transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
   }
 
   return maybe_result;
