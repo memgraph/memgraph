@@ -46,7 +46,7 @@ namespace memgraph::utils {
 /// heights than 32. The probability of heights larger than 32 gets extremely
 /// small. Also, the internal implementation can handle a maximum height of 32
 /// primarily becase of the height generator (see the `gen_height` function).
-const uint64_t kSkipListMaxHeight = 32;
+constexpr uint64_t kSkipListMaxHeight = 32;
 
 /// This is the height that a node that is accessed from the list has to have in
 /// order for garbage collection to be triggered. This causes the garbage
@@ -54,21 +54,45 @@ const uint64_t kSkipListMaxHeight = 32;
 /// list. Each thread that accesses the list can perform garbage collection. The
 /// level is determined empirically using benchmarks. A smaller height means
 /// that the garbage collection will be triggered more often.
-const uint64_t kSkipListGcHeightTrigger = 16;
+constexpr uint64_t kSkipListGcHeightTrigger = 16;
 
 /// This is the highest layer that will be used by default for item count
 /// estimation. It was determined empirically using benchmarks to have an
 /// optimal trade-off between performance and accuracy. The function will have
 /// an expected maximum error of less than 20% when the key matches 100k
 /// elements.
-const int kSkipListCountEstimateDefaultLayer = 10;
+constexpr int kSkipListCountEstimateDefaultLayer = 10;
 
 /// These variables define the storage sizes for the SkipListGc. The internal
 /// storage of the GC and the Stack storage used within the GC are all
 /// optimized to have block sizes that are a whole multiple of the memory page
 /// size.
-const uint64_t kSkipListGcBlockSize = 8189;
-const uint64_t kSkipListGcStackSize = 8191;
+constexpr uint64_t kSkipListGcBlockSize = 8189;
+constexpr uint64_t kSkipListGcStackSize = 8191;
+
+namespace detail {
+struct SkipListNode_base {
+  // This function generates a binomial distribution using the same technique
+  // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
+  // "O(1) level generation". The only exception in this implementation is that
+  // the special case of 0 is handled correctly. When 0 is passed to `ffs` it
+  // returns 0 which is an invalid height. To make the distribution binomial
+  // this value is then mapped to `kSkipListMaxSize`.
+  static uint32_t gen_height() {
+    thread_local std::mt19937 gen{std::random_device{}()};
+    static_assert(kSkipListMaxHeight <= 32,
+                  "utils::SkipList::gen_height is implemented only for heights "
+                  "up to 32!");
+    uint32_t value = gen();
+    if (value == 0) return kSkipListMaxHeight;
+    // The value should have exactly `kSkipListMaxHeight` bits.
+    value >>= (32 - kSkipListMaxHeight);
+    // ffs = find first set
+    //       ^    ^     ^
+    return __builtin_ffs(value);
+  }
+};
+}  // namespace detail
 
 /// This is the Node object that represents each element stored in the list. The
 /// array of pointers to the next nodes is declared here to a size of 0 so that
@@ -180,8 +204,8 @@ class SkipListGc final {
   using TDeleted = std::pair<uint64_t, TNode *>;
   using TStack = Stack<TDeleted, kSkipListGcStackSize>;
 
-  const uint64_t kIdsInField = sizeof(uint64_t) * 8;
-  const uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
+  static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
+  static constexpr uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
 
   struct Block {
     std::atomic<Block *> prev;
@@ -549,7 +573,7 @@ class SkipListGc final {
 ///
 /// @tparam TObj object type that is stored in the list
 template <typename TObj>
-class SkipList final {
+class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;
 
@@ -1256,34 +1280,12 @@ class SkipList final {
     }
   }
 
-  // This function generates a binomial distribution using the same technique
-  // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
-  // "O(1) level generation". The only exception in this implementation is that
-  // the special case of 0 is handled correctly. When 0 is passed to `ffs` it
-  // returns 0 which is an invalid height. To make the distribution binomial
-  // this value is then mapped to `kSkipListMaxSize`.
-  uint32_t gen_height() {
-    std::lock_guard<SpinLock> guard(lock_);
-    static_assert(kSkipListMaxHeight <= 32,
-                  "utils::SkipList::gen_height is implemented only for heights "
-                  "up to 32!");
-    uint32_t value = gen_();
-    if (value == 0) return kSkipListMaxHeight;
-    // The value should have exactly `kSkipListMaxHeight` bits.
-    value >>= (32 - kSkipListMaxHeight);
-    // ffs = find first set
-    //       ^    ^     ^
-    return __builtin_ffs(value);
-  }
-
  private:
   TNode *head_{nullptr};
   // gc_ also stores the only copy of `MemoryResource *`, to save space.
   mutable SkipListGc<TObj> gc_;
 
-  std::mt19937 gen_{std::random_device{}()};
   std::atomic<uint64_t> size_{0};
-  SpinLock lock_;
 };
 
 }  // namespace memgraph::utils

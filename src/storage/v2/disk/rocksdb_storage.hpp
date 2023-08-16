@@ -18,6 +18,8 @@
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
@@ -84,6 +86,29 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
 
  private:
   const Comparator *cmp_without_ts_{nullptr};
+};
+
+struct DiskEdgeKey {
+  DiskEdgeKey(const std::string_view keyView) : key(keyView) {}
+
+  DiskEdgeKey(EdgeAccessor *edge_acc);
+
+  /// @tparam src_vertex_gid, dest_vertex_gid: Gid of the source and destination vertices
+  /// @tparam edge_type_id: EdgeTypeId of the edge
+  /// @tparam edge_ref: Edge to be serialized
+  DiskEdgeKey(Gid src_vertex_gid, storage::Gid dest_vertex_gid, storage::EdgeTypeId edge_type_id,
+              const EdgeRef edge_ref, bool properties_on_edges);
+
+  std::string GetSerializedKey() const { return key; }
+
+  std::string GetVertexOutGid() const;
+  std::string GetVertexInGid() const;
+  std::string GetEdgeGid() const;
+
+ private:
+  // vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
+  // Currently direction is only out.
+  std::string key;
 };
 
 }  // namespace memgraph::storage
