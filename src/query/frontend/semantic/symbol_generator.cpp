@@ -401,8 +401,6 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 }
 
 bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
-  std::cout << "PostVisit(MapLiteral &map_literal)" << std::endl;
-
   std::unordered_set<int32_t> property_lookups{};
   std::unordered_set<int32_t> cacheable_property_lookups{};
 
