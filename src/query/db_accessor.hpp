@@ -27,7 +27,7 @@
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
-// very well on Centos because OpenSSL version avaialable
+// very well on Centos because OpenSSL version available
 // on Centos 7 include  libkrb5 which has brilliant macros
 // called TRUE and FALSE. For more detailed explanation go
 // to memgraph.cpp.
@@ -75,6 +75,11 @@ class EdgeAccessor final {
 
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.InitProperties(properties);
+  }
+
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
@@ -133,6 +138,11 @@ class VertexAccessor final {
 
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.InitProperties(properties);
+  }
+
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
@@ -495,6 +505,8 @@ class DbAccessor final {
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+
+  const std::string &id() const { return accessor_->id(); }
 };
 
 class SubgraphDbAccessor final {

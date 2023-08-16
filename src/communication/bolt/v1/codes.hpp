@@ -19,7 +19,7 @@ inline constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
 
 enum class Signature : uint8_t {
   Noop = 0x00,
-  Init = 0x01,
+  Init = 0x01,  // v3+ now HELLO
   LogOn = 0x6A,
   LogOff = 0x6B,
   AckFailure = 0x0E,  // only v1

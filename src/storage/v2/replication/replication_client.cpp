@@ -35,11 +35,13 @@ InMemoryStorage::ReplicationClient::ReplicationClient(std::string name, InMemory
                                                       const replication::ReplicationMode mode,
                                                       const replication::ReplicationClientConfig &config)
     : name_(std::move(name)), storage_(storage), mode_(mode) {
+  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
   if (config.ssl) {
     rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
   } else {
     rpc_context_.emplace();
   }
+
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
   TryInitializeClientSync();
@@ -268,11 +270,14 @@ bool InMemoryStorage::ReplicationClient::FinalizeTransactionReplicationInternal(
 }
 
 void InMemoryStorage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
+  spdlog::debug("Starting replica recover");
   while (true) {
     auto file_locker = storage_->file_retainer_.AddLocker();
 
     const auto steps = GetRecoverySteps(replica_commit, &file_locker);
+    int i = 0;
     for (const auto &recovery_step : steps) {
+      spdlog::trace("Recovering in step: {}", i++);
       try {
         std::visit(
             [&, this]<typename T>(T &&arg) {
@@ -285,6 +290,7 @@ void InMemoryStorage::ReplicationClient::RecoverReplica(uint64_t replica_commit)
                 spdlog::debug("Sending the latest wal files");
                 auto response = TransferWalFiles(arg);
                 replica_commit = response.current_commit_timestamp;
+                spdlog::debug("Wal files successfully transferred.");
               } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
                 std::unique_lock transaction_guard(storage_->engine_lock_);
                 if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == arg.current_wal_seq_num) {
@@ -293,6 +299,8 @@ void InMemoryStorage::ReplicationClient::RecoverReplica(uint64_t replica_commit)
                   spdlog::debug("Sending current wal file");
                   replica_commit = ReplicateCurrentWal();
                   storage_->wal_file_->EnableFlushing();
+                } else {
+                  spdlog::debug("Cannot recover using current wal file");
                 }
               } else {
                 static_assert(always_false_v<T>, "Missing type from variant visitor");
@@ -350,7 +358,7 @@ uint64_t InMemoryStorage::ReplicationClient::ReplicateCurrentWal() {
 /// transactions while Snapshots contain all the data. For that reason we prefer
 /// WALs as much as possible. As the WAL file that is currently being updated
 /// can change during the process we ignore it as much as possible. Also, it
-/// uses the transaction lock so lokcing it can be really expensive. After we
+/// uses the transaction lock so locking it can be really expensive. After we
 /// fetch the list of finalized WALs, we try to find the longest chain of
 /// sequential WALs, starting from the latest one, that will update the recovery
 /// with the all missed updates. If the WAL chain cannot be created, replica is

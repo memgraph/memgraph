@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <queue>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -470,4 +471,130 @@ TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.Properties().size(), 1);
   ASSERT_EQ(node_1.Properties()["b"].ValueString(), "b");
   ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
+}
+
+TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
+  const int64_t int1 = 3;
+  const int64_t int2 = 4;
+  const double double1 = 3.5;
+  const mgp::List list1 = mgp::List();
+  const mgp::Map map1 = mgp::Map();
+  const mgp::Value int_test1 = mgp::Value(int1);
+  const mgp::Value int_test2 = mgp::Value(int2);
+  const mgp::Value double_test1 = mgp::Value(double1);
+  const mgp::Value list_test = mgp::Value(list1);
+  const mgp::Value map_test = mgp::Value(map1);
+
+  ASSERT_TRUE(int_test1 < int_test2);
+  ASSERT_TRUE(double_test1 < int_test2);
+
+  const std::string string1 = "string";
+  const mgp::Value string_test1 = mgp::Value(string1);
+
+  ASSERT_THROW(int_test1 < string_test1, mgp::ValueException);
+  ASSERT_THROW(list_test < map_test, mgp::ValueException);
+  ASSERT_THROW(list_test < list_test, mgp::ValueException);
+}
+TYPED_TEST(CppApiTestFixture, TestNumberEquality) {
+  mgp::Value double_1{1.0};
+  mgp::Value int_1{static_cast<int64_t>(1)};
+  ASSERT_TRUE(double_1 == int_1);
+  mgp::Value double_2{2.01};
+  mgp::Value int_2{static_cast<int64_t>(2)};
+  ASSERT_FALSE(double_2 == int_2);
+}
+
+TYPED_TEST(CppApiTestFixture, TestTypeOperatorStream) {
+  std::string string1 = "string";
+  int64_t int1 = 4;
+  mgp::List list = mgp::List();
+
+  mgp::Value string_value = mgp::Value(string1);
+  mgp::Value int_value = mgp::Value(int1);
+  mgp::Value list_value = mgp::Value(list);
+
+  std::ostringstream oss_str;
+  oss_str << string_value.Type();
+  std::string str_test = oss_str.str();
+
+  std::ostringstream oss_int;
+  oss_int << int_value.Type();
+  std::string int_test = oss_int.str();
+
+  std::ostringstream oss_list;
+  oss_list << list_value.Type();
+  std::string list_test = oss_list.str();
+
+  ASSERT_EQ(str_test, "string");
+  ASSERT_EQ(int_test, "int");
+  ASSERT_EQ(list_test, "list");
+}
+
+TYPED_TEST(CppApiTestFixture, TestMapUpdate) {
+  mgp::Map map{};
+  mgp::Value double_1{1.0};
+  mgp::Value double_2{2.0};
+
+  map.Update("1", double_1);
+  ASSERT_EQ(map.At("1"), double_1);
+
+  map.Update("1", double_2);
+  ASSERT_EQ(map.At("1"), double_2);
+}
+
+TYPED_TEST(CppApiTestFixture, TestMapErase) {
+  mgp::Map map{};
+  mgp::Value double_1{1.0};
+  mgp::Value double_2{2.0};
+
+  map.Insert("1", double_1);
+  map.Insert("2", double_2);
+  ASSERT_EQ(map.Size(), 2);
+
+  map.Erase("1");
+  ASSERT_EQ(map.Size(), 1);
+
+  map.Erase("1");
+  ASSERT_EQ(map.Size(), 1);
+
+  map.Erase("2");
+  ASSERT_EQ(map.Size(), 0);
+}
+
+TYPED_TEST(CppApiTestFixture, TestNodeRemoveProperty) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node = graph.CreateNode();
+
+  int64_t int1 = 100;
+  mgp::Value value{int1};
+  node.SetProperty("key", value);
+  ASSERT_EQ(node.Properties().size(), 1);
+  node.RemoveProperty("key");
+  ASSERT_EQ(node.Properties().size(), 0);
+}
+
+TYPED_TEST(CppApiTestFixture, TestValuePrint) {
+  std::string string_1{"abc"};
+  int64_t int_1{4};
+  mgp::Date date_1{"2020-12-12"};
+
+  mgp::Value string_value{string_1};
+  mgp::Value int_value{int_1};
+  mgp::Value date_value{date_1};
+
+  std::ostringstream oss_str;
+  oss_str << string_value;
+  std::string str_test = oss_str.str();
+  ASSERT_EQ(string_1, str_test);
+
+  std::ostringstream oss_int;
+  oss_int << int_value;
+  std::string int_test = oss_int.str();
+  ASSERT_EQ("4", int_test);
+
+  std::ostringstream oss_date;
+  oss_date << date_value;
+  std::string date_test = oss_date.str();
+  ASSERT_EQ("2020-12-12", date_test);
 }

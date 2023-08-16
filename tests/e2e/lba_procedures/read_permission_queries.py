@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,12 +9,11 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import pytest
 import sys
-
 from typing import List
 
-from common import connect, execute_and_fetch_all, reset_permissions
+import pytest
+from common import *
 
 match_query = "MATCH (n) RETURN n;"
 match_by_id_query = "MATCH (n) WHERE ID(n) >= 0 RETURN n;"
@@ -105,10 +104,15 @@ def get_user_cursor():
 
 
 def execute_read_node_assertion(
-    operation_case: List[str], queries: List[str], create_index: bool, expected_size: int
+    operation_case: List[str], queries: List[str], create_index: bool, expected_size: int, switch: bool
 ) -> None:
     admin_cursor = get_admin_cursor()
     user_cursor = get_user_cursor()
+
+    if switch:
+        create_multi_db(admin_cursor)
+        switch_db(admin_cursor)
+        switch_db(user_cursor)
 
     reset_permissions(admin_cursor, create_index)
 
@@ -120,7 +124,8 @@ def execute_read_node_assertion(
         assert len(results) == expected_size
 
 
-def test_can_read_node_when_authorized():
+@pytest.mark.parametrize("switch", [False, True])
+def test_can_read_node_when_authorized(switch):
     match_queries_without_index = [match_query, match_by_id_query]
     match_queries_with_index = [
         match_by_label_query,
@@ -132,14 +137,15 @@ def test_can_read_node_when_authorized():
     for expected_size, operation_case in zip(
         read_node_without_index_operation_cases_expected_size, read_node_without_index_operation_cases
     ):
-        execute_read_node_assertion(operation_case, match_queries_without_index, False, expected_size)
+        execute_read_node_assertion(operation_case, match_queries_without_index, False, expected_size, switch)
     for expected_size, operation_case in zip(
         read_node_with_index_operation_cases_expected_sizes, read_node_with_index_operation_cases
     ):
-        execute_read_node_assertion(operation_case, match_queries_with_index, True, expected_size)
+        execute_read_node_assertion(operation_case, match_queries_with_index, True, expected_size, switch)
 
 
-def test_can_not_read_node_when_authorized():
+@pytest.mark.parametrize("switch", [False, True])
+def test_can_not_read_node_when_authorized(switch):
     match_queries_without_index = [match_query, match_by_id_query]
     match_queries_with_index = [
         match_by_label_query,
@@ -151,11 +157,11 @@ def test_can_not_read_node_when_authorized():
     for expected_size, operation_case in zip(
         not_read_node_without_index_operation_cases_expected_sizes, not_read_node_without_index_operation_cases
     ):
-        execute_read_node_assertion(operation_case, match_queries_without_index, False, expected_size)
+        execute_read_node_assertion(operation_case, match_queries_without_index, False, expected_size, switch)
     for expected_size, operation_case in zip(
         not_read_node_with_index_operation_cases_expexted_sizes, not_read_node_with_index_operation_cases
     ):
-        execute_read_node_assertion(operation_case, match_queries_with_index, True, expected_size)
+        execute_read_node_assertion(operation_case, match_queries_with_index, True, expected_size, switch)
 
 
 if __name__ == "__main__":

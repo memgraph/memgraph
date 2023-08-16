@@ -40,6 +40,9 @@
 #include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "dbms/constants.hpp"
+#include "dbms/global.hpp"
+#include "dbms/session_context.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
@@ -53,6 +56,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
@@ -97,6 +101,7 @@
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
+#include "dbms/session_context_handler.hpp"
 #include "glue/communication.hpp"
 
 #include "auth/auth.hpp"
@@ -156,6 +161,10 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(data_recovery_on_startup, false, "Controls whether the database recovers persisted data on startup.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
@@ -173,8 +182,11 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
+
+// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_recover_on_startup, false, "Controls whether the storage recovers persisted data on startup.");
+DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
+                   "Controls whether the storage recovers persisted data on startup.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "
@@ -213,6 +225,12 @@ DEFINE_uint64(storage_recovery_thread_count,
               std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
+
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_delete_on_drop, true,
+            "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.");
+#endif
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
@@ -261,6 +279,8 @@ DEFINE_double(query_execution_timeout_sec, 600,
 DEFINE_uint64(replication_replica_check_frequency_sec, 1,
               "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
               "The MAIN instance allocates a new thread for each REPLICA.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
@@ -353,6 +373,12 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                           return true;
                         });
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(query_callable_mappings_path, "",
+              "The path to mappings that describes aliases to callables in cypher queries in the form of key-value "
+              "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
+              "mapped to ones that exist.");
+
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
@@ -438,35 +464,6 @@ void AddLoggerSink(spdlog::sink_ptr new_sink) {
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-
-/// Encapsulates Dbms and Interpreter that are passed through the network server
-/// and worker to the session.
-struct SessionData {
-  // Explicit constructor here to ensure that pointers to all objects are
-  // supplied.
-#if MG_ENTERPRISE
-
-  SessionData(memgraph::query::InterpreterContext *interpreter_context,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-              memgraph::audit::Log *audit_log)
-      : interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::query::InterpreterContext *interpreter_context;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-  memgraph::audit::Log *audit_log;
-
-#else
-
-  SessionData(memgraph::query::InterpreterContext *interpreter_context,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : interpreter_context(interpreter_context), auth(auth) {}
-  memgraph::query::InterpreterContext *interpreter_context;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-
-#endif
-  // NOTE: run_id should be const but that complicates code a lot.
-  std::optional<std::string> run_id;
-};
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
@@ -489,7 +486,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
       interpreter.Pull(&stream, {}, results.qid);
 
       if (audit_log) {
-        audit_log->Record("", "", line, {});
+        audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
       }
     }
   }
@@ -501,74 +498,197 @@ namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
-class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                                                        memgraph::communication::v2::OutputStream> {
+auto ToQueryExtras(memgraph::communication::bolt::Value const &extra) -> memgraph::query::QueryExtras {
+  auto const &as_map = extra.ValueMap();
+
+  auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
+
+  if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
+    for (const auto &[key, bolt_md] : it->second.ValueMap()) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+    }
+  }
+
+  auto tx_timeout = std::optional<int64_t>{};
+  if (auto const it = as_map.find("tx_timeout"); it != as_map.cend() && it->second.IsInt()) {
+    tx_timeout = it->second.ValueInt();
+  }
+
+  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout};
+}
+
+class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                                                      memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
-              memgraph::communication::v2::InputStream *input_stream,
-              memgraph::communication::v2::OutputStream *output_stream)
+  struct ContextWrapper {
+    explicit ContextWrapper(memgraph::dbms::SessionContext sc)
+        : session_context(sc),
+          interpreter(std::make_unique<memgraph::query::Interpreter>(session_context.interpreter_context.get())),
+          defunct_(false) {
+      session_context.interpreter_context->interpreters.WithLock(
+          [this](auto &interpreters) { interpreters.insert(interpreter.get()); });
+    }
+    ~ContextWrapper() { Defunct(); }
+
+    void Defunct() {
+      if (!defunct_) {
+        session_context.interpreter_context->interpreters.WithLock(
+            [this](auto &interpreters) { interpreters.erase(interpreter.get()); });
+        defunct_ = true;
+      }
+    }
+
+    ContextWrapper(const ContextWrapper &) = delete;
+    ContextWrapper &operator=(const ContextWrapper &) = delete;
+
+    ContextWrapper(ContextWrapper &&in) noexcept
+        : session_context(std::move(in.session_context)),
+          interpreter(std::move(in.interpreter)),
+          defunct_(in.defunct_) {
+      in.defunct_ = true;
+    }
+
+    ContextWrapper &operator=(ContextWrapper &&in) noexcept {
+      if (this != &in) {
+        Defunct();
+        session_context = std::move(in.session_context);
+        interpreter = std::move(in.interpreter);
+        defunct_ = in.defunct_;
+        in.defunct_ = true;
+      }
+      return *this;
+    }
+
+    memgraph::query::InterpreterContext *interpreter_context() { return session_context.interpreter_context.get(); }
+    memgraph::query::Interpreter *interp() { return interpreter.get(); }
+    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth() const {
+      return session_context.auth;
+    }
+#ifdef MG_ENTERPRISE
+    memgraph::audit::Log *audit_log() const { return session_context.audit_log; }
+#endif
+    std::string run_id() const { return session_context.run_id; }
+    bool defunct() const { return defunct_; }
+
+   private:
+    memgraph::dbms::SessionContext session_context;
+    std::unique_ptr<memgraph::query::Interpreter> interpreter;
+    bool defunct_;
+  };
+
+  SessionHL(
+#ifdef MG_ENTERPRISE
+      memgraph::dbms::SessionContextHandler &sc_handler,
+#else
+      memgraph::dbms::SessionContext sc,
+#endif
+      const memgraph::communication::v2::ServerEndpoint &endpoint,
+      memgraph::communication::v2::InputStream *input_stream, memgraph::communication::v2::OutputStream *output_stream,
+      const std::string &default_db = memgraph::dbms::kDefaultDB)  // NOLINT
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
-        interpreter_context_(data->interpreter_context),
-        interpreter_(data->interpreter_context),
-        auth_(data->auth),
-#if MG_ENTERPRISE
-        audit_log_(data->audit_log),
+#ifdef MG_ENTERPRISE
+        sc_handler_(sc_handler),
+        current_(sc_handler_.Get(default_db)),
+#else
+        current_(sc),
+#endif
+        interpreter_context_(current_.interpreter_context()),
+        interpreter_(current_.interp()),
+        auth_(current_.auth()),
+#ifdef MG_ENTERPRISE
+        audit_log_(current_.audit_log()),
 #endif
         endpoint_(endpoint),
-        run_id_(data->run_id) {
+        run_id_(current_.run_id()) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
-    interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
-  ~BoltSession() override {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
-    interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
-  }
+  ~SessionHL() override { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
 
-  using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                               memgraph::communication::v2::OutputStream>::TEncoder;
+  SessionHL(const SessionHL &) = delete;
+  SessionHL &operator=(const SessionHL &) = delete;
+  SessionHL(SessionHL &&) = delete;
+  SessionHL &operator=(SessionHL &&) = delete;
 
-  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
-    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
-    for (const auto &[key, bolt_value] : metadata) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
+  void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) override {
+#ifdef MG_ENTERPRISE
+    std::string db;
+    bool update = false;
+    // Check if user explicitly defined the database to use
+    if (run_time_info.contains("db")) {
+      const auto &db_info = run_time_info.at("db");
+      if (!db_info.IsString()) {
+        throw memgraph::communication::bolt::ClientError("Malformed database name.");
+      }
+      db = db_info.ValueString();
+      update = db != current_.interpreter_context()->db->id();
+      in_explicit_db_ = true;
+      // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
+    } else if (in_explicit_db_ && !interpreter_->in_explicit_transaction_) {  // Just on a switch
+      db = GetDefaultDB();
+      update = db != current_.interpreter_context()->db->id();
+      in_explicit_db_ = false;
     }
-    interpreter_.BeginTransaction(metadata_pv);
+
+    // Check if the underlying database needs to be updated
+    if (update) {
+      sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
+        const auto &db_name = new_sc.interpreter_context->db->id();
+        MultiDatabaseAuth(db_name);
+        try {
+          Update(ContextWrapper(new_sc));
+          return memgraph::dbms::SetForResult::SUCCESS;
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", db_name);
+        }
+      });
+    }
+#endif
   }
 
-  void CommitTransaction() override { interpreter_.CommitTransaction(); }
+  using TEncoder = memgraph::communication::bolt::Encoder<
+      memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
-  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) override {
+    interpreter_->BeginTransaction(ToQueryExtras(extra));
+  }
+
+  void CommitTransaction() override { interpreter_->CommitTransaction(); }
+
+  void RollbackTransaction() override { interpreter_->RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+      const std::map<std::string, memgraph::communication::bolt::Value> &extra) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &[key, bolt_param] : params) {
       params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
-    }
-    for (const auto &[key, bolt_md] : metadata) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
     }
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();
     }
+
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv));
+                         memgraph::storage::PropertyValue(params_pv), interpreter_context_->db->id());
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
-      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
-        interpreter_.Abort();
+      auto result = interpreter_->Prepare(query, params_pv, username, ToQueryExtras(extra), UUID());
+      const std::string db_name = result.db ? *result.db : "";
+      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
+        interpreter_->Abort();
+        if (db_name.empty()) {
+          throw memgraph::communication::bolt::ClientError(
+              "You are not authorized to execute this query! Please contact your database administrator.");
+        }
         throw memgraph::communication::bolt::ClientError(
-            "You are not authorized to execute this query! Please contact "
-            "your database administrator.");
+            "You are not authorized to execute this query on database \"{}\"! Please contact your database "
+            "administrator.",
+            db_name);
       }
       return {result.headers, result.qid};
 
@@ -583,7 +703,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, interpreter_context_->db.get());
+    TypedValueResultStream stream(encoder, interpreter_context_);
     return PullResults(stream, n, qid);
   }
 
@@ -593,14 +713,26 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return PullResults(stream, n, qid);
   }
 
-  void Abort() override { interpreter_.Abort(); }
+  void Abort() override { interpreter_->Abort(); }
 
+  // Called during Init
+  // During Init, the user cannot choose the landing DB (switch is done during query execution)
   bool Authenticate(const std::string &username, const std::string &password) override {
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
+#ifdef MG_ENTERPRISE
+    if (user_.has_value()) {
+      const auto &db = user_->db_access().GetDefault();
+      // Check if the underlying database needs to be updated
+      if (db != current_.interpreter_context()->db->id()) {
+        const auto &res = sc_handler_.SetFor(UUID(), db);
+        return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
+      }
+    }
+#endif
     return user_.has_value();
   }
 
@@ -609,12 +741,31 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return FLAGS_bolt_server_name_for_init;
   }
 
+#ifdef MG_ENTERPRISE
+  memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
+    MultiDatabaseAuth(db_name);
+    if (db_name != current_.interpreter_context()->db->id()) {
+      UpdateAndDefunct(db_name);  // Done during Pull, so we cannot just replace the current db
+      return memgraph::dbms::SetForResult::SUCCESS;
+    }
+    return memgraph::dbms::SetForResult::ALREADY_SET;
+  }
+
+  bool OnDelete(const std::string &db_name) override {
+    MG_ASSERT(current_.interpreter_context()->db->id() != db_name && (!defunct_ || defunct_->defunct()),
+              "Trying to delete a database while still in use.");
+    return true;
+  }
+#endif
+
+  std::string GetDatabaseName() const override { return interpreter_context_->db->id(); }
+
  private:
   template <typename TStream>
   std::map<std::string, memgraph::communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
                                                                           std::optional<int> qid) {
     try {
-      const auto &summary = interpreter_.Pull(&stream, n, qid);
+      const auto &summary = interpreter_->Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
         auto maybe_value =
@@ -639,6 +790,11 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         decoded_summary.emplace("run_id", *run_id);
       }
 
+      // Clean up previous session (session gets defunct when switching between databases)
+      if (defunct_) {
+        defunct_.reset();
+      }
+
       return decoded_summary;
     } catch (const memgraph::query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
@@ -647,17 +803,71 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
   }
 
+#ifdef MG_ENTERPRISE
+  /**
+   * @brief Update setup to the new database.
+   *
+   * @param db_name name of the target database
+   * @throws UnknownDatabaseException if handler cannot get it
+   */
+  void UpdateAndDefunct(const std::string &db_name) { UpdateAndDefunct(ContextWrapper(sc_handler_.Get(db_name))); }
+
+  void UpdateAndDefunct(ContextWrapper &&cntxt) {
+    defunct_.emplace(std::move(current_));
+    Update(std::forward<ContextWrapper>(cntxt));
+    defunct_->Defunct();
+  }
+
+  void Update(const std::string &db_name) {
+    ContextWrapper tmp(sc_handler_.Get(db_name));
+    Update(std::move(tmp));
+  }
+
+  void Update(ContextWrapper &&cntxt) {
+    current_ = std::move(cntxt);
+    interpreter_ = current_.interp();
+    interpreter_->in_explicit_db_ = in_explicit_db_;
+    interpreter_context_ = current_.interpreter_context();
+  }
+
+  /**
+   * @brief Authenticate user on passed database.
+   *
+   * @param db database to check against
+   * @throws bolt::ClientError when user is not authorized
+   */
+  void MultiDatabaseAuth(const std::string &db) {
+    if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, {}, db)) {
+      throw memgraph::communication::bolt::ClientError(
+          "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
+    }
+  }
+
+  /**
+   * @brief Get the user's default database
+   *
+   * @return std::string
+   */
+  std::string GetDefaultDB() {
+    if (user_.has_value()) {
+      return user_->db_access().GetDefault();
+    }
+    return memgraph::dbms::kDefaultDB;
+  }
+#endif
+
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::storage::Storage *db) : encoder_(encoder), db_(db) {}
+    TypedValueResultStream(TEncoder *encoder, memgraph::query::InterpreterContext *ic)
+        : encoder_(encoder), interpreter_context_(ic) {}
 
     void Result(const std::vector<memgraph::query::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::ToBoltValue(v, *db_, memgraph::storage::View::NEW);
+        auto maybe_value = memgraph::glue::ToBoltValue(v, *interpreter_context_->db, memgraph::storage::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -678,25 +888,36 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
    private:
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
-    const memgraph::storage::Storage *db_;
+    memgraph::query::InterpreterContext *interpreter_context_;
   };
 
-  // NOTE: Needed only for ToBoltValue conversions
+#ifdef MG_ENTERPRISE
+  memgraph::dbms::SessionContextHandler &sc_handler_;
+#endif
+  ContextWrapper current_;
+  std::optional<ContextWrapper> defunct_;
+
   memgraph::query::InterpreterContext *interpreter_context_;
-  memgraph::query::Interpreter interpreter_;
+  memgraph::query::Interpreter *interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
+  bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
 #endif
   memgraph::communication::v2::ServerEndpoint endpoint_;
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;
 };
 
-using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+#ifdef MG_ENTERPRISE
+using ServerT = memgraph::communication::v2::Server<SessionHL, memgraph::dbms::SessionContextHandler>;
+#else
+using ServerT = memgraph::communication::v2::Server<SessionHL, memgraph::dbms::SessionContext>;
+#endif
 using MonitoringServerT =
-    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<SessionData>, SessionData>;
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
+                                          memgraph::dbms::SessionContext>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -859,10 +1080,6 @@ int main(int argc, char **argv) {
 
   // Begin enterprise features initialization
 
-  // Auth
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{data_directory /
-                                                                                                    "auth"};
-
 #ifdef MG_ENTERPRISE
   // Audit log
   memgraph::audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
@@ -886,12 +1103,12 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
-                     .recover_on_startup = FLAGS_storage_recover_on_startup,
+                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replication_state_on_startup = true,
+                     .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
@@ -923,29 +1140,61 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
 
-  memgraph::query::InterpreterContext interpreter_context{
-      db_config,
-      {.query = {.allow_load_csv = FLAGS_allow_load_csv},
-       .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
-       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
-       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
-       .default_pulsar_service_url = FLAGS_pulsar_service_url,
-       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
-       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
-      FLAGS_data_directory};
+  // Default interpreter configuration
+  memgraph::query::InterpreterConfig interp_config{
+      .query = {.allow_load_csv = FLAGS_allow_load_csv},
+      .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+      .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
+      .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
+      .default_pulsar_service_url = FLAGS_pulsar_service_url,
+      .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
+      .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
+
+  auto auth_glue =
+      [flag = FLAGS_auth_user_or_role_name_regex](
+          memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+          std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+        // Glue high level auth implementations to the query side
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
+        ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+        // Handle users passed via arguments
+        auto *maybe_username = std::getenv(kMgUser);
+        auto *maybe_password = std::getenv(kMgPassword);
+        auto *maybe_pass_file = std::getenv(kMgPassfile);
+        if (maybe_username && maybe_password) {
+          ah->CreateUser(maybe_username, maybe_password);
+        } else if (maybe_pass_file) {
+          const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+          if (!username.empty() && !password.empty()) {
+            ah->CreateUser(username, password);
+          }
+        }
+      };
+
 #ifdef MG_ENTERPRISE
-  SessionData session_data{&interpreter_context, &auth, &audit_log};
+  // SessionContext handler (multi-tenancy)
+  memgraph::dbms::SessionContextHandler sc_handler(audit_log, {db_config, interp_config, auth_glue},
+                                                   FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
+                                                   FLAGS_storage_delete_on_drop);
+  // Just for current support... TODO remove
+  auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
 #else
-  SessionData session_data{&interpreter_context, &auth};
+
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
+                                                                                                     "auth"};
+  std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
+  std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
+  auth_glue(&auth_, auth_handler, auth_checker);
+  auto session_context = memgraph::dbms::Init(db_config, interp_config, &auth_, auth_handler.get(), auth_checker.get());
+
 #endif
+
+  auto *auth = session_context.auth;
+  auto &interpreter_context = *session_context.interpreter_context;  // TODO remove
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  memgraph::glue::AuthChecker auth_checker{&auth};
-  interpreter_context.auth = &auth_handler;
-  interpreter_context.auth_checker = &auth_checker;
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file...");
@@ -960,18 +1209,10 @@ int main(int argc, char **argv) {
 #endif
   }
 
-  auto *maybe_username = std::getenv(kMgUser);
-  auto *maybe_password = std::getenv(kMgPassword);
-  auto *maybe_pass_file = std::getenv(kMgPassfile);
-  if (maybe_username && maybe_password) {
-    auth_handler.CreateUser(maybe_username, maybe_password);
-  } else if (maybe_pass_file) {
-    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-    if (!username.empty() && !password.empty()) {
-      auth_handler.CreateUser(username, password);
-    }
-  }
-
+#ifdef MG_ENTERPRISE
+  sc_handler.RestoreTriggers();
+  sc_handler.RestoreStreams();
+#else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
@@ -983,6 +1224,7 @@ int main(int argc, char **argv) {
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
+#endif
 
   ServerContext context;
   std::string service_name = "Bolt";
@@ -994,25 +1236,35 @@ int main(int argc, char **argv) {
     spdlog::warn(
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
-
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+#ifdef MG_ENTERPRISE
+  ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
+#else
+  ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+                 FLAGS_bolt_num_workers);
+#endif
 
-  const auto run_id = memgraph::utils::GenerateUUID();
   const auto machine_id = memgraph::utils::GetMachineId();
-  session_data.run_id = run_id;
+  const auto run_id = session_context.run_id;  // For current compatibility
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
-    telemetry->AddCollector("storage", [db_ = interpreter_context.db.get()]() -> nlohmann::json {
-      auto info = db_->GetInfo();
+#ifdef MG_ENTERPRISE
+    telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
+      const auto &info = sc_handler.Info();
+      return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
+    });
+#else
+    telemetry->AddCollector("storage", [&interpreter_context]() -> nlohmann::json {
+      auto info = interpreter_context.db->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
+#endif
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
       for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
@@ -1028,25 +1280,25 @@ int main(int argc, char **argv) {
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
+  memgraph::communication::websocket::SafeAuth websocket_auth{auth};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
   MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+    auto shutdown = [&metrics_server, &websocket_server, &server, &sc_handler] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
       // After the server is notified to stop accepting and processing
       // connections we tell the execution engine to stop processing all pending
       // queries.
-      memgraph::query::Shutdown(&interpreter_context);
+      sc_handler.Shutdown();
 
       websocket_server.Shutdown();
       metrics_server.Shutdown();
