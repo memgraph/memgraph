@@ -548,7 +548,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       });
     }
     return VerticesIterable(disk_storage->edge_import_mode_cache_->label_property_index_->Vertices(
-        label, property, std::nullopt, std::nullopt, view, &transaction_));
+        label, property, std::nullopt, std::nullopt, view, &transaction_, &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
@@ -645,7 +645,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       });
     }
     return VerticesIterable(disk_storage->edge_import_mode_cache_->label_property_index_->Vertices(
-        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
+        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
+        &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
@@ -720,7 +721,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
           });
     }
     return VerticesIterable(disk_storage->edge_import_mode_cache_->label_property_index_->Vertices(
-        label, property, lower_bound, upper_bound, view, &transaction_));
+        label, property, lower_bound, upper_bound, view, &transaction_, &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());

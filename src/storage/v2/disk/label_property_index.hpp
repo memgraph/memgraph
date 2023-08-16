@@ -22,7 +22,7 @@ using ParallelizedIndexCreationInfo =
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config);
+  DiskLabelPropertyIndex(Indices *indices, const Config &config);
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
