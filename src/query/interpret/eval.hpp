@@ -700,16 +700,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(MapLiteral &literal) override {
-    for (auto symbol_pos : literal.cacheable_property_lookups_) {
-      ctx_->property_lookups_cache.insert({symbol_pos, {}});
-    }
-
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) {
       result.emplace(pair.first.name, pair.second->Accept(*this));
     }
 
-    ctx_->property_lookups_cache.clear();
+    // ctx_->property_lookups_cache.clear();
 
     return TypedValue(result, ctx_->memory);
   }
