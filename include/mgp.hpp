@@ -2671,13 +2671,18 @@ inline std::string PropertiesToString(const std::map<std::string, Value> &proper
 }
 
 inline const std::string Node::ToString() const {
-  std::string labels{""};
+  std::string labels{", "};
   for (auto label : Labels()) {
     labels.append(":" + std::string(label) + " ");
   }
+  if (labels != ", ") {
+    labels.pop_back();  // remove last spacing for better readability
+  } else {
+    labels = "";  // dont use labels if they dont exist
+  }
   std::map<std::string, Value> properties_map{Properties()};
   std::string properties{PropertiesToString(properties_map)};
-  return "(id: " + std::to_string(Id().AsInt()) + " " + labels + "properties: {" + properties + "} )";
+  return "(id: " + std::to_string(Id().AsInt()) + labels + ", properties: {" + properties + "})";
 }
 
 // Relationship:
@@ -2828,7 +2833,7 @@ inline bool Path::operator!=(const Path &other) const { return !(*this == other)
 inline const std::string Path::ToString() const {
   const auto length = Length();
   size_t i = 0;
-  std::string return_string = "";
+  std::string return_string{""};
   for (i = 0; i < length; i++) {
     const auto node = GetNodeAt(i);
     return_string.append(node.ToString() + "-");
