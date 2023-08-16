@@ -2863,7 +2863,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
