@@ -120,6 +120,9 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
-void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
+void Storage::Accessor::AdvanceCommand() {
+  transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
+  ++transaction_.command_id;
+}
 
 }  // namespace memgraph::storage

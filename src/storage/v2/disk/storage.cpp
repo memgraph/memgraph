@@ -1010,6 +1010,7 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
   vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
+  transaction_.manyDeltasCache.Invalidate(vertex_ptr);
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
@@ -1080,6 +1081,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
   vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
+  transaction_.manyDeltasCache.Invalidate(vertex_ptr);
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -1195,6 +1197,9 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
@@ -1253,6 +1258,9 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
 
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1340,6 +1348,9 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
   // Decrement edge count.
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
