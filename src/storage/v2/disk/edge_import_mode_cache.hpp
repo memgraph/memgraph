@@ -14,6 +14,7 @@
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/vertex.hpp"
@@ -23,8 +24,7 @@ namespace memgraph::storage {
 
 class EdgeImportModeCache {
  public:
-  explicit EdgeImportModeCache(const DiskLabelIndex *disk_label_index,
-                               const DiskLabelPropertyIndex *disk_label_property_index);
+  explicit EdgeImportModeCache(const Config &config);
 
   EdgeImportModeCache(const EdgeImportModeCache &) = delete;
   EdgeImportModeCache &operator=(const EdgeImportModeCache &) = delete;
@@ -32,9 +32,27 @@ class EdgeImportModeCache {
   EdgeImportModeCache &operator=(EdgeImportModeCache &&) = delete;
   ~EdgeImportModeCache() = default;
 
+  InMemoryLabelIndex::Iterable Vertices(LabelId label, View view, Transaction *transaction,
+                                        Constraints *constraints) const {
+    auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
+    return mem_label_index->Vertices(label, view, transaction, constraints);
+  }
+
+  InMemoryLabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
+                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                View view, Transaction *transaction, Constraints *constraints) const {
+    auto *mem_label_property_index =
+        static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
+    return mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, transaction,
+                                              constraints);
+  }
+
+  bool CreateIndex(LabelId label, PropertyId property,
+                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});
+
   utils::SkipList<Vertex> cache_;
-  std::unique_ptr<InMemoryLabelIndex> label_index_;
-  std::unique_ptr<InMemoryLabelPropertyIndex> label_property_index_;
+  Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;
   std::set<std::pair<LabelId, PropertyId>> scanned_label_property_indices_;

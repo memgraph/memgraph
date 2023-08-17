@@ -10,22 +10,24 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
+#include "storage/v2/indices/indices.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
 
-EdgeImportModeCache::EdgeImportModeCache(const DiskLabelIndex *disk_label_index,
-                                         const DiskLabelPropertyIndex *disk_label_property_index) {
-  const std::unordered_set<LabelId> label_index_info = disk_label_index->GetInfo();
-  for (const LabelId label : label_index_info) {
-    /// TODO: Parallel index creation
-    label_index_->CreateIndex(label, cache_.access(), {});
+EdgeImportModeCache::EdgeImportModeCache(const Config &config)
+    : in_memory_indices_(Indices(config, StorageMode::IN_MEMORY_TRANSACTIONAL)) {}
+
+bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
+                                      const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
+  bool res = mem_label_property_index->CreateIndex(label, property, cache_.access(), parallel_exec_info);
+  if (res) {
+    scanned_label_property_indices_.insert({label, property});
   }
-  using LabelPropertyInfo = std::pair<LabelId, PropertyId>;
-  const std::set<LabelPropertyInfo> label_property_index_info = disk_label_property_index->GetInfo();
-  for (const LabelPropertyInfo &label_property : label_property_index_info) {
-    /// TODO: Parallel index creation
-    label_property_index_->CreateIndex(label_property.first, label_property.second, cache_.access(), {});
-  }
+  return res;
 }
 
 }  // namespace memgraph::storage

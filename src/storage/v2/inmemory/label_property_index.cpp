@@ -39,6 +39,7 @@ InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, const C
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
                                              const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+  spdlog::trace("Vertices size when creating index: {}", vertices.size());
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -164,6 +165,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator &InMemoryLabelPropertyIndex::Iter
 }
 
 void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
+  spdlog::trace("Acc size in label_property_index: {}", self_->index_accessor_.size());
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;

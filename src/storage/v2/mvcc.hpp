@@ -68,6 +68,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     // of the database.
     if (view == View::OLD && ts == commit_timestamp &&
         (cid < transaction->command_id ||
+         // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
       break;
     }

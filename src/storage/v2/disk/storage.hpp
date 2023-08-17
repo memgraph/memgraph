@@ -55,9 +55,14 @@ class DiskStorage final : public Storage {
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
+    /// TODO: const methods?
     void LoadVerticesToMainMemoryCache();
 
-    void LoadVerticesToEdgeImportCache(const auto &filter);
+    void LoadVerticesFromMainStorageToEdgeImportCache();
+
+    void LoadVerticesFromLabelIndexStorageToEdgeImportCache(const auto &filter);
+
+    void LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(const auto &filter);
 
     VerticesIterable Vertices(View view) override;
 
@@ -200,7 +205,7 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
+        std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
@@ -208,7 +213,7 @@ class DiskStorage final : public Storage {
     std::optional<storage::VertexAccessor> LoadVertexToEdgeImportCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
+        std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);

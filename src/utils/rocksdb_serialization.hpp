@@ -193,13 +193,18 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std::string &value) {
-  std::string labels = value.substr(0, value.find('|'));
-  return TransformFromStringLabels(utils::Split(labels, ","));
+inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std::string &key,
+                                                                       const std::string &value) {
+  std::string labels_str = value.substr(0, value.find('|'));
+  std::vector<storage::LabelId> labels{TransformFromStringLabels(utils::Split(labels_str, ","))};
+  std::string indexing_label = key.substr(0, key.find('|'));
+  labels.emplace_back(storage::LabelId::FromUint(std::stoull(indexing_label)));
+  return labels;
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &value) {
-  return DeserializeLabelsFromIndexStorage(value);
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &key,
+                                                                            const std::string &value) {
+  return DeserializeLabelsFromIndexStorage(key, value);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelIndexStorage(const std::string &value) {
@@ -229,8 +234,9 @@ inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &ke
   return key_vector[2];
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &value) {
-  return DeserializeLabelsFromIndexStorage(value);
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &key,
+                                                                                    const std::string &value) {
+  return DeserializeLabelsFromIndexStorage(key, value);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelPropertyIndexStorage(const std::string &value) {
