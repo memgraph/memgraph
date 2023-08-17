@@ -131,11 +131,17 @@ class MemoryDispatcher final {
   std::shared_mutex mut_;
 };
 
-// TODO(gvolfing) - check if we can get away with an inline
-// variable with internal linkage. That might speed up non-overlapping
-// query modules.
+// The use of this object, with the help of MemoryDispatcherGuard
+// should be the prefered way to pass the memory pointer to this
+// header. The use of the 'mgp_memory *memory' pointer is deprecated
+// and will be removed in upcoming releases.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 inline extern MemoryDispatcher mrd{};
+
+// TODO - Once we deprecate this we should remove this
+// and make sure nothing relies on it anymore. This alone
+// can not guarantee threadsafe use of query procedures.
+inline mgp_memory *memory{nullptr};
 
 class MemoryDispatcherGuard final {
  public:
@@ -149,15 +155,13 @@ class MemoryDispatcherGuard final {
   ~MemoryDispatcherGuard() { mrd.UnRegister(); }
 };
 
-// TODO(gvolfing) find a way these two methods of specifing
-// the used memory resource can coexist until deprecation.
-// TODO - Once we deprecate this we should remove this
-// and make sure nothing relies on it anymore. This alone
-// can not guarantee threadsafe use of query procedures.
-inline mgp_memory *memory{nullptr};
-
-// Currently we want to preserve both ways(using mgp::memory and ) of setting the correct memory resource from the
-// shared object files.
+// Currently we want to preserve both ways(using mgp::memory and
+// MemoryDispatcherGuard) of setting the correct memory resource
+// from the shared object files. This forwarding function is a
+// helper function for that purpose. Once we get rid of the
+// 'mgp_memory *memory' pointer this function will not be needed
+// anymore and the calls to the memory resource should rely on
+// the mapping instead.
 template <typename Func, typename... Args>
 inline decltype(auto) MemHandlerCallback(Func &&func, Args &&...args) {
   if (memory) {
