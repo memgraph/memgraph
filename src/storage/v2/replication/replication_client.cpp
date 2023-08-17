@@ -513,8 +513,8 @@ std::vector<ReplicationClient::RecoveryStep> ReplicationClient::GetRecoverySteps
   return recovery_steps;
 }
 
-InMemoryStorage::TimestampInfo ReplicationClient::GetTimestampInfo() {
-  InMemoryStorage::TimestampInfo info;
+TimestampInfo ReplicationClient::GetTimestampInfo() {
+  TimestampInfo info;
   info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_master = 0;
 

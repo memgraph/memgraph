@@ -34,24 +34,98 @@ class ReplicationClient;
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
 
+struct TimestampInfo {
+  uint64_t current_timestamp_of_replica;
+  uint64_t current_number_of_timestamp_behind_master;
+};
+
+struct ReplicaInfo {
+  std::string name;
+  replication::ReplicationMode mode;
+  io::network::Endpoint endpoint;
+  replication::ReplicaState state;
+  TimestampInfo timestamp_info;
+};
+
+class InMemoryStorage;
+
+// TODO: decouple from InMemoryStorage
+struct ReplicationState {
+  enum class RegisterReplicaError : uint8_t {
+    NAME_EXISTS,
+    END_POINT_EXISTS,
+    CONNECTION_FAILED,
+    COULD_NOT_BE_PERSISTED
+  };
+
+  // TODO Move to private (needed for Storage construction)
+  std::unique_ptr<kvstore::KVStore> durability_;
+
+  // Generic API
+  void Reset();
+  // TODO: Just check if server exists -> you are REPLICA
+  replication::ReplicationRole GetRole() const { return replication_role_.load(); }
+
+  bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
+  // TODO: ReplicationServer/Client uses InMemoryStorage* for RPC callbacks
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
+                      InMemoryStorage *storage);  // Sets the instance to REPLICA
+  // Generic restoration
+  void RestoreReplicationRole(InMemoryStorage *storage);
+
+  // MAIN actually doing the replication
+  bool AppendToWalDataDefinition(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
+                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+  void InitializeTransaction(uint64_t seq_num);
+  void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
+  bool FinalizeTransaction(uint64_t timestamp);
+
+  // MAIN connecting to replicas
+  utils::BasicResult<RegisterReplicaError> RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                                                           replication::ReplicationMode replication_mode,
+                                                           replication::RegistrationMode registration_mode,
+                                                           const replication::ReplicationClientConfig &config,
+                                                           InMemoryStorage *storage);
+  bool UnregisterReplica(std::string_view name);
+
+  // MAIN reconnecting to replicas
+  void RestoreReplicas(InMemoryStorage *storage);
+
+  // MAIN getting info from replicas
+  // TODO make into const (problem with SpinLock and WithReadLock)
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
+  std::vector<ReplicaInfo> ReplicasInfo();
+
+ private:
+  bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
+
+  void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
+
+  // NOTE: Server is not in MAIN it is in REPLICA
+  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+
+  // We create ReplicationClient using unique_ptr so we can move
+  // newly created client into the vector.
+  // We cannot move the client directly because it contains ThreadPool
+  // which cannot be moved. Also, the move is necessary because
+  // we don't want to create the client directly inside the vector
+  // because that would require the lock on the list putting all
+  // commits (they iterate list of clients) to halt.
+  // This way we can initialize client in main thread which means
+  // that we can immediately notify the user if the initialization
+  // failed.
+  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
+  ReplicationClientList replication_clients_;
+
+  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
+};
+
 class InMemoryStorage final : public Storage {
   friend class ReplicationServer;
   friend class ReplicationClient;
 
  public:
-  struct TimestampInfo {
-    uint64_t current_timestamp_of_replica;
-    uint64_t current_number_of_timestamp_behind_master;
-  };
-
-  struct ReplicaInfo {
-    std::string name;
-    replication::ReplicationMode mode;
-    io::network::Endpoint endpoint;
-    replication::ReplicaState state;
-    TimestampInfo timestamp_info;
-  };
-
   enum class CreateSnapshotError : uint8_t {
     DisabledForReplica,
     DisabledForAnalyticsPeriodicCommit,
@@ -527,77 +601,6 @@ class InMemoryStorage final : public Storage {
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
  public:
-  struct ReplicationState {
-    enum class RegisterReplicaError : uint8_t {
-      NAME_EXISTS,
-      END_POINT_EXISTS,
-      CONNECTION_FAILED,
-      COULD_NOT_BE_PERSISTED
-    };
-
-    // TODO Move to private (needed for Storage construction)
-    std::unique_ptr<kvstore::KVStore> durability_;
-
-    // Generic API
-    void Reset();
-    // TODO: Just check if server exists -> you are REPLICA
-    replication::ReplicationRole GetRole() const { return replication_role_.load(); }
-
-    bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
-    // TODO: ReplicationServer/Client uses InMemoryStorage* for RPC callbacks
-    bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
-                        InMemoryStorage *storage);  // Sets the instance to REPLICA
-    // Generic restoration
-    void RestoreReplicationRole(InMemoryStorage *storage);
-
-    // MAIN actually doing the replication
-    bool AppendToWalDataDefinition(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
-                                   const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
-    void InitializeTransaction(uint64_t seq_num);
-    void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
-    void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
-    bool FinalizeTransaction(uint64_t timestamp);
-
-    // MAIN connecting to replicas
-    utils::BasicResult<RegisterReplicaError> RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                                                             replication::ReplicationMode replication_mode,
-                                                             replication::RegistrationMode registration_mode,
-                                                             const replication::ReplicationClientConfig &config,
-                                                             InMemoryStorage *storage);
-    bool UnregisterReplica(std::string_view name);
-
-    // MAIN reconnecting to replicas
-    void RestoreReplicas(InMemoryStorage *storage);
-
-    // MAIN getting info from replicas
-    // TODO make into const (problem with SpinLock and WithReadLock)
-    std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
-    std::vector<InMemoryStorage::ReplicaInfo> ReplicasInfo();
-
-   private:
-    bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
-
-    void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
-
-    // NOTE: Server is not in MAIN it is in REPLICA
-    std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
-    // We create ReplicationClient using unique_ptr so we can move
-    // newly created client into the vector.
-    // We cannot move the client directly because it contains ThreadPool
-    // which cannot be moved. Also, the move is necessary because
-    // we don't want to create the client directly inside the vector
-    // because that would require the lock on the list putting all
-    // commits (they iterate list of clients) to halt.
-    // This way we can initialize client in main thread which means
-    // that we can immediately notify the user if the initialization
-    // failed.
-    using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-    ReplicationClientList replication_clients_;
-
-    std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
-  };
-
  private:
   ReplicationState replication_state_;
 };

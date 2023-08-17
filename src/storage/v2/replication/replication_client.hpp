@@ -128,7 +128,7 @@ class ReplicationClient {
 
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
-  InMemoryStorage::TimestampInfo GetTimestampInfo();
+  TimestampInfo GetTimestampInfo();
 
  private:
   [[nodiscard]] bool FinalizeTransactionReplicationInternal();
