@@ -489,8 +489,6 @@ class InMemoryStorage final : public Storage {
 
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
- public:
- private:
   ReplicationState replication_state_;
 };
 

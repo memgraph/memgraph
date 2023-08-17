@@ -80,16 +80,8 @@ struct ReplicationState {
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  const auto &GetEpoch() const { return epoch_; }
-
-  // MAIN
-  void NewEpoch(uint64_t timestamp);
-  // REPLICA
-  void AppendEpoch(std::string new_epoch, uint64_t timestamp) {
-    epoch_.history.emplace_back(std::exchange(epoch_.id, new_epoch), timestamp);
-  }
-  void SetEpoch(std::string new_epoch) {}
-  auto &GetEpoch() { return epoch_; }
+  const ReplicationEpoch &GetEpoch() const { return epoch_; }
+  ReplicationEpoch &GetEpoch() { return epoch_; }
 
  private:
   bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }

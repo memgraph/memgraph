@@ -1749,7 +1749,7 @@ void InMemoryStorage::EstablishNewEpoch() {
     wal_file_.reset();
   }
   // TODO: Move out of storage (no need for the lock) <- missing commit_timestamp at a higher level
-  replication_state_.NewEpoch(last_commit_timestamp_);
+  replication_state_.GetEpoch().NewEpoch(last_commit_timestamp_);
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {

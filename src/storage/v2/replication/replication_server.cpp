@@ -118,7 +118,7 @@ void ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builde
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
   if (*maybe_epoch_id != storage_->replication_state_.GetEpoch().id) {
-    storage_->replication_state_.AppendEpoch(*maybe_epoch_id, storage_->last_commit_timestamp_);
+    storage_->replication_state_.GetEpoch().AppendEpoch(*maybe_epoch_id, storage_->last_commit_timestamp_);
   }
 
   if (storage_->wal_file_) {
@@ -281,7 +281,7 @@ void ReplicationServer::LoadWal(replication::Decoder *decoder) {
     }
 
     if (wal_info.epoch_id != storage_->replication_state_.GetEpoch().id) {
-      storage_->replication_state_.AppendEpoch(wal_info.epoch_id, storage_->last_commit_timestamp_);
+      storage_->replication_state_.GetEpoch().AppendEpoch(wal_info.epoch_id, storage_->last_commit_timestamp_);
     }
 
     if (storage_->wal_file_) {

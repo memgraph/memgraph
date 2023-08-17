@@ -35,7 +35,6 @@ namespace memgraph::storage {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
-inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 static std::string RegisterReplicaErrorToString(ReplicationState::RegisterReplicaError error) {
   using enum ReplicationState::RegisterReplicaError;
@@ -373,14 +372,6 @@ void ReplicationState::RestoreReplicas(InMemoryStorage *storage) {
     }
     spdlog::info("Replica {} restored.", replica_name);
   }
-}
-
-void ReplicationState::NewEpoch(uint64_t timestamp) {
-  // Generate new epoch id and save the last one to the history.
-  if (epoch_.history.size() == kEpochHistoryRetention) {
-    epoch_.history.pop_front();
-  }
-  epoch_.history.emplace_back(std::exchange(epoch_.id, utils::GenerateUUID()), timestamp);
 }
 
 }  // namespace memgraph::storage
