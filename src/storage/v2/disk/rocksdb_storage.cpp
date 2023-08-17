@@ -10,7 +10,10 @@
 // licenses/APL.txt.
 
 #include "rocksdb_storage.hpp"
+
 #include <string_view>
+
+#include "utils/disk_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
@@ -21,12 +24,6 @@ inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key, 
   rocksdb::Slice ret = user_key;
   ret.remove_suffix(ts_sz);
   return ret;
-}
-
-/// NOTE: Timestamp is encoded as last 8B in user key.
-inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
-  assert(user_key.size() >= sizeof(uint64_t));
-  return {user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t)};
 }
 
 // Extracts global id from user key. User key must be without timestamp.
@@ -51,7 +48,7 @@ int ComparatorWithU64TsImpl::Compare(const rocksdb::Slice &a, const rocksdb::Sli
   // Compare timestamp.
   // For the same user key with different timestamps, larger (newer) timestamp
   // comes first.
-  return CompareTimestamp(ExtractTimestampFromUserKey(b), ExtractTimestampFromUserKey(a));
+  return CompareTimestamp(utils::ExtractTimestampFromUserKey(b), utils::ExtractTimestampFromUserKey(a));
 }
 
 int ComparatorWithU64TsImpl::CompareWithoutTimestamp(const rocksdb::Slice &a, bool a_has_ts, const rocksdb::Slice &b,

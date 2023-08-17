@@ -330,8 +330,9 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   }
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
   PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
+  std::string old_tx_commit_ts = utils::ExtractTimestampFromUserKey(key);
   return CreateVertex(main_storage_accessor, gid, std::move(labels_id), std::move(properties),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key));
+                      CreateDeleteDeserializedObjectDelta(&transaction_, std::move(old_tx_commit_ts), key));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -408,6 +409,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    spdlog::trace("Key data, size: {}, {}", it->key().data(), it->key().size());
     LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString());
   }
   scanned_all_vertices_ = true;
@@ -440,9 +442,10 @@ std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWit
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index",
                     utils::SerializeIdType(vertex.gid));
       /// TODO: here are doing serialization and then later deserialization again -> expensive
+      // std::string old_tx_commit_ts = utils::ExtractTimestampFromUserKey();
       LoadVertexToLabelIndexCache(label, utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
                                   utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
+                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, "123", std::nullopt),
                                   indexed_vertices->access());
     }
   }
@@ -469,9 +472,11 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
     spdlog::trace("Loaded vertex with key: {} from label index storage", key);
     if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
-      LoadVertexToLabelIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
-                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
-                                  indexed_vertices->access());
+      std::string old_tx_commit_ts{utils::ExtractTimestampFromUserKey(index_it->key())};
+      LoadVertexToLabelIndexCache(
+          label, index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(old_tx_commit_ts), key),
+          indexed_vertices->access());
     }
   }
 }
@@ -517,8 +522,7 @@ std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWit
       LoadVertexToLabelPropertyIndexCache(
           label, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
-          indexed_vertices->access());
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, "123", std::nullopt), indexed_vertices->access());
     }
   }
 
@@ -547,9 +551,11 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
     /// TODO: optimize
     if (label_property_filter(key, label_property_prefix, gids, curr_gid)) {
-      LoadVertexToLabelPropertyIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
-                                          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
-                                          indexed_vertices->access());
+      std::string old_tx_commit_ts{utils::ExtractTimestampFromUserKey(index_it->key())};
+      LoadVertexToLabelPropertyIndexCache(
+          label, index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(old_tx_commit_ts), key),
+          indexed_vertices->access());
     }
   }
 }
@@ -599,9 +605,11 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value);
     if (key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
         properties.IsPropertyEqual(property, value)) {
-      LoadVertexToLabelPropertyIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
-                                          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key),
-                                          indexed_vertices->access());
+      std::string old_tx_commit_ts{utils::ExtractTimestampFromUserKey(index_it->key())};
+      LoadVertexToLabelPropertyIndexCache(
+          label, index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(old_tx_commit_ts), key),
+          indexed_vertices->access());
     }
   }
 }
@@ -642,8 +650,7 @@ DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelPropertyIndexCache
       LoadVertexToLabelPropertyIndexCache(
           label, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, std::nullopt),
-          indexed_vertices->access());
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, "123", std::nullopt), indexed_vertices->access());
     }
   }
   return gids;
@@ -678,9 +685,11 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
         !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       continue;
     }
-    LoadVertexToLabelPropertyIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
-                                        CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key_str),
-                                        indexed_vertices->access());
+    std::string old_tx_commit_ts{utils::ExtractTimestampFromUserKey(index_it->key())};
+    LoadVertexToLabelPropertyIndexCache(
+        label, index_it->key().ToString(), index_it->value().ToString(),
+        CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(old_tx_commit_ts), key_str),
+        indexed_vertices->access());
   }
 }
 
@@ -1048,7 +1057,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = edges_.access();
-    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key);
+    std::string old_tx_commit_ts{utils::ExtractTimestampFromUserKey(old_disk_key)};
+    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, std::move(old_tx_commit_ts), old_disk_key);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1517,6 +1527,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    transaction_.EnsureCommitTimestampExists();
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
 
     if (auto res = FlushMainMemoryCache(); res.HasError()) {

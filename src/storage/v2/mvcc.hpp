@@ -114,17 +114,16 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::string &&old_tx_commit_ts,
+                                                  std::optional<std::string> old_disk_key) {
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(old_tx_commit_ts),
                                            old_disk_key);
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas, std::string &&old_tx_commit_ts,
                                                        std::optional<std::string> old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(old_tx_commit_ts), old_disk_key);
 }
 
 /// This function creates a delta in the transaction for the object and links

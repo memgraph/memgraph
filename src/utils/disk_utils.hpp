@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <rocksdb/slice.h>
 #include "storage/v2/delta.hpp"
 
 namespace memgraph::utils {
@@ -23,6 +24,13 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
     return head->old_disk_key;
   }
   return std::nullopt;
+}
+
+/// NOTE: Timestamp is encoded as last 8B in user key.
+inline std::string ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
+  spdlog::trace("User key data, size: {}, {}", user_key.data(), user_key.size());
+  MG_ASSERT(user_key.size() >= sizeof(uint64_t));
+  return {user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t)};
 }
 
 }  // namespace memgraph::utils

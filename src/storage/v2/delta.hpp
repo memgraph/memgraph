@@ -154,9 +154,10 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteDeserializedObjectTag /*tag*/, std::atomic<uint64_t> *timestamp,
-        const std::optional<std::string> &old_disk_key)
-      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(timestamp), command_id(0), old_disk_key(old_disk_key) {}
+  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t timestamp, const std::optional<std::string> &old_disk_key)
+      : action(Action::DELETE_DESERIALIZED_OBJECT), command_id(0), old_disk_key(old_disk_key) {
+    this->timestamp->store(timestamp, std::memory_order_release);
+  }
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
