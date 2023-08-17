@@ -33,24 +33,23 @@ class EdgeImportModeCache {
   ~EdgeImportModeCache() = default;
 
   InMemoryLabelIndex::Iterable Vertices(LabelId label, View view, Transaction *transaction,
-                                        Constraints *constraints) const {
-    auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-    return mem_label_index->Vertices(label, view, transaction, constraints);
-  }
+                                        Constraints *constraints) const;
 
   InMemoryLabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
                                                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                View view, Transaction *transaction, Constraints *constraints) const {
-    auto *mem_label_property_index =
-        static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-    return mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, transaction,
-                                              constraints);
-  }
+                                                View view, Transaction *transaction, Constraints *constraints) const;
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});
 
+  bool VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const;
+
+  bool VerticesWithLabelScanned(LabelId label) const;
+
+  bool AllVerticesScanned() const;
+
+  /// TODO: (andi) Wrap it inside a class.
   utils::SkipList<Vertex> cache_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};

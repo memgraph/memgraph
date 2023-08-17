@@ -10,14 +10,34 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
+#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction.hpp"
+#include "utils/algorithm.hpp"
+#include "utils/disk_utils.hpp"
 
 namespace memgraph::storage {
 
 EdgeImportModeCache::EdgeImportModeCache(const Config &config)
     : in_memory_indices_(Indices(config, StorageMode::IN_MEMORY_TRANSACTIONAL)) {}
+
+InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Transaction *transaction,
+                                                           Constraints *constraints) const {
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
+  return mem_label_index->Vertices(label, view, transaction, constraints);
+}
+
+InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
+    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
+    Constraints *constraints) const {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
+  return mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, transaction, constraints);
+}
 
 bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
                                       const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
@@ -29,5 +49,16 @@ bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
   }
   return res;
 }
+
+bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {
+  return VerticesWithLabelScanned(label) ||
+         utils::Contains(scanned_label_property_indices_, std::make_pair(label, property));
+}
+
+bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
+  return scanned_all_vertices_ || utils::Contains(scanned_labels_, label);
+}
+
+bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
 }  // namespace memgraph::storage

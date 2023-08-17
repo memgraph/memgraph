@@ -62,7 +62,7 @@ class DiskStorage final : public Storage {
 
     void LoadVerticesFromLabelIndexStorageToEdgeImportCache(const auto &filter);
 
-    void LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(const auto &filter);
+    void LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(LabelId label, PropertyId property);
 
     VerticesIterable Vertices(View view) override;
 

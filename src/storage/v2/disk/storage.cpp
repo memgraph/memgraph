@@ -85,10 +85,6 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
   return false;
 }
 
-bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
-  return accessor.find(gid) != accessor.end();
-}
-
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
   bool deleted = false;
   bool has_label = false;
@@ -464,7 +460,8 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
 
 /// TODO: Just extract disk_label_index and disk_label_property_index
 /// TODO: put it into a EdgeImportModeCache methods
-void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(const auto &filter) {
+void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(LabelId label,
+                                                                                           PropertyId property) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(disk_storage->indices_.label_property_index_.get());
@@ -476,10 +473,12 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
+
+  const std::string label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
-    if (filter(key, value)) {
+    if (key.starts_with(label_property_prefix)) {
       storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
       if (VertexExistsInCache(cache_accessor, gid)) continue;
 
@@ -509,6 +508,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
+
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     /// TODO: andi Put into a separate method
     if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
@@ -531,6 +531,109 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 
   auto gids = MergeVerticesFromMainCacheWithLabelIndexCache(label, view, index_deltas, indexed_vertices.get());
   LoadVerticesFromDiskLabelIndex(label, gids, index_deltas, indexed_vertices.get());
+
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
+                                              &storage_->constraints_, storage_->config_.items));
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
+    if (!disk_storage->edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
+      LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(label, property);
+    }
+
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
+        label, property, std::nullopt, std::nullopt, view, &transaction_, &disk_storage->constraints_));
+  }
+
+  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back();
+  auto &index_deltas = index_deltas_storage_.back();
+
+  const auto label_property_filter = [this](const Vertex &vertex, LabelId label, PropertyId property,
+                                            View view) -> bool {
+    return VertexHasLabel(vertex, label, &transaction_, view) &&
+           HasVertexProperty(vertex, property, &transaction_, view);
+  };
+
+  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
+      label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
+
+  const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
+                                             const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
+    return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
+  };
+
+  LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, index_deltas, indexed_vertices.get(),
+                                         disk_label_property_filter);
+
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
+                                              &storage_->constraints_, storage_->config_.items));
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
+                                                     View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+    if (!disk_storage->edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
+      LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(label, property);
+
+      if (!disk_storage->edge_import_mode_cache_->CreateIndex(label, property)) {
+        throw utils::BasicException("Failed creation of in-memory index.");
+      }
+    }
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
+        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
+        &disk_storage->constraints_));
+  }
+
+  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back();
+  auto &index_deltas = index_deltas_storage_.back();
+
+  auto label_property_filter = [this, &value](const Vertex &vertex, LabelId label, PropertyId property,
+                                              View view) -> bool {
+    return VertexHasLabel(vertex, label, &transaction_, view) &&
+           VertexHasEqualPropertyValue(vertex, property, value, &transaction_, view);
+  };
+
+  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
+      label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
+
+  LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, index_deltas,
+                                                             indexed_vertices.get());
+
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
+                                              &storage_->constraints_, storage_->config_.items));
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
+                                                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                     const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                     View view) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+    if (!disk_storage->edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
+      LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(label, property);
+    }
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
+        label, property, lower_bound, upper_bound, view, &transaction_, &disk_storage->constraints_));
+  }
+
+  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  auto &indexed_vertices = index_storage_.back();
+  index_deltas_storage_.emplace_back();
+  auto &index_deltas = index_deltas_storage_.back();
+
+  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
+      label, property, view, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
+
+  LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(label, property, gids, lower_bound, upper_bound, index_deltas,
+                                                          indexed_vertices.get());
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
@@ -585,52 +688,6 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
   }
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
-    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
-    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
-        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
-        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_label_property_indices_,
-                         std::make_pair(label, property))) {
-      disk_storage->edge_import_mode_cache_->scanned_label_property_indices_.insert({label, property});
-      LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(
-          [label, property](const std::string &key, const std::string & /*value*/) {
-            const std::string label_property_prefix =
-                utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
-            return key.starts_with(label_property_prefix);
-          });
-    }
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, std::nullopt, std::nullopt, view, &transaction_, &disk_storage->constraints_));
-  }
-
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back();
-  auto &index_deltas = index_deltas_storage_.back();
-
-  const auto label_property_filter = [this](const Vertex &vertex, LabelId label, PropertyId property,
-                                            View view) -> bool {
-    return VertexHasLabel(vertex, label, &transaction_, view) &&
-           HasVertexProperty(vertex, property, &transaction_, view);
-  };
-
-  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-      label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
-
-  const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
-                                             const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
-    return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
-  };
-
-  LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, index_deltas, indexed_vertices.get(),
-                                         disk_label_property_filter);
-
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
-}
-
 std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
     LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter) {
@@ -682,52 +739,6 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
   }
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
-                                                     View view) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
-    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
-    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
-        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
-        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_label_property_indices_,
-                         std::make_pair(label, property))) {
-      /// TODO: (andi) Also can be refactored better without lambda filter
-      LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(
-          [label, property](const std::string &key, const std::string & /*val*/) {
-            const std::string label_property_prefix =
-                utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
-            return key.starts_with(label_property_prefix);
-          });
-      if (!disk_storage->edge_import_mode_cache_->CreateIndex(label, property)) {
-        throw utils::BasicException("Failed creation of in-memory index.");
-      }
-    }
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
-        &disk_storage->constraints_));
-  }
-
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back();
-  auto &index_deltas = index_deltas_storage_.back();
-
-  auto label_property_filter = [this, &value](const Vertex &vertex, LabelId label, PropertyId property,
-                                              View view) -> bool {
-    return VertexHasLabel(vertex, label, &transaction_, view) &&
-           VertexHasEqualPropertyValue(vertex, property, value, &transaction_, view);
-  };
-
-  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-      label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
-
-  LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, index_deltas,
-                                                             indexed_vertices.get());
-
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
-}
-
 void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
     LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids, const PropertyValue &value,
     std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices) {
@@ -755,47 +766,6 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
                                           indexed_vertices->access());
     }
   }
-}
-
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
-                                                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                     const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                     View view) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
-    /// TODO: andi Put into a separate method and wrap it inside EdgeImportCache struct
-    if (!disk_storage->edge_import_mode_cache_->scanned_all_vertices_ &&
-        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_labels_, label) &&
-        !utils::Contains(disk_storage->edge_import_mode_cache_->scanned_label_property_indices_,
-                         std::make_pair(label, property))) {
-      disk_storage->edge_import_mode_cache_->scanned_label_property_indices_.insert({label, property});
-      LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(
-          [label, property, lower_bound, upper_bound](const std::string &key, const std::string &val) {
-            PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(val);
-            PropertyValue prop_value = properties.GetProperty(property);
-            const std::string label_property_prefix =
-                utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
-            return key.starts_with(label_property_prefix) &&
-                   !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound);
-          });
-    }
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, lower_bound, upper_bound, view, &transaction_, &disk_storage->constraints_));
-  }
-
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
-  index_deltas_storage_.emplace_back();
-  auto &index_deltas = index_deltas_storage_.back();
-
-  const auto gids = MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
-      label, property, view, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
-
-  LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(label, property, gids, lower_bound, upper_bound, index_deltas,
-                                                          indexed_vertices.get());
-
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
 }
 
 std::unordered_set<Gid>
@@ -1006,10 +976,6 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
                                                        std::vector<LabelId> &&label_ids, PropertyStore &&properties,
                                                        Delta *delta) {
   OOMExceptionEnabler oom_exception;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  /// TODO: I don't think we need here
-  disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                                 std::memory_order_release);
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
