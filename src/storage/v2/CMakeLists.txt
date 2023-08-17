@@ -36,7 +36,8 @@ set(storage_v2_src_files
     replication/serialization.cpp
     replication/slk.cpp
     replication/replication_persistence_helper.cpp
-    replication/rpc.cpp)
+    replication/rpc.cpp
+    replication/replication.cpp)
 
 #######################
 find_package(gflags REQUIRED)

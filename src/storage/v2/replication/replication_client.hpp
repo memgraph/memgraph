@@ -27,6 +27,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/file.hpp"
@@ -36,6 +37,8 @@
 #include "utils/thread_pool.hpp"
 
 namespace memgraph::storage {
+
+class InMemoryStorage;
 
 class ReplicationClient {
  public:

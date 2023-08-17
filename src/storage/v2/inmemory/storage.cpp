@@ -30,32 +30,15 @@ namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-namespace {
-inline constexpr uint16_t kEpochHistoryRetention = 1000;
-
-std::string RegisterReplicaErrorToString(ReplicationState::RegisterReplicaError error) {
-  using enum ReplicationState::RegisterReplicaError;
-  switch (error) {
-    case NAME_EXISTS:
-      return "NAME_EXISTS";
-    case END_POINT_EXISTS:
-      return "END_POINT_EXISTS";
-    case CONNECTION_FAILED:
-      return "CONNECTION_FAILED";
-    case COULD_NOT_BE_PERSISTED:
-      return "COULD_NOT_BE_PERSISTED";
-  }
-}
-}  // namespace
-
 InMemoryStorage::InMemoryStorage(Config config)
     : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       uuid_(utils::GenerateUUID()),
-      epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()) {
+      global_locker_(file_retainer_.AddLocker()),
+      replication_state_(config_.durability.restore_replication_state_on_startup,
+                         config_.durability.storage_directory) {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -82,7 +65,8 @@ InMemoryStorage::InMemoryStorage(Config config)
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
+    auto &epoch = replication_state_.GetEpoch();
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id, &epoch.history,
                                         &vertices_, &edges_, &edge_count_, name_id_mapper_.get(), &indices_,
                                         &constraints_, config_, &wal_seq_num_);
     if (info) {
@@ -153,11 +137,6 @@ InMemoryStorage::InMemoryStorage(Config config)
 
   if (config_.durability.restore_replication_state_on_startup) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
-    // TODO: Move this to replication
-    replication_state_.durability_ =
-        std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
-
     RestoreReplicationRole();
 
     if (replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
@@ -1487,8 +1466,8 @@ bool InMemoryStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items, name_id_mapper_.get(), wal_seq_num_++,
-                      &file_retainer_);
+    wal_file_.emplace(wal_directory_, uuid_, replication_state_.GetEpoch().id, config_.items, name_id_mapper_.get(),
+                      wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -1703,12 +1682,12 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   auto snapshot_creator = [this]() {
     utils::Timer timer;
-
+    const auto &epoch = replication_state_.GetEpoch();
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                                config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
-                               &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
+                               &indices_, &constraints_, config_, uuid_, epoch.id, epoch.history, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
 
@@ -1769,12 +1748,8 @@ void InMemoryStorage::EstablishNewEpoch() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-
-  // Generate new epoch id and save the last one to the history.
-  if (epoch_history_.size() == kEpochHistoryRetention) {
-    epoch_history_.pop_front();
-  }
-  epoch_history_.emplace_back(std::exchange(epoch_id_, utils::GenerateUUID()), last_commit_timestamp_);
+  // TODO: Move out of storage (no need for the lock) <- missing commit_timestamp at a higher level
+  replication_state_.NewEpoch(last_commit_timestamp_);
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -1800,322 +1775,6 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   // after we call clean queue.
   file_retainer_.CleanQueue();
   return true;
-}
-
-void storage::ReplicationState::Reset() {
-  replication_server_.reset();
-  replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
-}
-
-bool storage::ReplicationState::SetMainReplicationRole(storage::Storage *storage) {
-  // We don't want to generate new epoch_id and do the
-  // cleanup if we're already a MAIN
-  if (GetRole() == replication::ReplicationRole::MAIN) {
-    return false;
-  }
-
-  // Main instance does not need replication server
-  // This should be always called first so we finalize everything
-  replication_server_.reset(nullptr);
-
-  storage->EstablishNewEpoch();
-
-  if (ShouldStoreAndRestoreReplicationState()) {
-    // Only thing that matters here is the role saved as MAIN
-    auto data = replication::ReplicationStatusToJSON(
-        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
-                                       .ip_address = "",
-                                       .port = 0,
-                                       .sync_mode = replication::ReplicationMode::SYNC,
-                                       .replica_check_frequency = std::chrono::seconds(0),
-                                       .ssl = std::nullopt,
-                                       .role = replication::ReplicationRole::MAIN});
-
-    if (!durability_->Put(replication::kReservedReplicationRoleName, data.dump())) {
-      spdlog::error("Error when saving MAIN replication role in settings.");
-      return false;
-    }
-  }
-
-  SetRole(replication::ReplicationRole::MAIN);
-  return true;
-}
-
-bool storage::ReplicationState::AppendToWalDataDefinition(const uint64_t seq_num,
-                                                          durability::StorageGlobalOperation operation, LabelId label,
-                                                          const std::set<PropertyId> &properties,
-                                                          uint64_t final_commit_timestamp) {
-  bool finalized_on_all_replicas = true;
-  // TODO Should we return true if not MAIN?
-  if (GetRole() == replication::ReplicationRole::MAIN) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        client->StartTransactionReplication(seq_num);
-        client->IfStreamingTransaction(
-            [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-
-        const auto finalized = client->FinalizeTransactionReplication();
-        if (client->Mode() == replication::ReplicationMode::SYNC) {
-          finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-        }
-      }
-    });
-  }
-  return finalized_on_all_replicas;
-}
-
-void storage::ReplicationState::InitializeTransaction(uint64_t seq_num) {
-  if (GetRole() == replication::ReplicationRole::MAIN) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        client->StartTransactionReplication(seq_num);
-      }
-    });
-  }
-}
-
-void storage::ReplicationState::AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
-    }
-  });
-}
-
-void storage::ReplicationState::AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
-    }
-  });
-}
-
-bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
-  bool finalized_on_all_replicas = true;
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
-      const auto finalized = client->FinalizeTransactionReplication();
-
-      if (client->Mode() == replication::ReplicationMode::SYNC) {
-        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-      }
-    }
-  });
-  return finalized_on_all_replicas;
-}
-
-utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
-    InMemoryStorage *storage) {
-  MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
-
-  const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
-  });
-
-  if (name_exists) {
-    return RegisterReplicaError::NAME_EXISTS;
-  }
-
-  const auto end_point_exists = replication_clients_.WithLock([&endpoint](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(),
-                       [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
-  });
-
-  if (end_point_exists) {
-    return RegisterReplicaError::END_POINT_EXISTS;
-  }
-
-  if (ShouldStoreAndRestoreReplicationState()) {
-    auto data = replication::ReplicationStatusToJSON(
-        replication::ReplicationStatus{.name = name,
-                                       .ip_address = endpoint.address,
-                                       .port = endpoint.port,
-                                       .sync_mode = replication_mode,
-                                       .replica_check_frequency = config.replica_check_frequency,
-                                       .ssl = config.ssl,
-                                       .role = replication::ReplicationRole::REPLICA});
-    if (!durability_->Put(name, data.dump())) {
-      spdlog::error("Error when saving replica {} in settings.", name);
-      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-    }
-  }
-
-  auto client = std::make_unique<ReplicationClient>(std::move(name), storage, endpoint, replication_mode, config);
-
-  if (client->State() == replication::ReplicaState::INVALID) {
-    if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {
-      return RegisterReplicaError::CONNECTION_FAILED;
-    }
-
-    spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
-  }
-
-  return replication_clients_.WithLock(
-      [&](auto &clients) -> utils::BasicResult<ReplicationState::RegisterReplicaError> {
-        // Another thread could have added a client with same name while
-        // we were connecting to this client.
-        if (std::any_of(clients.begin(), clients.end(),
-                        [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
-          return RegisterReplicaError::NAME_EXISTS;
-        }
-
-        if (std::any_of(clients.begin(), clients.end(), [&client](const auto &other_client) {
-              return client->Endpoint() == other_client->Endpoint();
-            })) {
-          return RegisterReplicaError::END_POINT_EXISTS;
-        }
-
-        clients.push_back(std::move(client));
-        return {};
-      });
-}
-
-bool ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
-                                      const replication::ReplicationServerConfig &config, InMemoryStorage *storage) {
-  // We don't want to restart the server if we're already a REPLICA
-  if (GetRole() == replication::ReplicationRole::REPLICA) {
-    return false;
-  }
-
-  auto port = endpoint.port;  // assigning because we will move the endpoint
-  replication_server_ = std::make_unique<ReplicationServer>(storage, std::move(endpoint), config);
-
-  if (ShouldStoreAndRestoreReplicationState()) {
-    // Only thing that matters here is the role saved as REPLICA and the listening port
-    auto data = replication::ReplicationStatusToJSON(
-        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
-                                       .ip_address = "",
-                                       .port = port,
-                                       .sync_mode = replication::ReplicationMode::SYNC,
-                                       .replica_check_frequency = std::chrono::seconds(0),
-                                       .ssl = std::nullopt,
-                                       .role = replication::ReplicationRole::REPLICA});
-
-    if (!durability_->Put(replication::kReservedReplicationRoleName, data.dump())) {
-      spdlog::error("Error when saving REPLICA replication role in settings.");
-      return false;
-    }
-  }
-
-  SetRole(replication::ReplicationRole::REPLICA);
-  return true;
-}
-
-bool ReplicationState::UnregisterReplica(std::string_view name) {
-  MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can unregister a replica!");
-  if (ShouldStoreAndRestoreReplicationState()) {
-    if (!durability_->Delete(name)) {
-      spdlog::error("Error when removing replica {} from settings.", name);
-      return false;
-    }
-  }
-
-  return replication_clients_.WithLock([&](auto &clients) {
-    return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
-  });
-}
-
-std::optional<replication::ReplicaState> ReplicationState::GetReplicaState(const std::string_view name) {
-  return replication_clients_.WithLock([&](auto &clients) -> std::optional<replication::ReplicaState> {
-    const auto client_it =
-        std::find_if(clients.cbegin(), clients.cend(), [name](auto &client) { return client->Name() == name; });
-    if (client_it == clients.cend()) {
-      return std::nullopt;
-    }
-    return (*client_it)->State();
-  });
-}
-
-std::vector<ReplicaInfo> ReplicationState::ReplicasInfo() {
-  return replication_clients_.WithLock([](auto &clients) {
-    std::vector<ReplicaInfo> replica_info;
-    replica_info.reserve(clients.size());
-    std::transform(
-        clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {
-          return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo()};
-        });
-    return replica_info;
-  });
-}
-
-void ReplicationState::RestoreReplicationRole(InMemoryStorage *storage) {
-  if (!ShouldStoreAndRestoreReplicationState()) {
-    return;
-  }
-
-  spdlog::info("Restoring replication role.");
-  uint16_t port = replication::kDefaultReplicationPort;
-
-  const auto replication_data = durability_->Get(replication::kReservedReplicationRoleName);
-  if (!replication_data.has_value()) {
-    spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
-    return;
-  }
-
-  const auto maybe_replication_status = replication::JSONToReplicationStatus(nlohmann::json::parse(*replication_data));
-  if (!maybe_replication_status.has_value()) {
-    LOG_FATAL("Cannot parse previously saved configuration of replication role {}.",
-              replication::kReservedReplicationRoleName);
-  }
-
-  const auto replication_status = *maybe_replication_status;
-  if (!replication_status.role.has_value()) {
-    SetRole(replication::ReplicationRole::MAIN);
-  } else {
-    SetRole(*replication_status.role);
-    port = replication_status.port;
-  }
-
-  if (GetRole() == replication::ReplicationRole::REPLICA) {
-    io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
-    replication_server_ =
-        std::make_unique<ReplicationServer>(storage, std::move(endpoint), replication::ReplicationServerConfig{});
-  }
-
-  spdlog::info("Replication role restored to {}.",
-               GetRole() == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
-}
-
-void ReplicationState::RestoreReplicas(InMemoryStorage *storage) {
-  if (!ShouldStoreAndRestoreReplicationState()) {
-    return;
-  }
-  spdlog::info("Restoring replicas.");
-
-  for (const auto &[replica_name, replica_data] : *durability_) {
-    spdlog::info("Restoring replica {}.", replica_name);
-
-    const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
-    if (!maybe_replica_status.has_value()) {
-      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
-    }
-
-    auto replica_status = *maybe_replica_status;
-    MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
-              replica_name);
-
-    if (replica_name == replication::kReservedReplicationRoleName) {
-      continue;
-    }
-
-    auto ret =
-        RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
-                        replica_status.sync_mode, replication::RegistrationMode::CAN_BE_INVALID,
-                        {
-                            .replica_check_frequency = replica_status.replica_check_frequency,
-                            .ssl = replica_status.ssl,
-                        },
-                        storage);
-
-    if (ret.HasError()) {
-      MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
-      LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, RegisterReplicaErrorToString(ret.GetError()));
-    }
-    spdlog::info("Replica {} restored.", replica_name);
-  }
 }
 
 }  // namespace memgraph::storage

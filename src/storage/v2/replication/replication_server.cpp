@@ -22,6 +22,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/replication_server.hpp"
@@ -95,7 +96,8 @@ ReplicationServer::ReplicationServer(InMemoryStorage *storage, io::network::Endp
 void ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
+  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(),
+                                storage_->replication_state_.GetEpoch().id};
   slk::Save(res, res_builder);
 }
 
@@ -115,13 +117,13 @@ void ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builde
   auto maybe_epoch_id = decoder.ReadString();
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
-  if (*maybe_epoch_id != storage_->epoch_id_) {
-    storage_->epoch_history_.emplace_back(std::move(storage_->epoch_id_), storage_->last_commit_timestamp_);
-    storage_->epoch_id_ = std::move(*maybe_epoch_id);
+  if (*maybe_epoch_id != storage_->replication_state_.GetEpoch().id) {
+    storage_->replication_state_.AppendEpoch(*maybe_epoch_id, storage_->last_commit_timestamp_);
   }
 
   if (storage_->wal_file_) {
-    if (req.seq_num > storage_->wal_file_->SequenceNumber() || *maybe_epoch_id != storage_->epoch_id_) {
+    if (req.seq_num > storage_->wal_file_->SequenceNumber() ||
+        *maybe_epoch_id != storage_->replication_state_.GetEpoch().id) {
       storage_->wal_file_->FinalizeWal();
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
@@ -181,14 +183,17 @@ void ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *r
       std::make_unique<InMemoryLabelPropertyIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
   try {
     spdlog::debug("Loading snapshot");
-    auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
-                                                       &storage_->epoch_history_, storage_->name_id_mapper_.get(),
-                                                       &storage_->edge_count_, storage_->config_);
+    auto &epoch =
+        storage_->replication_state_
+            .GetEpoch();  // This needs to be a non-const ref since we are updating it in LoadSnapshot TODO fix
+    auto recovered_snapshot =
+        durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_, &epoch.history,
+                                 storage_->name_id_mapper_.get(), &storage_->edge_count_, storage_->config_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
     storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
-    storage_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
+    epoch.id = std::move(recovered_snapshot.snapshot_info.epoch_id);
     const auto &recovery_info = recovered_snapshot.recovery_info;
     storage_->vertex_id_ = recovery_info.next_vertex_id;
     storage_->edge_id_ = recovery_info.next_edge_id;
@@ -275,9 +280,8 @@ void ReplicationServer::LoadWal(replication::Decoder *decoder) {
       storage_->uuid_ = wal_info.uuid;
     }
 
-    if (wal_info.epoch_id != storage_->epoch_id_) {
-      storage_->epoch_history_.emplace_back(wal_info.epoch_id, storage_->last_commit_timestamp_);
-      storage_->epoch_id_ = std::move(wal_info.epoch_id);
+    if (wal_info.epoch_id != storage_->replication_state_.GetEpoch().id) {
+      storage_->replication_state_.AppendEpoch(wal_info.epoch_id, storage_->last_commit_timestamp_);
     }
 
     if (storage_->wal_file_) {

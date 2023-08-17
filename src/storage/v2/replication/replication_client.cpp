@@ -15,6 +15,7 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/transaction.hpp"
@@ -86,25 +87,19 @@ void ReplicationClient::FrequentCheck() {
 void ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  std::optional<std::string> epoch_id;
-  {
-    // epoch_id_ can be changed if we don't take this lock
-    std::unique_lock engine_guard(storage_->engine_lock_);
-    epoch_id.emplace(storage_->epoch_id_);
-  }
+  const auto &main_epoch = storage_->replication_state_.GetEpoch();
 
-  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, std::move(*epoch_id))};
+  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, main_epoch.id)};
 
-  const auto response = stream.AwaitResponse();
+  const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
-  if (response.epoch_id != storage_->epoch_id_ && response.current_commit_timestamp != kTimestampInitialId) {
-    const auto &epoch_history = storage_->epoch_history_;
+  if (replica.epoch_id != main_epoch.id && replica.current_commit_timestamp != kTimestampInitialId) {
     const auto epoch_info_iter =
-        std::find_if(epoch_history.crbegin(), epoch_history.crend(),
-                     [&](const auto &epoch_info) { return epoch_info.first == response.epoch_id; });
-    if (epoch_info_iter == epoch_history.crend()) {
+        std::find_if(main_epoch.history.crbegin(), main_epoch.history.crend(),
+                     [&](const auto &main_epoch_info) { return main_epoch_info.first == replica.epoch_id; });
+    if (epoch_info_iter == main_epoch.history.crend()) {
       branching_point = 0;
-    } else if (epoch_info_iter->second != response.current_commit_timestamp) {
+    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
       branching_point = epoch_info_iter->second;
     }
   }
@@ -118,7 +113,7 @@ void ReplicationClient::InitializeClient() {
     return;
   }
 
-  current_commit_timestamp = response.current_commit_timestamp;
+  current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", name_, current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}", storage_->last_commit_timestamp_.load());
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
@@ -547,7 +542,7 @@ ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self, const u
     : self_(self),
       stream_(self_->rpc_client_->Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
-  encoder.WriteString(self_->storage_->epoch_id_);
+  encoder.WriteString(self_->storage_->replication_state_.GetEpoch().id);
 }
 
 void ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex,

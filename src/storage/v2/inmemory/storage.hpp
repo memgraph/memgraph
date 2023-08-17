@@ -24,102 +24,14 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
-namespace memgraph::storage {
+#include "storage/v2/replication/replication.hpp"
 
-class ReplicationServer;
-class ReplicationClient;
+namespace memgraph::storage {
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
-
-struct TimestampInfo {
-  uint64_t current_timestamp_of_replica;
-  uint64_t current_number_of_timestamp_behind_master;
-};
-
-struct ReplicaInfo {
-  std::string name;
-  replication::ReplicationMode mode;
-  io::network::Endpoint endpoint;
-  replication::ReplicaState state;
-  TimestampInfo timestamp_info;
-};
-
-class InMemoryStorage;
-
-// TODO: decouple from InMemoryStorage
-struct ReplicationState {
-  enum class RegisterReplicaError : uint8_t {
-    NAME_EXISTS,
-    END_POINT_EXISTS,
-    CONNECTION_FAILED,
-    COULD_NOT_BE_PERSISTED
-  };
-
-  // TODO Move to private (needed for Storage construction)
-  std::unique_ptr<kvstore::KVStore> durability_;
-
-  // Generic API
-  void Reset();
-  // TODO: Just check if server exists -> you are REPLICA
-  replication::ReplicationRole GetRole() const { return replication_role_.load(); }
-
-  bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
-  // TODO: ReplicationServer/Client uses InMemoryStorage* for RPC callbacks
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
-                      InMemoryStorage *storage);  // Sets the instance to REPLICA
-  // Generic restoration
-  void RestoreReplicationRole(InMemoryStorage *storage);
-
-  // MAIN actually doing the replication
-  bool AppendToWalDataDefinition(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
-                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
-  void InitializeTransaction(uint64_t seq_num);
-  void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
-  bool FinalizeTransaction(uint64_t timestamp);
-
-  // MAIN connecting to replicas
-  utils::BasicResult<RegisterReplicaError> RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                                                           replication::ReplicationMode replication_mode,
-                                                           replication::RegistrationMode registration_mode,
-                                                           const replication::ReplicationClientConfig &config,
-                                                           InMemoryStorage *storage);
-  bool UnregisterReplica(std::string_view name);
-
-  // MAIN reconnecting to replicas
-  void RestoreReplicas(InMemoryStorage *storage);
-
-  // MAIN getting info from replicas
-  // TODO make into const (problem with SpinLock and WithReadLock)
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
-  std::vector<ReplicaInfo> ReplicasInfo();
-
- private:
-  bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
-
-  void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
-
-  // NOTE: Server is not in MAIN it is in REPLICA
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
-  // We create ReplicationClient using unique_ptr so we can move
-  // newly created client into the vector.
-  // We cannot move the client directly because it contains ThreadPool
-  // which cannot be moved. Also, the move is necessary because
-  // we don't want to create the client directly inside the vector
-  // because that would require the lock on the list putting all
-  // commits (they iterate list of clients) to halt.
-  // This way we can initialize client in main thread which means
-  // that we can immediately notify the user if the initialization
-  // failed.
-  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-  ReplicationClientList replication_clients_;
-
-  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
-};
 
 class InMemoryStorage final : public Storage {
   friend class ReplicationServer;
@@ -538,29 +450,6 @@ class InMemoryStorage final : public Storage {
   std::string uuid_;
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
-
-  // UUID to distinguish different main instance runs for replication process
-  // on SAME storage.
-  // Multiple instances can have same storage UUID and be MAIN at the same time.
-  // We cannot compare commit timestamps of those instances if one of them
-  // becomes the replica of the other so we use epoch_id_ as additional
-  // discriminating property.
-  // Example of this:
-  // We have 2 instances of the same storage, S1 and S2.
-  // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
-  // At the moment when S1 commited a transaction with timestamp 20, and S2
-  // a different transaction with timestamp 15, we change S2's role to REPLICA
-  // and register it on S1.
-  // Without using the epoch_id, we don't know that S1 and S2 have completely
-  // different transactions, we think that the S2 is behind only by 5 commits.
-  std::string epoch_id_;  // TODO: Move to replication level
-  // Questions:
-  //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
-  //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
-  // History of the previous epoch ids.
-  // Each value consists of the epoch id along the last commit belonging to that
-  // epoch.
-  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
 
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
