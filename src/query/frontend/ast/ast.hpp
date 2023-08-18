@@ -1200,7 +1200,7 @@ class PropertyLookup : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   memgraph::query::PropertyIx property_;
-  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_ = EvaluationMode::GET_OWN_PROPERTY;
+  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
