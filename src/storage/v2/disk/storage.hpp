@@ -42,6 +42,55 @@ class DiskStorage final : public Storage {
 
     explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
+    /// TODO: const methods?
+    void LoadVerticesToMainMemoryCache();
+
+    void LoadVerticesFromMainStorageToEdgeImportCache();
+
+    void HandleMainLoadingForEdgeImportCache();
+
+    void LoadVerticesFromLabelIndexStorageToEdgeImportCache(LabelId label);
+
+    void HandleLoadingLabelForEdgeImportCache(LabelId label);
+
+    void LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(LabelId label, PropertyId property);
+
+    void HandleLoadingLabelPropertyForEdgeImportCache(LabelId label, PropertyId property);
+
+    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelIndexCache(LabelId label, View view,
+                                                                          std::list<Delta> &index_deltas,
+                                                                          utils::SkipList<Vertex> *indexed_vertices);
+
+    void LoadVerticesFromDiskLabelIndex(LabelId label, const std::unordered_set<storage::Gid> &gids,
+                                        std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
+
+    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
+        LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
+        utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
+
+    void LoadVerticesFromDiskLabelPropertyIndex(LabelId label, PropertyId property,
+                                                const std::unordered_set<storage::Gid> &gids,
+                                                std::list<Delta> &index_deltas,
+                                                utils::SkipList<Vertex> *indexed_vertices,
+                                                const auto &label_property_filter);
+
+    void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(LabelId label, PropertyId property,
+                                                                    const std::unordered_set<storage::Gid> &gids,
+                                                                    const PropertyValue &value,
+                                                                    std::list<Delta> &index_deltas,
+                                                                    utils::SkipList<Vertex> *indexed_vertices);
+
+    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
+        LabelId label, PropertyId property, View view, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+        const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
+        utils::SkipList<Vertex> *indexed_vertices);
+
+    void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
+        LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
+        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+        const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
+        utils::SkipList<Vertex> *indexed_vertices);
+
    public:
     DiskAccessor(const DiskAccessor &) = delete;
     DiskAccessor &operator=(const DiskAccessor &) = delete;
@@ -55,60 +104,17 @@ class DiskStorage final : public Storage {
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
-    /// TODO: const methods?
-    void LoadVerticesToMainMemoryCache();
-
-    void LoadVerticesFromMainStorageToEdgeImportCache();
-
-    void LoadVerticesFromLabelIndexStorageToEdgeImportCache(const auto &filter);
-
-    void LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(LabelId label, PropertyId property);
-
     VerticesIterable Vertices(View view) override;
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelIndexCache(LabelId label, View view,
-                                                                          std::list<Delta> &index_deltas,
-                                                                          utils::SkipList<Vertex> *indexed_vertices);
-
-    void LoadVerticesFromDiskLabelIndex(LabelId label, const std::unordered_set<storage::Gid> &gids,
-                                        std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
-
     VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
 
-    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-        LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
-        utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
-
-    void LoadVerticesFromDiskLabelPropertyIndex(LabelId label, PropertyId property,
-                                                const std::unordered_set<storage::Gid> &gids,
-                                                std::list<Delta> &index_deltas,
-                                                utils::SkipList<Vertex> *indexed_vertices,
-                                                const auto &label_property_filter);
-
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
-
-    void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(LabelId label, PropertyId property,
-                                                                    const std::unordered_set<storage::Gid> &gids,
-                                                                    const PropertyValue &value,
-                                                                    std::list<Delta> &index_deltas,
-                                                                    utils::SkipList<Vertex> *indexed_vertices);
 
     VerticesIterable Vertices(LabelId label, PropertyId property,
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
-
-    std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
-        LabelId label, PropertyId property, View view, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-        const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
-        utils::SkipList<Vertex> *indexed_vertices);
-
-    void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
-        LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
-        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-        const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
-        utils::SkipList<Vertex> *indexed_vertices);
 
     uint64_t ApproximateVertexCount() const override;
 
@@ -209,8 +215,6 @@ class DiskStorage final : public Storage {
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
-
-    std::optional<storage::VertexAccessor> LoadVertexToEdgeImportCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         std::string &&key, std::string &&value, Delta *index_delta,

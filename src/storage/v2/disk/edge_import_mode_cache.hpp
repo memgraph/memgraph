@@ -43,18 +43,24 @@ class EdgeImportModeCache {
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});
 
+  bool CreateIndex(LabelId label, const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});
+
   bool VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const;
 
   bool VerticesWithLabelScanned(LabelId label) const;
 
   bool AllVerticesScanned() const;
 
-  /// TODO: (andi) Wrap it inside a class.
+  utils::SkipList<Vertex>::Accessor Access();
+
+  void SetScannedAllVertices();
+
+ private:
   utils::SkipList<Vertex> cache_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;
-  std::set<std::pair<LabelId, PropertyId>> scanned_label_property_indices_;
+  std::set<std::pair<LabelId, PropertyId>> scanned_label_properties_;
 };
 
 }  // namespace memgraph::storage

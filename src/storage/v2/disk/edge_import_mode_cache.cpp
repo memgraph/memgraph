@@ -45,14 +45,23 @@ bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
   bool res = mem_label_property_index->CreateIndex(label, property, cache_.access(), parallel_exec_info);
   if (res) {
-    scanned_label_property_indices_.insert({label, property});
+    scanned_label_properties_.insert({label, property});
+  }
+  return res;
+}
+
+bool EdgeImportModeCache::CreateIndex(LabelId label,
+                                      const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
+  bool res = mem_label_index->CreateIndex(label, cache_.access(), parallel_exec_info);
+  if (res) {
+    scanned_labels_.insert(label);
   }
   return res;
 }
 
 bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {
-  return VerticesWithLabelScanned(label) ||
-         utils::Contains(scanned_label_property_indices_, std::make_pair(label, property));
+  return VerticesWithLabelScanned(label) || utils::Contains(scanned_label_properties_, std::make_pair(label, property));
 }
 
 bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
@@ -60,5 +69,9 @@ bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
 }
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
+
+utils::SkipList<Vertex>::Accessor EdgeImportModeCache::Access() { return cache_.access(); }
+
+void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 
 }  // namespace memgraph::storage
