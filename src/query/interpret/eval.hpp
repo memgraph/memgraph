@@ -495,7 +495,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
         }
       case TypedValue::Type::Edge:
-        return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
+        if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
+          auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
+            ctx_->property_lookups_cache[symbol_pos] = GetAllProperties(expression_result_ptr->ValueEdge());
+          }
+
+          auto property_id = ctx_->properties[property_lookup.property_.ix];
+          if (!ctx_->property_lookups_cache.at(symbol_pos).contains(property_id)) {
+            return TypedValue(ctx_->memory);
+          }
+
+          return TypedValue(ctx_->property_lookups_cache.at(symbol_pos).at(property_id), ctx_->memory);
+        } else {
+          return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
+        }
       case TypedValue::Type::Map: {
         auto &map = expression_result_ptr->ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
