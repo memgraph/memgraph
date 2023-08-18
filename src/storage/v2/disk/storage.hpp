@@ -197,20 +197,20 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
    private:
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                const std::vector<LabelId> &label_ids, PropertyStore &&properties, Delta *delta);
+                                std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
 
     bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
                             EdgeDirection edge_direction);
@@ -246,6 +246,7 @@ class DiskStorage final : public Storage {
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
+    bool scanned_all_vertices_ = false;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
