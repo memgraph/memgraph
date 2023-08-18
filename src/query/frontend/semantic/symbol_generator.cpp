@@ -427,8 +427,6 @@ bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
       property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
     }
   }
-  map_literal.cacheable_property_lookups_ = cacheable_property_lookups;
-
   return true;
 }
 

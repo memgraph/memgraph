@@ -1071,7 +1071,6 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   }
 
   std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements_;
-  std::unordered_set<int32_t> cacheable_property_lookups_{};
 
   MapLiteral *Clone(AstStorage *storage) const override {
     MapLiteral *object = storage->Create<MapLiteral>();
@@ -1079,7 +1078,6 @@ class MapLiteral : public memgraph::query::BaseLiteral {
       PropertyIx key = storage->GetPropertyIx(entry.first.name);
       object->elements_[key] = entry.second->Clone(storage);
     }
-    object->cacheable_property_lookups_ = cacheable_property_lookups_;
     return object;
   }
 
