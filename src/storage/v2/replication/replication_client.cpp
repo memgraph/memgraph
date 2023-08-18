@@ -25,25 +25,6 @@
 
 namespace memgraph::storage {
 
-replication::SnapshotRes ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
-  auto stream{rpc_client_.Stream<replication::SnapshotRpc>()};
-  replication::Encoder encoder(stream.GetBuilder());
-  encoder.WriteFile(path);
-  return stream.AwaitResponse();
-}
-
-replication::WalFilesRes ReplicationClient::TransferWalFiles(const std::vector<std::filesystem::path> &wal_files) {
-  MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
-  auto stream{rpc_client_.Stream<replication::WalFilesRpc>(wal_files.size())};
-  replication::Encoder encoder(stream.GetBuilder());
-  for (const auto &wal : wal_files) {
-    spdlog::debug("Sending wal file: {}", wal);
-    encoder.WriteFile(wal);
-  }
-
-  return stream.AwaitResponse();
-}
-
 static auto CreateClientContext(const replication::ReplicationClientConfig &config) -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};

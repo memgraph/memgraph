@@ -12,7 +12,6 @@
 #pragma once
 
 #include "rpc/client.hpp"
-#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -71,13 +70,6 @@ class ReplicationClient {
   virtual ~ReplicationClient();
 
   virtual void Start() = 0;
-
-  // Transfer the snapshot file.
-  // @param path Path of the snapshot file.
-  replication::SnapshotRes TransferSnapshot(const std::filesystem::path &path);
-
-  // Transfer the WAL files
-  replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
 
   const auto &Name() const { return name_; }
 

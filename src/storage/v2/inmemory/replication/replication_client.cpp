@@ -541,4 +541,24 @@ TimestampInfo InMemoryReplicationClient::GetTimestampInfo() {
 std::string const &InMemoryReplicationClient::GetEpochId() const { return storage_->replication_state_.GetEpoch().id; }
 auto InMemoryReplicationClient::GetStorage() -> Storage * { return storage_; }
 
+replication::SnapshotRes InMemoryReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
+  auto stream{rpc_client_.Stream<replication::SnapshotRpc>()};
+  replication::Encoder encoder(stream.GetBuilder());
+  encoder.WriteFile(path);
+  return stream.AwaitResponse();
+}
+
+replication::WalFilesRes InMemoryReplicationClient::TransferWalFiles(
+    const std::vector<std::filesystem::path> &wal_files) {
+  MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
+  auto stream{rpc_client_.Stream<replication::WalFilesRpc>(wal_files.size())};
+  replication::Encoder encoder(stream.GetBuilder());
+  for (const auto &wal : wal_files) {
+    spdlog::debug("Sending wal file: {}", wal);
+    encoder.WriteFile(wal);
+  }
+
+  return stream.AwaitResponse();
+}
+
 }  // namespace memgraph::storage

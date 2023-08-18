@@ -15,25 +15,6 @@
 namespace memgraph::storage {
 
 class InMemoryReplicationClient : public ReplicationClient {
-  void TryInitializeClientAsync();
-  void FrequentCheck();
-  void InitializeClient();
-  void TryInitializeClientSync();
-  InMemoryStorage *storage_;
-  void HandleRpcFailure();
-  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
-  void RecoverReplica(uint64_t replica_commit);
-  uint64_t ReplicateCurrentWal();
-
-  using RecoverySnapshot = std::filesystem::path;
-  using RecoveryWals = std::vector<std::filesystem::path>;
-  struct RecoveryCurrentWal {
-    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
-    uint64_t current_wal_seq_num;
-  };
-  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
-  std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
-
  public:
   InMemoryReplicationClient(std::string name, InMemoryStorage *storage, io::network::Endpoint endpoint,
                             replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
@@ -54,6 +35,34 @@ class InMemoryReplicationClient : public ReplicationClient {
   // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication() override;
   TimestampInfo GetTimestampInfo() override;
+
+ private:
+  void TryInitializeClientAsync();
+  void FrequentCheck();
+  void InitializeClient();
+  void TryInitializeClientSync();
+  void HandleRpcFailure();
+  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
+  void RecoverReplica(uint64_t replica_commit);
+  uint64_t ReplicateCurrentWal();
+
+  using RecoverySnapshot = std::filesystem::path;
+  using RecoveryWals = std::vector<std::filesystem::path>;
+  struct RecoveryCurrentWal {
+    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
+    uint64_t current_wal_seq_num;
+  };
+  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
+  std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
+
+  // Transfer the snapshot file.
+  // @param path Path of the snapshot file.
+  replication::SnapshotRes TransferSnapshot(const std::filesystem::path &path);
+
+  // Transfer the WAL files
+  replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
+
+  InMemoryStorage *storage_;
 };
 
 }  // namespace memgraph::storage
