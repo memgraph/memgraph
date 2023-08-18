@@ -42,7 +42,7 @@ class ReplicationServer {
   void TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
   void LoadWal(replication::Decoder *decoder);
-  uint64_t ReadAndApplyDelta(durability::BaseDecoder *decoder);
+  static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder);
 
   std::optional<communication::ServerContext> rpc_server_context_;
   std::optional<rpc::Server> rpc_server_;
