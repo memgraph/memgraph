@@ -72,6 +72,9 @@
 #define ACCEPT_WITH_INPUT(class_name)                                    \
   bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
     if (visitor.PreVisit(*this)) {                                       \
+      if (input_ == nullptr) {                                           \
+        throw QueryRuntimeException("Logical operator can't be null!");  \
+      }                                                                  \
       input_->Accept(visitor);                                           \
     }                                                                    \
     return visitor.PostVisit(*this);                                     \
