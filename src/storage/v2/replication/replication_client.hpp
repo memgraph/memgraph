@@ -21,7 +21,6 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -32,31 +31,37 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
 namespace memgraph::storage {
 
-class InMemoryStorage;
+class Storage;
 
 class ReplicationClient {
  public:
-  ReplicationClient(std::string name, InMemoryStorage *storage, const io::network::Endpoint &endpoint,
-                    replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
+  ReplicationClient(std::string name, memgraph::io::network::Endpoint endpoint, const replication::ReplicationMode mode,
+                    const replication::ReplicationClientConfig &config);
 
-  ~ReplicationClient() {
-    auto endpoint = rpc_client_->Endpoint();
+  virtual void Start() = 0;
+
+  ReplicationClient(ReplicationClient const &) = delete;
+  ReplicationClient &operator=(ReplicationClient const &) = delete;
+  ReplicationClient(ReplicationClient &&) noexcept = delete;
+  ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
+
+  virtual ~ReplicationClient() {
+    auto endpoint = rpc_client_.Endpoint();
     spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
   }
 
   // Handler used for transfering the current transaction.
   class ReplicaStream {
-   private:
-    friend class ReplicationClient;
+   public:
     explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
 
-   public:
     /// @throw rpc::RpcFailedException
     void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
 
@@ -70,10 +75,10 @@ class ReplicationClient {
     void AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
                          const std::set<PropertyId> &properties, uint64_t timestamp);
 
-   private:
     /// @throw rpc::RpcFailedException
     replication::AppendDeltasRes Finalize();
 
+   private:
     ReplicationClient *self_;
     rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
   };
@@ -102,18 +107,6 @@ class ReplicationClient {
     rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
   };
 
-  void StartTransactionReplication(uint64_t current_wal_seq_num);
-
-  // Replication clients can be removed at any point
-  // so to avoid any complexity of checking if the client was removed whenever
-  // we want to send part of transaction and to avoid adding some GC logic this
-  // function will run a callback if, after previously callling
-  // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
-
-  // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication();
-
   // Transfer the snapshot file.
   // @param path Path of the snapshot file.
   replication::SnapshotRes TransferSnapshot(const std::filesystem::path &path);
@@ -129,38 +122,20 @@ class ReplicationClient {
 
   auto Mode() const { return mode_; }
 
-  const auto &Endpoint() const { return rpc_client_->Endpoint(); }
+  const auto &Endpoint() const { return rpc_client_.Endpoint(); }
 
-  TimestampInfo GetTimestampInfo();
+  virtual void StartTransactionReplication(uint64_t current_wal_seq_num) = 0;
+  virtual void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) = 0;
+  virtual auto GetEpochId() const -> std::string const & = 0;  // TODO: make non-vitual once epoch is moved to storage
+  virtual auto GetStorage() -> Storage * = 0;
+  [[nodiscard]] virtual bool FinalizeTransactionReplication() = 0;
+  virtual TimestampInfo GetTimestampInfo() = 0;
 
- private:
-  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
-
-  void RecoverReplica(uint64_t replica_commit);
-
-  uint64_t ReplicateCurrentWal();
-
-  using RecoveryWals = std::vector<std::filesystem::path>;
-  struct RecoveryCurrentWal {
-    uint64_t current_wal_seq_num;
-
-    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
-  };
-  using RecoverySnapshot = std::filesystem::path;
-  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
-
-  std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
-
-  void FrequentCheck();
-  void InitializeClient();
-  void TryInitializeClientSync();
-  void TryInitializeClientAsync();
-  void HandleRpcFailure();
-
+ protected:
   std::string name_;
-  InMemoryStorage *storage_;
-  std::optional<communication::ClientContext> rpc_context_;
-  std::optional<rpc::Client> rpc_client_;
+  communication::ClientContext rpc_context_;
+  rpc::Client rpc_client_;
+  std::chrono::seconds replica_check_frequency_;
 
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};

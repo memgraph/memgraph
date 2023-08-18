@@ -28,6 +28,7 @@
 #include "storage/v2/storage_error.hpp"
 
 #include "storage/v2/inmemory/replication/replication_server.hpp"
+#include "storage/v2/replication/InMemoryReplicationClient.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 
@@ -200,7 +201,9 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
     }
   }
 
-  auto client = std::make_unique<ReplicationClient>(std::move(name), storage, endpoint, replication_mode, config);
+  auto client =
+      std::make_unique<InMemoryReplicationClient>(std::move(name), storage, endpoint, replication_mode, config);
+  client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {
     if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {

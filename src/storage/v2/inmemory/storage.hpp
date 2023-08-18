@@ -35,6 +35,7 @@ namespace memgraph::storage {
 
 class InMemoryStorage final : public Storage {
   friend class InMemoryReplicationServer;
+  friend class InMemoryReplicationClient;
   friend class ReplicationClient;
 
  public:

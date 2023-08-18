@@ -26,7 +26,7 @@ class ReplicationServer {
   ReplicationServer &operator=(const ReplicationServer &) = delete;
   ReplicationServer &operator=(ReplicationServer &&) = delete;
 
-  ~ReplicationServer();
+  virtual ~ReplicationServer();
 
   bool Start();
 

@@ -72,7 +72,7 @@ class Storage {
   Storage &operator=(const Storage &) = delete;
   Storage &operator=(Storage &&) = delete;
 
-  virtual ~Storage() {}
+  virtual ~Storage() = default;
 
   const std::string &id() const { return id_; }
 
