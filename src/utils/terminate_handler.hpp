@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@ namespace memgraph::utils {
  * about the abort please take a look at
  * http://en.cppreference.com/w/cpp/utility/program/abort.
  */
-void TerminateHandler(std::ostream &stream) noexcept {
+inline void TerminateHandler(std::ostream &stream) noexcept {
   if (auto exc = std::current_exception()) {
     try {
       std::rethrow_exception(exc);
@@ -40,6 +40,6 @@ void TerminateHandler(std::ostream &stream) noexcept {
   std::abort();
 }
 
-void TerminateHandler() noexcept { TerminateHandler(std::cout); }
+inline void TerminateHandler() noexcept { TerminateHandler(std::cout); }
 
 }  // namespace memgraph::utils
