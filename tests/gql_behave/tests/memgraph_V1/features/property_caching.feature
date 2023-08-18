@@ -12,7 +12,7 @@ Feature: MapLiteral property caching
       """
     Then the result should be:
       | public_data                                |
-      | {age: 24, name: "Andy", surname: "Walker"} |
+      | {age: 24, name: 'Andy', surname: 'Walker'} |
 
   Scenario: Creating multiple instances of a MapLiteral that caches vertex properties
     Given an empty graph
@@ -26,23 +26,22 @@ Feature: MapLiteral property caching
       """
     Then the result should be:
       | public_data                                |
-      | {age: 24, name: "Andy", surname: "Walker"} |
-      | {age: 24, name: "Andy", surname: "Walker"} |
+      | {age: 24, name: 'Andy', surname: 'Walker'} |
+      | {age: 24, name: 'Andy', surname: 'Walker'} |
 
   Scenario: Creating a MapLiteral that caches properties from multiple vertices
     Given an empty graph
     And having executed
       """
       CREATE (:Cat {name: "Luigi", age: 11}), (:Dog {name: "Don", age: 10}), (:Owner {name: "Ivan"});
-      MATCH (m: Cat), (n: Dog), (o: Owner) SET o += {catName: m.name, catAge: m.age, dogName: n.name, dogAge: n.age};
       """
     When executing query:
       """
-      MATCH (n: Owner) RETURN n;
+      MATCH (m:Cat), (n:Dog), (o:Owner) SET o += {catName: m.name, catAge: m.age, dogName: n.name, dogAge: n.age} RETURN o;
       """
     Then the result should be:
-      | n                                                                                 |
-      | (:Owner {catAge: 11, catName: "Luigi", dogAge: 10, dogName: "Don", name: "Ivan"}) |
+      | o                                                                                 |
+      | (:Owner {catAge: 11, catName: 'Luigi', dogAge: 10, dogName: 'Don', name: 'Ivan'}) |
 
   Scenario: Creating multiple distinct MapLiterals that cache vertex properties
     Given an empty graph
@@ -70,11 +69,11 @@ Feature: MapLiteral property caching
       """
     When executing query:
       """
-      MATCH (e:Employee) RETURN {name: e.name, surname: e.surname, age: e.age, dont_make: m.nonexistent} AS public_data;
+      MATCH (e:Employee) RETURN {name: e.name, surname: e.surname, age: e.age, null_prop: e.nonexistent} AS public_data;
       """
     Then the result should be:
-      | public_data                                |
-      | {age: 24, name: "Andy", surname: "Walker"} |
+      | public_data                                                 |
+      | {age: 24, name: 'Andy', null_prop: null, surname: 'Walker'} |
 
   Scenario: Creating a MapLiteral that caches edge properties
     Given an empty graph
@@ -117,15 +116,14 @@ Feature: MapLiteral property caching
       RETURN {km_hwy: h.km, cross_border: h.cross_border, km_air: f.km, daily_flight: f.daily} AS routes_data;
       """
     Then the result should be:
-      | route_data                                                         |
+      | routes_data                                                        |
       | {cross_border: true, daily_flight: true, km_air: 350, km_hwy: 466} |
 
   Scenario: Creating multiple distinct MapLiterals that cache edge properties
     Given an empty graph
     And having executed
       """
-      CREATE (m:City), (n:Country):
-      MATCH (m:City), (n:Country) FOREACH (i in range(1, 5) | CREATE (m)-[:IN {prop1: i, prop2: 2 * i}]->(n));
+      MERGE (m:City) MERGE (n:Country) FOREACH (i in range(1, 5) | CREATE (m)-[:IN {prop1: i, prop2: 2 * i}]->(n));
       """
     When executing query:
       """
@@ -147,11 +145,11 @@ Feature: MapLiteral property caching
       """
     When executing query:
       """
-      MATCH ()-[r:ROUTE]->() RETURN {km: r.km, cross_border: r.cross_border, dont_make: r.nonexistent} AS route_data;
+      MATCH ()-[r:ROUTE]->() RETURN {km: r.km, cross_border: r.cross_border, null_prop: r.nonexistent} AS route_data;
       """
     Then the result should be:
-      | route_data                    |
-      | {cross_border: true, km: 466} |
+      | route_data                                     |
+      | {cross_border: true, km: 466, null_prop: null} |
 
   Scenario: Creating a MapLiteral that caches both vertex and edge properties
     Given an empty graph
@@ -166,4 +164,4 @@ Feature: MapLiteral property caching
       """
     Then the result should be:
       | route_data                                                                  |
-      | {cross_border: true, highway_connected: true, km: 466, start_city: "Split"} |
+      | {cross_border: true, highway_connected: true, km: 466, start_city: 'Split'} |
