@@ -2673,11 +2673,9 @@ inline std::string PropertiesToString(const std::map<std::string, Value> &proper
 inline const std::string Node::ToString() const {
   std::string labels{", "};
   for (auto label : Labels()) {
-    labels.append(":" + std::string(label) + " ");
+    labels.append(":" + std::string(label));
   }
-  if (labels != ", ") {
-    labels.pop_back();  // remove last spacing for better readability
-  } else {
+  if (labels == ", ") {
     labels = "";  // dont use labels if they dont exist
   }
   std::map<std::string, Value> properties_map{Properties()};

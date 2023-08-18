@@ -659,7 +659,7 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
 
   rel.SetProperty("key", mgp::Value("property"));
   ASSERT_EQ(mgp::Value(rel).ToString(),
-            "(id: 2, :Label1 :Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, "
+            "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, "
             "properties: {key: node_property, key2: node_property2})");
   /*path*/
   mgp::Path path = mgp::Path(node1);
@@ -669,6 +669,6 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
   path.Expand(rel2);
   ASSERT_EQ(
       mgp::Value(path).ToString(),
-      "(id: 2, :Label1 :Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, properties: "
+      "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, properties: "
       "{key: node_property, key2: node_property2})-[type: Loves2, id: 1, properties: {}]->(id: 4, properties: {})");
 }
