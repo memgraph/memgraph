@@ -1279,7 +1279,6 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   ASSERT_EQ(symbol_table.max_position(), 13);
 }
 
-// ante
 TYPED_TEST(TestSymbolGenerator, PropertyCachingSingleLookup) {
   // WITH {icode: 0000} AS item
   // RETURN {icode: item.icode} AS new_map;
