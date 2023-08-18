@@ -245,7 +245,7 @@ void ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *r
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
-    LoadWal(&decoder);
+    LoadWal(storage_, &decoder);
   }
 
   replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
@@ -261,14 +261,14 @@ void ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder 
 
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
-  LoadWal(&decoder);
+  LoadWal(storage_, &decoder);
 
   replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
-void ReplicationServer::LoadWal(replication::Decoder *decoder) {
+void ReplicationServer::LoadWal(InMemoryStorage *storage, replication::Decoder *decoder) {
   const auto temp_wal_directory = std::filesystem::temp_directory_path() / "memgraph" / durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
@@ -277,22 +277,22 @@ void ReplicationServer::LoadWal(replication::Decoder *decoder) {
   try {
     auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
     if (wal_info.seq_num == 0) {
-      storage_->uuid_ = wal_info.uuid;
+      storage->uuid_ = wal_info.uuid;
     }
 
-    if (wal_info.epoch_id != storage_->replication_state_.GetEpoch().id) {
-      storage_->replication_state_.GetEpoch().AppendEpoch(wal_info.epoch_id, storage_->last_commit_timestamp_);
+    if (wal_info.epoch_id != storage->replication_state_.GetEpoch().id) {
+      storage->replication_state_.GetEpoch().AppendEpoch(wal_info.epoch_id, storage->last_commit_timestamp_);
     }
 
-    if (storage_->wal_file_) {
-      if (storage_->wal_file_->SequenceNumber() != wal_info.seq_num) {
-        storage_->wal_file_->FinalizeWal();
-        storage_->wal_seq_num_ = wal_info.seq_num;
-        storage_->wal_file_.reset();
+    if (storage->wal_file_) {
+      if (storage->wal_file_->SequenceNumber() != wal_info.seq_num) {
+        storage->wal_file_->FinalizeWal();
+        storage->wal_seq_num_ = wal_info.seq_num;
+        storage->wal_file_.reset();
         spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
       }
     } else {
-      storage_->wal_seq_num_ = wal_info.seq_num;
+      storage->wal_seq_num_ = wal_info.seq_num;
     }
     spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
     durability::Decoder wal;
@@ -303,7 +303,7 @@ void ReplicationServer::LoadWal(replication::Decoder *decoder) {
     wal.SetPosition(wal_info.offset_deltas);
 
     for (size_t i = 0; i < wal_info.num_deltas;) {
-      i += ReadAndApplyDelta(storage_, &wal);
+      i += ReadAndApplyDelta(storage, &wal);
     }
 
     spdlog::debug("Replication from current WAL successful!");
