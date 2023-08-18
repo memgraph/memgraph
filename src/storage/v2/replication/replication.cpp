@@ -27,10 +27,8 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/storage_error.hpp"
 
+#include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
-#include "storage/v2/replication/InMemoryReplicationClient.hpp"
-#include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 
 namespace memgraph::storage {
 

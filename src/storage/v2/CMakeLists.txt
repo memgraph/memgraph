@@ -39,7 +39,7 @@ set(storage_v2_src_files
     replication/rpc.cpp
     replication/replication.cpp
     inmemory/replication/replication_server.cpp
-    replication/InMemoryReplicationClient.cpp
+    inmemory/replication/replication_client.cpp
 )
 
 #######################

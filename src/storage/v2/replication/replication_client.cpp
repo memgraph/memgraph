@@ -58,64 +58,42 @@ ReplicationClient::ReplicationClient(std::string name, memgraph::io::network::En
       replica_check_frequency_{config.replica_check_frequency},
       mode_{mode} {}
 
+ReplicationClient::~ReplicationClient() {
+  auto endpoint = rpc_client_.Endpoint();
+  spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
+}
+
 ////// ReplicaStream //////
-ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
-                                                const uint64_t current_seq_num)
+ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
+                             const uint64_t current_seq_num)
     : self_(self),
       stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(self_->GetEpochId());
 }
 
-void ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex,
-                                                   uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   auto *storage = self_->GetStorage();
   EncodeDelta(&encoder, storage->name_id_mapper_.get(), storage->config_.items, delta, vertex, final_commit_timestamp);
 }
 
-void ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge,
-                                                   uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->GetStorage()->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
-void ReplicationClient::ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void ReplicationClient::ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
-                                                       const std::set<PropertyId> &properties, uint64_t timestamp) {
+void ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
+                                    const std::set<PropertyId> &properties, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, timestamp);
 }
 
-replication::AppendDeltasRes ReplicationClient::ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
+replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
-////// CurrentWalHandler //////
-ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<replication::CurrentWalRpc>()) {}
-
-void ReplicationClient::CurrentWalHandler::AppendFilename(const std::string &filename) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteString(filename);
-}
-
-void ReplicationClient::CurrentWalHandler::AppendSize(const size_t size) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteUint(size);
-}
-
-void ReplicationClient::CurrentWalHandler::AppendFileData(utils::InputFile *file) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteFileData(file);
-}
-
-void ReplicationClient::CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteBuffer(buffer, buffer_size);
-}
-
-replication::CurrentWalRes ReplicationClient::CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 }  // namespace memgraph::storage

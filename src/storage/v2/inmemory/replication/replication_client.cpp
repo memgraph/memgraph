@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/InMemoryReplicationClient.hpp"
+#include "storage/v2/inmemory/replication/replication_client.hpp"
 
 #include "storage/v2/durability/durability.hpp"
 
@@ -19,6 +19,53 @@ namespace {
 template <typename>
 [[maybe_unused]] inline constexpr bool always_false_v = false;
 }  // namespace
+
+// Handler for transfering the current WAL file whose data is
+// contained in the internal buffer and the file.
+class CurrentWalHandler {
+ public:
+  explicit CurrentWalHandler(ReplicationClient *self);
+  void AppendFilename(const std::string &filename);
+
+  void AppendSize(size_t size);
+
+  void AppendFileData(utils::InputFile *file);
+
+  void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
+
+  /// @throw rpc::RpcFailedException
+  replication::CurrentWalRes Finalize();
+
+ private:
+  ReplicationClient *self_;
+  rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
+};
+
+////// CurrentWalHandler //////
+CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
+    : self_(self), stream_(self_->rpc_client_.Stream<replication::CurrentWalRpc>()) {}
+
+void CurrentWalHandler::AppendFilename(const std::string &filename) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  encoder.WriteString(filename);
+}
+
+void CurrentWalHandler::AppendSize(const size_t size) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  encoder.WriteUint(size);
+}
+
+void CurrentWalHandler::AppendFileData(utils::InputFile *file) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  encoder.WriteFileData(file);
+}
+
+void CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  encoder.WriteBuffer(buffer, buffer_size);
+}
+
+replication::CurrentWalRes CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
 ////// ReplicationClient //////
 InMemoryReplicationClient::InMemoryReplicationClient(std::string name, InMemoryStorage *storage,
@@ -289,7 +336,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
 }
 uint64_t InMemoryReplicationClient::ReplicateCurrentWal() {
   const auto &wal_file = storage_->wal_file_;
-  auto stream = TransferCurrentWalFile();
+  auto stream = CurrentWalHandler{this};
   stream.AppendFilename(wal_file->Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(storage_->wal_file_->Path()), "Failed to open current WAL file!");

@@ -194,7 +194,7 @@ class Client {
   /// Call this function from another thread to abort a pending RPC call.
   void Abort();
 
-  const auto &Endpoint() const { return endpoint_; }
+  auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
  private:
   io::network::Endpoint endpoint_;
