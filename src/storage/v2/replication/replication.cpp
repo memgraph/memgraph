@@ -27,6 +27,7 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/storage_error.hpp"
 
+#include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 
@@ -237,7 +238,12 @@ bool ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
   }
 
   auto port = endpoint.port;  // assigning because we will move the endpoint
-  replication_server_ = std::make_unique<ReplicationServer>(storage, std::move(endpoint), config);
+  replication_server_ = std::make_unique<InMemoryReplicationServer>(storage, std::move(endpoint), config);
+  bool res = replication_server_->Start();
+  if (!res) {
+    spdlog::error("Unable to start the replication server.");
+    return false;
+  }
 
   if (ShouldStoreAndRestoreReplicationState()) {
     // Only thing that matters here is the role saved as REPLICA and the listening port
@@ -327,8 +333,12 @@ void ReplicationState::RestoreReplicationRole(InMemoryStorage *storage) {
 
   if (GetRole() == replication::ReplicationRole::REPLICA) {
     io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
-    replication_server_ =
-        std::make_unique<ReplicationServer>(storage, std::move(endpoint), replication::ReplicationServerConfig{});
+    replication_server_ = std::make_unique<InMemoryReplicationServer>(storage, std::move(endpoint),
+                                                                      replication::ReplicationServerConfig{});
+    bool res = replication_server_->Start();
+    if (!res) {
+      LOG_FATAL("Unable to start the replication server.");
+    }
   }
 
   spdlog::info("Replication role restored to {}.",

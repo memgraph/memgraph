@@ -34,7 +34,7 @@ namespace memgraph::storage {
 // only implement snapshot isolation for transactions.
 
 class InMemoryStorage final : public Storage {
-  friend class ReplicationServer;
+  friend class InMemoryReplicationServer;
   friend class ReplicationClient;
 
  public:

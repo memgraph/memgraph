@@ -35,6 +35,7 @@ class Server {
   bool Start();
   void Shutdown();
   void AwaitShutdown();
+  bool IsRunning();
 
   const io::network::Endpoint &endpoint() const;
 
