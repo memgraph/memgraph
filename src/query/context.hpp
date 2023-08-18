@@ -52,7 +52,7 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
-  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookups_cache;
+  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookups_cache{};
 };
 
 inline std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
