@@ -13,6 +13,7 @@
 #include <string>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
+#include "utils/settings.hpp"
 
 namespace {
 // Bolt server name
@@ -27,7 +28,7 @@ namespace memgraph::flags::run_time {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 memgraph::utils::Synchronized<std::string, memgraph::utils::SpinLock> bolt_server_name_;
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::atomic<double> query_tx_sec_;
+std::atomic<double> execution_timeout_sec_;
 
 void Initialize() {
   // Register bolt server name settings
@@ -49,12 +50,12 @@ void Initialize() {
   memgraph::utils::global_settings.RegisterSetting(kQueryTxSettingKey, kDefaultQueryTx, [&] {
     const auto query_tx = memgraph::utils::global_settings.GetValue(kQueryTxSettingKey);
     MG_ASSERT(query_tx, "Query timeout is missing from the settings");
-    query_tx_sec_ = std::stod(*query_tx);
+    execution_timeout_sec_ = std::stod(*query_tx);
   });
   // Update value from read settings
   const auto &tx = memgraph::utils::global_settings.GetValue(kQueryTxSettingKey);
   MG_ASSERT(tx, "Failed to read query timeout from settings.");
-  query_tx_sec_ = std::stod(*tx);
+  execution_timeout_sec_ = std::stod(*tx);
   // Override query timeout if passed via command line argument
   if (FLAGS_query_execution_timeout_sec != -1) {
     memgraph::utils::global_settings.SetValue(kQueryTxSettingKey, std::to_string(FLAGS_query_execution_timeout_sec));

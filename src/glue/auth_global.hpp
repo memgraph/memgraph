@@ -8,19 +8,9 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #pragma once
 
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
-
-namespace memgraph::flags::run_time {
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern utils::Synchronized<std::string, utils::SpinLock> bolt_server_name_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern std::atomic<double> execution_timeout_sec_;
-
-void Initialize();
-
-}  // namespace memgraph::flags::run_time
+namespace memgraph::glue {
+inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
+}  // namespace memgraph::glue
