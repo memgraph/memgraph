@@ -2940,6 +2940,8 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
               return record_1[2].ValueString() < record_2[2].ValueString();
             }
             return label_1 < label_2;
+          } else {
+            LOG_FATAL("Should never be called; the only supported index types are label and label+property!");
           }
         });
 
