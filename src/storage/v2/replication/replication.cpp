@@ -36,7 +36,7 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
-static std::string RegisterReplicaErrorToString(ReplicationState::RegisterReplicaError error) {
+std::string RegisterReplicaErrorToString(ReplicationState::RegisterReplicaError error) {
   using enum ReplicationState::RegisterReplicaError;
   switch (error) {
     case NAME_EXISTS:

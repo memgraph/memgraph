@@ -240,9 +240,9 @@ bool InMemoryReplicationClient::FinalizeTransactionReplication() {
   if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask([this] { static_cast<void>(this->FinalizeTransactionReplicationInternal()); });
     return true;
-  } else {
-    return FinalizeTransactionReplicationInternal();
   }
+
+  return FinalizeTransactionReplicationInternal();
 }
 bool InMemoryReplicationClient::FinalizeTransactionReplicationInternal() {
   MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");

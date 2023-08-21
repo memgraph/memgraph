@@ -41,7 +41,7 @@ ReplicationServer::ReplicationServer(io::network::Endpoint endpoint, const repli
 
 ReplicationServer::~ReplicationServer() {
   if (rpc_server_.IsRunning()) {
-    auto &endpoint = rpc_server_.endpoint();
+    auto const &endpoint = rpc_server_.endpoint();
     spdlog::trace("Closing replication server on {}:{}", endpoint.address, endpoint.port);
     rpc_server_.Shutdown();
   }
