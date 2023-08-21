@@ -167,6 +167,8 @@ class Graph {
   bool IsMutable() const;
   /// @brief Creates a node and adds it to the graph.
   Node CreateNode();
+  /// @brief Creates a node with the given id and adds it to the graph.
+  Node CreateNode(int64_t);
   /// @brief Deletes a node from the graph.
   void DeleteNode(const Node &node);
   /// @brief Deletes a node and all its incident edges from the graph.
@@ -1848,6 +1850,15 @@ inline bool Graph::IsMutable() const { return mgp::graph_is_mutable(graph_); }
 
 inline Node Graph::CreateNode() {
   auto *vertex = mgp::graph_create_vertex(graph_, memory);
+  auto node = Node(vertex);
+
+  mgp::vertex_destroy(vertex);
+
+  return node;
+}
+
+inline Node Graph::CreateNode(int64_t id) {
+  auto *vertex = mgp::graph_create_vertex_with_id(graph_, {.as_int = id}, memory);
   auto node = Node(vertex);
 
   mgp::vertex_destroy(vertex);

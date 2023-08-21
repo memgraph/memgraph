@@ -89,6 +89,10 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex() override;
 
+    /// @throw std::bad_alloc
+    /// @note not thread safe
+    VertexAccessor CreateVertex(storage::Gid gid);
+
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     VerticesIterable Vertices(View view) override {
@@ -269,9 +273,6 @@ class InMemoryStorage final : public Storage {
     void FinalizeTransaction() override;
 
    private:
-    /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
-
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 

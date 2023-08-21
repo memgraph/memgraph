@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <memory>
@@ -2364,6 +2365,41 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         }
         auto *vertex = std::visit(
             [=](auto *impl) { return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph); }, graph->impl);
+
+        auto &ctx = graph->ctx;
+        ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterCreatedObject(vertex->getImpl());
+        }
+        return vertex;
+      },
+      result);
+}
+
+mgp_error mgp_graph_create_vertex_with_id(struct mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory,
+                                          mgp_vertex **result) {
+  return WrapExceptions(
+      [=]() -> mgp_vertex * {
+
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && graph->ctx &&
+            graph->ctx->auth_checker &&
+            !graph->ctx->auth_checker->HasGlobalPrivilegeOnVertices(
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw AuthorizationException{"Insufficient permissions for creating vertices!"};
+        }
+#endif
+
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
+        }
+        auto *vertex = std::visit(
+            [=](auto *impl) {
+              return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(memgraph::storage::Gid::FromInt(id.as_int)),
+                                                 graph);
+            },
+            graph->impl);
 
         auto &ctx = graph->ctx;
         ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;

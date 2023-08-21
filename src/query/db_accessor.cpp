@@ -95,6 +95,12 @@ SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
   return SubgraphVertexAccessor(vertex, this->getGraph());
 }
 
+SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex(storage::Gid gid) {
+  VertexAccessor vertex = db_accessor_.InsertVertex(gid);
+  this->graph_->InsertVertex(vertex);
+  return SubgraphVertexAccessor(vertex, this->getGraph());
+}
+
 VerticesIterable SubgraphDbAccessor::Vertices(storage::View) {  // NOLINT(hicpp-named-parameter)
   return VerticesIterable(&graph_->vertices());
 }

@@ -844,6 +844,13 @@ enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertex.
 enum mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_vertex **result);
 
+/// Add a new vertex to the graph with the given id.
+/// Resulting vertex must be freed using mgp_vertex_destroy.
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertex.
+enum mgp_error mgp_graph_create_vertex_with_id(struct mgp_graph *graph, struct mgp_vertex_id id,
+                                               struct mgp_memory *memory, struct mgp_vertex **result);
+
 /// Delete a vertex from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return mgp_error::MGP_ERROR_LOGIC_ERROR if `vertex` has edges.

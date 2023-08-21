@@ -19,6 +19,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -359,6 +360,10 @@ class DbAccessor final {
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
+  VertexAccessor InsertVertex(storage::Gid gid) {
+    return VertexAccessor(static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->CreateVertex(gid));
+  }
+
   void PrefetchOutEdges(const VertexAccessor &vertex) const { accessor_->PrefetchOutEdges(vertex.impl_); }
 
   void PrefetchInEdges(const VertexAccessor &vertex) const { accessor_->PrefetchInEdges(vertex.impl_); }
@@ -545,6 +550,8 @@ class SubgraphDbAccessor final {
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(SubgraphVertexAccessor *vertex_accessor);
 
   SubgraphVertexAccessor InsertVertex();
+
+  SubgraphVertexAccessor InsertVertex(storage::Gid gid);
 
   VerticesIterable Vertices(storage::View view);
 

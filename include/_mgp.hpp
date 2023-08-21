@@ -242,6 +242,10 @@ inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_create_vertex, graph, memory);
 }
 
+inline mgp_vertex *graph_create_vertex_with_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
+  return MgInvoke<mgp_vertex *>(mgp_graph_create_vertex_with_id, g, id, memory);
+}
+
 inline void graph_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) {
   MgInvokeVoid(mgp_graph_delete_vertex, graph, vertex);
 }
