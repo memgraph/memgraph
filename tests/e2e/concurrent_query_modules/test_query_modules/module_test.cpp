@@ -16,11 +16,11 @@
 #include <list>
 #include <thread>
 
-const char *kProcedureHackerNews = "hacker_news";
-const char *kArgumentHackerNewsVotes = "votes";
-const char *kArgumentHackerNewsItemHourAge = "item_hour_age";
-const char *kArgumentHackerNewsGravity = "gravity";
-const char *kReturnHackerNewsScore = "score";
+constexpr char *kProcedureHackerNews = "hacker_news";
+constexpr char *kArgumentHackerNewsVotes = "votes";
+constexpr char *kArgumentHackerNewsItemHourAge = "item_hour_age";
+constexpr char *kArgumentHackerNewsGravity = "gravity";
+constexpr char *kReturnHackerNewsScore = "score";
 
 void HackerNews(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
