@@ -127,10 +127,11 @@ void InMemoryReplicationClient::InitializeClient() {
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
   if (replica.epoch_id != main_epoch.id && replica.current_commit_timestamp != kTimestampInitialId) {
-    const auto epoch_info_iter =
-        std::find_if(main_epoch.history.crbegin(), main_epoch.history.crend(),
-                     [&](const auto &main_epoch_info) { return main_epoch_info.first == replica.epoch_id; });
-    if (epoch_info_iter == main_epoch.history.crend()) {
+    auto const &history = storage_->replication_state_.history;
+    const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
+      return main_epoch_info.first == replica.epoch_id;
+    });
+    if (epoch_info_iter == history.crend()) {
       branching_point = 0;
     } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
       branching_point = epoch_info_iter->second;

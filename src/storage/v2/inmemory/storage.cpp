@@ -64,9 +64,9 @@ InMemoryStorage::InMemoryStorage(Config config)
   }
   if (config_.durability.recover_on_startup) {
     auto &epoch = replication_state_.GetEpoch();
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id, &epoch.history,
-                                        &vertices_, &edges_, &edge_count_, name_id_mapper_.get(), &indices_,
-                                        &constraints_, config_, &wal_seq_num_);
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id,
+                                        &replication_state_.history, &vertices_, &edges_, &edge_count_,
+                                        name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -1685,7 +1685,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                                config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
-                               &indices_, &constraints_, config_, uuid_, epoch.id, epoch.history, &file_retainer_);
+                               &indices_, &constraints_, config_, uuid_, epoch.id, replication_state_.history,
+                               &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
 

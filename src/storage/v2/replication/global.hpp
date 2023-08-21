@@ -25,8 +25,6 @@ namespace memgraph::storage {
 
 // TODO: Should be at MAIN instance level; shouldn't be connected to storage
 struct ReplicationEpoch {
-  static constexpr uint16_t kEpochHistoryRetention = 1000;
-
   ReplicationEpoch() : id(utils::GenerateUUID()) {}
 
   // UUID to distinguish different main instance runs for replication process
@@ -44,27 +42,11 @@ struct ReplicationEpoch {
   // Without using the epoch_id, we don't know that S1 and S2 have completely
   // different transactions, we think that the S2 is behind only by 5 commits.
   std::string id;  // TODO: Move to replication level
-  // Questions:
-  //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
-  //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
-  // History of the previous epoch ids.
-  // Each value consists of the epoch id along the last commit belonging to that
-  // epoch.
-  // TODO - move to STATE
-  std::deque<std::pair<std::string, uint64_t>> history;  // coupled with InMemoryStorage due to timestamp
 
-  void NewEpoch(uint64_t timestamp) {
-    // Generate new epoch id and save the last one to the history.
-    if (history.size() == kEpochHistoryRetention) {
-      history.pop_front();
-    }
-    history.emplace_back(std::exchange(id, utils::GenerateUUID()), timestamp);
-  }
+  // Generates a new epoch id, returning the old one
+  std::string NewEpoch() { return std::exchange(id, utils::GenerateUUID()); }
 
-  // REPLICA
-  void AppendEpoch(std::string new_epoch, uint64_t timestamp) {
-    history.emplace_back(std::exchange(id, new_epoch), timestamp);
-  }
+  std::string SetEpoch(std::string new_epoch) { return std::exchange(id, std::move(new_epoch)); }
 };
 
 struct TimestampInfo {

@@ -79,8 +79,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
   if (*maybe_epoch_id != storage_->replication_state_.GetEpoch().id) {
-    storage_->replication_state_.GetEpoch().AppendEpoch(*maybe_epoch_id,
-                                                        storage_->replication_state_.last_commit_timestamp_);
+    storage_->replication_state_.AppendEpoch(*maybe_epoch_id);
   }
 
   if (storage_->wal_file_) {
@@ -148,9 +147,9 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
     auto &epoch =
         storage_->replication_state_
             .GetEpoch();  // This needs to be a non-const ref since we are updating it in LoadSnapshot TODO fix
-    auto recovered_snapshot =
-        durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_, &epoch.history,
-                                 storage_->name_id_mapper_.get(), &storage_->edge_count_, storage_->config_);
+    auto recovered_snapshot = durability::LoadSnapshot(
+        *maybe_snapshot_path, &storage_->vertices_, &storage_->edges_, &storage_->replication_state_.history,
+        storage_->name_id_mapper_.get(), &storage_->edge_count_, storage_->config_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -243,8 +242,7 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, replication::D
     }
 
     if (wal_info.epoch_id != storage->replication_state_.GetEpoch().id) {
-      storage->replication_state_.GetEpoch().AppendEpoch(wal_info.epoch_id,
-                                                         storage->replication_state_.last_commit_timestamp_);
+      storage->replication_state_.AppendEpoch(wal_info.epoch_id);
     }
 
     if (storage->wal_file_) {

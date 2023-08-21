@@ -82,10 +82,19 @@ struct ReplicationState {
   const ReplicationEpoch &GetEpoch() const { return epoch_; }
   ReplicationEpoch &GetEpoch() { return epoch_; }
 
+  // Questions:
+  //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
+  //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
+  // History of the previous epoch ids.
+  // Each value consists of the epoch id along the last commit belonging to that
+  // epoch.
+  std::deque<std::pair<std::string, uint64_t>> history;
+
   // TODO: actually durability
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
   void NewEpoch();
+  void AppendEpoch(std::string new_epoch);
 
  private:
   bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }

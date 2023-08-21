@@ -383,6 +383,20 @@ void ReplicationState::RestoreReplicas(Storage *storage) {
   }
 }
 
-void ReplicationState::NewEpoch() { epoch_.NewEpoch(last_commit_timestamp_); }
+constexpr uint16_t kEpochHistoryRetention = 1000;
+
+void ReplicationState::NewEpoch() {
+  // Generate new epoch id and save the last one to the history.
+  if (history.size() == kEpochHistoryRetention) {
+    history.pop_front();
+  }
+  auto prevEpoch = epoch_.NewEpoch();
+  history.emplace_back(std::move(prevEpoch), last_commit_timestamp_);
+}
+
+void ReplicationState::AppendEpoch(std::string new_epoch) {
+  auto prevEpoch = epoch_.SetEpoch(std::move(new_epoch));
+  history.emplace_back(std::move(prevEpoch), last_commit_timestamp_);
+}
 
 }  // namespace memgraph::storage
