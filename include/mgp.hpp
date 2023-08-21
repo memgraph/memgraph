@@ -168,13 +168,15 @@ class Graph {
   /// @brief Creates a node and adds it to the graph.
   Node CreateNode();
   /// @brief Creates a node with the given id and adds it to the graph.
-  Node CreateNode(int64_t);
+  Node CreateNode(int64_t id);
   /// @brief Deletes a node from the graph.
   void DeleteNode(const Node &node);
   /// @brief Deletes a node and all its incident edges from the graph.
   void DetachDeleteNode(const Node &node);
   /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
+  /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
+  Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type, const int64_t id);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
@@ -1872,6 +1874,17 @@ inline void Graph::DetachDeleteNode(const Node &node) { mgp::graph_detach_delete
 
 inline Relationship Graph::CreateRelationship(const Node &from, const Node &to, const std::string_view type) {
   auto *edge = mgp::graph_create_edge(graph_, from.ptr_, to.ptr_, mgp_edge_type{.name = type.data()}, memory);
+  auto relationship = Relationship(edge);
+
+  mgp::edge_destroy(edge);
+
+  return relationship;
+}
+
+inline Relationship Graph::CreateRelationship(const Node &from, const Node &to, const std::string_view type,
+                                              const int64_t id) {
+  auto *edge = mgp::graph_create_edge_with_id(graph_, from.ptr_, to.ptr_, mgp_edge_type{.name = type.data()},
+                                              {.as_int = id}, memory);
   auto relationship = Relationship(edge);
 
   mgp::edge_destroy(edge);

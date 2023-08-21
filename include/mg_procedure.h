@@ -871,6 +871,15 @@ enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mg
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
 
+/// Add a new directed edge between the two vertices with the specified label and the given id.
+/// Resulting edge must be freed using mgp_edge_destroy.
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
+enum mgp_error mgp_graph_create_edge_with_id(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
+                                             mgp_edge_id id, mgp_memory *memory, mgp_edge **result);
+
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by

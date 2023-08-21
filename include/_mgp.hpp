@@ -259,6 +259,11 @@ inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_verte
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
+inline mgp_edge *graph_create_edge_with_id(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
+                                           mgp_edge_id id, mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_create_edge_with_id, graph, from, to, type, id, memory);
+}
+
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {

@@ -349,7 +349,9 @@ PyObject *PyGraphCreateVertex(PyGraph *self, PyObject *args) {
   MG_ASSERT(self->memory);
 
   int64_t vertex_id{-1};
-  PyArg_ParseTuple(args, "l", &vertex_id);
+  if (!PyArg_ParseTuple(args, "l", &vertex_id)) {
+    return nullptr;
+  }
 
   MgpUniquePtr<mgp_vertex> new_vertex{nullptr, mgp_vertex_destroy};
 
@@ -2839,13 +2841,24 @@ PyObject *PyGraphCreateEdge(PyGraph *self, PyObject *args) {
   PyVertex *from{nullptr};
   PyVertex *to{nullptr};
   const char *edge_type{nullptr};
-  if (!PyArg_ParseTuple(args, "O!O!s", &PyVertexType, &from, &PyVertexType, &to, &edge_type)) {
+  int64_t edge_id{-1};
+
+  if (!PyArg_ParseTuple(args, "O!O!sl", &PyVertexType, &from, &PyVertexType, &to, &edge_type, &edge_id)) {
     return nullptr;
   }
   MgpUniquePtr<mgp_edge> new_edge{nullptr, mgp_edge_destroy};
-  if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge, mgp_graph_create_edge, self->graph, from->vertex,
-                                                  to->vertex, mgp_edge_type{edge_type}, self->memory))) {
-    return nullptr;
+
+  if (edge_id == -1) {
+    if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge, mgp_graph_create_edge, self->graph, from->vertex,
+                                                    to->vertex, mgp_edge_type{edge_type}, self->memory))) {
+      return nullptr;
+    }
+  } else {
+    if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge, mgp_graph_create_edge_with_id, self->graph, from->vertex,
+                                                    to->vertex, mgp_edge_type{edge_type}, mgp_edge_id{edge_id},
+                                                    self->memory))) {
+      return nullptr;
+    }
   }
   auto *py_edge = MakePyEdgeWithoutCopy(*new_edge, self);
   if (py_edge != nullptr) {

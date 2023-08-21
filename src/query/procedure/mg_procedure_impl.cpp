@@ -2589,6 +2589,71 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       result);
 }
 
+mgp_error mgp_graph_create_edge_with_id(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
+                                        mgp_edge_id id, mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions(
+      [=]() -> mgp_edge * {
+        auto *ctx = graph->ctx;
+#ifdef MG_ENTERPRISE
+        const auto edge_id =
+            std::visit([type](auto *impl) { return impl->NameToEdgeType(type.name); }, from->graph->impl);
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+            !ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw AuthorizationException{"Insufficient permissions for creating edges!"};
+        }
+#endif
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot create an edge in an immutable graph!"};
+        }
+        auto edge = std::visit(
+            memgraph::utils::Overloaded{
+                [from, to, type, id](memgraph::query::DbAccessor *impl) {
+                  return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
+                                          &std::get<memgraph::query::VertexAccessor>(to->impl),
+                                          impl->NameToEdgeType(type.name), memgraph::storage::Gid::FromInt(id.as_int));
+                },
+                [from, to, type, id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->InsertEdge(&std::get<memgraph::query::SubgraphVertexAccessor>(from->impl),
+                                          &std::get<memgraph::query::SubgraphVertexAccessor>(to->impl),
+                                          impl->NameToEdgeType(type.name), memgraph::storage::Gid::FromInt(id.as_int));
+                }},
+            graph->impl);
+
+        if (edge.HasError()) {
+          switch (edge.GetError()) {
+            case memgraph::storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot add an edge to a deleted vertex!"};
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when creating an edge!");
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+              LOG_FATAL("Unexpected error when creating an edge.");
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              throw SerializationException{"Cannot serialize creating an edge."};
+          }
+        }
+
+        ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_EDGES] += 1;
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterCreatedObject(*edge);
+        }
+        return std::visit(
+            memgraph::utils::Overloaded{
+                [memory, edge, from](memgraph::query::DbAccessor *) {
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), from->graph);
+                },
+                [memory, edge, from](memgraph::query::SubgraphDbAccessor *db_impl) {
+                  const auto &v_from =
+                      memgraph::query::SubgraphVertexAccessor(edge.GetValue().From(), db_impl->getGraph());
+                  const auto &v_to = memgraph::query::SubgraphVertexAccessor(edge.GetValue().To(), db_impl->getGraph());
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to, from->graph);
+                }},
+            graph->impl);
+      },
+      result);
+}
+
 mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     auto *ctx = graph->ctx;

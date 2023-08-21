@@ -235,6 +235,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    /// @throw std::bad_alloc
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
+
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
@@ -273,9 +276,6 @@ class InMemoryStorage final : public Storage {
     void FinalizeTransaction() override;
 
    private:
-    /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
-
     Config::Items config_;
   };
 

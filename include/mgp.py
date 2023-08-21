@@ -1232,7 +1232,7 @@ class Graph:
         Create an empty vertex.
 
         Args:
-            vertex_id (optional): Memgraph Vertex ID
+            vertex_id [optional]: Memgraph Vertex ID
 
         Returns:
             Created `Vertex`.
@@ -1286,7 +1286,7 @@ class Graph:
             raise InvalidContextError()
         self._graph.detach_delete_vertex(vertex._vertex)
 
-    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> Edge:
+    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType, edge_id: EdgeId = -1) -> Edge:
         """
         Create an edge.
 
@@ -1294,7 +1294,7 @@ class Graph:
             from_vertex: `Vertex` from where edge is directed.
             to_vertex: `Vertex'  to where edge is directed.
             edge_type:  `EdgeType` defines the type of edge.
-
+            edge_id [optional]: Memgraph Edge ID.
         Returns:
             Created `Edge`.
 
@@ -1308,7 +1308,7 @@ class Graph:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return Edge(self._graph.create_edge(from_vertex._vertex, to_vertex._vertex, edge_type.name))
+        return Edge(self._graph.create_edge(from_vertex._vertex, to_vertex._vertex, edge_type.name, edge_id))
 
     def delete_edge(self, edge: Edge) -> None:
         """

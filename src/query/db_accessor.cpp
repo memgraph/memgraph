@@ -69,6 +69,22 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
   return result;
 }
 
+storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
+                                                             const storage::EdgeTypeId &edge_type,
+                                                             const storage::Gid gid) {
+  VertexAccessor *from_impl = &from->impl_;
+  VertexAccessor *to_impl = &to->impl_;
+  if (!this->graph_->ContainsVertex(*from_impl) || !this->graph_->ContainsVertex(*to_impl)) {
+    throw std::logic_error{"Projected graph must contain both vertices to insert edge!"};
+  }
+  auto result = db_accessor_.InsertEdge(from_impl, to_impl, edge_type, gid);
+  if (result.HasError()) {
+    return result;
+  }
+  this->graph_->InsertEdge(*result);
+  return result;
+}
+
 storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 SubgraphDbAccessor::DetachRemoveVertex(  // NOLINT(readability-convert-member-functions-to-static)
     SubgraphVertexAccessor *) {          // NOLINT(hicpp-named-parameter)
