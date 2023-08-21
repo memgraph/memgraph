@@ -1227,32 +1227,12 @@ class Graph:
             raise InvalidContextError()
         return self._graph.is_mutable()
 
-    def create_vertex(self) -> Vertex:
+    def create_vertex(self, vertex_id: VertexId = None) -> Vertex:
         """
         Create an empty vertex.
 
-        Returns:
-            Created `Vertex`.
-
-        Raises:
-            ImmutableObjectError: If `graph` is immutable.
-            UnableToAllocateError: If unable to allocate a vertex.
-
-        Examples:
-            Creating an empty vertex.
-            ```vertex = graph.create_vertex()```
-
-        """
-        if not self.is_valid():
-            raise InvalidContextError()
-        return Vertex(self._graph.create_vertex())
-
-    def create_vertex(self, vertex_id: VertexId) -> Vertex:
-        """
-        Create an empty vertex with the given id.
-
         Args:
-            vertex_id: Memgraph Vertex ID
+            vertex_id (optional): Memgraph Vertex ID
 
         Returns:
             Created `Vertex`.
@@ -1268,7 +1248,7 @@ class Graph:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return Vertex(self._graph.create_vertex(vertex_id))
+        return Vertex(self._graph.create_vertex() if VertexId is None else self._graph.create_vertex(vertex_id))
 
     def delete_vertex(self, vertex: Vertex) -> None:
         """
