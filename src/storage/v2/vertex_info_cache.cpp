@@ -16,7 +16,7 @@
 #include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(delta_chain_cache_threashold, 128,
+DEFINE_VALIDATED_uint64(delta_chain_cache_threshold, 128,
                         "The threshold for when to cache long delta chains. This is used for heavy read + write "
                         "workloads where repeated processing of delta chains can become costly.",
                         { return value > 0; });
