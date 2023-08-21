@@ -33,7 +33,7 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
-static std::string RegisterReplicaErrorToString(InMemoryStorage::ReplicationState::RegisterReplicaError error) {
+std::string RegisterReplicaErrorToString(InMemoryStorage::ReplicationState::RegisterReplicaError error) {
   using enum InMemoryStorage::ReplicationState::RegisterReplicaError;
   switch (error) {
     case NAME_EXISTS:

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -268,9 +269,9 @@ class InMemoryStorage final : public Storage {
     void FinalizeTransaction() override;
 
    protected:
+    // TODO Better naming
     /// @throw std::bad_alloc
     VertexAccessor CreateVertexEx(storage::Gid gid);
-
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
@@ -279,7 +280,7 @@ class InMemoryStorage final : public Storage {
 
   class ReplicationAccessor final : public InMemoryAccessor {
    public:
-    ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
+    explicit ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
 
     /// @throw std::bad_alloc
     VertexAccessor CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
@@ -290,8 +291,8 @@ class InMemoryStorage final : public Storage {
       return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
     }
 
-    const auto &GetTransaction() const { return transaction_; }
-    auto &GetTransaction() { return transaction_; }
+    const Transaction &GetTransaction() const { return transaction_; }
+    Transaction &GetTransaction() { return transaction_; }
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
@@ -375,11 +376,11 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  auto SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
     return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
   }
 
-  auto SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
+  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
@@ -392,9 +393,9 @@ class InMemoryStorage final : public Storage {
   }
 
   /// @pre The instance should have a MAIN role
-  auto UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
+  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
 
-  auto GetReplicationRole() const { return replication_state_.GetRole(); }
+  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
 
   auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
 
@@ -454,7 +455,6 @@ class InMemoryStorage final : public Storage {
   std::filesystem::path snapshot_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
-  // std::unique_ptr<kvstore::KVStore> storage_;
   std::filesystem::path wal_directory_;
 
   utils::Scheduler snapshot_runner_;
@@ -535,24 +535,7 @@ class InMemoryStorage final : public Storage {
       COULD_NOT_BE_PERSISTED
     };
 
-    // NOTE: Server is not in MAIN it is in REPLICA
-    std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
-    // We create ReplicationClient using unique_ptr so we can move
-    // newly created client into the vector.
-    // We cannot move the client directly because it contains ThreadPool
-    // which cannot be moved. Also, the move is necessary because
-    // we don't want to create the client directly inside the vector
-    // because that would require the lock on the list putting all
-    // commits (they iterate list of clients) to halt.
-    // This way we can initialize client in main thread which means
-    // that we can immediately notify the user if the initialization
-    // failed.
-    using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-    ReplicationClientList replication_clients_;
-
-    std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
-
+    // TODO Move to private (needed for Storage construction)
     std::unique_ptr<kvstore::KVStore> durability_;
 
     // Generic API
@@ -595,6 +578,24 @@ class InMemoryStorage final : public Storage {
     bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
 
     void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
+
+    // NOTE: Server is not in MAIN it is in REPLICA
+    std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+
+    // We create ReplicationClient using unique_ptr so we can move
+    // newly created client into the vector.
+    // We cannot move the client directly because it contains ThreadPool
+    // which cannot be moved. Also, the move is necessary because
+    // we don't want to create the client directly inside the vector
+    // because that would require the lock on the list putting all
+    // commits (they iterate list of clients) to halt.
+    // This way we can initialize client in main thread which means
+    // that we can immediately notify the user if the initialization
+    // failed.
+    using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
+    ReplicationClientList replication_clients_;
+
+    std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
   };
 
  private:

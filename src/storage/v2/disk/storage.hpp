@@ -19,7 +19,6 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>

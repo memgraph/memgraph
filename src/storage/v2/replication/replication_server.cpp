@@ -331,7 +331,7 @@ uint64_t ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
-      auto acc = storage_->Access(std::optional<IsolationLevel>{});
+      auto acc = storage_->Access(std::nullopt);
       auto inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
