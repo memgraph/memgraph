@@ -17,26 +17,12 @@ class Supernode(Workload):
     CARDINALITY = 50000
 
     def indexes_generator(self):
-        indexes = []
-        if "neo4j" in self.benchmark_context.vendor_name:
-            indexes.extend(
-                [
-                    ("CREATE INDEX FOR (n:Supernode);", {}),
-                    ("CREATE INDEX FOR (n:Supernode) ON (n.id);", {}),
-                    ("CREATE INDEX FOR (n:Node);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.id);", {}),
-                ]
-            )
-        else:
-            indexes.extend(
-                [
-                    ("CREATE INDEX ON :Supernode;", {}),
-                    ("CREATE INDEX ON :Supernode(id);", {}),
-                    ("CREATE INDEX ON :Node;", {}),
-                    ("CREATE INDEX ON :Node(id);", {}),
-                ]
-            )
-        return indexes
+        return [
+            ("CREATE INDEX ON :Supernode;", {}),
+            ("CREATE INDEX ON :Supernode(id);", {}),
+            ("CREATE INDEX ON :Node;", {}),
+            ("CREATE INDEX ON :Node(id);", {}),
+        ]
 
     def dataset_generator(self):
         queries = []
