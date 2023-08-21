@@ -2941,8 +2941,6 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             }
             return label_1 < label_2;
           }
-
-          LOG_FATAL("akga");
         });
 
         return std::pair{results, QueryHandlerResult::NOTHING};
