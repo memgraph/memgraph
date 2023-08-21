@@ -73,7 +73,11 @@
   bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
     if (visitor.PreVisit(*this)) {                                       \
       if (input_ == nullptr) {                                           \
-        throw QueryRuntimeException("Logical operator can't be null!");  \
+        throw QueryRuntimeException(                                     \
+            "The query couldn't be executed due"                         \
+            " to the unexpected null value in " #class_name              \
+            " operator. "                                                \
+            "Please check your query for null values and try again.");   \
       }                                                                  \
       input_->Accept(visitor);                                           \
     }                                                                    \
