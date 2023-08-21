@@ -334,7 +334,7 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void EstablishNewEpoch() override { throw utils::BasicException("OnDisk does not support replication."); }
+  void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;

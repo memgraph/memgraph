@@ -11,7 +11,6 @@
 
 #include <atomic>
 #include <filesystem>
-#include <memory>
 
 #include "spdlog/spdlog.h"
 
