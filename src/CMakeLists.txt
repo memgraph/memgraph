@@ -37,6 +37,7 @@ set(mg_single_node_v2_sources
         flags/general.cpp
         flags/audit.cpp
         flags/bolt.cpp
+        flags/run_time_configurable.cpp
 )
 
 # memgraph main executable

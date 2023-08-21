@@ -117,8 +117,8 @@ startup_config_dict = {
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
-        "600",
-        "600",
+        "-1",
+        "-1",
         "Maximum allowed query execution time. Queries exceeding this limit will be aborted. Value of 0 means no limit.",
     ),
     "query_modules_directory": (
