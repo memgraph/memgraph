@@ -17,60 +17,29 @@ class HighWriteSetProperty(Workload):
     CARDINALITY = 100000
 
     def indexes_generator(self):
-        indexes = []
-        if "neo4j" in self.benchmark_context.vendor_name:
-            indexes.extend(
-                [
-                    ("CREATE INDEX FOR (n:Node);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop1);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop2);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop3);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop4);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop5);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop6);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop7);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop8);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop9);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop10);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop11);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop12);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop13);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop14);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop15);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop16);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop17);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop18);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop19);", {}),
-                    ("CREATE INDEX FOR (n:Node) ON (n.prop20);", {}),
-                ]
-            )
-        else:
-            indexes.extend(
-                [
-                    ("CREATE INDEX ON :Node;", {}),
-                    ("CREATE INDEX ON :Node(prop1);", {}),
-                    ("CREATE INDEX ON :Node(prop2);", {}),
-                    ("CREATE INDEX ON :Node(prop3);", {}),
-                    ("CREATE INDEX ON :Node(prop4);", {}),
-                    ("CREATE INDEX ON :Node(prop5);", {}),
-                    ("CREATE INDEX ON :Node(prop6);", {}),
-                    ("CREATE INDEX ON :Node(prop7);", {}),
-                    ("CREATE INDEX ON :Node(prop8);", {}),
-                    ("CREATE INDEX ON :Node(prop9);", {}),
-                    ("CREATE INDEX ON :Node(prop10);", {}),
-                    ("CREATE INDEX ON :Node(prop11);", {}),
-                    ("CREATE INDEX ON :Node(prop12);", {}),
-                    ("CREATE INDEX ON :Node(prop13);", {}),
-                    ("CREATE INDEX ON :Node(prop14);", {}),
-                    ("CREATE INDEX ON :Node(prop15);", {}),
-                    ("CREATE INDEX ON :Node(prop16);", {}),
-                    ("CREATE INDEX ON :Node(prop17);", {}),
-                    ("CREATE INDEX ON :Node(prop18);", {}),
-                    ("CREATE INDEX ON :Node(prop19);", {}),
-                    ("CREATE INDEX ON :Node(prop20);", {}),
-                ]
-            )
-        return indexes
+        return [
+            ("CREATE INDEX ON :Node;", {}),
+            ("CREATE INDEX ON :Node(prop1);", {}),
+            ("CREATE INDEX ON :Node(prop2);", {}),
+            ("CREATE INDEX ON :Node(prop3);", {}),
+            ("CREATE INDEX ON :Node(prop4);", {}),
+            ("CREATE INDEX ON :Node(prop5);", {}),
+            ("CREATE INDEX ON :Node(prop6);", {}),
+            ("CREATE INDEX ON :Node(prop7);", {}),
+            ("CREATE INDEX ON :Node(prop8);", {}),
+            ("CREATE INDEX ON :Node(prop9);", {}),
+            ("CREATE INDEX ON :Node(prop10);", {}),
+            ("CREATE INDEX ON :Node(prop11);", {}),
+            ("CREATE INDEX ON :Node(prop12);", {}),
+            ("CREATE INDEX ON :Node(prop13);", {}),
+            ("CREATE INDEX ON :Node(prop14);", {}),
+            ("CREATE INDEX ON :Node(prop15);", {}),
+            ("CREATE INDEX ON :Node(prop16);", {}),
+            ("CREATE INDEX ON :Node(prop17);", {}),
+            ("CREATE INDEX ON :Node(prop18);", {}),
+            ("CREATE INDEX ON :Node(prop19);", {}),
+            ("CREATE INDEX ON :Node(prop20);", {}),
+        ]
 
     def dataset_generator(self):
         queries = []
