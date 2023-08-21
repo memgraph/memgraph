@@ -101,6 +101,7 @@ class MetricsService {
   auto GetEventCounters() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
+    event_counters.reserve(memgraph::metrics::CounterEnd());
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
       event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
@@ -113,6 +114,7 @@ class MetricsService {
   auto GetEventGauges() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
+    event_gauges.reserve(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
       event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
