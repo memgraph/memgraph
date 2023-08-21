@@ -1227,7 +1227,7 @@ class Graph:
             raise InvalidContextError()
         return self._graph.is_mutable()
 
-    def create_vertex(self, vertex_id: VertexId = None) -> Vertex:
+    def create_vertex(self, vertex_id: VertexId = -1) -> Vertex:
         """
         Create an empty vertex.
 
@@ -1248,7 +1248,7 @@ class Graph:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return Vertex(self._graph.create_vertex() if VertexId is None else self._graph.create_vertex(vertex_id))
+        return Vertex(self._graph.create_vertex(vertex_id))
 
     def delete_vertex(self, vertex: Vertex) -> None:
         """

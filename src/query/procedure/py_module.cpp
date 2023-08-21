@@ -344,12 +344,24 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
   return py_vertex;
 }
 
-PyObject *PyGraphCreateVertex(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyGraphCreateVertex(PyGraph *self, PyObject *args) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   MG_ASSERT(self->memory);
+
+  int64_t vertex_id{-1};
+  PyArg_ParseTuple(args, "l", &vertex_id);
+
   MgpUniquePtr<mgp_vertex> new_vertex{nullptr, mgp_vertex_destroy};
-  if (RaiseExceptionFromErrorCode(CreateMgpObject(new_vertex, mgp_graph_create_vertex, self->graph, self->memory))) {
-    return nullptr;
+
+  if (vertex_id == -1) {
+    if (RaiseExceptionFromErrorCode(CreateMgpObject(new_vertex, mgp_graph_create_vertex, self->graph, self->memory))) {
+      return nullptr;
+    }
+  } else {
+    if (RaiseExceptionFromErrorCode(CreateMgpObject(new_vertex, mgp_graph_create_vertex_with_id, self->graph,
+                                                    mgp_vertex_id{vertex_id}, self->memory))) {
+      return nullptr;
+    }
   }
   auto *py_vertex = MakePyVertexWithoutCopy(*new_vertex, self);
   if (py_vertex != nullptr) {
