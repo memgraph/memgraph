@@ -118,8 +118,8 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
                                                   const std::string &ts) {
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), utils::DecodeFixed64(ts.c_str()),
-                                           old_disk_key);
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
@@ -130,7 +130,8 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction,
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const std::string &ts) {
-  return CreateDeleteDeserializedIndexObjectDelta(transaction, deltas, old_disk_key, utils::DecodeFixed64(ts.c_str()));
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  return CreateDeleteDeserializedIndexObjectDelta(transaction, deltas, old_disk_key, std::stoull(ts));
 }
 
 /// This function creates a delta in the transaction for the object and links
