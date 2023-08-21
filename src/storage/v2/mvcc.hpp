@@ -12,11 +12,13 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <optional>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 
@@ -114,17 +116,21 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
+                                                  const std::string &ts) {
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), utils::DecodeFixed64(ts.c_str()),
                                            old_disk_key);
+}
+
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
+                                                       std::optional<std::string> old_disk_key, const uint64_t ts) {
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, old_disk_key);
 }
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
+                                                       std::optional<std::string> old_disk_key, const std::string &ts) {
+  return CreateDeleteDeserializedIndexObjectDelta(transaction, deltas, old_disk_key, utils::DecodeFixed64(ts.c_str()));
 }
 
 /// This function creates a delta in the transaction for the object and links
