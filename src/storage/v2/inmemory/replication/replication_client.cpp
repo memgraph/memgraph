@@ -68,10 +68,9 @@ void CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buf
 replication::CurrentWalRes CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
 ////// ReplicationClient //////
-InMemoryReplicationClient::InMemoryReplicationClient(std::string name, InMemoryStorage *storage,
-                                                     memgraph::io::network::Endpoint endpoint,
-                                                     replication::ReplicationMode mode,
-                                                     replication::ReplicationClientConfig const &config)
+InMemoryReplicationClient::InMemoryReplicationClient(InMemoryStorage *storage, std::string name,
+                                                     io::network::Endpoint endpoint, replication::ReplicationMode mode,
+                                                     const replication::ReplicationClientConfig &config)
     : ReplicationClient{std::move(name), std::move(endpoint), mode, config}, storage_{storage} {}
 
 void InMemoryReplicationClient::TryInitializeClientAsync() {
@@ -122,7 +121,8 @@ void InMemoryReplicationClient::InitializeClient() {
 
   const auto &main_epoch = storage_->replication_state_.GetEpoch();
 
-  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, main_epoch.id)};
+  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->replication_state_.last_commit_timestamp_,
+                                                            main_epoch.id)};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
@@ -148,8 +148,8 @@ void InMemoryReplicationClient::InitializeClient() {
 
   current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", name_, current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}", storage_->last_commit_timestamp_.load());
-  if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
+  spdlog::trace("Current timestamp on main: {}", storage_->replication_state_.last_commit_timestamp_.load());
+  if (current_commit_timestamp == storage_->replication_state_.last_commit_timestamp_.load()) {
     spdlog::debug("Replica '{}' up to date", name_);
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::READY);
@@ -200,7 +200,8 @@ void InMemoryReplicationClient::StartTransactionReplication(const uint64_t curre
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(ReplicaStream{this, storage_->last_commit_timestamp_.load(), current_wal_seq_num});
+        replica_stream_.emplace(
+            ReplicaStream{this, storage_->replication_state_.last_commit_timestamp_.load(), current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
@@ -327,8 +328,8 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     std::unique_lock client_guard{client_lock_};
     SPDLOG_INFO("Replica timestamp: {}", replica_commit);
-    SPDLOG_INFO("Last commit: {}", storage_->last_commit_timestamp_);
-    if (storage_->last_commit_timestamp_.load() == replica_commit) {
+    SPDLOG_INFO("Last commit: {}", storage_->replication_state_.last_commit_timestamp_);
+    if (storage_->replication_state_.last_commit_timestamp_.load() == replica_commit) {
       replica_state_.store(replication::ReplicaState::READY);
       return;
     }
@@ -524,7 +525,7 @@ TimestampInfo InMemoryReplicationClient::GetTimestampInfo() {
       replica_state_.store(replication::ReplicaState::INVALID);
       HandleRpcFailure();
     }
-    auto main_time_stamp = storage_->last_commit_timestamp_.load();
+    auto main_time_stamp = storage_->replication_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
   } catch (const rpc::RpcFailedException &) {

@@ -164,7 +164,7 @@ bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
 utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
-    InMemoryStorage *storage) {
+    Storage *storage) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
@@ -199,8 +199,7 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
     }
   }
 
-  auto client =
-      std::make_unique<InMemoryReplicationClient>(std::move(name), storage, endpoint, replication_mode, config);
+  auto client = storage->CreateReplicationClient(std::move(name), endpoint, replication_mode, config);
   client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {
@@ -232,14 +231,14 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
 }
 
 bool ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
-                                      const replication::ReplicationServerConfig &config, InMemoryStorage *storage) {
+                                      const replication::ReplicationServerConfig &config, Storage *storage) {
   // We don't want to restart the server if we're already a REPLICA
   if (GetRole() == replication::ReplicationRole::REPLICA) {
     return false;
   }
 
   auto port = endpoint.port;  // assigning because we will move the endpoint
-  replication_server_ = std::make_unique<InMemoryReplicationServer>(storage, std::move(endpoint), config);
+  replication_server_ = storage->CreateReplicationServer(std::move(endpoint), config);
   bool res = replication_server_->Start();
   if (!res) {
     spdlog::error("Unable to start the replication server.");
@@ -304,7 +303,7 @@ std::vector<ReplicaInfo> ReplicationState::ReplicasInfo() {
   });
 }
 
-void ReplicationState::RestoreReplicationRole(InMemoryStorage *storage) {
+void ReplicationState::RestoreReplicationRole(Storage *storage) {
   if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
@@ -334,8 +333,7 @@ void ReplicationState::RestoreReplicationRole(InMemoryStorage *storage) {
 
   if (GetRole() == replication::ReplicationRole::REPLICA) {
     io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
-    replication_server_ = std::make_unique<InMemoryReplicationServer>(storage, std::move(endpoint),
-                                                                      replication::ReplicationServerConfig{});
+    replication_server_ = storage->CreateReplicationServer(std::move(endpoint), {});
     bool res = replication_server_->Start();
     if (!res) {
       LOG_FATAL("Unable to start the replication server.");
@@ -346,7 +344,7 @@ void ReplicationState::RestoreReplicationRole(InMemoryStorage *storage) {
                GetRole() == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
 }
 
-void ReplicationState::RestoreReplicas(InMemoryStorage *storage) {
+void ReplicationState::RestoreReplicas(Storage *storage) {
   if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
@@ -384,5 +382,7 @@ void ReplicationState::RestoreReplicas(InMemoryStorage *storage) {
     spdlog::info("Replica {} restored.", replica_name);
   }
 }
+
+void ReplicationState::NewEpoch() { epoch_.NewEpoch(last_commit_timestamp_); }
 
 }  // namespace memgraph::storage

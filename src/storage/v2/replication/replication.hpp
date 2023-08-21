@@ -28,11 +28,10 @@
 // TODO use replication namespace
 namespace memgraph::storage {
 
-class InMemoryStorage;
+class Storage;
 class ReplicationServer;
 class ReplicationClient;
 
-// TODO: decouple from InMemoryStorage
 struct ReplicationState {
   enum class RegisterReplicaError : uint8_t {
     NAME_EXISTS,
@@ -50,11 +49,11 @@ struct ReplicationState {
   replication::ReplicationRole GetRole() const { return replication_role_.load(); }
 
   bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
-  // TODO: ReplicationServer/Client uses InMemoryStorage* for RPC callbacks
+  // TODO: ReplicationServer/Client uses Storage* for RPC callbacks
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
-                      InMemoryStorage *storage);  // Sets the instance to REPLICA
+                      Storage *storage);  // Sets the instance to REPLICA
   // Generic restoration
-  void RestoreReplicationRole(InMemoryStorage *storage);
+  void RestoreReplicationRole(Storage *storage);
 
   // MAIN actually doing the replication
   bool AppendToWalDataDefinition(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
@@ -66,14 +65,14 @@ struct ReplicationState {
 
   // MAIN connecting to replicas
   utils::BasicResult<RegisterReplicaError> RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                                                           replication::ReplicationMode replication_mode,
-                                                           replication::RegistrationMode registration_mode,
+                                                           const replication::ReplicationMode replication_mode,
+                                                           const replication::RegistrationMode registration_mode,
                                                            const replication::ReplicationClientConfig &config,
-                                                           InMemoryStorage *storage);
+                                                           Storage *storage);
   bool UnregisterReplica(std::string_view name);
 
   // MAIN reconnecting to replicas
-  void RestoreReplicas(InMemoryStorage *storage);
+  void RestoreReplicas(Storage *storage);
 
   // MAIN getting info from replicas
   // TODO make into const (problem with SpinLock and WithReadLock)
@@ -82,6 +81,11 @@ struct ReplicationState {
 
   const ReplicationEpoch &GetEpoch() const { return epoch_; }
   ReplicationEpoch &GetEpoch() { return epoch_; }
+
+  // TODO: actually durability
+  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+
+  void NewEpoch();
 
  private:
   bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
@@ -109,8 +113,6 @@ struct ReplicationState {
   std::unique_ptr<kvstore::KVStore> durability_;
 
   ReplicationEpoch epoch_;
-
-  mutable std::mutex mtx_;  // TODO: Probably not needed
 };
 
 }  // namespace memgraph::storage

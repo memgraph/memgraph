@@ -400,6 +400,13 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+  auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint, replication::ReplicationMode mode,
+                               replication::ReplicationClientConfig const &config)
+      -> std::unique_ptr<ReplicationClient> override;
+
+  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+      -> std::unique_ptr<ReplicationServer> override;
+
  private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -487,8 +494,6 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
-
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
   ReplicationState replication_state_;
 };

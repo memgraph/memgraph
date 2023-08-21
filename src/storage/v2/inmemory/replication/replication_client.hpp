@@ -16,7 +16,7 @@ namespace memgraph::storage {
 
 class InMemoryReplicationClient : public ReplicationClient {
  public:
-  InMemoryReplicationClient(std::string name, InMemoryStorage *storage, io::network::Endpoint endpoint,
+  InMemoryReplicationClient(InMemoryStorage *storage, std::string name, io::network::Endpoint endpoint,
                             replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
   void StartTransactionReplication(uint64_t current_wal_seq_num) override;
   // Replication clients can be removed at any point

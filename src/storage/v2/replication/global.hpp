@@ -50,6 +50,7 @@ struct ReplicationEpoch {
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
+  // TODO - move to STATE
   std::deque<std::pair<std::string, uint64_t>> history;  // coupled with InMemoryStorage due to timestamp
 
   void NewEpoch(uint64_t timestamp) {

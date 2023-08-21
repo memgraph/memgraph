@@ -21,10 +21,8 @@
 #include "utils/stat.hpp"
 
 /// REPLICATION ///
-#include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/storage_error.hpp"
+#include "storage/v2/inmemory/replication/replication_client.hpp"
+#include "storage/v2/inmemory/replication/replication_server.hpp"
 
 namespace memgraph::storage {
 
@@ -74,7 +72,7 @@ InMemoryStorage::InMemoryStorage(Config config)
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
-        last_commit_timestamp_ = *info->last_commit_timestamp;
+        replication_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -701,7 +699,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
           if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
               desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
-            mem_storage->last_commit_timestamp_.store(*commit_timestamp_);
+            mem_storage->replication_state_.last_commit_timestamp_.store(*commit_timestamp_);
           }
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
@@ -917,7 +915,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
   const auto success =
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -940,7 +938,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -962,7 +960,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
   auto success =
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -986,7 +984,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1017,7 +1015,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStor
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
     return {};
@@ -1036,7 +1034,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
     return {};
@@ -1061,7 +1059,7 @@ InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
                                            properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
     return UniqueConstraints::CreationStatus::SUCCESS;
@@ -1082,7 +1080,7 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
                                            properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  replication_state_.last_commit_timestamp_ = commit_timestamp;
 
   if (success) {
     return UniqueConstraints::DeletionStatus::SUCCESS;
@@ -1749,7 +1747,7 @@ void InMemoryStorage::EstablishNewEpoch() {
     wal_file_.reset();
   }
   // TODO: Move out of storage (no need for the lock) <- missing commit_timestamp at a higher level
-  replication_state_.GetEpoch().NewEpoch(last_commit_timestamp_);
+  replication_state_.NewEpoch();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -1775,6 +1773,18 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   // after we call clean queue.
   file_retainer_.CleanQueue();
   return true;
+}
+
+auto InMemoryStorage::CreateReplicationClient(std::string name, io::network::Endpoint endpoint,
+                                              replication::ReplicationMode mode,
+                                              replication::ReplicationClientConfig const &config)
+    -> std::unique_ptr<ReplicationClient> {
+  return std::make_unique<InMemoryReplicationClient>(this, std::move(name), endpoint, mode, config);
+}
+
+std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
+    io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+  return std::make_unique<InMemoryReplicationServer>(this, std::move(endpoint), config);
 }
 
 }  // namespace memgraph::storage

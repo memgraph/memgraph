@@ -64,7 +64,7 @@ InMemoryReplicationServer::InMemoryReplicationServer(InMemoryStorage *storage, m
 void InMemoryReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(),
+  replication::HeartbeatRes res{true, storage_->replication_state_.last_commit_timestamp_.load(),
                                 storage_->replication_state_.GetEpoch().id};
   slk::Save(res, res_builder);
 }
@@ -79,7 +79,8 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
   if (*maybe_epoch_id != storage_->replication_state_.GetEpoch().id) {
-    storage_->replication_state_.GetEpoch().AppendEpoch(*maybe_epoch_id, storage_->last_commit_timestamp_);
+    storage_->replication_state_.GetEpoch().AppendEpoch(*maybe_epoch_id,
+                                                        storage_->replication_state_.last_commit_timestamp_);
   }
 
   if (storage_->wal_file_) {
@@ -97,7 +98,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
     storage_->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != storage_->last_commit_timestamp_.load()) {
+  if (req.previous_commit_timestamp != storage_->replication_state_.last_commit_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -106,14 +107,14 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
       transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
     }
 
-    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_.load()};
+    replication::AppendDeltasRes res{false, storage_->replication_state_.last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
 
   ReadAndApplyDelta(storage_, &decoder);
 
-  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::AppendDeltasRes res{true, storage_->replication_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -168,7 +169,7 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
   }
   storage_guard.unlock();
 
-  replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::SnapshotRes res{true, storage_->replication_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
@@ -209,7 +210,7 @@ void InMemoryReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Bu
     LoadWal(storage_, &decoder);
   }
 
-  replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::WalFilesRes res{true, storage_->replication_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
@@ -224,7 +225,7 @@ void InMemoryReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::
 
   LoadWal(storage_, &decoder);
 
-  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::CurrentWalRes res{true, storage_->replication_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
@@ -242,7 +243,8 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, replication::D
     }
 
     if (wal_info.epoch_id != storage->replication_state_.GetEpoch().id) {
-      storage->replication_state_.GetEpoch().AppendEpoch(wal_info.epoch_id, storage->last_commit_timestamp_);
+      storage->replication_state_.GetEpoch().AppendEpoch(wal_info.epoch_id,
+                                                         storage->replication_state_.last_commit_timestamp_);
     }
 
     if (storage->wal_file_) {
@@ -277,7 +279,7 @@ void InMemoryReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::B
   replication::TimestampReq req;
   slk::Load(&req, req_reader);
 
-  replication::TimestampRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::TimestampRes res{true, storage_->replication_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
@@ -299,7 +301,7 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
   };
 
   uint64_t applied_deltas = 0;
-  auto max_commit_timestamp = storage->last_commit_timestamp_.load();
+  auto max_commit_timestamp = storage->replication_state_.last_commit_timestamp_.load();
 
   for (bool transaction_complete = false; !transaction_complete; ++applied_deltas) {
     const auto [timestamp, delta] = ReadDelta(decoder);
@@ -566,7 +568,7 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid data!");
 
-  storage->last_commit_timestamp_ = max_commit_timestamp;
+  storage->replication_state_.last_commit_timestamp_ = max_commit_timestamp;
 
   spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
