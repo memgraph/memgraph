@@ -202,7 +202,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
       // clang-format on
     });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction->manyDeltasCache;
       cache.StoreExists(view, &vertex, exists);
       cache.StoreDeleted(view, &vertex, deleted);
