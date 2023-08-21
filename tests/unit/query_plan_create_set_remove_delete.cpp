@@ -2495,3 +2495,112 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   }
 }
 #endif
+
+template <typename StorageType>
+class DynamicExpandFixture : public testing::Test {
+ protected:
+  const std::string testSuite = "query_plan_create_set_remove_delete_dynamic_expand";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
+  SymbolTable symbol_table;
+  AstStorage storage;
+
+  // make 2 nodes connected to the third node
+  memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v3{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v4{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v5{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type{db->NameToEdgeType("Edge")};
+  memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v5, edge_type)};
+  memgraph::query::EdgeAccessor r2{*dba.InsertEdge(&v2, &v5, edge_type)};
+  memgraph::query::EdgeAccessor r3{*dba.InsertEdge(&v3, &v5, edge_type)};
+  memgraph::query::EdgeAccessor r4{*dba.InsertEdge(&v4, &v5, edge_type)};
+
+  memgraph::storage::LabelId node_label{dba.NameToLabel("Node")};
+  memgraph::storage::LabelId supernode_label{dba.NameToLabel("Supernode")};
+
+  void SetUp() override {
+    ASSERT_TRUE(v1.AddLabel(node_label).HasValue());
+    ASSERT_TRUE(v2.AddLabel(node_label).HasValue());
+    ASSERT_TRUE(v3.AddLabel(node_label).HasValue());
+    ASSERT_TRUE(v4.AddLabel(node_label).HasValue());
+    ASSERT_TRUE(v5.AddLabel(supernode_label).HasValue());
+    memgraph::license::global_license_checker.EnableTesting();
+
+    dba.AdvanceCommand();
+  }
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(DynamicExpandFixture, StorageTypes);
+
+TYPED_TEST(DynamicExpandFixture, Expand) {
+  using ExpandCursor = memgraph::query::plan::Expand::ExpandCursor;
+
+  auto scan_node_by_label = MakeScanAllByLabel(this->storage, this->symbol_table, "n", this->node_label);
+  auto scan_supernode_by_label =
+      MakeScanAllByLabel(this->storage, this->symbol_table, "s", this->supernode_label, scan_node_by_label.op_);
+
+  auto once = std::make_shared<Once>();
+
+  auto edge_sym = this->symbol_table.CreateSymbol("r", true);
+  auto my_expand = std::make_shared<Expand>(
+      scan_supernode_by_label.op_, scan_supernode_by_label.sym_, scan_node_by_label.sym_, edge_sym,
+      EdgeAtom::Direction::OUT, std::vector<memgraph::storage::EdgeTypeId>{}, true, memgraph::storage::View::OLD);
+
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+
+  Frame frame{context.symbol_table.max_position()};
+  frame[scan_supernode_by_label.sym_] = this->v4;
+  frame[scan_node_by_label.sym_] = this->v1;
+
+  auto *mem = memgraph::utils::NewDeleteResource();
+  auto *initial_cursor =
+      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, -1, -1, mem).get());
+  auto expansion_info = initial_cursor->GetExpansionInfo(frame);
+
+  ASSERT_EQ(expansion_info.input_node.value(), this->v4);
+  ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::OUT);
+  ASSERT_EQ(expansion_info.existing_node.value(), this->v1);
+
+  auto *expanded_first_cursor =
+      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, -1, mem).get());
+  expansion_info = expanded_first_cursor->GetExpansionInfo(frame);
+
+  ASSERT_EQ(expansion_info.input_node.value(), this->v1);
+  ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
+  ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
+
+  auto *expanded_both_take_first =
+      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, 100, mem).get());
+  expansion_info = expanded_both_take_first->GetExpansionInfo(frame);
+
+  ASSERT_EQ(expansion_info.input_node.value(), this->v4);
+  ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::OUT);
+  ASSERT_EQ(expansion_info.existing_node.value(), this->v1);
+
+  auto *expanded_both_take_second =
+      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 100, 1, mem).get());
+  expansion_info = expanded_both_take_second->GetExpansionInfo(frame);
+
+  ASSERT_EQ(expansion_info.input_node.value(), this->v1);
+  ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
+  ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
+
+  auto *expanded_equal_take_second =
+      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 5, 5, mem).get());
+  expansion_info = expanded_equal_take_second->GetExpansionInfo(frame);
+
+  ASSERT_EQ(expansion_info.input_node.value(), this->v1);
+  ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
+  ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
+}

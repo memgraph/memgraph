@@ -813,9 +813,11 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   class ExpandCursor : public Cursor {
    public:
     ExpandCursor(const Expand &, utils::MemoryResource *);
+    ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
+    ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
     using InEdgeT = std::vector<EdgeAccessor>;
@@ -838,7 +840,6 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
-    ExpansionInfo GetExpansionInfo(Frame &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
