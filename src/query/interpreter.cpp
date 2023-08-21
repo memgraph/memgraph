@@ -2922,6 +2922,29 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
           results.push_back({TypedValue("label+property"), TypedValue(db->LabelToName(item.first)),
                              TypedValue(db->PropertyToName(item.second))});
         }
+
+        std::sort(results.begin(), results.end(), [](const auto record_1, const auto record_2) {
+          const auto type_1 = record_1[0].ValueString();
+          const auto type_2 = record_2[0].ValueString();
+
+          if (type_1 != type_2) {
+            return type_1 < type_2;
+          }
+
+          if (type_1 == "label") {
+            return record_1[1].ValueString() < record_2[1].ValueString();
+          } else if (type_1 == "label+property") {
+            const auto label_1 = record_1[1].ValueString();
+            const auto label_2 = record_2[1].ValueString();
+            if (label_1 == label_2) {
+              return record_1[2].ValueString() < record_2[2].ValueString();
+            }
+            return label_1 < label_2;
+          }
+
+          LOG_FATAL("akga");
+        });
+
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
