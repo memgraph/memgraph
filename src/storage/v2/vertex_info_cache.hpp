@@ -20,7 +20,7 @@
 #include <gflags/gflags.h>
 #include <tuple>
 
-DECLARE_uint64(delta_chain_cache_threashold);
+DECLARE_uint64(delta_chain_cache_threshold);
 
 namespace memgraph::storage {
 

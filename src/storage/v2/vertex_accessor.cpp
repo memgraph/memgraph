@@ -63,7 +63,7 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
       // clang-format on
     });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction->manyDeltasCache;
       cache.StoreExists(view, vertex, exists);
       cache.StoreDeleted(view, vertex, deleted);
@@ -163,7 +163,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
       // clang-format on
     });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -210,7 +210,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
       // clang-format on
     });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -340,7 +340,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
           // clang-format on
         });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -388,7 +388,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
           // clang-format on
         });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -465,7 +465,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
           // clang-format on
         });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -539,7 +539,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
           // clang-format on
         });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -587,7 +587,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
           // clang-format on
         });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
@@ -635,7 +635,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
           // clang-format on
         });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
