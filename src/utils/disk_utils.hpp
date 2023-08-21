@@ -26,14 +26,12 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
 }
 
 inline uint64_t GetEarliestTimestamp(storage::Delta *head) {
+  uint64_t ts = head->timestamp->load(std::memory_order_acquire);
   while (head->next != nullptr) {
     head = head->next;
+    ts = std::min(ts, head->timestamp->load(std::memory_order_acquire));
   }
-  if (head->action == storage::Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-    return head->timestamp->load(std::memory_order_acquire);
-  }
-  MG_ASSERT(false, "Timestamp must be present in vertex delta!");
-  return 0;
+  return ts;
 }
 
 }  // namespace memgraph::utils
