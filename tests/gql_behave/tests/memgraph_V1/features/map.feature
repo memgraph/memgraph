@@ -1,6 +1,6 @@
-Feature: MapLiteral property caching
+Feature: Creating map values
 
-  Scenario: Creating a MapLiteral that caches vertex properties
+  Scenario: Creating a map with multiple properties from a vertex
     Given an empty graph
     And having executed
       """
@@ -14,7 +14,7 @@ Feature: MapLiteral property caching
       | public_data                                |
       | {age: 24, name: 'Andy', surname: 'Walker'} |
 
-  Scenario: Creating multiple instances of a MapLiteral that caches vertex properties
+  Scenario: Creating instances of a map with multiple properties from a vertex
     Given an empty graph
     And having executed
       """
@@ -29,7 +29,7 @@ Feature: MapLiteral property caching
       | {age: 24, name: 'Andy', surname: 'Walker'} |
       | {age: 24, name: 'Andy', surname: 'Walker'} |
 
-  Scenario: Creating a MapLiteral that caches properties from multiple vertices
+  Scenario: Creating a map with multiple properties from each vertex
     Given an empty graph
     And having executed
       """
@@ -43,7 +43,7 @@ Feature: MapLiteral property caching
       | o                                                                                 |
       | (:Owner {catAge: 11, catName: 'Luigi', dogAge: 10, dogName: 'Don', name: 'Ivan'}) |
 
-  Scenario: Creating multiple distinct MapLiterals that cache vertex properties
+  Scenario: Creating distinct maps with multiple properties, each from one vertex
     Given an empty graph
     And having executed
       """
@@ -61,7 +61,7 @@ Feature: MapLiteral property caching
       | {prop1: 4, prop2: 8}  |
       | {prop1: 5, prop2: 10} |
 
-  Scenario: Creating a MapLiteral that caches vertex properties (one is null)
+  Scenario: Creating a map with multiple properties from a vertex; one property is null
     Given an empty graph
     And having executed
       """
@@ -75,7 +75,7 @@ Feature: MapLiteral property caching
       | public_data                                                 |
       | {age: 24, name: 'Andy', null_prop: null, surname: 'Walker'} |
 
-  Scenario: Creating a MapLiteral that caches edge properties
+  Scenario: Creating a map with multiple properties from an edge
     Given an empty graph
     And having executed
       """
@@ -89,7 +89,7 @@ Feature: MapLiteral property caching
       | route_data                    |
       | {cross_border: true, km: 466} |
 
-  Scenario: Creating multiple instances of a MapLiteral that caches edge properties
+  Scenario: Creating instances of a map with multiple properties from an edge
     Given an empty graph
     And having executed
       """
@@ -104,7 +104,7 @@ Feature: MapLiteral property caching
       | {cross_border: true, km: 466} |
       | {cross_border: true, km: 466} |
 
-  Scenario: Creating a MapLiteral that caches properties from multiple edges
+  Scenario: Creating a map with multiple properties from each edge
     Given an empty graph
     And having executed
       """
@@ -119,7 +119,7 @@ Feature: MapLiteral property caching
       | routes_data                                                        |
       | {cross_border: true, daily_flight: true, km_air: 350, km_hwy: 466} |
 
-  Scenario: Creating multiple distinct MapLiterals that cache edge properties
+  Scenario: Creating distinct maps with multiple properties, each from one edge
     Given an empty graph
     And having executed
       """
@@ -137,7 +137,7 @@ Feature: MapLiteral property caching
       | {prop1: 4, prop2: 8}  |
       | {prop1: 5, prop2: 10} |
 
-  Scenario: Creating a MapLiteral that caches edge properties (one is null)
+  Scenario: Creating a map with multiple properties from an edge; one property is null
     Given an empty graph
     And having executed
       """
@@ -151,7 +151,7 @@ Feature: MapLiteral property caching
       | route_data                                     |
       | {cross_border: true, km: 466, null_prop: null} |
 
-  Scenario: Creating a MapLiteral that caches both vertex and edge properties
+  Scenario: Creating a map with multiple properties from both a vertex and an edge
     Given an empty graph
     And having executed
       """
