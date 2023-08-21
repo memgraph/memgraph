@@ -411,7 +411,7 @@ static PyMethodDef PyGraphMethods[] = {
      "Return True if Graph is mutable and can be used to modify vertices and edges."},
     {"get_vertex_by_id", reinterpret_cast<PyCFunction>(PyGraphGetVertexById), METH_VARARGS,
      "Get the vertex or raise IndexError."},
-    {"create_vertex", reinterpret_cast<PyCFunction>(PyGraphCreateVertex), METH_NOARGS, "Create a vertex."},
+    {"create_vertex", reinterpret_cast<PyCFunction>(PyGraphCreateVertex), METH_VARARGS, "Create a vertex."},
     {"create_edge", reinterpret_cast<PyCFunction>(PyGraphCreateEdge), METH_VARARGS, "Create an edge."},
     {"delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDeleteVertex), METH_VARARGS, "Delete a vertex."},
     {"detach_delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDetachDeleteVertex), METH_VARARGS,
