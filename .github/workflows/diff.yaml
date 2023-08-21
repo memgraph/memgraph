@@ -420,8 +420,6 @@ jobs:
           cd tests/mgbench
           ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
 
-          ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_supernode.json supernode
-
       - name: Upload mgbench results
         run: |
           cd tools/bench-graph-client
@@ -430,12 +428,6 @@ jobs:
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
                     --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
-
-          ./main.py --benchmark-name "supernode" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_supernode.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
