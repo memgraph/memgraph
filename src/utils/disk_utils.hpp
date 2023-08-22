@@ -26,7 +26,8 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
   return std::nullopt;
 }
 
-inline bool VertexExistsInCache(const utils::SkipList<storage::Vertex>::Accessor &accessor, storage::Gid gid) {
+template <typename TSkipListAccessor>
+inline bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
   return accessor.find(gid) != accessor.end();
 }
 

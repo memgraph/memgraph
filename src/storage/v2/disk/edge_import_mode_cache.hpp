@@ -59,9 +59,9 @@ class EdgeImportModeCache final {
 
   void SetScannedAllVertices();
 
-  std::list<Delta> *GetDeltaStorage();
-
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
+
+  bool DoesNotHaveDeltas();
 
  private:
   utils::SkipList<Vertex> vertices_;
@@ -70,7 +70,6 @@ class EdgeImportModeCache final {
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;
   std::set<std::pair<LabelId, PropertyId>> scanned_label_properties_;
-  std::list<Delta> delta_storage_;
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
 };
 

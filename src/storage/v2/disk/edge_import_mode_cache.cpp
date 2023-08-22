@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
+#include <algorithm>
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -76,10 +77,17 @@ utils::SkipList<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return ed
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 
-std::list<Delta> *EdgeImportModeCache::GetDeltaStorage() { return &delta_storage_; }
-
 utils::Synchronized<std::list<Transaction>, utils::SpinLock> &EdgeImportModeCache::GetCommittedTransactions() {
   return committed_transactions_;
+}
+
+bool EdgeImportModeCache::DoesNotHaveDeltas() {
+  bool res{false};
+  committed_transactions_.WithLock([&res](auto &committed_transactions) {
+    res = std::all_of(committed_transactions.begin(), committed_transactions.end(),
+                      [](auto &tx) { return tx.deltas.empty(); });
+  });
+  return res;
 }
 
 }  // namespace memgraph::storage

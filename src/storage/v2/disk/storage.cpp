@@ -329,7 +329,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   auto main_storage_accessor = vertices_.access();
 
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key)));
-  if (VertexExistsInCache(main_storage_accessor, gid)) {
+  if (ObjectExistsInCache(main_storage_accessor, gid)) {
     return std::nullopt;
   }
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
@@ -342,7 +342,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
     std::string &&key, std::string &&value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
-  if (VertexExistsInCache(index_accessor, gid)) {
+  if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
 
@@ -356,7 +356,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
     std::string &&key, std::string &&value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
-  if (VertexExistsInCache(index_accessor, gid)) {
+  if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
 
@@ -428,18 +428,17 @@ void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
   ro.timestamp = &ts;
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
-  auto *delta_storage = disk_storage->edge_import_mode_cache_->GetDeltaStorage();
 
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
     storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromMainDiskStorage(key)));
-    if (VertexExistsInCache(cache_accessor, gid)) continue;
+    if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
     std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
     CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                 CreateDeleteDeserializedObjectDelta(delta_storage, key, "0"));
+                 CreateDeleteDeserializedObjectDelta(&transaction_, key, "0"));
   }
 }
 
@@ -469,7 +468,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
     std::string value = it->value().ToString();
     if (key.starts_with(label_prefix)) {
       storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
-      if (utils::VertexExistsInCache(cache_accessor, gid)) continue;
+      if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
@@ -512,7 +511,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
     std::string value = it->value().ToString();
     if (key.starts_with(label_property_prefix)) {
       storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
-      if (VertexExistsInCache(cache_accessor, gid)) continue;
+      if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
@@ -1218,26 +1217,24 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  EdgeRef edge(gid);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
+  if (edge_import_mode_active) {
+    auto import_mode_edge_cache_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
+    if (auto it = import_mode_edge_cache_acc.find(gid); it != import_mode_edge_cache_acc.end()) {
+      return EdgeAccessor(EdgeRef(&*it), edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                          &storage_->constraints_, config_);
+    }
+  }
+
+  EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
-
-    /// TODO: (andi) Abstract into a method
-    /// TODO: (andi) It is better to store both timestamps and delta in the same storage, why separate here timestamps
-    /// from deltas
-    auto *delta = edge_import_mode_active
-                      ? CreateDeleteDeserializedObjectDelta(disk_storage->edge_import_mode_cache_->GetDeltaStorage(),
-                                                            old_disk_key, read_ts)
-                      : CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key, read_ts);
+    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key, read_ts);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
-    }
+    delta->prev.Set(&*it);
     edge.ptr->properties.SetBuffer(properties);
   }
 
@@ -1269,11 +1266,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
 
   if (config_.properties_on_edges) {
     auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
-
-    auto *delta = edge_import_mode_active
-                      ? CreateDeleteObjectDelta(&transaction_, disk_storage->edge_import_mode_cache_->GetDeltaStorage())
-                      : CreateDeleteObjectDelta(&transaction_);
-
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1281,18 +1274,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     delta->prev.Set(&*it);
   }
 
+  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+
+  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-  /// TODO: (andi) Not needed for
-  if (edge_import_mode_active) {
-    auto *delta_storage = disk_storage->edge_import_mode_cache_->GetDeltaStorage();
-    CreateAndLinkDelta(&transaction_, delta_storage, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex,
-                       edge);
-    CreateAndLinkDelta(&transaction_, delta_storage, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-  } else {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-  }
 
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
@@ -1685,7 +1671,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if ((edge_import_mode_active && disk_storage->edge_import_mode_cache_->GetDeltaStorage()->empty()) ||
+  if ((edge_import_mode_active && disk_storage->edge_import_mode_cache_->DoesNotHaveDeltas()) ||
       (!edge_import_mode_active &&
        (transaction_.deltas.empty() ||
         std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
