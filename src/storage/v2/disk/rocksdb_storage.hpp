@@ -18,6 +18,8 @@
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"

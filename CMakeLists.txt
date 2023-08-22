@@ -64,7 +64,7 @@ option(MG_ENTERPRISE "Build Memgraph Enterprise Edition" ON)
 # Set the current version here to override the automatic version detection. The
 # version must be specified as `X.Y.Z`. Primarily used when building new patch
 # versions.
-set(MEMGRAPH_OVERRIDE_VERSION "")
+set(MEMGRAPH_OVERRIDE_VERSION "2.10.1")
 
 # Custom suffix that this version should have. The suffix can be any arbitrary
 # string. Primarily used when building a version for a specific customer.
@@ -211,8 +211,8 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# Use gold linker to speedup build
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
+# Use lld linker to speedup build
+add_link_options(-fuse-ld=lld) # TODO: use mold linker
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
