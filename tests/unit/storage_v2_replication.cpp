@@ -747,12 +747,12 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
                    .HasError());
 
   const std::string replica2_name{replicas[0]};
-  ASSERT_TRUE(main_mem_store
-                  ->RegisterReplica(replica2_name, replica2_endpoint,
-                                    memgraph::storage::replication::ReplicationMode::ASYNC,
-                                    memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                    memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::NAME_EXISTS);
+  ASSERT_TRUE(
+      main_mem_store
+          ->RegisterReplica(replica2_name, replica2_endpoint, memgraph::storage::replication::ReplicationMode::ASYNC,
+                            memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                            memgraph::storage::replication::ReplicationClientConfig{})
+          .GetError() == memgraph::storage::InMemoryStorage::ReplicationState::RegisterReplicaError::NAME_EXISTS);
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
@@ -779,12 +779,12 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                    .HasError());
 
   const std::string replica2_name{replicas[1]};
-  ASSERT_TRUE(main_mem_store
-                  ->RegisterReplica(replica2_name, replica2_endpoint,
-                                    memgraph::storage::replication::ReplicationMode::ASYNC,
-                                    memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                    memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS);
+  ASSERT_TRUE(
+      main_mem_store
+          ->RegisterReplica(replica2_name, replica2_endpoint, memgraph::storage::replication::ReplicationMode::ASYNC,
+                            memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                            memgraph::storage::replication::ReplicationClientConfig{})
+          .GetError() == memgraph::storage::InMemoryStorage::ReplicationState::RegisterReplicaError::END_POINT_EXISTS);
 }
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
@@ -907,5 +907,6 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
                                     memgraph::storage::replication::ReplicationMode::SYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::CONNECTION_FAILED);
+                  .GetError() ==
+              memgraph::storage::InMemoryStorage::ReplicationState::RegisterReplicaError::CONNECTION_FAILED);
 }
