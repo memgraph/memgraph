@@ -56,10 +56,11 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterTest()
       : data_directory(std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"),
-        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-                            {.execution_timeout_sec = 600}, data_directory) {}
+        storage(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite))),
+        interpreter_context(storage.get(), {.execution_timeout_sec = 600}, data_directory) {}
 
   std::filesystem::path data_directory;
+  std::unique_ptr<StorageType> storage;
   memgraph::query::InterpreterContext interpreter_context;
 
   void TearDown() override {
@@ -1095,10 +1096,10 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
         "row"};
 
+    std::unique_ptr<TypeParam> storage =
+        std::make_unique<TypeParam>(disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv));
     memgraph::query::InterpreterContext csv_interpreter_context{
-        std::make_unique<TypeParam>(disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv)),
-        {.query = {.allow_load_csv = allow_load_csv}},
-        directory_manager.Path()};
+        storage.get(), {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
     InterpreterFaker interpreter_faker{&csv_interpreter_context};
     for (const auto &query : queries) {
       if (allow_load_csv) {

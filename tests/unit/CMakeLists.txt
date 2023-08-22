@@ -401,8 +401,8 @@ target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
 
 # Test multi-database
 if(MG_ENTERPRISE)
-  # add_unit_test(dbms_storage.cpp)
-  # target_link_libraries(${test_prefix}dbms_storage mg-storage-v2 mg-query mg-glue)
+  add_unit_test(dbms_storage.cpp)
+  target_link_libraries(${test_prefix}dbms_storage mg-storage-v2 mg-query mg-glue)
 
   add_unit_test(dbms_interp.cpp)
   target_link_libraries(${test_prefix}dbms_interp mg-query)

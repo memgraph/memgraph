@@ -43,10 +43,9 @@ class ExpandedInterpContext : public query::InterpreterContext {
  *
  */
 struct ExpandedInterpConfig {
-  storage::Config storage_config;          //!< Storage configuration
   query::InterpreterConfig interp_config;  //!< Interpreter configuration
+  std::filesystem::path storage_dir;       //!< Durability directory
 };
-
 /**
  * @brief Multi-database interpreter context handler
  *
@@ -70,34 +69,20 @@ class InterpContextHandler : public Handler<ExpandedInterpContext<TSCHandler>, E
    * @param auth_checker AuthChecker used
    * @return HandlerT::NewResult
    */
-  typename HandlerT::NewResult New(const std::string &name, TSCHandler &sc_handler, storage::Config storage_config,
-                                   const query::InterpreterConfig &interpreter_config,
+  typename HandlerT::NewResult New(const std::string &name, TSCHandler &sc_handler, storage::Storage *db,
+                                   const query::InterpreterConfig &interpreter_config, const std::filesystem::path &dir,
                                    query::AuthQueryHandler &auth_handler, query::AuthChecker &auth_checker) {
     // Check if compatible with the existing interpreters
-    if (std::any_of(HandlerT::cbegin(), HandlerT::cend(), [&](const auto &elem) {
-          const auto &config = elem.second.config().storage_config;
-          return config.durability.storage_directory == storage_config.durability.storage_directory;
+    if (std::any_of(this->cbegin(), this->cend(), [&](const auto &elem) {
+          const auto &config = elem.second.config();
+          const auto &context = *elem.second.get();
+          return config.storage_dir == dir || context.db == db;
         })) {
-      spdlog::info("Tried to generate a new context using claimed directory and/or storage.");
+      // LOG
       return NewError::EXISTS;
     }
-    const auto dir = storage_config.durability.storage_directory;
-    storage_config.name = name;  // Set storage id via config
-    return HandlerT::New(
-        name, std::forward_as_tuple(storage_config, interpreter_config),
-        std::forward_as_tuple(sc_handler, storage_config, interpreter_config, dir, &auth_handler, &auth_checker));
-  }
-
-  /**
-   * @brief All currently active storage.
-   *
-   * @return std::vector<std::string>
-   */
-  std::vector<std::string> All() const {
-    std::vector<std::string> res;
-    res.reserve(std::distance(HandlerT::cbegin(), HandlerT::cend()));
-    std::for_each(HandlerT::cbegin(), HandlerT::cend(), [&](const auto &elem) { res.push_back(elem.first); });
-    return res;
+    return HandlerT::New(name, std::forward_as_tuple(interpreter_config, dir),
+                         std::forward_as_tuple(sc_handler, db, interpreter_config, dir, &auth_handler, &auth_checker));
   }
 };
 

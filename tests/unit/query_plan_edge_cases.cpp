@@ -32,18 +32,20 @@ template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
   const std::string testSuite = "query_plan_edge_cases";
+  std::unique_ptr<memgraph::storage::Storage> storage_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
-    interpreter_context_.emplace(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-                                 memgraph::query::InterpreterConfig{}, data_directory);
+    storage_ = std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite));
+    interpreter_context_.emplace(storage_.get(), memgraph::query::InterpreterConfig{}, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
 
   void TearDown() {
+    storage_.reset();
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
 
@@ -58,7 +60,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(this->interpreter_context_->db.get());
+    ResultStreamFaker stream(this->interpreter_context_->db);
 
     auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
     stream.Header(header);

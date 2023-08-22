@@ -74,9 +74,10 @@ class StreamsTestFixture : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  memgraph::query::InterpreterContext interpreter_context_{
-      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-      memgraph::query::InterpreterConfig{}, data_directory_};
+  std::unique_ptr<memgraph::storage::Storage> storage{
+      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite))};
+  memgraph::query::InterpreterContext interpreter_context_{storage.get(), memgraph::query::InterpreterConfig{},
+                                                           data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
 

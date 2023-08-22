@@ -571,7 +571,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
-          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          memgraph::dbms::SessionContext sc(nullptr, nullptr, "", nullptr, nullptr);
           if (database != memgraph::auth::kAllDatabases) {
             sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
@@ -591,7 +591,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
         try {
-          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          memgraph::dbms::SessionContext sc(nullptr, nullptr, "", nullptr, nullptr);
           if (database != memgraph::auth::kAllDatabases) {
             sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
@@ -660,7 +660,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, role = repl_query->role_,
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, role = repl_query->role_,
                      maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
@@ -673,7 +673,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}] {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -692,7 +692,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
 
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, name, socket_address, sync_mode,
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
                      replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -704,7 +704,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -717,8 +717,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()},
-                     replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -1351,29 +1350,14 @@ storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) 
 
 }  // namespace
 
-InterpreterContext::InterpreterContext(const storage::Config storage_config, const InterpreterConfig interpreter_config,
+InterpreterContext::InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
                                        query::AuthChecker *ac)
-    : auth(ah),
-      auth_checker(ac),
-      trigger_store(data_directory / "triggers"),
+    : db(db),
       config(interpreter_config),
-      streams{this, data_directory / "streams"} {
-  if (utils::DirExists(storage_config.disk.main_storage_directory)) {
-    db = std::make_unique<storage::DiskStorage>(storage_config);
-  } else {
-    db = std::make_unique<storage::InMemoryStorage>(storage_config);
-  }
-}
-
-InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
-                                       const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
-                                       query::AuthChecker *ac)
-    : db(std::move(db)),
       auth(ah),
       auth_checker(ac),
       trigger_store(data_directory / "triggers"),
-      config(interpreter_config),
       streams{this, data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
@@ -2199,7 +2183,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
       std::move(parsed_query.required_privileges),
       [interpreter_context, action = lock_path_query->action_](
           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db);
         std::vector<std::vector<TypedValue>> status;
         std::string res;
 
@@ -2523,6 +2507,9 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
                             InterpreterContext *interpreter_context) {
   Callback callback;
   callback.fn = [current_mode, requested_mode, interpreter_context]() mutable {
+#ifdef MG_ENTERPRISE
+    auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+    auto db_name = interpreter_context->db->id();
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -2533,31 +2520,38 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      std::unique_lock main_guard{interpreter_context->db->main_lock_};
-
-      if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
-        throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
-            "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
-            "query. ");
-      }
-
-      main_guard.unlock();
-      if (interpreter_context->interpreters->size() > 1) {
-        throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-            "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
-            "multiple sessions to run queries in parallel,  "
-            "it is currently impossible to switch to the on-disk storage mode within Lab. "
-            "Close it, connect to the instance with mgconsole "
-            "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
-            "and continue to use the instance as usual.");
-      }
-
-      auto db_config = interpreter_context->db->config_;
-      interpreter_context->db = std::make_unique<memgraph::storage::DiskStorage>(db_config);
+      sc_handler.SwitchMemoryDevice(db_name);
     }
     return std::vector<std::vector<TypedValue>>();
+#else
+    if (current_mode == requested_mode) {
+      return std::vector<std::vector<TypedValue>>();
+    }
+    if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
+      throw utils::BasicException(
+          "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
+          "automatically start in the default in-memory transactional storage mode.");
+    }
+    if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
+      interpreter_context->interpreters.WithLock([&](const auto &interpreters_) {
+        if (interpreters_.size() > 1) {
+          throw utils::BasicException(
+              "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+              "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
+              "multiple sessions to run queries in parallel, "
+              "it is currently impossible to switch to the on-disk storage mode within Lab. "
+              "Close it, connect to the instance with mgconsole "
+              "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
+              "and continue to use the instance as usual.");
+        }
+        main_guard.unlock();
+        interpreter_context->db =
+            std::make_unique<memgraph::storage::DiskStorage>(std::move(interpreter_context->db->config_));
+      });
+    }
+    return std::vector<std::vector<TypedValue>>();
+#endif
   };
   return callback;
 }
@@ -2623,7 +2617,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db);
         if (auto maybe_error = mem_storage->CreateSnapshot({}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
@@ -2880,7 +2874,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
       handler = [interpreter_context] {
-        auto *db = interpreter_context->db.get();
+        auto *db = interpreter_context->db;
         auto info = db->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
@@ -2897,7 +2891,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::CONSTRAINT:
       header = {"constraint type", "label", "properties"};
       handler = [interpreter_context] {
-        auto *db = interpreter_context->db.get();
+        auto *db = interpreter_context->db;
         auto info = db->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.existence.size() + info.unique.size());
@@ -3217,7 +3211,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(interpreter_context->db.get()) == storage::replication::ReplicationRole::REPLICA) {
+  if (GetReplicaRole(interpreter_context->db) == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("Query forbidden on the replica!");
   }
   if (in_explicit_transaction) {
@@ -3360,7 +3354,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(interpreter_context->db.get()) == storage::replication::ReplicationRole::REPLICA) {
+  if (GetReplicaRole(interpreter_context->db) == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 
@@ -3609,7 +3603,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                        interpreter_context_, interpreter_context_->db.get(),
+                                        interpreter_context_, interpreter_context_->db,
                                         &query_execution->execution_memory_with_exception, interpreter_isolation_level,
                                         next_transaction_isolation_level);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
@@ -3664,7 +3658,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (IsWriteQueryOnMainMemoryReplica(interpreter_context_->db.get(), rw_type)) {
+    if (IsWriteQueryOnMainMemoryReplica(interpreter_context_->db, rw_type)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }

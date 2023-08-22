@@ -33,6 +33,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage_handler.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -296,7 +297,7 @@ class SessionContextHandler {
     // Low level handlers
     const auto storage_path = StorageDir_(db_name);
     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
-    if (!interp_handler_.Delete(db_name)) {
+    if (!db_handler_.Delete(db_name) || !interp_handler_.Delete(db_name)) {
       spdlog::error("Partial failure while deleting database \"{}\".", db_name);
       defunct_dbs_.emplace(db_name);
       return DeleteError::FAIL;
@@ -351,7 +352,7 @@ class SessionContextHandler {
    */
   std::vector<std::string> All() const {
     std::shared_lock<LockT> rd(lock_);
-    return interp_handler_.All();
+    return db_handler_.All();
   }
 
   /**
@@ -364,9 +365,9 @@ class SessionContextHandler {
     uint64_t nv = 0;
     uint64_t ne = 0;
     std::shared_lock<LockT> rd(lock_);
-    const uint64_t ndb = std::distance(interp_handler_.cbegin(), interp_handler_.cend());
-    for (const auto &ic : interp_handler_) {
-      const auto &info = ic.second.get()->db->GetInfo();
+    const uint64_t ndb = std::distance(db_handler_.cbegin(), db_handler_.cend());
+    for (const auto &[_, db] : db_handler_) {
+      const auto &info = db->GetInfo();
       nv += info.vertex_count;
       ne += info.edge_count;
     }
@@ -391,8 +392,7 @@ class SessionContextHandler {
    */
   void RestoreTriggers() {
     std::lock_guard<LockT> wr(lock_);
-    for (auto &ic_itr : interp_handler_) {
-      auto ic = ic_itr.second.get();
+    for (auto &[_, ic] : interp_handler_) {
       spdlog::debug("Restoring trigger for database \"{}\"", ic->db->id());
       auto storage_accessor = ic->db->Access();
       auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
@@ -406,18 +406,69 @@ class SessionContextHandler {
    */
   void RestoreStreams() {
     std::lock_guard<LockT> wr(lock_);
-    for (auto &ic_itr : interp_handler_) {
-      auto ic = ic_itr.second.get();
+    for (auto &[_, ic] : interp_handler_) {
       spdlog::debug("Restoring streams for database \"{}\"", ic->db->id());
       ic->streams.RestoreStreams();
     }
   }
 
+  void SwitchMemoryDevice(std::string_view name) {
+    std::shared_lock<LockT> rd(lock_);
+    try {
+      // Check if db exists
+      auto sc = Get_(name.data());
+      auto &ic = sc.interpreter_context;
+      auto &db = sc.db;
+      auto db_config = db->config_;
+      // interpreters is a global list of active interpreters
+      // lock it and check if there are any active, if we are the only one,
+      // keep it locked during the switch to protect from any other user accessing the same database
+      ic->interpreters.WithLock([&](const auto &interpreters_) {
+        if (interpreters_.size() > 1) {
+          throw utils::BasicException(
+              "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+              "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
+              "multiple sessions to run queries in parallel, "
+              "it is currently impossible to switch to the on-disk storage mode within Lab. "
+              "Close it, connect to the instance with mgconsole "
+              "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
+              "and continue to use the instance as usual.");
+        }
+        std::unique_lock main_guard{db->main_lock_};
+        if (auto vertex_cnt_approx = db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+          throw utils::BasicException(
+              "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+              "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
+              "query. ");
+        }
+        main_guard.unlock();
+        // Delete old database
+        if (!db_handler_.Delete(name.data())) {
+          spdlog::error("Partial failure while switching to mode for database \"{}\".", name);
+          defunct_dbs_.emplace(name);
+          throw utils::BasicException(
+              "Partial failure while switching modes, database \"{}\" is now defunct. Try deleting it and creating it "
+              "again.",
+              name);
+        }
+        // Create new OnDisk databases
+        db_config.force_on_disk = true;
+        auto new_db = db_handler_.New(name.data(), db_config);
+        if (new_db.HasError()) {
+          throw utils::BasicException("Failed to create disk storage.");
+        }
+        ic->db = new_db.GetValue().get();
+      });
+    } catch (UnknownDatabaseException &) {
+      throw utils::BasicException("Tried to switch modes of an unknown database \"{}\"", name);
+    }
+  }
+
  private:
   std::optional<std::filesystem::path> StorageDir_(const std::string &name) const {
-    const auto conf = interp_handler_.GetConfig(name);
+    const auto conf = db_handler_.GetConfig(name);
     if (conf) {
-      return conf->storage_config.durability.storage_directory;
+      return conf->durability.storage_directory;
     }
     spdlog::debug("Failed to find storage dir for database \"{}\"", name);
     return {};
@@ -466,15 +517,21 @@ class SessionContextHandler {
                    name);
       return NewError::DEFUNCT;
     }
-
-    auto new_interp = interp_handler_.New(name, *this, storage_config, inter_config, *auth_handler_, *auth_checker_);
-
-    if (new_interp.HasValue()) {
-      // Success
-      if (durability_) durability_->Put(name, "ok");
-      return SessionContext{new_interp.GetValue(), run_id_, auth_.get(), audit_log_};
+    auto new_db = db_handler_.New(name, storage_config);
+    if (new_db.HasValue()) {
+      const auto &dir = storage_config.durability.storage_directory;
+      auto new_interp =
+          interp_handler_.New(name, *this, new_db.GetValue().get(), inter_config, dir, *auth_handler_, *auth_checker_);
+      if (new_interp.HasValue()) {
+        // Success
+        if (durability_) durability_->Put(name, "ok");
+        return SessionContext{new_db.GetValue(), new_interp.GetValue(), run_id_, auth_.get(), audit_log_};
+      }
+      // Delete db from db_handler
+      db_handler_.Delete(name);  // TODO: Check if successful
+      return new_interp.GetError();
     }
-    return new_interp.GetError();
+    return new_db.GetError();
   }
 
   /**
@@ -497,9 +554,9 @@ class SessionContextHandler {
       }
 
       // Force link on-disk directories
-      const auto conf = interp_handler_.GetConfig(kDefaultDB);
+      const auto conf = db_handler_.GetConfig(kDefaultDB);
       MG_ASSERT(conf, "No configuration for the default database.");
-      const auto &tmp_conf = conf->storage_config.disk;
+      const auto &tmp_conf = conf->disk;
       std::vector<std::filesystem::path> to_link{
           tmp_conf.main_storage_directory,         tmp_conf.label_index_directory,
           tmp_conf.label_property_index_directory, tmp_conf.unique_constraints_directory,
@@ -546,20 +603,21 @@ class SessionContextHandler {
    * @throw UnknownDatabaseException if trying to get unknown database
    */
   SessionContext Get_(const std::string &name) {
+    auto db = db_handler_.Get(name);
     auto interp = interp_handler_.Get(name);
-    if (interp) {
-      return SessionContext{*interp, run_id_, auth_.get(), audit_log_};
+    if (db && interp) {
+      return SessionContext{*db, *interp, run_id_, auth_.get(), audit_log_};
     }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
 
   // Should storage objects ever be deleted?
-  mutable LockT lock_;                                          //!< protective lock
-  std::filesystem::path lock_file_path_;                        //!< Lock file protecting the main storage
-  utils::OutputFile lock_file_handle_;                          //!< Handler the lock (crash if already open)
+  mutable LockT lock_;                    //!< protective lock
+  std::filesystem::path lock_file_path_;  //!< Lock file protecting the main storage
+  utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
+  // TODO Combine db and interp handlers into one
+  StorageHandler db_handler_;                                   //!< multi-tenancy storage handler
   InterpContextHandler<SessionContextHandler> interp_handler_;  //!< multi-tenancy interpreter handler
-  // AuthContextHandler auth_handler_; //!< multi-tenancy authorization handler (currently we use a single global
-  // auth)
   std::unique_ptr<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>> auth_;
   std::unique_ptr<query::AuthQueryHandler> auth_handler_;
   std::unique_ptr<query::AuthChecker> auth_checker_;

@@ -241,38 +241,32 @@ class Interpreter;
  */
 /// TODO: andi decouple in a separate file why here?
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Config storage_config, InterpreterConfig interpreter_config,
-                              const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
-                              query::AuthChecker *ac = nullptr);
-
-  InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
+  InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
                      const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                      query::AuthChecker *ac = nullptr);
 
-  std::unique_ptr<storage::Storage> db;
+  storage::Storage *db;
+  const InterpreterConfig config;
 
-  // ANTLR has singleton instance that is shared between threads. It is
-  // protected by locks inside of ANTLR. Unfortunately, they are not protected
-  // in a very good way. Once we have ANTLR version without race conditions we
-  // can remove this lock. This will probably never happen since ANTLR
-  // developers introduce more bugs in each version. Fortunately, we have
-  // cache so this lock probably won't impact performance much...
-  utils::SpinLock antlr_lock;
+  // TODO: This variable is only used to flag that the timer is not resent (refactor)
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
+
   std::atomic<bool> is_shutting_down{false};
 
+  // GLOBAL
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 
+  // Tided to storage
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
+  // TODO Figure out
   TriggerStore trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
-
-  const InterpreterConfig config;
-
   query::stream::Streams streams;
+
+  // Used to check active transactions
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
 };
 

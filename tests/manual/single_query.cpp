@@ -31,11 +31,12 @@ int main(int argc, char *argv[]) {
   memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::query::InterpreterContext interpreter_context{memgraph::storage::Config{},
-                                                          memgraph::query::InterpreterConfig{}, data_directory};
+  memgraph::storage::InMemoryStorage inmem(memgraph::storage::Config{});
+  memgraph::storage::Storage *db = &inmem;
+  memgraph::query::InterpreterContext interpreter_context{db, memgraph::query::InterpreterConfig{}, data_directory};
   memgraph::query::Interpreter interpreter{&interpreter_context};
 
-  ResultStreamFaker stream(interpreter_context.db.get());
+  ResultStreamFaker stream(db);
   auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);

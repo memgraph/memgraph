@@ -69,8 +69,8 @@ INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testin
 class StorageModeMultiTxTest : public ::testing::Test {
  protected:
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_storage_mode"};
-  memgraph::query::InterpreterContext interpreter_context{
-      std::make_unique<memgraph::storage::InMemoryStorage>(), {}, data_directory};
+  std::unique_ptr<memgraph::storage::Storage> storage{std::make_unique<memgraph::storage::InMemoryStorage>()};
+  memgraph::query::InterpreterContext interpreter_context{storage.get(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 

@@ -207,7 +207,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
 
 auto Execute(memgraph::query::InterpreterContext *context, const std::string &query) {
   memgraph::query::Interpreter interpreter(context);
-  ResultStreamFaker stream(context->db.get());
+  ResultStreamFaker stream(context->db);
 
   auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, nullptr);
   stream.Header(header);
@@ -275,9 +275,8 @@ class DumpTest : public ::testing::Test {
  public:
   const std::string testSuite = "query_dump";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_class"};
-  memgraph::query::InterpreterContext context{
-      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-      memgraph::query::InterpreterConfig{}, data_directory};
+  std::unique_ptr<StorageType> storage{std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite))};
+  memgraph::query::InterpreterContext context{storage.get(), memgraph::query::InterpreterConfig{}, data_directory};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -291,7 +290,7 @@ TYPED_TEST_CASE(DumpTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EmptyGraph) {
-  ResultStreamFaker stream(this->context.db.get());
+  ResultStreamFaker stream(this->context.db);
   memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
   {
     auto acc = this->context.db->Access();
@@ -310,7 +309,7 @@ TYPED_TEST(DumpTest, SingleVertex) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -331,7 +330,7 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -352,7 +351,7 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -374,7 +373,7 @@ TYPED_TEST(DumpTest, VertexWithSingleProperty) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -397,7 +396,7 @@ TYPED_TEST(DumpTest, MultipleVertices) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -435,7 +434,7 @@ TYPED_TEST(DumpTest, PropertyValue) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -462,7 +461,7 @@ TYPED_TEST(DumpTest, SingleEdge) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -491,7 +490,7 @@ TYPED_TEST(DumpTest, MultipleEdges) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -521,7 +520,7 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -551,7 +550,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
                    .HasError());
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -578,7 +577,7 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -611,7 +610,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
   }
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -645,11 +644,12 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   }
 
   auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump";
-  memgraph::query::InterpreterContext interpreter_context(std::make_unique<TypeParam>(),
-                                                          memgraph::query::InterpreterConfig{}, data_directory);
+  std::unique_ptr<TypeParam> storage = std::make_unique<TypeParam>();
+  memgraph::query::InterpreterContext interpreter_context(storage.get(), memgraph::query::InterpreterConfig{},
+                                                          data_directory);
 
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -728,12 +728,13 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                  this->context.db->NameToProperty("unexisting_property"))
                    .HasError());
 
-  const auto &db_initial_state = GetState(this->context.db.get());
+  const auto &db_initial_state = GetState(this->context.db);
   auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump";
-  memgraph::query::InterpreterContext interpreter_context(std::make_unique<TypeParam>(),
-                                                          memgraph::query::InterpreterConfig{}, data_directory);
+  std::unique_ptr<TypeParam> storage = std::make_unique<TypeParam>();
+  memgraph::query::InterpreterContext interpreter_context(storage.get(), memgraph::query::InterpreterConfig{},
+                                                          data_directory);
   {
-    ResultStreamFaker stream(this->context.db.get());
+    ResultStreamFaker stream(this->context.db);
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
       auto acc = this->context.db->Access();
@@ -753,7 +754,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       ++i;
     }
   }
-  ASSERT_EQ(GetState(this->context.db.get()), db_initial_state);
+  ASSERT_EQ(GetState(this->context.db), db_initial_state);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -788,7 +789,7 @@ class StatefulInterpreter {
       : context_(context), interpreter_(context_) {}
 
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(context_->db.get());
+    ResultStreamFaker stream(context_->db);
 
     auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, nullptr);
     stream.Header(header);
@@ -935,7 +936,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
-  ResultStreamFaker stream(this->context.db.get());
+  ResultStreamFaker stream(this->context.db);
   memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
   auto acc = this->context.db->Access();
   memgraph::query::DbAccessor dba(acc.get());

@@ -28,6 +28,11 @@ namespace memgraph::utils {
  */
 template <typename TContext, typename TConfig = void>
 struct SyncPtr {
+  template <typename T>
+  struct is_raw_ptr : std::false_type {};
+  template <>
+  struct is_raw_ptr<TContext *> : std::true_type {};
+
   /**
    * @brief Construct a new synched pointer.
    *
@@ -36,10 +41,19 @@ struct SyncPtr {
    * @param args Arguments to pass to TContext constructor
    */
   template <typename... TArgs>
-  explicit SyncPtr(TConfig config, TArgs &&...args)
+  requires(sizeof...(TArgs) != 1 || !is_raw_ptr<TArgs...>::value) explicit SyncPtr(TConfig config, TArgs &&...args)
       : timeout_{1000}, config_{config}, ptr_{new TContext(std::forward<TArgs>(args)...), [this](TContext *ptr) {
                                                 this->OnDelete(ptr);
                                               }} {}
+
+  /**
+   * @brief Construct a new synched pointer from a raw pointer.
+   *
+   * @param config Additional metadata associated with context
+   * @param ptr
+   */
+  SyncPtr(TConfig config, TContext *ptr)
+      : timeout_{1000}, config_{config}, ptr_{ptr, [this](TContext *ptr) { this->OnDelete(ptr); }} {}
 
   ~SyncPtr() = default;
 
@@ -64,6 +78,8 @@ struct SyncPtr {
    */
   std::shared_ptr<TContext> get() { return ptr_; }
   std::shared_ptr<const TContext> get() const { return ptr_; }
+
+  TContext *operator->() const { return ptr_.get(); }
 
   /**
    * @brief Return saved configuration (metadata)
@@ -112,19 +128,30 @@ struct SyncPtr {
 
 template <typename TContext>
 class SyncPtr<TContext, void> {
+  template <typename T>
+  struct is_raw_ptr : std::false_type {};
+  template <>
+  struct is_raw_ptr<TContext *> : std::true_type {};
+
  public:
   /**
    * @brief Construct a new synched pointer.
    *
    * @tparam TArgs variable templates used by the TContext constructor
-   * @param config Additional metadata associated with context
    * @param args Arguments to pass to TContext constructor
    */
   template <typename... TArgs>
-  explicit SyncPtr(TArgs &&...args)
+  requires(sizeof...(TArgs) != 1 || !is_raw_ptr<TArgs...>::value) explicit SyncPtr(TArgs &&...args)
       : timeout_{1000}, ptr_{new TContext(std::forward<TArgs>(args)...), [this](TContext *ptr) {
                                this->OnDelete(ptr);
                              }} {}
+
+  /**
+   * @brief Construct a new synched pointer from a raw pointer.
+   *
+   * @param ptr
+   */
+  explicit SyncPtr(TContext *ptr) : timeout_{1000}, ptr_{ptr, [this](TContext *ptr) { this->OnDelete(ptr); }} {}
 
   ~SyncPtr() = default;
 

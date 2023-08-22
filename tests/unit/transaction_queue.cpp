@@ -30,8 +30,9 @@ class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
   const std::string testSuite = "transactin_queue";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
-  memgraph::query::InterpreterContext interpreter_context{
-      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {}, data_directory};
+  std::unique_ptr<memgraph::storage::Storage> storage{
+      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite))};
+  memgraph::query::InterpreterContext interpreter_context{storage.get(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
