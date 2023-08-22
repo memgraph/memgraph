@@ -252,13 +252,13 @@ class DiskStorage final : public Storage {
     bool DeleteEdgeFromDisk(const std::string &edge);
 
     /// Main storage
-    utils::SkipList<storage::Vertex> vertices_;
-    std::vector<std::unique_ptr<utils::SkipList<storage::Vertex>>> index_storage_;
+    utils::SkipList<Vertex> vertices_;
+    std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
     std::vector<std::list<Delta>> index_deltas_storage_;
-    utils::SkipList<storage::Edge> edges_;
+    utils::SkipList<Edge> edges_;
     Config::Items config_;
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;

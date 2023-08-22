@@ -18,6 +18,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -52,19 +53,25 @@ class EdgeImportModeCache final {
 
   bool AllVerticesScanned() const;
 
-  utils::SkipList<Vertex>::Accessor Access();
+  utils::SkipList<Vertex>::Accessor AccessToVertices();
+
+  utils::SkipList<Edge>::Accessor AccessToEdges();
 
   void SetScannedAllVertices();
 
   std::list<Delta> *GetDeltaStorage();
 
+  utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
+
  private:
-  utils::SkipList<Vertex> cache_;
+  utils::SkipList<Vertex> vertices_;
+  utils::SkipList<Edge> edges_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;
   std::set<std::pair<LabelId, PropertyId>> scanned_label_properties_;
   std::list<Delta> delta_storage_;
+  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
 };
 
 }  // namespace memgraph::storage

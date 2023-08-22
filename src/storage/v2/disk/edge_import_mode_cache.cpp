@@ -43,7 +43,7 @@ bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
                                       const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool res = mem_label_property_index->CreateIndex(label, property, cache_.access(), parallel_exec_info);
+  bool res = mem_label_property_index->CreateIndex(label, property, vertices_.access(), parallel_exec_info);
   if (res) {
     scanned_label_properties_.insert({label, property});
   }
@@ -53,7 +53,7 @@ bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
 bool EdgeImportModeCache::CreateIndex(LabelId label,
                                       const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  bool res = mem_label_index->CreateIndex(label, cache_.access(), parallel_exec_info);
+  bool res = mem_label_index->CreateIndex(label, vertices_.access(), parallel_exec_info);
   if (res) {
     scanned_labels_.insert(label);
   }
@@ -70,10 +70,16 @@ bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
-utils::SkipList<Vertex>::Accessor EdgeImportModeCache::Access() { return cache_.access(); }
+utils::SkipList<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() { return vertices_.access(); }
+
+utils::SkipList<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return edges_.access(); }
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 
 std::list<Delta> *EdgeImportModeCache::GetDeltaStorage() { return &delta_storage_; }
+
+utils::Synchronized<std::list<Transaction>, utils::SpinLock> &EdgeImportModeCache::GetCommittedTransactions() {
+  return committed_transactions_;
+}
 
 }  // namespace memgraph::storage

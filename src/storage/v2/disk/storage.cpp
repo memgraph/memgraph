@@ -420,7 +420,7 @@ void DiskStorage::DiskAccessor::LoadVerticesToMainMemoryCache() {
 /// TODO: send from and to as arguments and remove so many methods
 void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto cache_accessor = disk_storage->edge_import_mode_cache_->Access();
+  auto cache_accessor = disk_storage->edge_import_mode_cache_->AccessToVertices();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -428,7 +428,6 @@ void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
   ro.timestamp = &ts;
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
-
   auto *delta_storage = disk_storage->edge_import_mode_cache_->GetDeltaStorage();
 
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -456,7 +455,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(disk_storage->indices_.label_index_.get());
   auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
-  auto cache_accessor = disk_storage->edge_import_mode_cache_->Access();
+  auto cache_accessor = disk_storage->edge_import_mode_cache_->AccessToVertices();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -499,7 +498,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(disk_storage->indices_.label_property_index_.get());
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
-  auto cache_accessor = disk_storage->edge_import_mode_cache_->Access();
+  auto cache_accessor = disk_storage->edge_import_mode_cache_->AccessToVertices();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -539,8 +538,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     HandleMainLoadingForEdgeImportCache();
 
-    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->Access(), &transaction_, view,
-                                                &storage_->indices_, &storage_->constraints_, storage_->config_.items));
+    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(),
+                                                &transaction_, view, &storage_->indices_, &storage_->constraints_,
+                                                storage_->config_.items));
   }
   LoadVerticesToMainMemoryCache();
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
@@ -1022,7 +1022,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   /// TODO: (andi) Abstract to a method GetActiveAccessor
   auto acc = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE
-                 ? disk_storage->edge_import_mode_cache_->Access()
+                 ? disk_storage->edge_import_mode_cache_->AccessToVertices()
                  : vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
@@ -1211,12 +1211,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
                                                            const std::string &old_disk_key,
                                                            const std::string &read_ts) {
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
@@ -1228,9 +1222,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (config_.properties_on_edges) {
-    auto acc = edges_.access();
+    auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
 
     /// TODO: (andi) Abstract into a method
+    /// TODO: (andi) It is better to store both timestamps and delta in the same storage, why separate here timestamps
+    /// from deltas
     auto *delta = edge_import_mode_active
                       ? CreateDeleteDeserializedObjectDelta(disk_storage->edge_import_mode_cache_->GetDeltaStorage(),
                                                             old_disk_key, read_ts)
@@ -1259,12 +1255,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-  MG_ASSERT(to->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
+  OOMExceptionEnabler oom_exception;
 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
@@ -1277,7 +1268,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (config_.properties_on_edges) {
-    auto acc = edges_.access();
+    auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
 
     auto *delta = edge_import_mode_active
                       ? CreateDeleteObjectDelta(&transaction_, disk_storage->edge_import_mode_cache_->GetDeltaStorage())
@@ -1291,6 +1282,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  /// TODO: (andi) Not needed for
   if (edge_import_mode_active) {
     auto *delta_storage = disk_storage->edge_import_mode_cache_->GetDeltaStorage();
     CreateAndLinkDelta(&transaction_, delta_storage, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex,
@@ -1495,7 +1488,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushMainMemoryCache() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto vertex_acc = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE
-                        ? disk_storage->edge_import_mode_cache_->Access()
+                        ? disk_storage->edge_import_mode_cache_->AccessToVertices()
                         : vertices_.access();
 
   std::vector<std::vector<PropertyValue>> unique_storage;
@@ -1800,6 +1793,13 @@ void DiskStorage::DiskAccessor::Abort() {
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     commit_timestamp_.reset();
+  }
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
+
+  if (edge_import_mode_active) {
+    auto &committed_transactions = disk_storage->edge_import_mode_cache_->GetCommittedTransactions();
+    committed_transactions.WithLock([&](auto &committed_txs) { committed_txs.emplace_back(std::move(transaction_)); });
   }
 }
 
