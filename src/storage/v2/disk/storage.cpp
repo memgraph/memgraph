@@ -1221,20 +1221,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
   if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
@@ -1283,27 +1269,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-  if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
-
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (config_.properties_on_edges) {
@@ -1321,7 +1291,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
   if (edge_import_mode_active) {
     auto *delta_storage = disk_storage->edge_import_mode_cache_->GetDeltaStorage();
     CreateAndLinkDelta(&transaction_, delta_storage, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex,
@@ -1721,10 +1690,13 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (transaction_.deltas.empty() ||
-      std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
-                  [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
+  if ((edge_import_mode_active && disk_storage->edge_import_mode_cache_->GetDeltaStorage()->empty()) ||
+      (!edge_import_mode_active &&
+       (transaction_.deltas.empty() ||
+        std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+                    [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
