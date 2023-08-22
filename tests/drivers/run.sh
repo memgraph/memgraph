@@ -30,7 +30,6 @@ $binary_dir/memgraph \
     --query-execution-timeout-sec=5 \
     --bolt-session-inactivity-timeout=10 \
     --bolt-cert-file="" \
-    --bolt-server-name-for-init="Neo4j/1.1" \
     --log-file=$tmpdir/logs/memgarph.log \
     --also-log-to-stderr \
     --log-level ERROR &
