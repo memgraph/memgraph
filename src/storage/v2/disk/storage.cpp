@@ -1019,7 +1019,11 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
-  auto acc = vertices_.access();
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  /// TODO: (andi) Abstract to a method GetActiveAccessor
+  auto acc = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE
+                 ? disk_storage->edge_import_mode_cache_->Access()
+                 : vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
     return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
@@ -1038,7 +1042,6 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
   read_opts.timestamp = &ts;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto it = std::unique_ptr<rocksdb::Iterator>(
       disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -1232,22 +1235,20 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
     guard_from.lock();
   }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
+  if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                               std::memory_order_release);
-
   EdgeRef edge(gid);
+  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
+
   if (config_.properties_on_edges) {
     auto acc = edges_.access();
-    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key, read_ts);
+
+    /// TODO: (andi) Abstract into a method
+    auto *delta = edge_import_mode_active
+                      ? CreateDeleteDeserializedObjectDelta(disk_storage->edge_import_mode_cache_->GetDeltaStorage(),
+                                                            old_disk_key, read_ts)
+                      : CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key, read_ts);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1296,20 +1297,22 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     guard_from.lock();
   }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
+  if (to_vertex->deleted) return Error::DELETED_OBJECT;
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
+
+  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
+
   if (config_.properties_on_edges) {
     auto acc = edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
+
+    auto *delta = edge_import_mode_active
+                      ? CreateDeleteObjectDelta(&transaction_, disk_storage->edge_import_mode_cache_->GetDeltaStorage())
+                      : CreateDeleteObjectDelta(&transaction_);
+
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1317,16 +1320,21 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     delta->prev.Set(&*it);
   }
 
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  if (edge_import_mode_active) {
+    auto *delta_storage = disk_storage->edge_import_mode_cache_->GetDeltaStorage();
+    CreateAndLinkDelta(&transaction_, delta_storage, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex,
+                       edge);
+    CreateAndLinkDelta(&transaction_, delta_storage, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+  } else {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+  }
 
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
@@ -1516,7 +1524,10 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushMainMemoryCache() {
-  auto vertex_acc = vertices_.access();
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto vertex_acc = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE
+                        ? disk_storage->edge_import_mode_cache_->Access()
+                        : vertices_.access();
 
   std::vector<std::vector<PropertyValue>> unique_storage;
   auto *disk_unique_constraints =
