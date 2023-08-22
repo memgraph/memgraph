@@ -44,6 +44,13 @@
 
 #include "handler.hpp"
 
+#ifdef MG_ENTERPRISE
+#else
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage.hpp"
+#endif
+
 namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
@@ -650,11 +657,17 @@ static inline SessionContext Init(storage::Config &storage_config, query::Interp
   MG_ASSERT(auth_checker, "Passed a nullptr auth_checker");
 
   storage_config.name = kDefaultDB;
+  std::shared_ptr<storage::Storage> db;
+  if (storage_config.force_on_disk || utils::DirExists(storage_config.disk.main_storage_directory)) {
+    std::make_shared<storage::DiskStorage>(storage_config);
+  } else {
+    std::make_unique<storage::InMemoryStorage>(storage_config);
+  }
   auto interp_context = std::make_shared<query::InterpreterContext>(
-      storage_config, interp_config, storage_config.durability.storage_directory, auth_handler, auth_checker);
+      db.get(), interp_config, storage_config.durability.storage_directory, auth_handler, auth_checker);
   MG_ASSERT(interp_context, "Failed to construct main interpret context.");
 
-  return SessionContext{interp_context, utils::GenerateUUID(), auth};
+  return SessionContext{db, interp_context, utils::GenerateUUID(), auth};
 }
 #endif
 

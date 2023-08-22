@@ -77,7 +77,7 @@ class StorageHandler : public Handler<storage::Storage, storage::Config> {
     }
     config.name = name;  // Set storage id via config
     return HandlerT::New(name, std::forward_as_tuple(config), std::forward_as_tuple([&]() -> storage::Storage * {
-                           if (utils::DirExists(config.disk.main_storage_directory)) {
+                           if (config.force_on_disk || utils::DirExists(config.disk.main_storage_directory)) {
                              return new storage::DiskStorage(config);
                            }
                            return new storage::InMemoryStorage(config);

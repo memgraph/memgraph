@@ -245,6 +245,7 @@ struct InterpreterContext {
                      const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                      query::AuthChecker *ac = nullptr);
 
+  // TODO In order for this to work, the user still goes through interpreter context, break that
   storage::Storage *db;
   const InterpreterConfig config;
 

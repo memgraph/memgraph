@@ -124,9 +124,11 @@ void Sort(std::vector<TypedValue, K> &vec) {
 bool Same(const TypedValue &lv, const TypedValue &rv) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
+// NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
 // NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
+// NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -609,13 +611,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
       callback.header = {"grants", "denies"};
-      callback.fn = [auth, username] {  // NOLINT
 #ifdef MG_ENTERPRISE
+      callback.fn = [auth, username] {  // NOLINT
         return auth->GetDatabasePrivileges(username);
-#else
-        return std::vector<std::vector<TypedValue>>();
-#endif
       };
+#else
+      callback.fn = [] {  // NOLINT
+        return std::vector<std::vector<TypedValue>>();
+      };
+#endif
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
 #ifdef MG_ENTERPRISE
@@ -2534,6 +2538,15 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
+      std::unique_lock main_guard{interpreter_context->db->main_lock_};
+
+      if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+        throw utils::BasicException(
+            "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+            "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
+            "query. ");
+      }
+
       interpreter_context->interpreters.WithLock([&](const auto &interpreters_) {
         if (interpreters_.size() > 1) {
           throw utils::BasicException(
@@ -2546,8 +2559,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
               "and continue to use the instance as usual.");
         }
         main_guard.unlock();
-        interpreter_context->db =
-            std::make_unique<memgraph::storage::DiskStorage>(std::move(interpreter_context->db->config_));
+        // interpreter_context->db =
+        //     std::make_unique<memgraph::storage::DiskStorage>(std::move(interpreter_context->db->config_));
       });
     }
     return std::vector<std::vector<TypedValue>>();
