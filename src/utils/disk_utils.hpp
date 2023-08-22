@@ -30,4 +30,13 @@ inline bool VertexExistsInCache(const utils::SkipList<storage::Vertex>::Accessor
   return accessor.find(gid) != accessor.end();
 }
 
+inline uint64_t GetEarliestTimestamp(storage::Delta *head) {
+  uint64_t ts = head->timestamp->load(std::memory_order_acquire);
+  while (head->next != nullptr) {
+    head = head->next;
+    ts = std::min(ts, head->timestamp->load(std::memory_order_acquire));
+  }
+  return ts;
+}
+
 }  // namespace memgraph::utils

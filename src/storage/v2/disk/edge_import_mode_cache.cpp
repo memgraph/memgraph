@@ -74,4 +74,6 @@ utils::SkipList<Vertex>::Accessor EdgeImportModeCache::Access() { return cache_.
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 
+std::list<Delta> *EdgeImportModeCache::GetDeltaStorage() { return &delta_storage_; }
+
 }  // namespace memgraph::storage

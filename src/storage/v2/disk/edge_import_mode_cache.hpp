@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
@@ -22,7 +23,7 @@
 
 namespace memgraph::storage {
 
-class EdgeImportModeCache {
+class EdgeImportModeCache final {
  public:
   explicit EdgeImportModeCache(const Config &config);
 
@@ -55,12 +56,15 @@ class EdgeImportModeCache {
 
   void SetScannedAllVertices();
 
+  std::list<Delta> *GetDeltaStorage();
+
  private:
   utils::SkipList<Vertex> cache_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;
   std::set<std::pair<LabelId, PropertyId>> scanned_label_properties_;
+  std::list<Delta> delta_storage_;
 };
 
 }  // namespace memgraph::storage
