@@ -13,7 +13,7 @@
 
 namespace memgraph::rpc {
 
-Server::Server(const io::network::Endpoint &endpoint, communication::ServerContext *context, size_t workers_count)
+Server::Server(io::network::Endpoint endpoint, communication::ServerContext *context, size_t workers_count)
     : server_(std::move(endpoint), this, context, -1, context->use_ssl() ? "RPCS" : "RPC", workers_count) {}
 
 bool Server::Start() { return server_.Start(); }
