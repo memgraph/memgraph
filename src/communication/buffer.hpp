@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,7 @@ class Buffer final {
   Buffer(Buffer &&) = delete;
   Buffer &operator=(const Buffer &) = delete;
   Buffer &operator=(Buffer &&) = delete;
+  ~Buffer() = default;
 
   /**
    * This class provides all functions from the buffer that are needed to allow
@@ -50,12 +51,13 @@ class Buffer final {
    */
   class ReadEnd {
    public:
-    ReadEnd(Buffer *buffer);
+    explicit ReadEnd(Buffer *buffer);
 
     ReadEnd(const ReadEnd &) = delete;
     ReadEnd(ReadEnd &&) = delete;
     ReadEnd &operator=(const ReadEnd &) = delete;
     ReadEnd &operator=(ReadEnd &&) = delete;
+    ~ReadEnd() = default;
 
     uint8_t *data();
 
@@ -77,12 +79,13 @@ class Buffer final {
    */
   class WriteEnd {
    public:
-    WriteEnd(Buffer *buffer);
+    explicit WriteEnd(Buffer *buffer);
 
     WriteEnd(const WriteEnd &) = delete;
     WriteEnd(WriteEnd &&) = delete;
     WriteEnd &operator=(const WriteEnd &) = delete;
     WriteEnd &operator=(WriteEnd &&) = delete;
+    ~WriteEnd() = default;
 
     io::network::StreamBuffer Allocate();
 
