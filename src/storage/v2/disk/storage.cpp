@@ -1669,13 +1669,11 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
+  // bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if ((edge_import_mode_active && disk_storage->edge_import_mode_cache_->DoesNotHaveDeltas()) ||
-      (!edge_import_mode_active &&
-       (transaction_.deltas.empty() ||
-        std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
-                    [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })))) {
+  if (transaction_.deltas.empty() ||
+      std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+                  [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
