@@ -1548,15 +1548,14 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
             return StorageDataManipulationError{SerializationError{}};
           }
         }
-        if (EdgeNeedsToBeSerialized(edge.ptr, &transaction_)) {
-          if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
-            return StorageDataManipulationError{SerializationError{}};
-          }
-        }
-      } else {
-        if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
-          return StorageDataManipulationError{SerializationError{}};
-        }
+        // if (EdgeNeedsToBeSerialized(edge.ptr, &transaction_)) {
+        //   if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
+        //     return StorageDataManipulationError{SerializationError{}};
+        //   }
+        // }
+      }
+      if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
+        return StorageDataManipulationError{SerializationError{}};
       }
 
       /// TODO: what if edge has already been deleted
