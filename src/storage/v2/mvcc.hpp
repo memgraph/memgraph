@@ -125,6 +125,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta>
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
                                                   const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
 }
 

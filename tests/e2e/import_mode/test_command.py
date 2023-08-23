@@ -39,8 +39,9 @@ def test_creating_vertices():
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
     assert len(list(execute_and_fetch_all(cursor, "MATCH (n) RETURN n"))) == 2
     assert len(list(execute_and_fetch_all(cursor, "MATCH (n) RETURN n"))) == 2
-    assert len(list(execute_and_fetch_all(cursor, "MATCH (n) RETURN n"))) == 2
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n) RETURN n"))) == 2
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
 

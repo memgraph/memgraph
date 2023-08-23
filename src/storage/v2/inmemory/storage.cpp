@@ -665,7 +665,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.
+      // to be validated/committed.(
       for (const auto &delta : transaction_.deltas) {
         auto prev = delta.prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");

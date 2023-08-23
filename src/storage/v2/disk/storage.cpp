@@ -1669,14 +1669,16 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  // bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
+  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (transaction_.deltas.empty() ||
-      std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
-                  [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
+      (!edge_import_mode_active &&
+       std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; }))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
+    transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (auto res = FlushMainMemoryCache(); res.HasError()) {
       Abort();
@@ -1775,15 +1777,17 @@ void DiskStorage::DiskAccessor::Abort() {
 }
 
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
+  /// TODO: (andi) Check the login in InMemoryStorage.
   if (commit_timestamp_) {
-    commit_timestamp_.reset();
-  }
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
+    auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (edge_import_mode_active) {
-    auto &committed_transactions = disk_storage->edge_import_mode_cache_->GetCommittedTransactions();
-    committed_transactions.WithLock([&](auto &committed_txs) { committed_txs.emplace_back(std::move(transaction_)); });
+    if (edge_import_mode_active) {
+      auto &committed_transactions = disk_storage->edge_import_mode_cache_->GetCommittedTransactions();
+      committed_transactions.WithLock(
+          [&](auto &committed_txs) { committed_txs.emplace_back(std::move(transaction_)); });
+    }
+    commit_timestamp_.reset();
   }
 }
 
