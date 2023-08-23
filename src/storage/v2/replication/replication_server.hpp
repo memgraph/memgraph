@@ -18,7 +18,7 @@
 
 namespace memgraph::storage {
 
-class InMemoryStorage::ReplicationServer {
+class ReplicationServer {
  public:
   explicit ReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
                              const replication::ReplicationServerConfig &config);
