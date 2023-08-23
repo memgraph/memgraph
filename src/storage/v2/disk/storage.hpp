@@ -351,12 +351,13 @@ class DiskStorage final : public Storage {
   StorageInfo GetInfo() const override;
 
   void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
+  
+  void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
-
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
 };
