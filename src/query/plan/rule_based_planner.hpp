@@ -436,8 +436,8 @@ class RuleBasedPlanner {
     // regular match.
     auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
 
-    last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                              match_context.new_symbols, named_paths, filters, match_context.view);
+    last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                       match_context.new_symbols, named_paths, filters, match_context.view);
 
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
@@ -473,6 +473,61 @@ class RuleBasedPlanner {
       MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
+  }
+
+  std::unique_ptr<LogicalOperator> GenerateExpansion(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
+                                                     const Expansion &expansion, const SymbolTable &symbol_table,
+                                                     AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
+                                                     std::vector<Symbol> &new_symbols,
+                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
+                                                     Filters &filters, storage::View view) {
+    const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
+    if (bound_symbols.insert(node1_symbol).second) {
+      // We have just bound this symbol, so generate ScanAll which fills it.
+      last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
+      new_symbols.emplace_back(node1_symbol);
+
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+    }
+
+    if (expansion.edge) {
+      last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
+                          named_paths, new_symbols, view);
+    }
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> HandleExpansionCartesian(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
+      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
+    if (matching.expansions.empty()) {
+      return last_op;
+    }
+
+    if (matching.expansions.size() == 1) {
+      return GenerateExpansion(std::move(last_op), matching, matching.expansions[0], symbol_table, storage,
+                               bound_symbols, new_symbols, named_paths, filters, view);
+    }
+
+    for (const auto &expansion : matching.expansions) {
+      std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+      std::unique_ptr<LogicalOperator> once = std::make_unique<Once>(once_symbols);
+      std::unique_ptr<LogicalOperator> expansion_op =
+          GenerateExpansion(std::move(once), matching, expansion, symbol_table, storage, bound_symbols, new_symbols,
+                            named_paths, filters, view);
+
+      auto left_op = last_op ? std::move(last_op) : std::make_unique<Once>();
+      auto left_symbols = left_op->OutputSymbols(symbol_table);
+
+      auto right_symbols = expansion_op->OutputSymbols(symbol_table);
+      last_op = std::make_unique<Cartesian>(std::move(left_op), left_symbols, std::move(expansion_op), right_symbols);
+    }
+
+    return last_op;
   }
 
   std::unique_ptr<LogicalOperator> HandleExpansion(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
@@ -688,8 +743,8 @@ class RuleBasedPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
-                              named_paths, filters, storage::View::OLD);
+    last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
+                                       named_paths, filters, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 
