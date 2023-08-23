@@ -69,7 +69,7 @@ def run_test(tester_binary: str, memgraph_args: List[str], server_name: str, que
 def run_test_w_query(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     memgraph = start_memgraph(memgraph_args)
     atexit.register(cleanup, memgraph)
-    execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Nìame';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
     check_flag(tester_binary, "server.name", "New Name")
     check_flag(tester_binary, "query.timeout", "123")
