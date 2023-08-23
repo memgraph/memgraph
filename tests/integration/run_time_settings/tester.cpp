@@ -46,15 +46,21 @@ int main(int argc, char **argv) {
   const auto &res = client.Execute("SHOW DATABASE SETTINGS", {});
   MG_ASSERT(res.fields[0] == "setting_name", "Expected \"setting_name\" field in the query result.");
   MG_ASSERT(res.fields[1] == "setting_value", "Expected \"setting_value\" field in the query result.");
-  const auto &settings_name = res.records[0];
-  const auto &settings_value = res.records[1];
 
   unsigned i = 0;
-  for (const auto &name : settings_name) {
-    if (name.ValueString() == FLAGS_field) {
-      const auto &val = settings_value[i].ValueString();
-      MG_ASSERT(val == FLAGS_value, "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!", FLAGS_field,
-                FLAGS_value, val);
+  for (const auto &record : res.records) {
+    const auto &settings_name = record[0].ValueString();
+    if (settings_name == FLAGS_field) {
+      const auto &settings_value = record[1].ValueString();
+      // First try to encode the flags as float; if that fails just compare the raw strings
+      try {
+        MG_ASSERT(std::stof(settings_value) == std::stof(FLAGS_value),
+                  "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!", FLAGS_field, FLAGS_value,
+                  settings_value);
+      } catch (const std::invalid_argument &) {
+        MG_ASSERT(settings_value == FLAGS_value, "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!",
+                  FLAGS_field, FLAGS_value, settings_value);
+      }
       return 0;
     }
   }
