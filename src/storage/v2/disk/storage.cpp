@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -35,6 +36,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/edge_import_mode.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -75,6 +77,8 @@ constexpr const char *label_property_index_str = "label_property_index";
 constexpr const char *existence_constraints_str = "existence_constraints";
 constexpr const char *unique_constraints_str = "unique_constraints";
 
+/// TODO: (andi) Maybe a better way of checking would be if the first delta is DELETE_DESERIALIZED
+/// then we now that the vertex has only been deserialized and nothing more has been done on it.
 bool VertexNeedsToBeSerialized(const Vertex &vertex) {
   Delta *head = vertex.delta;
   while (head != nullptr) {
@@ -88,16 +92,29 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
   return false;
 }
 
-bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
-  bool deleted = false;
-  bool has_label = false;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
-    deleted = vertex.deleted;
-    has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
-    delta = vertex.delta;
+/// NOTE: This makes sense to compare only if commit timestamp of the transaction has been set.
+/// We do this in the Commit method and this utility function is called from FlushMainMemoryCache
+/// so all good for now.
+/// EdgeNeedsToBeSerialized only if the modification happened in the current transaction.
+bool EdgeNeedsToBeSerialized(const Edge *edge, const Transaction *transaction) {
+  Delta *head = edge->delta;
+  while (head != nullptr) {
+    if ((head->action == Delta::Action::ADD_LABEL || head->action == Delta::Action::REMOVE_LABEL ||
+         head->action == Delta::Action::DELETE_OBJECT || head->action == Delta::Action::RECREATE_OBJECT ||
+         head->action == Delta::Action::SET_PROPERTY) &&
+        head->timestamp->load(std::memory_order_acquire) ==
+            transaction->commit_timestamp->load(std::memory_order_acquire)) {
+      return true;
+    }
+    head = head->next;
   }
+  return false;
+}
+
+bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
+  bool deleted = vertex.deleted;
+  bool has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
+  Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
@@ -1522,18 +1539,24 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
                                      config_.properties_on_edges);
 
-      /// TODO: expose temporal coupling
+      /// TODO: (andi) expose temporal coupling
       /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
+      /// TODO: (andi) Delete the key even if properties on edges are False somehow.
       if (config_.properties_on_edges) {
         if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
           if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
             return StorageDataManipulationError{SerializationError{}};
           }
         }
-      }
-
-      if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
-        return StorageDataManipulationError{SerializationError{}};
+        if (EdgeNeedsToBeSerialized(edge.ptr, &transaction_)) {
+          if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
+            return StorageDataManipulationError{SerializationError{}};
+          }
+        }
+      } else {
+        if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
+          return StorageDataManipulationError{SerializationError{}};
+        }
       }
 
       /// TODO: what if edge has already been deleted

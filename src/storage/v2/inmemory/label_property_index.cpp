@@ -165,7 +165,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterator &InMemoryLabelPropertyIndex::Iter
 }
 
 void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  spdlog::trace("Acc size in label_property_index: {}", self_->index_accessor_.size());
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;

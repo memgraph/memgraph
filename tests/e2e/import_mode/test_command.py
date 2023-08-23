@@ -58,5 +58,71 @@ def test_creating_edges():
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
 
+# Tests to do
+# TODO: (andi) Creating indices while in edge import mode
+# TODO: (andi) Serializing just newly created edges => Unit test.
+# TODO: (andi) In this PR SHOW STORAGE INFO doesn't show correct values
+def test_label_index_vertices_loading():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 2})")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :User")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
+def test_label_index_edges_creation():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :User")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 2})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIENDS {id: 3}]->(m)")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 1
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 1
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
+def test_label_property_index_vertices_loading():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :User(id)")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 2})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) WHERE n.id IS NOT NULL RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) WHERE n.id IS NOT NULL RETURN n"))) == 2
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) WHERE n.id IS NOT NULL RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) WHERE n.id IS NOT NULL RETURN n"))) == 2
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
+def test_label_property_index_edges_creation():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :User(id)")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 2})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIENDS {id: 3}]->(m)")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 1
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 1
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
