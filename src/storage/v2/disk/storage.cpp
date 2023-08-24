@@ -1661,26 +1661,26 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
     const Delta::Action action = modified_edge.second.first;
     const std::string &ser_edge_key = modified_edge.second.second;
 
-    // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
-    // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
-    // so we can delete it.
-    if (action == Delta::Action::DELETE_DESERIALIZED_OBJECT && !DeleteEdgeFromDisk(ser_edge_key)) {
-      return StorageDataManipulationError{SerializationError{}};
-    }
-
-    const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges, &gid,
-                                                    &edge_acc]() -> std::string {
-      if (properties_on_edges) {
-        const auto &edge = edge_acc.find(gid);
-        MG_ASSERT(edge != edge_acc.end(),
-                  "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
-        return utils::SerializeProperties(edge->properties);
+    if (!config_.properties_on_edges) {
+      /// If the object was created then flush it, otherwise since properties on edges are false
+      /// edge wasn't modified for sure.
+      if (action == Delta::Action::DELETE_OBJECT && !WriteEdgeToDisk(ser_edge_key, "")) {
+        return StorageDataManipulationError{SerializationError{}};
       }
-      return "";
-    });
+    } else {
+      // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
+      // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
+      // so we can delete it.
+      if (action == Delta::Action::DELETE_DESERIALIZED_OBJECT && !DeleteEdgeFromDisk(ser_edge_key)) {
+        return StorageDataManipulationError{SerializationError{}};
+      }
 
-    if (!WriteEdgeToDisk(ser_edge_key, ser_edge_value)) {
-      return StorageDataManipulationError{SerializationError{}};
+      const auto &edge = edge_acc.find(gid);
+      MG_ASSERT(edge != edge_acc.end(),
+                "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
+      if (!WriteEdgeToDisk(ser_edge_key, utils::SerializeProperties(edge->properties))) {
+        return StorageDataManipulationError{SerializationError{}};
+      }
     }
   }
   return {};
