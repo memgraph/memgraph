@@ -558,7 +558,13 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
                                                 &transaction_, view, &storage_->indices_, &storage_->constraints_,
                                                 storage_->config_.items));
   }
+  if (scanned_all_vertices_) {
+    return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
+                                                &storage_->constraints_, storage_->config_.items));
+  }
+
   LoadVerticesToMainMemoryCache();
+  scanned_all_vertices_ = true;
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
