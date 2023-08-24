@@ -92,25 +92,6 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
   return false;
 }
 
-/// NOTE: This makes sense to compare only if commit timestamp of the transaction has been set.
-/// We do this in the Commit method and this utility function is called from FlushMainMemoryCache
-/// so all good for now.
-/// EdgeNeedsToBeSerialized only if the modification happened in the current transaction.
-bool EdgeNeedsToBeSerialized(const Edge *edge, const Transaction *transaction) {
-  Delta *head = edge->delta;
-  while (head != nullptr) {
-    if ((head->action == Delta::Action::ADD_LABEL || head->action == Delta::Action::REMOVE_LABEL ||
-         head->action == Delta::Action::DELETE_OBJECT || head->action == Delta::Action::RECREATE_OBJECT ||
-         head->action == Delta::Action::SET_PROPERTY) &&
-        head->timestamp->load(std::memory_order_acquire) ==
-            transaction->commit_timestamp->load(std::memory_order_acquire)) {
-      return true;
-    }
-    head = head->next;
-  }
-  return false;
-}
-
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
   bool deleted = vertex.deleted;
   bool has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
@@ -1499,57 +1480,54 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushMainMemoryCache() {
-  auto vertex_acc = vertices_.access();
-  auto local_tx_edge_acc = edges_.access();
-
-  std::vector<std::vector<PropertyValue>> unique_storage;
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
+    const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
-  for (Vertex &vertex : vertex_acc) {
-    if (VertexNeedsToBeSerialized(vertex)) {
-      if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
-        return check_result.GetError();
-      }
+  for (const Vertex &vertex : vertex_acc) {
+    if (!VertexNeedsToBeSerialized(vertex)) {
+      continue;
+    }
+    if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
+      return check_result.GetError();
+    }
 
-      if (vertex.deleted) {
-        continue;
-      }
+    if (vertex.deleted) {
+      continue;
+    }
 
-      /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-      if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-        if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
-          return StorageDataManipulationError{SerializationError{}};
-        }
-      }
-
-      if (!WriteVertexToDisk(vertex)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
-
-      if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
-          !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
-          !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
+    /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
+    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+      if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
         return StorageDataManipulationError{SerializationError{}};
       }
     }
+
+    if (!WriteVertexToDisk(vertex)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
+
+    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
+        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
+        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
   }
 
-  if (auto modified_edges_res = FlushModifiedEdges(local_tx_edge_acc); modified_edges_res.HasError()) {
-    return modified_edges_res.GetError();
-  }
+  return {};
+}
 
-  if (auto del_vertices_res = FlushDeletedVertices(); del_vertices_res.HasError()) {
-    return del_vertices_res.GetError();
-  }
-
-  if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
-    return del_edges_res.GetError();
-  }
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
+DiskStorage::DiskAccessor::ClearDanglingVertices() {
+  auto *disk_unique_constraints =
+      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp,
                                                                          *commit_timestamp_) ||
@@ -1558,68 +1536,15 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
                                                                          *commit_timestamp_)) {
     return StorageDataManipulationError{SerializationError{}};
   }
-
   return {};
 }
 
-/// TODO: I think unique_storage is not needed here
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushIndexCache() {
   std::vector<std::vector<PropertyValue>> unique_storage;
-  auto *disk_unique_constraints =
-      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  auto edge_acc = edges_.access();
 
   for (const auto &vec : index_storage_) {
-    auto vertex_acc = vec->access();
-    for (Vertex &vertex : vertex_acc) {
-      if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
-        return check_result.GetError();
-      }
-
-      /// TODO: what if something is changed and then deleted
-      if (vertex.deleted) {
-        continue;
-      }
-
-      if (!WriteVertexToDisk(vertex)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
-
-      /// TODO: andi don't ignore the return value
-      if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
-          !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
-          !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
-
-      for (auto &edge_entry : vertex.out_edges) {
-        EdgeRef edge_ref = std::get<2>(edge_entry);
-        DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ref,
-                                 config_.properties_on_edges);
-
-        auto gid = config_.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
-
-        const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges, gid,
-                                                        &edge_acc]() -> std::string {
-          if (properties_on_edges) {
-            const auto &edge = edge_acc.find(gid);
-            MG_ASSERT(
-                edge != edge_acc.end(),
-                "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
-            return utils::SerializeProperties(edge->properties);
-          }
-          return "";
-        });
-
-        if (!WriteEdgeToDisk(src_dest_key.GetSerializedKey(), ser_edge_value)) {
-          return StorageDataManipulationError{SerializationError{}};
-        }
-
-        /// TODO: what if edge has already been deleted
-      }
+    if (auto vertices_res = FlushVertices(vec->access(), unique_storage); vertices_res.HasError()) {
+      return vertices_res.GetError();
     }
   }
 
@@ -1757,10 +1682,32 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
         return res;
       }
     } else {
-      if (auto main_flush_res = FlushMainMemoryCache(); main_flush_res.HasError()) {
+      std::vector<std::vector<PropertyValue>> unique_storage;
+      if (auto vertices_flush_res = FlushVertices(vertices_.access(), unique_storage); vertices_flush_res.HasError()) {
         Abort();
-        return main_flush_res.GetError();
+        return vertices_flush_res.GetError();
       }
+
+      if (auto modified_edges_res = FlushModifiedEdges(edges_.access()); modified_edges_res.HasError()) {
+        Abort();
+        return modified_edges_res.GetError();
+      }
+
+      if (auto del_vertices_res = FlushDeletedVertices(); del_vertices_res.HasError()) {
+        Abort();
+        return del_vertices_res.GetError();
+      }
+
+      if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
+        Abort();
+        return del_edges_res.GetError();
+      }
+
+      if (auto clear_dangling_res = ClearDanglingVertices(); clear_dangling_res.HasError()) {
+        Abort();
+        return clear_dangling_res.GetError();
+      }
+
       if (auto index_flush_res = FlushIndexCache(); index_flush_res.HasError()) {
         Abort();
         return index_flush_res.GetError();
