@@ -37,7 +37,7 @@
 
 namespace memgraph::storage {
 
-class InMemoryStorage::ReplicationClient {
+class ReplicationClient {
  public:
   ReplicationClient(std::string name, InMemoryStorage *storage, const io::network::Endpoint &endpoint,
                     replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});

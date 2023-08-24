@@ -128,10 +128,12 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
-    if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor{current_vertex_, self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_.items};
+    auto accessor = VertexAccessor{index_iterator_->vertex, self_->transaction_, self_->indices_, self_->constraints_,
+                                   self_->config_.items};
+    auto res = accessor.HasLabel(self_->label_, self_->view_);
+    if (!res.HasError() and res.GetValue()) {
+      current_vertex_ = accessor.vertex_;
+      current_vertex_accessor_ = accessor;
       break;
     }
   }

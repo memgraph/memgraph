@@ -15,6 +15,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/stat.hpp"
@@ -32,15 +33,16 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
-std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError error) {
+std::string RegisterReplicaErrorToString(InMemoryStorage::ReplicationState::RegisterReplicaError error) {
+  using enum InMemoryStorage::ReplicationState::RegisterReplicaError;
   switch (error) {
-    case InMemoryStorage::RegisterReplicaError::NAME_EXISTS:
+    case NAME_EXISTS:
       return "NAME_EXISTS";
-    case InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS:
+    case END_POINT_EXISTS:
       return "END_POINT_EXISTS";
-    case InMemoryStorage::RegisterReplicaError::CONNECTION_FAILED:
+    case CONNECTION_FAILED:
       return "CONNECTION_FAILED";
-    case InMemoryStorage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+    case COULD_NOT_BE_PERSISTED:
       return "COULD_NOT_BE_PERSISTED";
   }
 }
@@ -152,12 +154,13 @@ InMemoryStorage::InMemoryStorage(Config config)
   if (config_.durability.restore_replication_state_on_startup) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
-    storage_ =
+    // TODO: Move this to replication
+    replication_state_.durability_ =
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
 
     RestoreReplicationRole();
 
-    if (replication_role_ == replication::ReplicationRole::MAIN) {
+    if (replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
       RestoreReplicas();
     }
   } else {
@@ -167,7 +170,7 @@ InMemoryStorage::InMemoryStorage(Config config)
   }
 
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_role_ == replication::ReplicationRole::MAIN) {
+      replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
     spdlog::warn(
         "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
@@ -181,8 +184,7 @@ InMemoryStorage::~InMemoryStorage() {
   }
   {
     // Clear replication data
-    replication_server_.reset();
-    replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
+    replication_state_.Reset();
   }
   if (wal_file_) {
     wal_file_->FinalizeWal();
@@ -240,7 +242,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
-VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid) {
+VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -289,6 +291,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
+  transaction_.manyDeltasCache.Invalidate(vertex_ptr);
 
   // Need to inform the next CollectGarbage call that there are some
   // non-transactional deletions that need to be collected
@@ -366,6 +369,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
+  transaction_.manyDeltasCache.Invalidate(vertex_ptr);
 
   // Need to inform the next CollectGarbage call that there are some
   // non-transactional deletions that need to be collected
@@ -435,6 +439,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
@@ -442,8 +449,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                       &storage_->constraints_, config_);
 }
 
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                                   EdgeTypeId edge_type, storage::Gid gid) {
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
+                                                                     EdgeTypeId edge_type, storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
@@ -506,6 +513,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -597,6 +607,9 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+
+  transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
   // Decrement edge count.
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
@@ -690,7 +703,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (mem_storage->replication_role_ == replication::ReplicationRole::MAIN ||
+        if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
             desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
@@ -706,7 +719,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (mem_storage->replication_role_ == replication::ReplicationRole::MAIN ||
+          if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
               desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             mem_storage->last_commit_timestamp_.store(*commit_timestamp_);
@@ -725,6 +738,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       return StorageDataManipulationError{*unique_constraint_violation};
     }
   }
+
   is_transaction_active_ = false;
 
   if (!could_replicate_all_sync_replicas) {
@@ -1142,7 +1156,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_role_ == replication::ReplicationRole::REPLICA) {
+    if (replication_state_.GetRole() == replication::ReplicationRole::REPLICA) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
@@ -1506,184 +1520,166 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  if (replication_role_.load() == replication::ReplicationRole::MAIN) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        client->StartTransactionReplication(wal_file_->SequenceNumber());
-      }
-    });
-  }
+  replication_state_.InitializeTransaction(wal_file_->SequenceNumber());
 
-  // Helper lambda that traverses the delta chain on order to find the first
-  // delta that should be processed and then appends all discovered deltas.
-  auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
-    while (true) {
-      auto *older = delta->next.load(std::memory_order_acquire);
-      if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
-      delta = older;
-    }
-    while (true) {
-      if (filter(delta->action)) {
-        wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-        replication_clients_.WithLock([&](auto &clients) {
-          for (auto &client : clients) {
-            client->IfStreamingTransaction(
-                [&](auto &stream) { stream.AppendDelta(*delta, parent, final_commit_timestamp); });
-          }
-        });
+  auto append_deltas = [&](auto callback) {
+    // Helper lambda that traverses the delta chain on order to find the first
+    // delta that should be processed and then appends all discovered deltas.
+    auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
+      while (true) {
+        auto *older = delta->next.load(std::memory_order_acquire);
+        if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
+        delta = older;
       }
-      auto prev = delta->prev.Get();
+      while (true) {
+        if (filter(delta->action)) {
+          callback(*delta, parent, final_commit_timestamp);
+        }
+        auto prev = delta->prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::DELTA) break;
+        delta = prev.delta;
+      }
+    };
+
+    // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
+    // don't traverse them in that order. That is because for each delta we need
+    // information about the vertex or edge they belong to and that information
+    // isn't stored in the deltas themselves. In order to find out information
+    // about the corresponding vertex or edge it is necessary to traverse the
+    // delta chain for each delta until a vertex or edge is encountered. This
+    // operation is very expensive as the chain grows.
+    // Instead, we traverse the edges until we find a vertex or edge and traverse
+    // their delta chains. This approach has a drawback because we lose the
+    // correct order of the operations. Because of that, we need to traverse the
+    // deltas several times and we have to manually ensure that the stored deltas
+    // will be ordered correctly.
+
+    // 1. Process all Vertex deltas and store all operations that create vertices
+    // and modify vertex data.
+    for (const auto &delta : transaction.deltas) {
+      auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::DELTA) break;
-      delta = prev.delta;
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+        switch (action) {
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+            return true;
+
+          case Delta::Action::RECREATE_OBJECT:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            return false;
+        }
+      });
+    }
+    // 2. Process all Vertex deltas and store all operations that create edges.
+    for (const auto &delta : transaction.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+        switch (action) {
+          case Delta::Action::REMOVE_OUT_EDGE:
+            return true;
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+          case Delta::Action::RECREATE_OBJECT:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+            return false;
+        }
+      });
+    }
+    // 3. Process all Edge deltas and store all operations that modify edge data.
+    for (const auto &delta : transaction.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::EDGE) continue;
+      find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
+        switch (action) {
+          case Delta::Action::SET_PROPERTY:
+            return true;
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+          case Delta::Action::RECREATE_OBJECT:
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            return false;
+        }
+      });
+    }
+    // 4. Process all Vertex deltas and store all operations that delete edges.
+    for (const auto &delta : transaction.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+        switch (action) {
+          case Delta::Action::ADD_OUT_EDGE:
+            return true;
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+          case Delta::Action::RECREATE_OBJECT:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            return false;
+        }
+      });
+    }
+    // 5. Process all Vertex deltas and store all operations that delete vertices.
+    for (const auto &delta : transaction.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+        switch (action) {
+          case Delta::Action::RECREATE_OBJECT:
+            return true;
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            return false;
+        }
+      });
     }
   };
 
-  // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
-  // don't traverse them in that order. That is because for each delta we need
-  // information about the vertex or edge they belong to and that information
-  // isn't stored in the deltas themselves. In order to find out information
-  // about the corresponding vertex or edge it is necessary to traverse the
-  // delta chain for each delta until a vertex or edge is encountered. This
-  // operation is very expensive as the chain grows.
-  // Instead, we traverse the edges until we find a vertex or edge and traverse
-  // their delta chains. This approach has a drawback because we lose the
-  // correct order of the operations. Because of that, we need to traverse the
-  // deltas several times and we have to manually ensure that the stored deltas
-  // will be ordered correctly.
-
-  // 1. Process all Vertex deltas and store all operations that create vertices
-  // and modify vertex data.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-          return true;
-
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 2. Process all Vertex deltas and store all operations that create edges.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-          return false;
-      }
-    });
-  }
-  // 3. Process all Edge deltas and store all operations that modify edge data.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::EDGE) continue;
-    find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
-      switch (action) {
-        case Delta::Action::SET_PROPERTY:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 4. Process all Vertex deltas and store all operations that delete edges.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::ADD_OUT_EDGE:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 5. Process all Vertex deltas and store all operations that delete vertices.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::RECREATE_OBJECT:
-          return true;
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  // file.
-  wal_file_->AppendTransactionEnd(final_commit_timestamp);
-
-  FinalizeWalFile();
-
-  auto finalized_on_all_replicas = true;
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
-      const auto finalized = client->FinalizeTransactionReplication();
-
-      if (client->Mode() == replication::ReplicationMode::SYNC) {
-        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-      }
-    }
+  append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
+    wal_file_->AppendDelta(delta, parent, timestamp);
+    replication_state_.AppendDelta(delta, parent, timestamp);
   });
 
-  return finalized_on_all_replicas;
+  // Add a delta that indicates that the transaction is fully written to the WAL
+  // file.replication_clients_.WithLock
+  wal_file_->AppendTransactionEnd(final_commit_timestamp);
+  FinalizeWalFile();
+
+  return replication_state_.FinalizeTransaction(final_commit_timestamp);
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
@@ -1693,31 +1689,15 @@ bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperati
     return true;
   }
 
-  auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-  {
-    if (replication_role_.load() == replication::ReplicationRole::MAIN) {
-      replication_clients_.WithLock([&](auto &clients) {
-        for (auto &client : clients) {
-          client->StartTransactionReplication(wal_file_->SequenceNumber());
-          client->IfStreamingTransaction(
-              [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-
-          const auto finalized = client->FinalizeTransactionReplication();
-          if (client->Mode() == replication::ReplicationMode::SYNC) {
-            finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-          }
-        }
-      });
-    }
-  }
   FinalizeWalFile();
-  return finalized_on_all_replicas;
+  return replication_state_.AppendToWalDataDefinition(wal_file_->SequenceNumber(), operation, label, properties,
+                                                      final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     std::optional<bool> is_periodic) {
-  if (replication_role_.load() != replication::ReplicationRole::MAIN) {
+  if (replication_state_.GetRole() != replication::ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
@@ -1783,41 +1763,54 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-bool InMemoryStorage::SetReplicaRole(io::network::Endpoint endpoint,
-                                     const replication::ReplicationServerConfig &config) {
-  // We don't want to restart the server if we're already a REPLICA
-  if (replication_role_ == replication::ReplicationRole::REPLICA) {
-    return false;
+void InMemoryStorage::EstablishNewEpoch() {
+  std::unique_lock engine_guard{engine_lock_};
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_.reset();
   }
 
-  auto port = endpoint.port;  // assigning because we will move the endpoint
-  replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
+  // Generate new epoch id and save the last one to the history.
+  if (epoch_history_.size() == kEpochHistoryRetention) {
+    epoch_history_.pop_front();
+  }
+  epoch_history_.emplace_back(std::exchange(epoch_id_, utils::GenerateUUID()), last_commit_timestamp_);
+}
 
-  if (ShouldStoreAndRestoreReplicationState()) {
-    // Only thing that matters here is the role saved as REPLICA and the listening port
-    auto data = replication::ReplicationStatusToJSON(
-        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
-                                       .ip_address = "",
-                                       .port = port,
-                                       .sync_mode = replication::ReplicationMode::SYNC,
-                                       .replica_check_frequency = std::chrono::seconds(0),
-                                       .ssl = std::nullopt,
-                                       .role = replication::ReplicationRole::REPLICA});
+utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.IsPathLocked(config_.durability.storage_directory);
+}
 
-    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
-      spdlog::error("Error when saving REPLICA replication role in settings.");
-      return false;
+utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::LockPath() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.AddPath(config_.durability.storage_directory);
+}
+
+utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() {
+  {
+    auto locker_accessor = global_locker_.Access();
+    const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
+    if (ret.HasError() || !ret.GetValue()) {
+      // Exit without cleaning the queue
+      return ret;
     }
   }
-
-  replication_role_.store(replication::ReplicationRole::REPLICA);
+  // We use locker accessor in seperate scope so we don't produce deadlock
+  // after we call clean queue.
+  file_retainer_.CleanQueue();
   return true;
 }
 
-bool InMemoryStorage::SetMainReplicationRole() {
+void storage::InMemoryStorage::ReplicationState::Reset() {
+  replication_server_.reset();
+  replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
+}
+
+bool storage::InMemoryStorage::ReplicationState::SetMainReplicationRole(storage::Storage *storage) {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
-  if (replication_role_ == replication::ReplicationRole::MAIN) {
+  if (GetRole() == replication::ReplicationRole::MAIN) {
     return false;
   }
 
@@ -1825,20 +1818,7 @@ bool InMemoryStorage::SetMainReplicationRole() {
   // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
-  {
-    std::unique_lock engine_guard{engine_lock_};
-    if (wal_file_) {
-      wal_file_->FinalizeWal();
-      wal_file_.reset();
-    }
-
-    // Generate new epoch id and save the last one to the history.
-    if (epoch_history_.size() == kEpochHistoryRetention) {
-      epoch_history_.pop_front();
-    }
-    epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
-    epoch_id_ = utils::GenerateUUID();
-  }
+  storage->EstablishNewEpoch();
 
   if (ShouldStoreAndRestoreReplicationState()) {
     // Only thing that matters here is the role saved as MAIN
@@ -1851,21 +1831,90 @@ bool InMemoryStorage::SetMainReplicationRole() {
                                        .ssl = std::nullopt,
                                        .role = replication::ReplicationRole::MAIN});
 
-    if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+    if (!durability_->Put(replication::kReservedReplicationRoleName, data.dump())) {
       spdlog::error("Error when saving MAIN replication role in settings.");
       return false;
     }
   }
 
-  replication_role_.store(replication::ReplicationRole::MAIN);
+  SetRole(replication::ReplicationRole::MAIN);
   return true;
 }
 
-utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
-  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
-            "Only main instance can register a replica!");
+bool storage::InMemoryStorage::ReplicationState::AppendToWalDataDefinition(const uint64_t seq_num,
+                                                                           durability::StorageGlobalOperation operation,
+                                                                           LabelId label,
+                                                                           const std::set<PropertyId> &properties,
+                                                                           uint64_t final_commit_timestamp) {
+  bool finalized_on_all_replicas = true;
+  // TODO Should we return true if not MAIN?
+  if (GetRole() == replication::ReplicationRole::MAIN) {
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &client : clients) {
+        client->StartTransactionReplication(seq_num);
+        client->IfStreamingTransaction(
+            [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
+
+        const auto finalized = client->FinalizeTransactionReplication();
+        if (client->Mode() == replication::ReplicationMode::SYNC) {
+          finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+        }
+      }
+    });
+  }
+  return finalized_on_all_replicas;
+}
+
+void storage::InMemoryStorage::ReplicationState::InitializeTransaction(uint64_t seq_num) {
+  if (GetRole() == replication::ReplicationRole::MAIN) {
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &client : clients) {
+        client->StartTransactionReplication(seq_num);
+      }
+    });
+  }
+}
+
+void storage::InMemoryStorage::ReplicationState::AppendDelta(const Delta &delta, const Edge &parent,
+                                                             uint64_t timestamp) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
+    }
+  });
+}
+
+void storage::InMemoryStorage::ReplicationState::AppendDelta(const Delta &delta, const Vertex &parent,
+                                                             uint64_t timestamp) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
+    }
+  });
+}
+
+bool storage::InMemoryStorage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
+  bool finalized_on_all_replicas = true;
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
+      const auto finalized = client->FinalizeTransactionReplication();
+
+      if (client->Mode() == replication::ReplicationMode::SYNC) {
+        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+      }
+    }
+  });
+  return finalized_on_all_replicas;
+}
+
+utils::BasicResult<InMemoryStorage::ReplicationState::RegisterReplicaError>
+InMemoryStorage::ReplicationState::RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                                                   const replication::ReplicationMode replication_mode,
+                                                   const replication::RegistrationMode registration_mode,
+                                                   const replication::ReplicationClientConfig &config,
+                                                   InMemoryStorage *storage) {
+  MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
@@ -1893,13 +1942,13 @@ utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::Regis
                                        .replica_check_frequency = config.replica_check_frequency,
                                        .ssl = config.ssl,
                                        .role = replication::ReplicationRole::REPLICA});
-    if (!storage_->Put(name, data.dump())) {
+    if (!durability_->Put(name, data.dump())) {
       spdlog::error("Error when saving replica {} in settings.", name);
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
   }
 
-  auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
+  auto client = std::make_unique<ReplicationClient>(std::move(name), storage, endpoint, replication_mode, config);
 
   if (client->State() == replication::ReplicaState::INVALID) {
     if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {
@@ -1909,29 +1958,62 @@ utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::Regis
     spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
-  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<InMemoryStorage::RegisterReplicaError> {
-    // Another thread could have added a client with same name while
-    // we were connecting to this client.
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
-      return RegisterReplicaError::NAME_EXISTS;
-    }
+  return replication_clients_.WithLock(
+      [&](auto &clients) -> utils::BasicResult<InMemoryStorage::ReplicationState::RegisterReplicaError> {
+        // Another thread could have added a client with same name while
+        // we were connecting to this client.
+        if (std::any_of(clients.begin(), clients.end(),
+                        [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
+          return RegisterReplicaError::NAME_EXISTS;
+        }
 
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
-      return RegisterReplicaError::END_POINT_EXISTS;
-    }
+        if (std::any_of(clients.begin(), clients.end(), [&client](const auto &other_client) {
+              return client->Endpoint() == other_client->Endpoint();
+            })) {
+          return RegisterReplicaError::END_POINT_EXISTS;
+        }
 
-    clients.push_back(std::move(client));
-    return {};
-  });
+        clients.push_back(std::move(client));
+        return {};
+      });
 }
 
-bool InMemoryStorage::UnregisterReplica(const std::string &name) {
-  MG_ASSERT(replication_role_.load() == replication::ReplicationRole::MAIN,
-            "Only main instance can unregister a replica!");
+bool InMemoryStorage::ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
+                                                       const replication::ReplicationServerConfig &config,
+                                                       InMemoryStorage *storage) {
+  // We don't want to restart the server if we're already a REPLICA
+  if (GetRole() == replication::ReplicationRole::REPLICA) {
+    return false;
+  }
+
+  auto port = endpoint.port;  // assigning because we will move the endpoint
+  replication_server_ = std::make_unique<ReplicationServer>(storage, std::move(endpoint), config);
+
   if (ShouldStoreAndRestoreReplicationState()) {
-    if (!storage_->Delete(name)) {
+    // Only thing that matters here is the role saved as REPLICA and the listening port
+    auto data = replication::ReplicationStatusToJSON(
+        replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
+                                       .ip_address = "",
+                                       .port = port,
+                                       .sync_mode = replication::ReplicationMode::SYNC,
+                                       .replica_check_frequency = std::chrono::seconds(0),
+                                       .ssl = std::nullopt,
+                                       .role = replication::ReplicationRole::REPLICA});
+
+    if (!durability_->Put(replication::kReservedReplicationRoleName, data.dump())) {
+      spdlog::error("Error when saving REPLICA replication role in settings.");
+      return false;
+    }
+  }
+
+  SetRole(replication::ReplicationRole::REPLICA);
+  return true;
+}
+
+bool InMemoryStorage::ReplicationState::UnregisterReplica(std::string_view name) {
+  MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can unregister a replica!");
+  if (ShouldStoreAndRestoreReplicationState()) {
+    if (!durability_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
       return false;
     }
@@ -1942,7 +2024,8 @@ bool InMemoryStorage::UnregisterReplica(const std::string &name) {
   });
 }
 
-std::optional<replication::ReplicaState> InMemoryStorage::GetReplicaState(const std::string_view name) {
+std::optional<replication::ReplicaState> InMemoryStorage::ReplicationState::GetReplicaState(
+    const std::string_view name) {
   return replication_clients_.WithLock([&](auto &clients) -> std::optional<replication::ReplicaState> {
     const auto client_it =
         std::find_if(clients.cbegin(), clients.cend(), [name](auto &client) { return client->Name() == name; });
@@ -1953,9 +2036,7 @@ std::optional<replication::ReplicaState> InMemoryStorage::GetReplicaState(const 
   });
 }
 
-replication::ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
-
-std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
+std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicationState::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<InMemoryStorage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
@@ -1967,7 +2048,7 @@ std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
   });
 }
 
-void InMemoryStorage::RestoreReplicationRole() {
+void InMemoryStorage::ReplicationState::RestoreReplicationRole(InMemoryStorage *storage) {
   if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
@@ -1975,7 +2056,7 @@ void InMemoryStorage::RestoreReplicationRole() {
   spdlog::info("Restoring replication role.");
   uint16_t port = replication::kDefaultReplicationPort;
 
-  const auto replication_data = storage_->Get(replication::kReservedReplicationRoleName);
+  const auto replication_data = durability_->Get(replication::kReservedReplicationRoleName);
   if (!replication_data.has_value()) {
     spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
     return;
@@ -1989,29 +2070,29 @@ void InMemoryStorage::RestoreReplicationRole() {
 
   const auto replication_status = *maybe_replication_status;
   if (!replication_status.role.has_value()) {
-    replication_role_.store(replication::ReplicationRole::MAIN);
+    SetRole(replication::ReplicationRole::MAIN);
   } else {
-    replication_role_.store(*replication_status.role);
+    SetRole(*replication_status.role);
     port = replication_status.port;
   }
 
-  if (replication_role_ == replication::ReplicationRole::REPLICA) {
+  if (GetRole() == replication::ReplicationRole::REPLICA) {
     io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
     replication_server_ =
-        std::make_unique<ReplicationServer>(this, std::move(endpoint), replication::ReplicationServerConfig{});
+        std::make_unique<ReplicationServer>(storage, std::move(endpoint), replication::ReplicationServerConfig{});
   }
 
   spdlog::info("Replication role restored to {}.",
-               replication_role_ == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
+               GetRole() == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
 }
 
-void InMemoryStorage::RestoreReplicas() {
+void InMemoryStorage::ReplicationState::RestoreReplicas(InMemoryStorage *storage) {
   if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
   spdlog::info("Restoring replicas.");
 
-  for (const auto &[replica_name, replica_data] : *storage_) {
+  for (const auto &[replica_name, replica_data] : *durability_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
     const auto maybe_replica_status = replication::JSONToReplicationStatus(nlohmann::json::parse(replica_data));
@@ -2033,7 +2114,8 @@ void InMemoryStorage::RestoreReplicas() {
                         {
                             .replica_check_frequency = replica_status.replica_check_frequency,
                             .ssl = replica_status.ssl,
-                        });
+                        },
+                        storage);
 
     if (ret.HasError()) {
       MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
@@ -2041,33 +2123,6 @@ void InMemoryStorage::RestoreReplicas() {
     }
     spdlog::info("Replica {} restored.", replica_name);
   }
-}
-
-bool InMemoryStorage::ShouldStoreAndRestoreReplicationState() const { return nullptr != storage_; }
-
-utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
-  auto locker_accessor = global_locker_.Access();
-  return locker_accessor.IsPathLocked(config_.durability.storage_directory);
-}
-
-utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::LockPath() {
-  auto locker_accessor = global_locker_.Access();
-  return locker_accessor.AddPath(config_.durability.storage_directory);
-}
-
-utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() {
-  {
-    auto locker_accessor = global_locker_.Access();
-    const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
-    if (ret.HasError() || !ret.GetValue()) {
-      // Exit without cleaning the queue
-      return ret;
-    }
-  }
-  // We use locker accessor in seperate scope so we don't produce deadlock
-  // after we call clean queue.
-  file_retainer_.CleanQueue();
-  return true;
 }
 
 }  // namespace memgraph::storage

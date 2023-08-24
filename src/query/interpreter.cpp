@@ -3485,9 +3485,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const {
-  if (db_accessor_) {
-    return db_accessor_->GetTransactionId();
-  }
+  if (db_accessor_) return db_accessor_->GetTransactionId();
   return {};
 }
 

@@ -73,40 +73,19 @@ class Server final {
    * invokes workers_count workers
    */
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         const int inactivity_timeout_sec, const std::string_view service_name,
-         size_t workers_count = std::thread::hardware_concurrency())
-      : endpoint_{endpoint},
-        service_name_{service_name},
-        context_thread_pool_{workers_count},
-        listener_{Listener<TSession, TSessionContext>::Create(context_thread_pool_.GetIOContext(), session_context,
-                                                              server_context, endpoint_, service_name_,
-                                                              inactivity_timeout_sec)} {}
+         int inactivity_timeout_sec, std::string_view service_name,
+         size_t workers_count = std::thread::hardware_concurrency());
 
-  ~Server() { MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly"); }
+  ~Server();
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
 
-  const auto &Endpoint() const {
-    MG_ASSERT(IsRunning(), "You can't get the server endpoint when it's not running!");
-    return endpoint_;
-  }
+  const auto &Endpoint() const;
 
-  bool Start() {
-    if (IsRunning()) {
-      spdlog::error("The server is already running");
-      return false;
-    }
-    listener_->Start();
-
-    spdlog::info("{} server is fully armed and operational", service_name_);
-    spdlog::info("{} listening on {}", service_name_, endpoint_.address());
-    context_thread_pool_.Run();
-
-    return true;
-  }
+  bool Start();
 
   void Shutdown() {
     context_thread_pool_.Shutdown();
@@ -115,7 +94,7 @@ class Server final {
 
   void AwaitShutdown() { context_thread_pool_.AwaitShutdown(); }
 
-  bool IsRunning() const noexcept { return context_thread_pool_.IsRunning() && listener_->IsRunning(); }
+  bool IsRunning() const noexcept;
 
  private:
   ServerEndpoint endpoint_;
@@ -124,5 +103,47 @@ class Server final {
   IOContextThreadPool context_thread_pool_;
   std::shared_ptr<Listener<TSession, TSessionContext>> listener_;
 };
+
+template <typename TSession, typename TSessionContext>
+Server<TSession, TSessionContext>::~Server() {
+  MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
+}
+
+template <typename TSession, typename TSessionContext>
+Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionContext *session_context,
+                                          ServerContext *server_context, const int inactivity_timeout_sec,
+                                          const std::string_view service_name, size_t workers_count)
+    : endpoint_{endpoint},
+      service_name_{service_name},
+      context_thread_pool_{workers_count},
+      listener_{Listener<TSession, TSessionContext>::Create(context_thread_pool_.GetIOContext(), session_context,
+                                                            server_context, endpoint_, service_name_,
+                                                            inactivity_timeout_sec)} {}
+
+template <typename TSession, typename TSessionContext>
+bool Server<TSession, TSessionContext>::Start() {
+  if (IsRunning()) {
+    spdlog::error("The server is already running");
+    return false;
+  }
+  listener_->Start();
+
+  spdlog::info("{} server is fully armed and operational", service_name_);
+  spdlog::info("{} listening on {}", service_name_, endpoint_.address());
+  context_thread_pool_.Run();
+
+  return true;
+}
+
+template <typename TSession, typename TSessionContext>
+const auto &Server<TSession, TSessionContext>::Endpoint() const {
+  MG_ASSERT(IsRunning(), "You can't get the server endpoint when it's not running!");
+  return endpoint_;
+}
+
+template <typename TSession, typename TSessionContext>
+bool Server<TSession, TSessionContext>::IsRunning() const noexcept {
+  return context_thread_pool_.IsRunning() && listener_->IsRunning();
+}
 
 }  // namespace memgraph::communication::v2

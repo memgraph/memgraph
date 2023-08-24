@@ -278,6 +278,8 @@ class Storage {
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
+  virtual void EstablishNewEpoch() = 0;
+
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing
