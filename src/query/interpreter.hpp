@@ -15,6 +15,7 @@
 
 #include <gflags/gflags.h>
 
+// #include "dbms/session_context_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -245,12 +246,10 @@ struct InterpreterContext {
                      const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                      query::AuthChecker *ac = nullptr);
 
-  // TODO In order for this to work, the user still goes through interpreter context, break that
-  storage::Storage *db;
   const InterpreterConfig config;
 
-  // TODO: This variable is only used to flag that the timer is not resent (refactor)
-  std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
+  storage::Storage *db;
+  // memgraph::dbms::SessionContextHandler *storage_handler;  // TODO Modify SessionContextHandler for new arch
 
   std::atomic<bool> is_shutting_down{false};
 

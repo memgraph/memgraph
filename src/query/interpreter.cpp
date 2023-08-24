@@ -1650,7 +1650,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     throw ProfileInMulticommandTxException();
   }
 
-  if (!interpreter_context->tsc_frequency) {
+  if (!memgraph::utils::IsAvailableTSC()) {
     throw QueryException("TSC support is missing for PROFILE");
   }
 
