@@ -1262,7 +1262,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
   }
 
   const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge, config_.properties_on_edges);
-  modified_edges_.emplace(gid, disk_edge_key.GetSerializedKey());
+  modified_edges_.emplace(gid,
+                          std::make_pair(Delta::Action::DELETE_DESERIALIZED_OBJECT, disk_edge_key.GetSerializedKey()));
 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
@@ -1301,7 +1302,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge, config_.properties_on_edges);
-  modified_edges_.emplace(gid, disk_edge_key.GetSerializedKey());
+  modified_edges_.emplace(gid, std::make_pair(Delta::Action::DELETE_OBJECT, disk_edge_key.GetSerializedKey()));
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
@@ -1509,22 +1510,17 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
-  /// TODO: andi I don't like that std::optional is used for checking errors but that's how it was before, refactor!
   for (Vertex &vertex : vertex_acc) {
     if (VertexNeedsToBeSerialized(vertex)) {
       if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
         return check_result.GetError();
       }
 
-      /// TODO: what if something is changed and then deleted and how does this work connected to indices and
-      /// constraints
       if (vertex.deleted) {
         continue;
       }
 
-      /// TODO: expose temporal coupling
       /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-      /// TODO: This has to deal with index storage if read from index cache
       if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
         if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
           return StorageDataManipulationError{SerializationError{}};
@@ -1541,46 +1537,6 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
         return StorageDataManipulationError{SerializationError{}};
       }
     }
-
-    // for (auto &edge_entry : vertex.out_edges) {
-    //   /// TODO: (andi) Even if the edge doesn't need to be serialized, we still do it.
-    //   EdgeRef edge_ref = std::get<2>(edge_entry);
-    //   const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ref,
-    //                                  config_.properties_on_edges);
-
-    //   /// TODO: (andi) expose temporal coupling
-    //   /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    //   /// TODO: (andi) Delete the key even if properties on edges are False somehow.
-    //   if (config_.properties_on_edges) {
-    //     if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge_ref.ptr->delta);
-    //     maybe_old_disk_key.has_value()) {
-    //       if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
-    //         return StorageDataManipulationError{SerializationError{}};
-    //       }
-    //     }
-    //   }
-
-    //   auto gid = config_.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
-
-    //   const std::string ser_edge_value =
-    //       std::invoke([properties_on_edges = config_.properties_on_edges, gid, &local_tx_edge_acc]() -> std::string {
-    //         if (properties_on_edges) {
-    //           const auto &edge = local_tx_edge_acc.find(gid);
-    //           MG_ASSERT(
-    //               edge != local_tx_edge_acc.end(),
-    //               "Database in invalid state, commit not possible! Please restart your DB and start the import
-    //               again.");
-    //           return utils::SerializeProperties(edge->properties);
-    //         }
-    //         return "";
-    //       });
-
-    //   if (!WriteEdgeToDisk(src_dest_key.GetSerializedKey(), ser_edge_value)) {
-    //     return StorageDataManipulationError{SerializationError{}};
-    //   }
-
-    //   /// TODO: what if edge has already been deleted
-    // }
   }
 
   if (auto modified_edges_res = FlushModifiedEdges(local_tx_edge_acc); modified_edges_res.HasError()) {
@@ -1701,8 +1657,19 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
   for (const auto &modified_edge : modified_edges_) {
-    const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges,
-                                                    gid = modified_edge.first, &edge_acc]() -> std::string {
+    const storage::Gid &gid = modified_edge.first;
+    const Delta::Action action = modified_edge.second.first;
+    const std::string &ser_edge_key = modified_edge.second.second;
+
+    // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
+    // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
+    // so we can delete it.
+    if (action == Delta::Action::DELETE_DESERIALIZED_OBJECT && !DeleteEdgeFromDisk(ser_edge_key)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
+
+    const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges, &gid,
+                                                    &edge_acc]() -> std::string {
       if (properties_on_edges) {
         const auto &edge = edge_acc.find(gid);
         MG_ASSERT(edge != edge_acc.end(),
@@ -1712,7 +1679,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       return "";
     });
 
-    if (!WriteEdgeToDisk(modified_edge.second, ser_edge_value)) {
+    if (!WriteEdgeToDisk(ser_edge_key, ser_edge_value)) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }
