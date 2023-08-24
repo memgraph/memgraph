@@ -241,13 +241,19 @@ bool InMemoryUniqueConstraints::Entry::operator<(const std::vector<PropertyValue
 bool InMemoryUniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
 
 void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
-  for (auto &[label_props, storage] : constraints_) {
-    if (!utils::Contains(vertex->labels, label_props.first)) {
+  for (const auto &label : vertex->labels) {
+    if (!constraints_by_label_.contains(label)) {
       continue;
     }
-    auto values = vertex->properties.ExtractPropertyValues(label_props.second);
-    if (values) {
-      auto acc = storage.access();
+
+    for (auto &[props, storage] : constraints_by_label_.at(label)) {
+      auto values = vertex->properties.ExtractPropertyValues(props);
+
+      if (!values) {
+        continue;
+      }
+
+      auto acc = storage->access();
       acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
     }
   }
@@ -303,6 +309,9 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
     constraints_.erase(constraint);
     return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
   }
+
+  // Add the new constraint to the optimized structure only if there are no violations.
+  constraints_by_label_[label].insert({properties, &constraints_.at({label, properties})});
   return CreationStatus::SUCCESS;
 }
 
@@ -312,7 +321,21 @@ InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstra
       drop_properties_check_result != UniqueConstraints::DeletionStatus::SUCCESS) {
     return drop_properties_check_result;
   }
-  if (constraints_.erase({label, properties}) > 0) {
+
+  auto erase_from_constraints_by_label_ = [this, label, &properties]() -> uint64_t {
+    if (!constraints_by_label_.contains(label)) {
+      return 1;  // erase is successful if there’s nothing to erase
+    }
+
+    const auto erase_entry_status = constraints_by_label_[label].erase(properties);
+    if (!constraints_by_label_[label].empty()) {
+      return erase_entry_status;
+    }
+
+    return erase_entry_status > 0 && constraints_by_label_.erase(label) > 0;
+  };
+
+  if (constraints_.erase({label, properties}) > 0 && erase_from_constraints_by_label_() > 0) {
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
@@ -327,34 +350,37 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
   if (vertex.deleted) {
     return std::nullopt;
   }
-  for (const auto &[label_props, storage] : constraints_) {
-    const auto &label = label_props.first;
-    const auto &properties = label_props.second;
-    if (!utils::Contains(vertex.labels, label)) {
+  for (const auto &label : vertex.labels) {
+    if (!constraints_by_label_.contains(label)) {
       continue;
     }
 
-    auto value_array = vertex.properties.ExtractPropertyValues(properties);
-    if (!value_array) {
-      continue;
-    }
-    auto acc = storage.access();
-    auto it = acc.find_equal_or_greater(*value_array);
-    for (; it != acc.end(); ++it) {
-      if (*value_array < it->values) {
-        break;
+    for (const auto &[properties, storage] : constraints_by_label_.at(label)) {
+      auto value_array = vertex.properties.ExtractPropertyValues(properties);
+
+      if (!value_array) {
+        continue;
       }
 
-      // The `vertex` that is going to be committed violates a unique constraint
-      // if it's different than a vertex indexed in the list of constraints and
-      // has the same label and property value as the last committed version of
-      // the vertex from the list.
-      if (&vertex != it->vertex &&
-          LastCommittedVersionHasLabelProperty(*it->vertex, label, properties, *value_array, tx, commit_timestamp)) {
-        return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+      auto acc = storage->access();
+      auto it = acc.find_equal_or_greater(*value_array);
+      for (; it != acc.end(); ++it) {
+        if (*value_array < it->values) {
+          break;
+        }
+
+        // The `vertex` that is going to be committed violates a unique constraint
+        // if it's different than a vertex indexed in the list of constraints and
+        // has the same label and property value as the last committed version of
+        // the vertex from the list.
+        if (&vertex != it->vertex &&
+            LastCommittedVersionHasLabelProperty(*it->vertex, label, properties, *value_array, tx, commit_timestamp)) {
+          return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+        }
       }
     }
   }
+
   return std::nullopt;
 }
 
@@ -389,6 +415,9 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_sta
   }
 }
 
-void InMemoryUniqueConstraints::Clear() { constraints_.clear(); }
+void InMemoryUniqueConstraints::Clear() {
+  constraints_.clear();
+  constraints_by_label_.clear();
+}
 
 }  // namespace memgraph::storage
