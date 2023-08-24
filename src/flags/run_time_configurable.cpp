@@ -13,15 +13,26 @@
 #include <string>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
+#include "flags/log_level.hpp"
+#include "spdlog/cfg/helpers-inl.h"
+#include "spdlog/spdlog.h"
+#include "utils/exceptions.hpp"
 #include "utils/settings.hpp"
+#include "utils/string.hpp"
 
 namespace {
 // Bolt server name
-constexpr const char *kServerNameSettingKey = "server.name";
+constexpr auto kServerNameSettingKey = "server.name";
 constexpr auto kDefaultServerName = "Neo4j/v5.11.0 compatible graph database server - memgraph";
 // Query timeout
-constexpr const char *kQueryTxSettingKey = "query.timeout";
+constexpr auto kQueryTxSettingKey = "query.timeout";
 constexpr auto kDefaultQueryTx = "600";  // seconds
+// Log level
+// No default value because it is not persistent
+constexpr auto kLogLevelSettingKey = "log.level";
+// Log to stderr
+// No default value because it is not persistent
+constexpr auto kLogToStderrSettingKey = "log.to_stderr";
 }  // namespace
 
 namespace memgraph::flags::run_time {
@@ -60,5 +71,41 @@ void Initialize() {
   if (FLAGS_query_execution_timeout_sec != -1) {
     memgraph::utils::global_settings.SetValue(kQueryTxSettingKey, std::to_string(FLAGS_query_execution_timeout_sec));
   }
+
+  // Register log level
+  auto get_global_log_level = []() {
+    const auto log_level = memgraph::utils::global_settings.GetValue(kLogLevelSettingKey);
+    MG_ASSERT(log_level, "Log level is missing from the settings");
+    const auto ll_enum = memgraph::flags::LogLevelToEnum(*log_level);
+    if (!ll_enum) {
+      throw utils::BasicException("Unsupported log level {}", *log_level);
+    }
+    return *ll_enum;
+  };
+  memgraph::utils::global_settings.RegisterSetting(
+      kLogLevelSettingKey, FLAGS_log_level, [&] { spdlog::set_level(get_global_log_level()); },
+      memgraph::flags::ValidLogLevel);
+  // Always override log level with command line argument
+  memgraph::utils::global_settings.SetValue(kLogLevelSettingKey, FLAGS_log_level);
+
+  // Register logging to stderr
+  auto bool_to_str = [](bool in) { return in ? "true" : "false"; };
+  const std::string log_to_stderr_s = bool_to_str(FLAGS_also_log_to_stderr);
+  memgraph::utils::global_settings.RegisterSetting(
+      kLogToStderrSettingKey, log_to_stderr_s,
+      [&] {
+        const auto enable = memgraph::utils::global_settings.GetValue(kLogToStderrSettingKey);
+        if (enable == "true") {
+          LogToStderr(get_global_log_level());
+        } else {
+          LogToStderr(spdlog::level::off);
+        }
+      },
+      [](std::string_view in) {
+        const auto lc = memgraph::utils::ToLowerCase(in);
+        return lc == "false" || lc == "true";
+      });
+  // Always override log to stderr with command line argument
+  memgraph::utils::global_settings.SetValue(kLogToStderrSettingKey, log_to_stderr_s);
 }
 }  // namespace memgraph::flags::run_time

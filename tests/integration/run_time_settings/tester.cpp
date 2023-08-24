@@ -9,18 +9,24 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <regex>
+
 #include <gflags/gflags.h>
 
 #include "communication/bolt/client.hpp"
-#include "communication/bolt/v1/value.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
-#include "utils/logging.hpp"
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
-DEFINE_string(field, "", "Expected settings field to check");
-DEFINE_string(value, "", "Expected string result from field");
+DEFINE_string(username, "", "Username for the database");
+DEFINE_string(password, "", "Password for the database");
+DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
+
+DEFINE_bool(check_failure, false, "Set to true to enable failure checking.");
+DEFINE_bool(should_fail, false, "Set to true to expect a failure.");
+DEFINE_bool(connection_should_fail, false, "Set to true to expect a connection failure.");
+DEFINE_string(failure_message, "", "Set to the expected failure message.");
 
 /**
  * Executes queries passed as positional arguments and verifies whether they
@@ -34,36 +40,67 @@ int main(int argc, char **argv) {
 
   memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
-  memgraph::communication::ClientContext context(false);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
   memgraph::communication::bolt::Client client(context);
 
+  std::regex re(FLAGS_failure_message);
+
   try {
-    client.Connect(endpoint, "", "");
-  } catch (const memgraph::utils::BasicException &e) {
-    LOG_FATAL("");
-  }
-
-  const auto &res = client.Execute("SHOW DATABASE SETTINGS", {});
-  MG_ASSERT(res.fields[0] == "setting_name", "Expected \"setting_name\" field in the query result.");
-  MG_ASSERT(res.fields[1] == "setting_value", "Expected \"setting_value\" field in the query result.");
-
-  unsigned i = 0;
-  for (const auto &record : res.records) {
-    const auto &settings_name = record[0].ValueString();
-    if (settings_name == FLAGS_field) {
-      const auto &settings_value = record[1].ValueString();
-      // First try to encode the flags as float; if that fails just compare the raw strings
-      try {
-        MG_ASSERT(std::stof(settings_value) == std::stof(FLAGS_value),
-                  "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!", FLAGS_field, FLAGS_value,
-                  settings_value);
-      } catch (const std::invalid_argument &) {
-        MG_ASSERT(settings_value == FLAGS_value, "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!",
-                  FLAGS_field, FLAGS_value, settings_value);
+    client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  } catch (const memgraph::communication::bolt::ClientFatalException &e) {
+    if (FLAGS_connection_should_fail) {
+      if (!FLAGS_failure_message.empty() && !std::regex_match(e.what(), re)) {
+        LOG_FATAL(
+            "The connection should have failed with an error message of '{}'' but "
+            "instead it failed with '{}'",
+            FLAGS_failure_message, e.what());
       }
       return 0;
+    } else {
+      LOG_FATAL(
+          "The connection shoudn't have failed but it failed with an "
+          "error message '{}'",
+          e.what());
     }
   }
 
-  LOG_FATAL("No setting named \"{}\" found!", FLAGS_field);
+  for (int i = 1; i < argc; ++i) {
+    std::string query(argv[i]);
+    try {
+      client.Execute(query, {});
+    } catch (const memgraph::communication::bolt::ClientQueryException &e) {
+      if (!FLAGS_check_failure) {
+        if (!FLAGS_failure_message.empty() && std::regex_match(e.what(), re)) {
+          LOG_FATAL(
+              "The query should have succeeded or failed with an error "
+              "message that isn't equal to '{}' but it failed with that error "
+              "message",
+              FLAGS_failure_message);
+        }
+        continue;
+      }
+      if (FLAGS_should_fail) {
+        if (!FLAGS_failure_message.empty() && !std::regex_match(e.what(), re)) {
+          LOG_FATAL(
+              "The query should have failed with an error message of '{}'' but "
+              "instead it failed with '{}'",
+              FLAGS_failure_message, e.what());
+        }
+        return 0;
+      } else {
+        LOG_FATAL(
+            "The query shoudn't have failed but it failed with an "
+            "error message '{}'",
+            e.what());
+      }
+    }
+    if (!FLAGS_check_failure) continue;
+    if (FLAGS_should_fail) {
+      LOG_FATAL(
+          "The query should have failed but instead it executed "
+          "successfully!");
+    }
+  }
+
+  return 0;
 }
