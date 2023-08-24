@@ -15,20 +15,17 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
+def test_import_mode_disabled_for_in_memory_storages():
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+
+
 def test_import_mode_on_off():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
-
-
-def test_import_mode_disabled_for_in_memory_storages():
-    cursor = connect().cursor()
-    try:
-        execute_and_fetch_all(cursor, "EDGE IMPORT MODE ON")
-        assert False
-    except:
-        execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
 
 
 def test_creating_vertices():
@@ -58,11 +55,6 @@ def test_creating_edges():
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
 
-# Tests to do
-# TODO: (andi) Creating indices while in edge import mode
-# TODO: (andi) Serializing just newly created edges => Unit test.
-# TODO: (andi) In this PR SHOW STORAGE INFO doesn't show correct values
-# TODO: (andi) Exception when write operation on a vertex happens during EDGE IMPORT MODE.
 def test_label_index_vertices_loading():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
@@ -123,6 +115,48 @@ def test_label_property_index_edges_creation():
     assert len(list(execute_and_fetch_all(cursor, "MATCH (n:User) RETURN n"))) == 2
     assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 1
     execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
+def test_edge_deletion_in_edge_import_mode():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :User(id)")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 2})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIENDS {id: 3}]->(m)")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 1
+    execute_and_fetch_all(cursor, "MATCH (n)-[r:FRIENDS {id: 3}]->(m) DELETE r")
+    assert len(list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN n, r, m"))) == 0
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
+def test_modification_of_edge_properties_in_edge_import_mode():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :User(id)")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 2})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    execute_and_fetch_all(
+        cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIENDS {id: 3, balance: 1000}]->(m)"
+    )
+    assert list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN r.balance"))[0][0] == 1000
+    execute_and_fetch_all(cursor, "MATCH (n)-[r:FRIENDS {id: 3}]->(m) SET r.balance = 2000")
+    assert list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN r.balance"))[0][0] == 2000
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
+
+
+# def test_throw_on_vertex_add_label_during_edge_import_mode():
+#     cursor = connect().cursor()
+#     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+#     execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+#     execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+#     with pytest.raises(Exception):
+#       execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) SET u:User:Person RETURN u")
+#     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
 
 
 if __name__ == "__main__":

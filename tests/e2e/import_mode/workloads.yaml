@@ -3,7 +3,7 @@ import_mode_cluster: &import_mode_cluster
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
       log_file: "transaction_queue.log"
-      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
+      setup_queries: []
       validation_queries: []
 
 workloads:
