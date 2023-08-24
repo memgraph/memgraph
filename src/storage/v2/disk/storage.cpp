@@ -1255,6 +1255,9 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
     edge.ptr->properties.SetBuffer(properties);
   }
 
+  const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge, config_.properties_on_edges);
+  modified_edges_.emplace(gid, disk_edge_key.GetSerializedKey());
+
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
@@ -1290,6 +1293,9 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
   }
+
+  const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge, config_.properties_on_edges);
+  modified_edges_.emplace(gid, disk_edge_key.GetSerializedKey());
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
@@ -1367,6 +1373,8 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges);
   edges_to_delete_.emplace(disk_edge_key.GetSerializedKey());
 
+  modified_edges_.erase(edge->Gid());
+
   if (config_.properties_on_edges) {
     MG_ASSERT((op1 && op2), "Invalid database state!");
   } else {
@@ -1418,24 +1426,20 @@ bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
 }
 
 /// TODO: at which storage naming
-bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const EdgeRef edge, const std::string &serializedEdgeKey) {
+bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const std::string &serialized_edge_key,
+                                                const std::string &serialized_edge_value) {
   MG_ASSERT(commit_timestamp_.has_value(), "Writing vertex to disk but commit timestamp not set.");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  rocksdb::Status status;
-  if (config_.properties_on_edges) {
-    status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey,
-                                    utils::SerializeProperties(edge.ptr->properties));
-  } else {
-    status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey, "");
-  }
+  rocksdb::Status status =
+      disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
   if (status.ok()) {
-    spdlog::trace("rocksdb: Saved edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
+    spdlog::trace("rocksdb: Saved edge with key {} and ts {}", serialized_edge_key, *commit_timestamp_);
   } else if (status.IsBusy()) {
     spdlog::error("rocksdb: Edge with key {} and ts {} was changed and committed in another transaction",
-                  serializedEdgeKey, *commit_timestamp_);
+                  serialized_edge_key, *commit_timestamp_);
     return false;
   } else {
-    spdlog::error("rocksdb: Failed to save edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
+    spdlog::error("rocksdb: Failed to save edge with key {} and ts {}", serialized_edge_key, *commit_timestamp_);
     return false;
   }
   return true;
@@ -1490,9 +1494,8 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushMainMemoryCache() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto vertex_acc = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE
-                        ? disk_storage->edge_import_mode_cache_->AccessToVertices()
-                        : vertices_.access();
+  auto vertex_acc = vertices_.access();
+  auto edge_acc = edges_.access();
 
   std::vector<std::vector<PropertyValue>> unique_storage;
   auto *disk_unique_constraints =
@@ -1535,15 +1538,16 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
     }
 
     for (auto &edge_entry : vertex.out_edges) {
-      EdgeRef edge = std::get<2>(edge_entry);
-      const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
+      /// TODO: (andi) Even if the edge doesn't need to be serialized, we still do it.
+      EdgeRef edge_ref = std::get<2>(edge_entry);
+      const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ref,
                                      config_.properties_on_edges);
 
       /// TODO: (andi) expose temporal coupling
       /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
       /// TODO: (andi) Delete the key even if properties on edges are False somehow.
       if (config_.properties_on_edges) {
-        if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge.ptr->delta); maybe_old_disk_key.has_value()) {
+        if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge_ref.ptr->delta); maybe_old_disk_key.has_value()) {
           if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
             return StorageDataManipulationError{SerializationError{}};
           }
@@ -1554,7 +1558,22 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
         //   }
         // }
       }
-      if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
+
+      auto gid = config_.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+
+      const std::string ser_edge_value =
+          std::invoke([properties_on_edges = config_.properties_on_edges, gid, &edge_acc]() -> std::string {
+            if (properties_on_edges) {
+              const auto &edge = edge_acc.find(gid);
+              MG_ASSERT(
+                  edge != edge_acc.end(),
+                  "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
+              return utils::SerializeProperties(edge->properties);
+            }
+            return "";
+          });
+
+      if (!WriteEdgeToDisk(src_dest_key.GetSerializedKey(), ser_edge_value)) {
         return StorageDataManipulationError{SerializationError{}};
       }
 
@@ -1588,6 +1607,31 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   return {};
 }
 
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
+DiskStorage::DiskAccessor::FlushEdgeImportModeCache() {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto edge_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
+
+  for (const auto &modified_edge : modified_edges_) {
+    const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges,
+                                                    gid = modified_edge.first, &edge_acc]() -> std::string {
+      if (properties_on_edges) {
+        const auto &edge = edge_acc.find(gid);
+        MG_ASSERT(edge != edge_acc.end(),
+                  "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
+        return utils::SerializeProperties(edge->properties);
+      }
+      return "";
+    });
+
+    if (!WriteEdgeToDisk(modified_edge.second, ser_edge_value)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
+  }
+
+  return {};
+}
+
 /// TODO: I think unique_storage is not needed here
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushIndexCache() {
   std::vector<std::vector<PropertyValue>> unique_storage;
@@ -1596,6 +1640,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  auto edge_acc = edges_.access();
 
   for (const auto &vec : index_storage_) {
     auto vertex_acc = vec->access();
@@ -1621,11 +1666,25 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       }
 
       for (auto &edge_entry : vertex.out_edges) {
-        EdgeRef edge = std::get<2>(edge_entry);
-        DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge,
+        EdgeRef edge_ref = std::get<2>(edge_entry);
+        DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ref,
                                  config_.properties_on_edges);
 
-        if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
+        auto gid = config_.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+
+        const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges, gid,
+                                                        &edge_acc]() -> std::string {
+          if (properties_on_edges) {
+            const auto &edge = edge_acc.find(gid);
+            MG_ASSERT(
+                edge != edge_acc.end(),
+                "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
+            return utils::SerializeProperties(edge->properties);
+          }
+          return "";
+        });
+
+        if (!WriteEdgeToDisk(src_dest_key.GetSerializedKey(), ser_edge_value)) {
           return StorageDataManipulationError{SerializationError{}};
         }
 
@@ -1702,14 +1761,20 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
-    if (auto res = FlushMainMemoryCache(); res.HasError()) {
-      Abort();
-      return res;
-    }
-
-    if (auto res = FlushIndexCache(); res.HasError()) {
-      Abort();
-      return res;
+    if (edge_import_mode_active) {
+      if (auto res = FlushEdgeImportModeCache(); res.HasError()) {
+        Abort();
+        return res;
+      }
+    } else {
+      if (auto main_flush_res = FlushMainMemoryCache(); main_flush_res.HasError()) {
+        Abort();
+        return main_flush_res.GetError();
+      }
+      if (auto index_flush_res = FlushIndexCache(); index_flush_res.HasError()) {
+        Abort();
+        return index_flush_res.GetError();
+      }
     }
   }
 

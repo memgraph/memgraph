@@ -62,6 +62,7 @@ def test_creating_edges():
 # TODO: (andi) Creating indices while in edge import mode
 # TODO: (andi) Serializing just newly created edges => Unit test.
 # TODO: (andi) In this PR SHOW STORAGE INFO doesn't show correct values
+# TODO: (andi) Exception when write operation on a vertex happens during EDGE IMPORT MODE.
 def test_label_index_vertices_loading():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")

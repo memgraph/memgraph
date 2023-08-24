@@ -241,13 +241,15 @@ class DiskStorage final : public Storage {
     /// After this method, the vertex and edge caches are cleared.
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushMainMemoryCache();
 
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushEdgeImportModeCache();
+
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushIndexCache();
 
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
     bool WriteVertexToDisk(const Vertex &vertex);
-    bool WriteEdgeToDisk(EdgeRef edge, const std::string &serializedEdgeKey);
+    bool WriteEdgeToDisk(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
     bool DeleteVertexFromDisk(const std::string &vertex);
     bool DeleteEdgeFromDisk(const std::string &edge);
 
@@ -259,6 +261,7 @@ class DiskStorage final : public Storage {
     /// transaction is done
     std::vector<std::list<Delta>> index_deltas_storage_;
     utils::SkipList<Edge> edges_;
+    std::unordered_map<Gid, std::string> modified_edges_;
     Config::Items config_;
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
@@ -351,7 +354,7 @@ class DiskStorage final : public Storage {
   StorageInfo GetInfo() const override;
 
   void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
-  
+
   void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
