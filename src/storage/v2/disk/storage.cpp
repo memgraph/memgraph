@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <cstdint>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -61,6 +60,7 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
+constexpr const char *deserializeTimestamp = "0";
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
@@ -322,9 +322,9 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 }
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
-std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(std::string &&key,
-                                                                                              std::string &&value,
-                                                                                              std::string &&ts) {
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(const std::string &key,
+                                                                                              const std::string &value,
+                                                                                              const std::string &ts) {
   auto main_storage_accessor = vertices_.access();
 
   storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key)));
@@ -413,9 +413,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto it =
       std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    // We should pass it->timestamp().ToString() instead of "0"
+    // We should pass it->timestamp().ToString() instead of deserializeTimestamp
     // This is hack until RocksDB will support timestamp() in WBWI iterator
-    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString(), "0");
+    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString(), deserializeTimestamp);
   }
   scanned_all_vertices_ = true;
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
@@ -478,11 +478,12 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
     spdlog::trace("Loaded vertex with key: {} from label index storage", key);
     if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
-      // We should pass it->timestamp().ToString() instead of "0"
+      // We should pass it->timestamp().ToString() instead of deserializeTimestamp
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      LoadVertexToLabelIndexCache(label, index_it->key().ToString(), index_it->value().ToString(),
-                                  CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key, "0"),
-                                  indexed_vertices->access());
+      LoadVertexToLabelIndexCache(
+          label, index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key, deserializeTimestamp),
+          indexed_vertices->access());
     }
   }
 }
@@ -559,11 +560,12 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
     Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
     /// TODO: optimize
     if (label_property_filter(key, label_property_prefix, gids, curr_gid)) {
-      // We should pass it->timestamp().ToString() instead of "0"
+      // We should pass it->timestamp().ToString() instead of deserializeTimestamp
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(
           label, index_it->key().ToString(), index_it->value().ToString(),
-          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key, "0"), indexed_vertices->access());
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key, deserializeTimestamp),
+          indexed_vertices->access());
     }
   }
 }
@@ -613,11 +615,12 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value);
     if (key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
         properties.IsPropertyEqual(property, value)) {
-      // We should pass it->timestamp().ToString() instead of "0"
+      // We should pass it->timestamp().ToString() instead of deserializeTimestamp
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(
           label, index_it->key().ToString(), index_it->value().ToString(),
-          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key, "0"), indexed_vertices->access());
+          CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key, deserializeTimestamp),
+          indexed_vertices->access());
     }
   }
 }
@@ -695,11 +698,11 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
         !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       continue;
     }
-    // We should pass it->timestamp().ToString() instead of "0"
+    // We should pass it->timestamp().ToString() instead of deserializeTimestamp
     // This is hack until RocksDB will support timestamp() in WBWI iterator
     LoadVertexToLabelPropertyIndexCache(
         label, index_it->key().ToString(), index_it->value().ToString(),
-        CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key_str, "0"),
+        CreateDeleteDeserializedIndexObjectDelta(&transaction_, index_deltas, key_str, deserializeTimestamp),
         indexed_vertices->access());
   }
 }
@@ -870,9 +873,9 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
     if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key))) == gid) {
-      // We should pass it->timestamp().ToString() instead of "0"
+      // We should pass it->timestamp().ToString() instead of deserializeTimestamp
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      return LoadVertexToMainMemoryCache(std::move(key), it->value().ToString(), "0");
+      return LoadVertexToMainMemoryCache(std::move(key), it->value().ToString(), deserializeTimestamp);
     }
   }
   return std::nullopt;
@@ -1013,9 +1016,9 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const VertexAccessor &vertex_acc, 
     const rocksdb::Slice &key = it->key();
     auto keyStr = key.ToStringView();
     if (PrefetchEdgeFilter(keyStr, vertex_acc, edge_direction)) {
-      // We should pass it->timestamp().ToString() instead of "0"
+      // We should pass it->timestamp().ToString() instead of deserializeTimestamp
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      DeserializeEdge(key, it->value(), "0");
+      DeserializeEdge(key, it->value(), deserializeTimestamp);
     }
   }
 }

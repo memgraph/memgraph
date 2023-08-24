@@ -26,6 +26,7 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
 }
 
 inline uint64_t GetEarliestTimestamp(storage::Delta *head) {
+  if (head == nullptr) return 0;
   uint64_t ts = head->timestamp->load(std::memory_order_acquire);
   while (head->next != nullptr) {
     head = head->next;

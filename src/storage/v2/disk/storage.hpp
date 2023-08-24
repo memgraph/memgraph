@@ -23,7 +23,6 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
-#include <cstdint>
 #include <unordered_set>
 
 namespace memgraph::storage {
@@ -202,8 +201,8 @@ class DiskStorage final : public Storage {
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value,
-                                                                       std::string &&ts);
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const std::string &key, const std::string &value,
+                                                                       const std::string &ts);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
