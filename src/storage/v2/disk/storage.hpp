@@ -241,9 +241,13 @@ class DiskStorage final : public Storage {
     /// After this method, the vertex and edge caches are cleared.
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushMainMemoryCache();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushEdgeImportModeCache();
-
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushIndexCache();
+
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedVertices();
+
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedEdges();
+
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
 
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;

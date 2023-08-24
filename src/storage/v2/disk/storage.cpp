@@ -1499,9 +1499,8 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushMainMemoryCache() {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto vertex_acc = vertices_.access();
-  auto edge_acc = edges_.access();
+  auto local_tx_edge_acc = edges_.access();
 
   std::vector<std::vector<PropertyValue>> unique_storage;
   auto *disk_unique_constraints =
@@ -1543,63 +1542,57 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       }
     }
 
-    for (auto &edge_entry : vertex.out_edges) {
-      /// TODO: (andi) Even if the edge doesn't need to be serialized, we still do it.
-      EdgeRef edge_ref = std::get<2>(edge_entry);
-      const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ref,
-                                     config_.properties_on_edges);
+    // for (auto &edge_entry : vertex.out_edges) {
+    //   /// TODO: (andi) Even if the edge doesn't need to be serialized, we still do it.
+    //   EdgeRef edge_ref = std::get<2>(edge_entry);
+    //   const DiskEdgeKey src_dest_key(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ref,
+    //                                  config_.properties_on_edges);
 
-      /// TODO: (andi) expose temporal coupling
-      /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-      /// TODO: (andi) Delete the key even if properties on edges are False somehow.
-      if (config_.properties_on_edges) {
-        if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge_ref.ptr->delta); maybe_old_disk_key.has_value()) {
-          if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
-            return StorageDataManipulationError{SerializationError{}};
-          }
-        }
-        // if (EdgeNeedsToBeSerialized(edge.ptr, &transaction_)) {
-        //   if (!WriteEdgeToDisk(edge, src_dest_key.GetSerializedKey())) {
-        //     return StorageDataManipulationError{SerializationError{}};
-        //   }
-        // }
-      }
+    //   /// TODO: (andi) expose temporal coupling
+    //   /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
+    //   /// TODO: (andi) Delete the key even if properties on edges are False somehow.
+    //   if (config_.properties_on_edges) {
+    //     if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(edge_ref.ptr->delta);
+    //     maybe_old_disk_key.has_value()) {
+    //       if (!DeleteEdgeFromDisk(maybe_old_disk_key.value())) {
+    //         return StorageDataManipulationError{SerializationError{}};
+    //       }
+    //     }
+    //   }
 
-      auto gid = config_.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+    //   auto gid = config_.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
 
-      const std::string ser_edge_value =
-          std::invoke([properties_on_edges = config_.properties_on_edges, gid, &edge_acc]() -> std::string {
-            if (properties_on_edges) {
-              const auto &edge = edge_acc.find(gid);
-              MG_ASSERT(
-                  edge != edge_acc.end(),
-                  "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
-              return utils::SerializeProperties(edge->properties);
-            }
-            return "";
-          });
+    //   const std::string ser_edge_value =
+    //       std::invoke([properties_on_edges = config_.properties_on_edges, gid, &local_tx_edge_acc]() -> std::string {
+    //         if (properties_on_edges) {
+    //           const auto &edge = local_tx_edge_acc.find(gid);
+    //           MG_ASSERT(
+    //               edge != local_tx_edge_acc.end(),
+    //               "Database in invalid state, commit not possible! Please restart your DB and start the import
+    //               again.");
+    //           return utils::SerializeProperties(edge->properties);
+    //         }
+    //         return "";
+    //       });
 
-      if (!WriteEdgeToDisk(src_dest_key.GetSerializedKey(), ser_edge_value)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
+    //   if (!WriteEdgeToDisk(src_dest_key.GetSerializedKey(), ser_edge_value)) {
+    //     return StorageDataManipulationError{SerializationError{}};
+    //   }
 
-      /// TODO: what if edge has already been deleted
-    }
+    //   /// TODO: what if edge has already been deleted
+    // }
   }
 
-  for (const auto &[vertex_gid, serialized_vertex_to_delete] : vertices_to_delete_) {
-    if (!DeleteVertexFromDisk(serialized_vertex_to_delete) ||
-        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
-        !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
-        !disk_label_property_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
-      return StorageDataManipulationError{SerializationError{}};
-    }
+  if (auto modified_edges_res = FlushModifiedEdges(local_tx_edge_acc); modified_edges_res.HasError()) {
+    return modified_edges_res.GetError();
   }
 
-  for (const auto &edge_to_delete : edges_to_delete_) {
-    if (!DeleteEdgeFromDisk(edge_to_delete)) {
-      return StorageDataManipulationError{SerializationError{}};
-    }
+  if (auto del_vertices_res = FlushDeletedVertices(); del_vertices_res.HasError()) {
+    return del_vertices_res.GetError();
+  }
+
+  if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
+    return del_edges_res.GetError();
   }
 
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp,
@@ -1608,31 +1601,6 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp,
                                                                          *commit_timestamp_)) {
     return StorageDataManipulationError{SerializationError{}};
-  }
-
-  return {};
-}
-
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
-DiskStorage::DiskAccessor::FlushEdgeImportModeCache() {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto edge_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
-
-  for (const auto &modified_edge : modified_edges_) {
-    const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges,
-                                                    gid = modified_edge.first, &edge_acc]() -> std::string {
-      if (properties_on_edges) {
-        const auto &edge = edge_acc.find(gid);
-        MG_ASSERT(edge != edge_acc.end(),
-                  "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
-        return utils::SerializeProperties(edge->properties);
-      }
-      return "";
-    });
-
-    if (!WriteEdgeToDisk(modified_edge.second, ser_edge_value)) {
-      return StorageDataManipulationError{SerializationError{}};
-    }
   }
 
   return {};
@@ -1702,6 +1670,55 @@ DiskStorage::DiskAccessor::FlushEdgeImportModeCache() {
   return {};
 }
 
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedVertices() {
+  auto *disk_unique_constraints =
+      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+
+  for (const auto &[vertex_gid, serialized_vertex_to_delete] : vertices_to_delete_) {
+    if (!DeleteVertexFromDisk(serialized_vertex_to_delete) ||
+        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
+        !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
+        !disk_label_property_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
+  }
+
+  return {};
+}
+
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
+  for (const auto &edge_to_delete : edges_to_delete_) {
+    if (!DeleteEdgeFromDisk(edge_to_delete)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
+  }
+  return {};
+}
+
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
+    const auto &edge_acc) {
+  for (const auto &modified_edge : modified_edges_) {
+    const std::string ser_edge_value = std::invoke([properties_on_edges = config_.properties_on_edges,
+                                                    gid = modified_edge.first, &edge_acc]() -> std::string {
+      if (properties_on_edges) {
+        const auto &edge = edge_acc.find(gid);
+        MG_ASSERT(edge != edge_acc.end(),
+                  "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
+        return utils::SerializeProperties(edge->properties);
+      }
+      return "";
+    });
+
+    if (!WriteEdgeToDisk(modified_edge.second, ser_edge_value)) {
+      return StorageDataManipulationError{SerializationError{}};
+    }
+  }
+  return {};
+}
+
 [[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
     LabelId label, PropertyId property) const {
   rocksdb::ReadOptions ro;
@@ -1768,7 +1785,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
-      if (auto res = FlushEdgeImportModeCache(); res.HasError()) {
+      if (auto res = FlushModifiedEdges(disk_storage->edge_import_mode_cache_->AccessToEdges()); res.HasError()) {
         Abort();
         return res;
       }
