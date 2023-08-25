@@ -189,5 +189,14 @@ def test_throw_on_vertex_create_vertex_during_edge_import_mode():
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
 
 
+def test_throw_changing_import_mode_while_in_explicit_tx():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1, balance: 1000})")
+    execute_and_fetch_all(cursor, "BEGIN")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
