@@ -192,6 +192,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
+    void UpdateObjectsCountOnAbort();
+
     void Abort() override;
 
     void FinalizeTransaction() override;

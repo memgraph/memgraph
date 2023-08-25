@@ -338,7 +338,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
   PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
   return CreateVertexFromDisk(main_storage_accessor, gid, labels_id, std::move(properties),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key));
+                              CreateDeleteDeserializedObjectDelta(&transaction_, key));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -1513,23 +1513,10 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   return vertices_to_be_indexed;
 }
 
-/// TODO: what to do with all that?
-void DiskStorage::DiskAccessor::Abort() {
-  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  // NOTE: On abort we need to delete disk transaction because after storage remove we couldn't remove
-  // disk_transaction correctly in destructor.
-  // This happens in tests when we create and remove storage in one test. For example, in
-  // query_plan_accumulate_aggregate.cpp
-  disk_transaction_->Rollback();
-  disk_transaction_->ClearSnapshot();
-  delete disk_transaction_;
-  disk_transaction_ = nullptr;
-
-  is_transaction_active_ = false;
-
+void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-
   uint64_t transaction_id = transaction_.transaction_id.load(std::memory_order_acquire);
+
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -1578,6 +1565,21 @@ void DiskStorage::DiskAccessor::Abort() {
         break;
     }
   }
+}
+
+/// TODO: what to do with all that?
+void DiskStorage::DiskAccessor::Abort() {
+  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  // NOTE: On abort we need to delete disk transaction because after storage remove we couldn't remove
+  // disk_transaction correctly in destructor.
+  // This happens in tests when we create and remove storage in one test. For example, in
+  // query_plan_accumulate_aggregate.cpp
+  disk_transaction_->Rollback();
+  disk_transaction_->ClearSnapshot();
+  delete disk_transaction_;
+  disk_transaction_ = nullptr;
+  is_transaction_active_ = false;
+  UpdateObjectsCountOnAbort();
 }
 
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
