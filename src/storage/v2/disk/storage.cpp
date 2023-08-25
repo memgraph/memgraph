@@ -130,15 +130,9 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 }
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
-  bool deleted = false;
-  PropertyValue value;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
-    deleted = vertex.deleted;
-    value = vertex.properties.GetProperty(property);
-    delta = vertex.delta;
-  }
+  bool deleted = vertex.deleted;
+  PropertyValue value = vertex.properties.GetProperty(property);
+  Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -1059,14 +1053,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 }
 
 Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(VertexAccessor *vertex) {
-  MG_ASSERT(vertex->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
-
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_ptr->deleted) {
     return std::optional<VertexAccessor>{};
@@ -1086,24 +1073,12 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-  MG_ASSERT(vertex->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  if (vertex_ptr->deleted) return std::optional<ReturnType>{};
 
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-
-    if (vertex_ptr->deleted) return std::optional<ReturnType>{};
-
-    in_edges = vertex_ptr->in_edges;
-    out_edges = vertex_ptr->out_edges;
-  }
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges{vertex_ptr->in_edges};
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges{vertex_ptr->out_edges};
 
   std::vector<EdgeAccessor> deleted_edges;
   for (const auto &item : in_edges) {
@@ -1134,14 +1109,6 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
       deleted_edges.push_back(*ret.GetValue());
     }
   }
-
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-  // We need to check again for serialization errors because we unlocked the
-  // vertex. Some other transaction could have modified the vertex in the
-  // meantime if we didn't have any edges to delete.
-
-  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
@@ -1214,7 +1181,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
                                                            const std::string &old_disk_key,
                                                            const std::string &read_ts) {
   OOMExceptionEnabler oom_exception;
-
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1230,7 +1196,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
                           &storage_->constraints_, config_);
     }
   }
-
+  
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
@@ -1261,7 +1227,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
   OOMExceptionEnabler oom_exception;
-
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1307,38 +1272,16 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   const auto edge_ref = edge->edge_;
   const auto edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
-    const auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-
-    if (edge_ptr->deleted) return std::optional<EdgeAccessor>{};
+    if (edge_ref.ptr->deleted) return std::optional<EdgeAccessor>{};
   }
 
   auto *from_vertex = edge->from_vertex_;
   auto *to_vertex = edge->to_vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
   }
 
