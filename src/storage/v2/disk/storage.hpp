@@ -340,6 +340,18 @@ class DiskStorage final : public Storage {
 
   void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
+  auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint, replication::ReplicationMode mode,
+                               const replication::ReplicationClientConfig &config)
+      -> std::unique_ptr<ReplicationClient> override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
+
+  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+      -> std::unique_ptr<ReplicationServer> override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
+
+ private:
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
 };
