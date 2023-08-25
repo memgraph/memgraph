@@ -158,9 +158,12 @@ class ExplicitTransactionUsageException : public QueryRuntimeException {
   using QueryRuntimeException::QueryRuntimeException;
 };
 
-/**
- * An exception for serialization error
- */
+class WriteVertexOperationInEdgeImportModeException : public QueryException {
+ public:
+  WriteVertexOperationInEdgeImportModeException()
+      : QueryException("Write operations on vertices are forbidden while the edge import mode is active.") {}
+};
+
 class TransactionSerializationException : public QueryException {
  public:
   using QueryException::QueryException;

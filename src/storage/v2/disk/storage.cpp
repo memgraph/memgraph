@@ -1974,13 +1974,16 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   /// `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  bool edge_import_mode_active{false};
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
     /// TODO: when we introduce replication to the disk storage, take care of start_timestamp
     start_timestamp = timestamp_++;
+    edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode};
+
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, edge_import_mode_active};
 }
 
 uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {

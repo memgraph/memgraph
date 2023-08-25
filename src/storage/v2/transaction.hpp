@@ -34,13 +34,14 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode)
+              StorageMode storage_mode, bool edge_import_mode_active)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
         must_abort(false),
         isolation_level(isolation_level),
-        storage_mode(storage_mode) {}
+        storage_mode(storage_mode),
+        edge_import_mode_active(edge_import_mode_active) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
@@ -51,6 +52,7 @@ struct Transaction {
         must_abort(other.must_abort),
         isolation_level(other.isolation_level),
         storage_mode(other.storage_mode),
+        edge_import_mode_active(other.edge_import_mode_active),
         manyDeltasCache{std::move(other.manyDeltasCache)} {}
 
   Transaction(const Transaction &) = delete;
@@ -77,6 +79,7 @@ struct Transaction {
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;
+  bool edge_import_mode_active{false};
 
   // A cache which is consistent to the current transaction_id + command_id.
   // Used to speedup getting info about a vertex when there is a long delta

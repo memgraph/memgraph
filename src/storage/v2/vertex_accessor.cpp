@@ -15,6 +15,7 @@
 #include <tuple>
 #include <utility>
 
+#include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -89,7 +90,11 @@ bool VertexAccessor::IsVisible(View view) const {
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -109,6 +114,9 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
 /// TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -224,6 +232,10 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
 }
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -249,6 +261,10 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -268,6 +284,10 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -287,6 +307,10 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;

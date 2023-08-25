@@ -149,14 +149,44 @@ def test_modification_of_edge_properties_in_edge_import_mode():
     execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
-# def test_throw_on_vertex_add_label_during_edge_import_mode():
-#     cursor = connect().cursor()
-#     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
-#     execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
-#     execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
-#     with pytest.raises(Exception):
-#       execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) SET u:User:Person RETURN u")
-#     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+def test_throw_on_vertex_add_label_during_edge_import_mode():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) SET u:User:Person RETURN u")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+
+
+def test_throw_on_vertex_remove_label_during_edge_import_mode():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE (u:User:Person {id: 1})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) REMOVE u:Person RETURN u")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+
+
+def test_throw_on_vertex_set_property_during_edge_import_mode():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1, balance: 1000})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) SET u.balance = 2000")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+
+
+def test_throw_on_vertex_create_vertex_during_edge_import_mode():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "CREATE (u:User {id: 1, balance: 1000})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "CREATE (m:Mother {id: 10})")
+    execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
 
 
 if __name__ == "__main__":

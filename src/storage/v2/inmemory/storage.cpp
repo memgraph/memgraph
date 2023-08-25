@@ -1167,7 +1167,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
 }
 
 template <bool force>
