@@ -197,13 +197,13 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
@@ -248,6 +248,7 @@ class DiskStorage final : public Storage {
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
+    bool scanned_all_vertices_ = false;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
@@ -337,6 +338,20 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
+  void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+
+  auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint, replication::ReplicationMode mode,
+                               const replication::ReplicationClientConfig &config)
+      -> std::unique_ptr<ReplicationClient> override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
+
+  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+      -> std::unique_ptr<ReplicationServer> override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
+
+ private:
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
   std::atomic<uint64_t> vertex_count_{0};

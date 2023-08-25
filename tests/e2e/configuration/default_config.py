@@ -202,4 +202,9 @@ startup_config_dict = {
         "",
         "The path to mappings that describes aliases to callables in cypher queries in the form of key-value pairs in a json file. With this option query module procedures that do not exist in memgraph can be mapped to ones that exist.",
     ),
+    "delta_chain_cache_threshold": (
+        "128",
+        "128",
+        "The threshold for when to cache long delta chains. This is used for heavy read + write workloads where repeated processing of delta chains can become costly.",
+    ),
 }

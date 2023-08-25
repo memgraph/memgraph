@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <charconv>
 #include <cstdint>
 #include <iomanip>
 #include <iterator>
@@ -30,24 +31,74 @@ namespace memgraph::utils {
 static constexpr const char *outEdgeDirection = "0";
 static constexpr const char *inEdgeDirection = "1";
 
+namespace {
+struct StartEndPositions {
+  size_t start;
+  size_t end;
+
+  size_t Size() const { return end - start; }
+  bool Valid() const { return start != std::string::npos && start <= end; }
+};
+
+template <typename T>
+inline std::string_view FindPartOfStringView(const std::string_view str, const char delim, T partNumber) {
+  StartEndPositions startEndPos{0, 0};
+  for (int i = 0; i < partNumber; ++i) {
+    startEndPos.start = startEndPos.end;
+    startEndPos.end = str.find(delim, startEndPos.start);
+    if (i < partNumber - 1) {
+      if (startEndPos.end == std::string::npos) {
+        // We didn't find enough parts.
+        startEndPos.start = std::string::npos;
+        break;
+      }
+      ++startEndPos.end;
+    }
+  }
+  return startEndPos.Valid() ? str.substr(startEndPos.start, startEndPos.Size()) : str;
+}
+
+inline std::string_view GetViewOfFirstPartOfSplit(const std::string_view src, const char delimiter) {
+  return FindPartOfStringView(src, delimiter, 1);
+}
+
+inline std::string_view GetViewOfSecondPartOfSplit(const std::string_view src, const char delimiter) {
+  return FindPartOfStringView(src, delimiter, 2);
+}
+
+inline std::string_view GetViewOfThirdPartOfSplit(const std::string_view src, const char delimiter) {
+  return FindPartOfStringView(src, delimiter, 3);
+}
+
+}  // namespace
+
 /// TODO: try to move this to hpp files so that we can follow jump on readings
 
 inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
 
 inline bool SerializedVertexHasLabels(const std::string &labels) { return !labels.empty(); }
 
-template <typename Collection>
-inline std::vector<std::string> TransformIDsToString(const Collection &labels) {
-  std::vector<std::string> transformed_labels{};
-  std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
-                 [](const auto &label) { return SerializeIdType(label); });
-  return transformed_labels;
+template <typename T>
+concept WithSize = requires(const T value) {
+  { value.size() } -> std::same_as<size_t>;
+};
+
+template <WithSize TCollection>
+inline std::vector<std::string> TransformIDsToString(const TCollection &col) {
+  std::vector<std::string> transformed_col;
+  transformed_col.reserve(col.size());
+  for (const auto &elem : col) {
+    transformed_col.emplace_back(SerializeIdType(elem));
+  }
+  return transformed_col;
 }
 
-inline std::vector<storage::LabelId> TransformFromStringLabels(const std::vector<std::string> &labels) {
+inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::string> &&labels) {
   std::vector<storage::LabelId> transformed_labels;
-  std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
-                 [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
+  transformed_labels.reserve(labels.size());
+  for (const std::string &label : labels) {
+    transformed_labels.emplace_back(storage::LabelId::FromUint(std::stoull(label)));
+  }
   return transformed_labels;
 }
 
@@ -91,20 +142,22 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
                                                               const std::vector<storage::LabelId> &vertex_labels,
                                                               const storage::PropertyStore &property_store) {
   std::vector<storage::LabelId> labels_without_target;
-  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
-               [&label_to_remove](const auto &label) { return label_to_remove != label; });
-  std::string result = SerializeLabels(TransformIDsToString(vertex_labels)) + "|";
+  labels_without_target.reserve(vertex_labels.size());
+  for (const storage::LabelId &label : vertex_labels) {
+    if (label != label_to_remove) {
+      labels_without_target.emplace_back(label);
+    }
+  }
+  std::string result = SerializeLabels(TransformIDsToString(labels_without_target)) + "|";
   return result + SerializeProperties(property_store);
 }
 
 inline std::string ExtractGidFromKey(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  return key_vector[1];
+  return std::string(GetViewOfSecondPartOfSplit(key, '|'));
 }
 
 inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const std::string &value) {
-  std::vector<std::string> value_vector = utils::Split(value, "|");
-  std::string properties_str = value_vector[1];
+  const std::string_view properties_str = GetViewOfSecondPartOfSplit(value, '|');
   return storage::PropertyStore::CreateFromBuffer(properties_str);
 }
 
@@ -115,8 +168,7 @@ inline std::string SerializeVertex(const storage::Vertex &vertex) {
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::string labels_str = key_vector[0];
+  std::string labels_str = key.substr(0, key.find('|'));
   if (SerializedVertexHasLabels(labels_str)) {
     return TransformFromStringLabels(utils::Split(labels_str, ","));
   }
@@ -124,9 +176,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const 
 }
 
 inline std::vector<std::string> ExtractLabelsFromMainDiskStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::string labels_str = key_vector[0];
-  return utils::Split(labels_str, ",");
+  return utils::Split(GetViewOfFirstPartOfSplit(key, '|'), ",");
 }
 
 inline storage::PropertyStore DeserializePropertiesFromMainDiskStorage(const std::string_view value) {
@@ -155,10 +205,16 @@ inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::Labe
 }
 
 inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
+  const std::string_view firstPartKey = GetViewOfFirstPartOfSplit(key, '|');
+  const std::string_view constraint_key = GetViewOfFirstPartOfSplit(firstPartKey, ',');
   /// TODO: andi Change this to deserialization method directly into the LabelId class
-  return storage::LabelId::FromUint(std::stoull(constraint_key[0]));
+  uint64_t labelID = 0;
+  const char *endOfConstraintKey = constraint_key.data() + constraint_key.size();
+  auto [ptr, ec] = std::from_chars(constraint_key.data(), endOfConstraintKey, labelID);
+  if (ec != std::errc() || ptr != endOfConstraintKey) {
+    throw std::invalid_argument("Failed to deserialize label id from unique constraint storage");
+  }
+  return storage::LabelId::FromUint(labelID);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(const std::string &value) {
@@ -181,9 +237,13 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }
 
+inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std::string &value) {
+  std::string labels = value.substr(0, value.find('|'));
+  return TransformFromStringLabels(utils::Split(labels, ","));
+}
+
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &value) {
-  const auto value_splitted = utils::Split(value, "|");
-  return TransformFromStringLabels(utils::Split(value_splitted[0], ","));
+  return DeserializeLabelsFromIndexStorage(value);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelIndexStorage(const std::string &value) {
@@ -209,14 +269,11 @@ inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId 
 }
 
 inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &key) {
-  std::vector<std::string> key_vector = utils::Split(key, "|");
-  return key_vector[2];
+  return std::string(GetViewOfThirdPartOfSplit(key, '|'));
 }
 
-/// TODO: refactor into one method with label index storage
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &value) {
-  const auto value_splitted = utils::Split(value, "|");
-  return TransformFromStringLabels(utils::Split(value_splitted[0], ","));
+  return DeserializeLabelsFromIndexStorage(value);
 }
 
 inline storage::PropertyStore DeserializePropertiesFromLabelPropertyIndexStorage(const std::string &value) {
