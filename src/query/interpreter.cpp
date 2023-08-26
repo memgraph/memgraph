@@ -2923,7 +2923,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
                              TypedValue(db->PropertyToName(item.second))});
         }
 
-        std::sort(results.begin(), results.end(), [](const auto record_1, const auto record_2) {
+        std::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
 
