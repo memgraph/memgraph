@@ -221,8 +221,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!mem_storage->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
-    }
-    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+    } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
@@ -1382,7 +1381,7 @@ InterpreterContext::InterpreterContext(const storage::Config storage_config, con
   }
 }
 
-InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
                                        query::AuthChecker *ac)
     : db(std::move(db)),
