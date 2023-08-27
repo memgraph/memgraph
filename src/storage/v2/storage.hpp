@@ -221,6 +221,7 @@ class Storage {
   StorageMode GetStorageMode() const;
 
   virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+
   void FreeMemory() { FreeMemory({}); }
 
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;

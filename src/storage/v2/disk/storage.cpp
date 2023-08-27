@@ -108,7 +108,9 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
         break;
       }
       case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        break;
+      }
       case Delta::Action::RECREATE_OBJECT: {
         deleted = false;
         break;
@@ -138,6 +140,7 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
       }
       case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
+        break;
       case Delta::Action::RECREATE_OBJECT: {
         deleted = false;
         break;
