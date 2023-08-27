@@ -3365,11 +3365,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        const std::string &session_uuid, std::map<std::string, TypedValue> *summary,
-                                        DbAccessor *dba, utils::MemoryResource *execution_memory,
-                                        const std::optional<std::string> &username,
-                                        std::atomic<TransactionStatus> *transaction_status,
-                                        std::shared_ptr<utils::AsyncTimer> tx_timer) {
+                                        const std::string &session_uuid, const std::optional<std::string> &username) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -3434,26 +3430,17 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     return status;
   };
 
-  SymbolTable symbol_table;
-  std::vector<Symbol> output_symbols;
-  for (const auto &column : callback.header) {
-    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
-  }
-
-  auto plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-      std::make_unique<plan::OutputTable>(output_symbols,
-                                          [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
-      0.0, AstStorage{}, symbol_table));
-
-  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, username, transaction_status, std::move(tx_timer));
-
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
-      [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return callback.should_abort_query ? QueryHandlerResult::ABORT : QueryHandlerResult::COMMIT;
+      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
         }
         return std::nullopt;
       },
@@ -3679,10 +3666,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
                                                  interpreter_context_, session_uuid);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid,
-                                                 &query_execution->summary, &*execution_db_accessor_,
-                                                 &query_execution->execution_memory_with_exception, username_,
-                                                 &transaction_status_, std::move(current_timer));
+      prepared_query =
+          PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid, username_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
