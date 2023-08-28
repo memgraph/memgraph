@@ -114,17 +114,22 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
-                                           old_disk_key);
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
+                                                  const std::string &ts) {
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
+}
+
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
+                                                       std::optional<std::string> old_disk_key, const uint64_t ts) {
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, old_disk_key);
 }
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
+                                                       std::optional<std::string> old_disk_key, const std::string &ts) {
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  return CreateDeleteDeserializedIndexObjectDelta(transaction, deltas, old_disk_key, std::stoull(ts));
 }
 
 /// This function creates a delta in the transaction for the object and links
