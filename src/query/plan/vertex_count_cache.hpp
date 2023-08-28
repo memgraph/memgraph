@@ -87,6 +87,12 @@ class VertexCountCache {
     return db_->GetIndexStats(label, property);
   }
 
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return db_->EdgeTypeToName(type); }
+
+  const std::string &LabelToName(storage::LabelId label) const { return db_->LabelToName(label); }
+
+  const std::string &PropertyToName(storage::PropertyId prop) const { return db_->PropertyToName(prop); }
+
  private:
   typedef std::pair<storage::LabelId, storage::PropertyId> LabelPropertyKey;
 

@@ -25,6 +25,7 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::query {
 
@@ -99,6 +100,11 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
       double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
+
+      std::stringstream printed_plan;
+      plan::PrettyPrint(vertex_counts, &*rewritten_plan, &printed_plan);
+      spdlog::trace("{}", printed_plan.str());
+
       if (!curr_plan || cost < total_cost) {
         curr_plan.emplace(std::move(rewritten_plan));
         total_cost = cost;
