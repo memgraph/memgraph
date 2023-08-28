@@ -108,7 +108,7 @@ modifications:
     override: true
 
   - name: "query_callable_mappings_path"
-    value: "/etc/memgraph/mappings.json"
+    value: "/etc/memgraph/apoc_compatibility_mappings.json"
     override: true
 
 undocumented:
