@@ -22,6 +22,7 @@
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
+#include <rocksdb/slice.h>
 #include <unordered_set>
 
 namespace memgraph::storage {
@@ -202,13 +203,15 @@ class DiskStorage final : public Storage {
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const std::string &key, const std::string &value,
+                                                                       const std::string &ts);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
+                                                         const rocksdb::Slice &ts);
 
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
@@ -221,8 +224,8 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
                                             storage::Gid gid, std::string_view properties,
-                                            const std::string &old_disk_key);
-
+                                            const std::string &old_disk_key,
+                                            const std::string &ts);
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
