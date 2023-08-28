@@ -245,6 +245,7 @@ class Graph {
   /// @brief Creates a node and adds it to the graph.
   Node CreateNode();
   /// @brief Creates a node with the given id and adds it to the graph.
+  /// @note Not thread safe.
   Node CreateNode(int64_t id);
   /// @brief Deletes a node from the graph.
   void DeleteNode(const Node &node);
@@ -252,7 +253,9 @@ class Graph {
   void DetachDeleteNode(const Node &node);
   /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
-  /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
+  /// @brief Creates a relationship of type `type` between nodes `from` and `to` with the given id and adds it to the
+  /// graph.
+  /// @note Not thread safe.
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type, const int64_t id);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);

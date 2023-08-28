@@ -1227,12 +1227,9 @@ class Graph:
             raise InvalidContextError()
         return self._graph.is_mutable()
 
-    def create_vertex(self, vertex_id: VertexId = -1) -> Vertex:
+    def create_vertex(self) -> Vertex:
         """
         Create an empty vertex.
-
-        Args:
-            vertex_id [optional]: Memgraph Vertex ID
 
         Returns:
             Created `Vertex`.
@@ -1244,6 +1241,29 @@ class Graph:
         Examples:
             Creating an empty vertex.
             ```vertex = graph.create_vertex()```
+
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return Vertex(self._graph.create_vertex(-1))
+
+    def create_vertex_with_id(self, vertex_id: VertexId) -> Vertex:
+        """
+        Create an empty vertex with the given id.
+
+        Args:
+            vertex_id: Memgraph Vertex ID
+
+        Returns:
+            Created `Vertex`.
+
+        Raises:
+            ImmutableObjectError: If `graph` is immutable.
+            UnableToAllocateError: If unable to allocate a vertex.
+
+        Examples:
+            Creating an empty vertex.
+            ```vertex = graph.create_vertex_with_id(1)```
 
         """
         if not self.is_valid():
@@ -1289,6 +1309,33 @@ class Graph:
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType, edge_id: EdgeId = -1) -> Edge:
         """
         Create an edge.
+
+        Args:
+            from_vertex: `Vertex` from where edge is directed.
+            to_vertex: `Vertex'  to where edge is directed.
+            edge_type:  `EdgeType` defines the type of edge.
+            edge_id [optional]: Memgraph Edge ID.
+        Returns:
+            Created `Edge`.
+
+        Raises:
+            ImmutableObjectError: If `graph` is immutable.
+            UnableToAllocateError: If unable to allocate an edge.
+            DeletedObjectError: If `from_vertex` or `to_vertex` has been deleted.
+            SerializationError: If `from_vertex` or `to_vertex` has been modified by another transaction.
+        Examples:
+            ```edge = graph.create_edge(from_vertex, vertex, edge_type)```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return Edge(self._graph.create_edge(from_vertex._vertex, to_vertex._vertex, edge_type.name, edge_id))
+
+    def create_edge_with_id(
+        self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType, edge_id: EdgeId = -1
+    ) -> Edge:
+        """
+        Create an edge with the given id.
+        Not thread safe.
 
         Args:
             from_vertex: `Vertex` from where edge is directed.

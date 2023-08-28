@@ -846,6 +846,7 @@ enum mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memor
 
 /// Add a new vertex to the graph with the given id.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
+/// Not thread safe.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertex.
 enum mgp_error mgp_graph_create_vertex_with_id(struct mgp_graph *graph, struct mgp_vertex_id id,
@@ -873,6 +874,7 @@ enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex 
 
 /// Add a new directed edge between the two vertices with the specified label and the given id.
 /// Resulting edge must be freed using mgp_edge_destroy.
+/// Not thread safe
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
 /// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.

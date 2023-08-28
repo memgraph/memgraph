@@ -361,7 +361,7 @@ class DbAccessor final {
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   VertexAccessor InsertVertex(storage::Gid gid) {
-    return VertexAccessor(static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->CreateVertex(gid));
+    return VertexAccessor(static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->CreateVertexEx(gid));
   }
 
   void PrefetchOutEdges(const VertexAccessor &vertex) const { accessor_->PrefetchOutEdges(vertex.impl_); }
@@ -377,7 +377,7 @@ class DbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type, storage::Gid gid) {
-    auto maybe_edge = static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->CreateEdge(
+    auto maybe_edge = static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->CreateEdgeEx(
         &from->impl_, &to->impl_, edge_type, gid);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(*maybe_edge);

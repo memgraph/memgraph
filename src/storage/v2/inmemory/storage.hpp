@@ -76,9 +76,10 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex() override;
 
+    /// TODO: better namiong
     /// @throw std::bad_alloc
     /// @note not thread safe
-    VertexAccessor CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertexEx(storage::Gid gid);
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
@@ -222,8 +223,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    /// TODO: better naming
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
+    Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
@@ -263,12 +265,6 @@ class InMemoryStorage final : public Storage {
     void FinalizeTransaction() override;
 
    protected:
-    // TODO Better naming
-    /// @throw std::bad_alloc
-    VertexAccessor CreateVertexEx(storage::Gid gid);
-    /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
-
     Config::Items config_;
   };
 
