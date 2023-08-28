@@ -121,6 +121,10 @@ install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.hpp
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
 
+# Install the config file (must use absolute path).
+install(FILES ${CMAKE_BINARY_DIR}/config/mappings.json
+        DESTINATION /etc/memgraph RENAME mappings.json)
+
 # Install logrotate configuration (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
         DESTINATION /etc/logrotate.d RENAME memgraph)
