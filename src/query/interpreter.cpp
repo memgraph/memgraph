@@ -2128,20 +2128,26 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters);
 
-  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) {
-                           auto results = handler();
-                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-                         }
+  return PreparedQuery{
+      std::move(callback.header), std::move(parsed_query.required_privileges),
+      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr), interpreter_context](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          // Run the specific query
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+#ifdef MG_ENTERPRISE
+          // Invalidate auth cache after every type of AuthQuery
+          interpreter_context->auth_checker->ClearCache();
+#endif
+        }
 
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
