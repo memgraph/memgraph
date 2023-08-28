@@ -77,6 +77,24 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetPassword(const std::string &username, const std::optional<std::string> &password) = 0;
 
+#ifdef MG_ENTERPRISE
+  /// Return true if access revoked successfully
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool RevokeDatabaseFromUser(const std::string &db, const std::string &username) = 0;
+
+  /// Return true if access granted successfully
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool GrantDatabaseToUser(const std::string &db, const std::string &username) = 0;
+
+  /// Returns database access rights for the user
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) = 0;
+
+  /// Return true if main database set successfully
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool SetMainDatabase(const std::string &db, const std::string &username) = 0;
+#endif
+
   /// Return false if the role already exists.
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool CreateRole(const std::string &rolename) = 0;
@@ -202,6 +220,16 @@ struct PreparedQuery {
   std::vector<AuthQuery::Privilege> privileges;
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
+  std::optional<std::string> db{};
+};
+
+/**
+ * Holds data for the Query which is extra
+ * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
+ */
+struct QueryExtras {
+  std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+  std::optional<int64_t> tx_timeout;
 };
 
 class Interpreter;
@@ -214,10 +242,12 @@ class Interpreter;
 /// TODO: andi decouple in a separate file why here?
 struct InterpreterContext {
   explicit InterpreterContext(storage::Config storage_config, InterpreterConfig interpreter_config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
+                              query::AuthChecker *ac = nullptr);
 
-  InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
-                     const std::filesystem::path &data_directory);
+  InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
+                     const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
+                     query::AuthChecker *ac = nullptr);
 
   std::unique_ptr<storage::Storage> db;
 
@@ -231,8 +261,8 @@ struct InterpreterContext {
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
 
-  AuthQueryHandler *auth{nullptr};
-  AuthChecker *auth_checker{nullptr};
+  AuthQueryHandler *auth;
+  AuthChecker *auth_checker;
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
@@ -263,11 +293,14 @@ class Interpreter final {
     std::vector<std::string> headers;
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
+    std::optional<std::string> db;
   };
 
   std::optional<std::string> username_;
   bool in_explicit_transaction_{false};
+  bool in_explicit_db_{false};
   bool expect_rollback_{false};
+  std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
   /**
@@ -279,8 +312,8 @@ class Interpreter final {
    * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username,
-                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+                        const std::string *username, QueryExtras const &extras = {},
+                        const std::string &session_uuid = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -324,7 +357,7 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
-  void BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata = {});
+  void BeginTransaction(QueryExtras const &extras = {});
 
   std::optional<uint64_t> GetTransactionId() const;
 
@@ -419,8 +452,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper,
-                                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);

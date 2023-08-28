@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,13 +16,25 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
+@pytest.fixture(scope="function")
+def multi_db(request, connect):
+    cursor = connect.cursor()
+    if request.param:
+        execute_and_fetch_all(cursor, "CREATE DATABASE clean")
+        execute_and_fetch_all(cursor, "USE DATABASE clean")
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    pass
+    yield connect
+
+
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
-def test_create_on_create(ba_commit, connect):
+def test_create_on_create(ba_commit, multi_db):
     """
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER CreateTriggerEdgesCount
         ON --> CREATE
@@ -30,6 +42,7 @@ def test_create_on_create(ba_commit, connect):
         EXECUTE
         CREATE (n:CreatedEdge {{count: size(createdEdges)}})
     """
+
     execute_and_fetch_all(cursor, QUERY_TRIGGER_CREATE)
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
@@ -50,14 +63,22 @@ def test_create_on_create(ba_commit, connect):
     # execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
     # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
 
+    # check that there is no cross contamination between databases
+    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
+    if len(nodes) == 2:  # multi db mode
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        assert len(created_edges) == 0
 
+
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("ba_commit", ["AFTER COMMIT", "BEFORE COMMIT"])
-def test_create_on_delete(ba_commit, connect):
+def test_create_on_delete(ba_commit, multi_db):
     """
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER DeleteTriggerEdgesCount
         ON --> DELETE
@@ -102,7 +123,15 @@ def test_create_on_delete(ba_commit, connect):
     # execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
     # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")``
 
+    # check that there is no cross contamination between databases
+    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
+    if len(nodes) == 2:  # multi db mode
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        assert len(created_edges) == 0
 
+
+# @pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
 def test_create_on_delete_explicit_transaction(ba_commit):
     """

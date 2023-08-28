@@ -175,6 +175,10 @@ bool DiskUniqueConstraints::ClearDeletedVertex(const std::string_view gid,
 
 bool DiskUniqueConstraints::DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
                                                                      uint64_t transaction_commit_timestamp) {
+  if (entries_for_deletion->empty()) {
+    return true;
+  }
+
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
@@ -198,12 +202,11 @@ bool DiskUniqueConstraints::DeleteVerticesWithRemovedConstraintLabel(uint64_t tr
     disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
     auto status = disk_transaction->Commit();
     if (!status.ok()) {
-      /// TODO: better naming
       spdlog::error("rocksdb: {}", status.getState());
     }
     return status.ok();
   }
-  spdlog::error("Deletetion of vertices with removed constraint label failed.");
+  spdlog::error("Deletion of vertices with removed constraint label failed.");
   return false;
 }
 
@@ -214,7 +217,7 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 
   if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-    spdlog::debug("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
+    spdlog::trace("Found old disk key {} for vertex {}", maybe_old_disk_key.value(),
                   utils::SerializeIdType(vertex.gid));
     if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
       return false;

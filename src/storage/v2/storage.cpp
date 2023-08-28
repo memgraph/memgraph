@@ -50,7 +50,8 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(&constraints_, config, storage_mode),
-      constraints_(config, storage_mode) {}
+      constraints_(config, storage_mode),
+      id_(config.name) {}
 
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),
@@ -119,6 +120,9 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
-void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
+void Storage::Accessor::AdvanceCommand() {
+  transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
+  ++transaction_.command_id;
+}
 
 }  // namespace memgraph::storage

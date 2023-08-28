@@ -752,7 +752,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
                                     memgraph::storage::replication::ReplicationMode::ASYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::NAME_EXISTS);
+                  .GetError() == memgraph::storage::ReplicationState::RegisterReplicaError::NAME_EXISTS);
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
@@ -784,10 +784,10 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                                     memgraph::storage::replication::ReplicationMode::ASYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS);
+                  .GetError() == memgraph::storage::ReplicationState::RegisterReplicaError::END_POINT_EXISTS);
 }
 
-TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
+TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   auto main_config = configuration;
   main_config.durability.restore_replication_state_on_startup = true;
   std::unique_ptr<memgraph::storage::Storage> main_store{new memgraph::storage::InMemoryStorage(main_config)};
@@ -907,5 +907,5 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
                                     memgraph::storage::replication::ReplicationMode::SYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::CONNECTION_FAILED);
+                  .GetError() == memgraph::storage::ReplicationState::RegisterReplicaError::CONNECTION_FAILED);
 }

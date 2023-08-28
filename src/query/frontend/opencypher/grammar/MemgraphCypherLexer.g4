@@ -23,8 +23,6 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
-UNDERSCORE : '_' ;
-
 AFTER                   : A F T E R ;
 ALTER                   : A L T E R ;
 ANALYZE                 : A N A L Y Z E ;
@@ -51,6 +49,7 @@ CSV                     : C S V ;
 DATA                    : D A T A ;
 DELIMITER               : D E L I M I T E R ;
 DATABASE                : D A T A B A S E ;
+DATABASES               : D A T A B A S E S ;
 DENY                    : D E N Y ;
 DIRECTORY               : D I R E C T O R Y ;
 DROP                    : D R O P ;
@@ -82,6 +81,8 @@ MAIN                    : M A I N ;
 MODE                    : M O D E ;
 MODULE_READ             : M O D U L E UNDERSCORE R E A D ;
 MODULE_WRITE            : M O D U L E UNDERSCORE W R I T E ;
+MULTI_DATABASE_EDIT     : M U L T I UNDERSCORE D A T A B A S E UNDERSCORE E D I T ;
+MULTI_DATABASE_USE      : M U L T I UNDERSCORE D A T A B A S E UNDERSCORE U S E ;
 NEXT                    : N E X T ;
 NO                      : N O ;
 NOTHING                 : N O T H I N G ;
@@ -129,6 +130,7 @@ TRIGGERS                : T R I G G E R S ;
 UNCOMMITTED             : U N C O M M I T T E D ;
 UNLOCK                  : U N L O C K ;
 UPDATE                  : U P D A T E ;
+USE                     : U S E ;
 USER                    : U S E R ;
 USERS                   : U S E R S ;
 VERSION                 : V E R S I O N ;

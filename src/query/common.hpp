@@ -24,6 +24,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 
@@ -75,6 +76,20 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
 }
 
+inline void ProcessError(const storage::Error error) {
+  switch (error) {
+    case storage::Error::SERIALIZATION_ERROR:
+      throw TransactionSerializationException();
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to set properties on a deleted object.");
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Unexpected error when setting a property.");
+  }
+}
+
 template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
                                            const storage::PropertyValue new_value) {
@@ -89,17 +104,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
   try {
     auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
     if (maybe_old_value.HasError()) {
-      switch (maybe_old_value.GetError()) {
-        case storage::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set properties on a deleted object.");
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a property.");
-      }
+      ProcessError(maybe_old_value.GetError());
     }
     return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
@@ -121,21 +126,37 @@ bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::Pro
   try {
     auto maybe_values = record->InitProperties(properties);
     if (maybe_values.HasError()) {
-      switch (maybe_values.GetError()) {
-        case storage::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set properties on a deleted object.");
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a property.");
-      }
+      ProcessError(maybe_values.GetError());
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("Cannot set properties.");
+  }
+}
+
+template <typename T>
+concept AccessorWithUpdateProperties = requires(T accessor,
+                                                std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  {
+    accessor.UpdateProperties(properties)
+    } -> std::same_as<
+        storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
+};
+
+/// Set property `values` mapped with given `key` on a `record`.
+///
+/// @throw QueryRuntimeException if value cannot be set as a property value
+template <AccessorWithUpdateProperties T>
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) ->
+    typename std::remove_reference<decltype(record->UpdateProperties(properties).GetValue())>::type {
+  try {
+    auto maybe_values = record->UpdateProperties(properties);
+    if (maybe_values.HasError()) {
+      ProcessError(maybe_values.GetError());
+    }
+    return std::move(*maybe_values);
+  } catch (const TypedValueException &) {
+    throw QueryRuntimeException("Cannot update properties.");
   }
 }
 

@@ -21,14 +21,12 @@
 
 namespace memgraph::communication::http {
 
-template <class TRequestHandler, typename TSessionData>
+template <class TRequestHandler, typename TSessionContext>
 class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(io::network::Endpoint endpoint, TSessionData *data, ServerContext *context)
-      : listener_{Listener<TRequestHandler, TSessionData>::Create(
-            ioc_, data, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
+  explicit Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context);
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -40,11 +38,7 @@ class Server final {
               "Server wasn't shutdown properly");
   }
 
-  void Start() {
-    MG_ASSERT(!background_thread_, "The server was already started!");
-    listener_->Run();
-    background_thread_.emplace([this] { ioc_.run(); });
-  }
+  void Start();
 
   void Shutdown() { ioc_.stop(); }
 
@@ -54,12 +48,30 @@ class Server final {
     }
   }
   bool IsRunning() const { return background_thread_ && !ioc_.stopped(); }
-  tcp::endpoint GetEndpoint() const { return listener_->GetEndpoint(); }
+  tcp::endpoint GetEndpoint() const;
 
  private:
   boost::asio::io_context ioc_;
 
-  std::shared_ptr<Listener<TRequestHandler, TSessionData>> listener_;
+  std::shared_ptr<Listener<TRequestHandler, TSessionContext>> listener_;
   std::optional<std::thread> background_thread_;
 };
+template <class TRequestHandler, typename TSessionContext>
+Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint, TSessionContext *session_context,
+                                                 ServerContext *context)
+    : listener_{Listener<TRequestHandler, TSessionContext>::Create(
+          ioc_, session_context, context,
+          tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
+
+template <class TRequestHandler, typename TSessionContext>
+void Server<TRequestHandler, TSessionContext>::Start() {
+  MG_ASSERT(!background_thread_, "The server was already started!");
+  listener_->Run();
+  background_thread_.emplace([this] { ioc_.run(); });
+}
+
+template <class TRequestHandler, typename TSessionContext>
+boost::asio::ip::tcp::endpoint Server<TRequestHandler, TSessionContext>::GetEndpoint() const {
+  return listener_->GetEndpoint();
+}
 }  // namespace memgraph::communication::http

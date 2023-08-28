@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,8 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import mgclient
 import typing
+
+import mgclient
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -22,6 +23,19 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     return connection
+
+
+def switch_db(cursor):
+    execute_and_fetch_all(cursor, "USE DATABASE clean;")
+
+
+def create_multi_db(cursor):
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+    try:
+        execute_and_fetch_all(cursor, "DROP DATABASE clean;")
+    except:
+        pass
+    execute_and_fetch_all(cursor, "CREATE DATABASE clean;")
 
 
 def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool = False):

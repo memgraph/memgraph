@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,10 +39,11 @@ enum class Signal : int {
  * This function ignores a signal for the whole process. That means that a
  * signal that is ignored from any thread will be ignored in all threads.
  */
-bool SignalIgnore(const Signal signal);
+bool SignalIgnore(Signal signal);
 
 class SignalHandler {
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static std::map<int, std::function<void()>> handlers_;
 
   static void Handle(int signal);

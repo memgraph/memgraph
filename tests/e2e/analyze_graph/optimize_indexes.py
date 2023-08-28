@@ -21,6 +21,18 @@ QUERY_PLAN = "QUERY PLAN"
 # ------------------------------------
 
 
+@pytest.fixture(scope="function")
+def multi_db(request, connect):
+    cursor = connect.cursor()
+    if request.param:
+        execute_and_fetch_all(cursor, "CREATE DATABASE clean")
+        execute_and_fetch_all(cursor, "USE DATABASE clean")
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    pass
+    yield connect
+
+
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize(
     "delete_query",
     [
@@ -30,9 +42,9 @@ QUERY_PLAN = "QUERY PLAN"
         "ANALYZE GRAPH ON LABELS :Label, :NONEXISTING DELETE STATISTICS",
     ],
 )
-def test_analyze_graph_delete_statistics(delete_query, connect):
+def test_analyze_graph_delete_statistics(delete_query, multi_db):
     """Tests that all variants of delete queries work as expected."""
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 50) | CREATE (n:Label {id2: i % 5}));")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
@@ -62,6 +74,7 @@ def test_analyze_graph_delete_statistics(delete_query, connect):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
 @pytest.mark.parametrize(
     "analyze_query",
     [
@@ -71,11 +84,11 @@ def test_analyze_graph_delete_statistics(delete_query, connect):
         "ANALYZE GRAPH ON LABELS :Label, :NONEXISTING",
     ],
 )
-def test_analyze_full_graph(analyze_query, connect):
+def test_analyze_full_graph(analyze_query, multi_db):
     """Tests analyzing full graph and choosing better index based on the smaller average group size.
     It also tests querying based on labels and that nothing bad will happen by providing non-existing label.
     """
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 50) | CREATE (n:Label {id2: i % 5}));")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
@@ -121,9 +134,10 @@ def test_analyze_full_graph(analyze_query, connect):
 # -----------------------------
 
 
-def test_cardinality_different_avg_group_size_uniform_dist(connect):
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_cardinality_different_avg_group_size_uniform_dist(multi_db):
     """Tests index optimization with indices both having uniform distribution but one has smaller avg. group size."""
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 100) | CREATE (n:Label {id2: i % 20}));")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
@@ -151,9 +165,10 @@ def test_cardinality_different_avg_group_size_uniform_dist(connect):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(connect):
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(multi_db):
     """Tests index choosing where both indices have uniform key distribution with same avg. group size but one has less vertices."""
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 50) | CREATE (n:Label {id2: i}));")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
@@ -181,9 +196,10 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(connect)
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-def test_large_diff_in_num_vertices_v1(connect):
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_large_diff_in_num_vertices_v1(multi_db):
     """Tests that when one index has > 10x vertices than the other one, it should be chosen no matter avg group size and uniform distribution."""
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 1000) | CREATE (n:Label {id1: i}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 99) | CREATE (n:Label {id2: 1}));")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
@@ -211,9 +227,10 @@ def test_large_diff_in_num_vertices_v1(connect):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-def test_large_diff_in_num_vertices_v2(connect):
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_large_diff_in_num_vertices_v2(multi_db):
     """Tests that when one index has > 10x vertices than the other one, it should be chosen no matter avg group size and uniform distribution."""
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 99) | CREATE (n:Label {id1: 1}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 1000) | CREATE (n:Label {id2: i}));")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
@@ -241,9 +258,10 @@ def test_large_diff_in_num_vertices_v2(connect):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-def test_same_avg_group_size_diff_distribution(connect):
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_same_avg_group_size_diff_distribution(multi_db):
     """Tests index choice decision based on key distribution."""
-    cursor = connect.cursor()
+    cursor = multi_db.cursor()
     # Setup first key distribution
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 10) | CREATE (n:Label {id1: 1}));")
     execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 30) | CREATE (n:Label {id1: 2}));")

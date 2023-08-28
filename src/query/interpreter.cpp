@@ -24,13 +24,17 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 
+#include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
+#include "dbms/global.hpp"
+#include "dbms/session_context_handler.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -105,6 +109,26 @@ template <typename>
 constexpr auto kAlwaysFalse = false;
 
 namespace {
+template <typename T, typename K>
+void Sort(std::vector<T, K> &vec) {
+  std::sort(vec.begin(), vec.end());
+}
+
+template <typename K>
+void Sort(std::vector<TypedValue, K> &vec) {
+  std::sort(vec.begin(), vec.end(),
+            [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
+}
+
+// NOLINTNEXTLINE (misc-unused-parameters)
+bool Same(const TypedValue &lv, const TypedValue &rv) {
+  return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
+}
+bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
+// NOLINTNEXTLINE (misc-unused-parameters)
+bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
+bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
+
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
@@ -165,6 +189,27 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
+bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &clauses) {
+  for (const auto &clause : clauses) {
+    if (clause->GetTypeInfo() != Match::kType) {
+      continue;
+    }
+    auto *match_clause = utils::Downcast<Match>(clause);
+    for (const auto &pattern : match_clause->patterns_) {
+      for (const auto &atom : pattern->atoms_) {
+        if (atom->GetTypeInfo() != EdgeAtom::kType) {
+          continue;
+        }
+        auto *edge_atom = utils::Downcast<EdgeAtom>(atom);
+        if (edge_atom->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
@@ -176,8 +221,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!mem_storage->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
-    }
-    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+    } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
@@ -312,8 +356,12 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
-Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
+Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
                          DbAccessor *db_accessor) {
+  AuthQueryHandler *auth = interpreter_context->auth;
+#ifdef MG_ENTERPRISE
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+#endif
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -330,6 +378,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
+  std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
 #ifdef MG_ENTERPRISE
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges =
@@ -343,11 +392,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
 
-  static const std::unordered_set enterprise_only_methods{
-      AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
-      AuthQuery::Action::CLEAR_ROLE,        AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::DENY_PRIVILEGE,
-      AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
-      AuthQuery::Action::SHOW_ROLE_FOR_USER};
+  static const std::unordered_set enterprise_only_methods{AuthQuery::Action::CREATE_ROLE,
+                                                          AuthQuery::Action::DROP_ROLE,
+                                                          AuthQuery::Action::SET_ROLE,
+                                                          AuthQuery::Action::CLEAR_ROLE,
+                                                          AuthQuery::Action::GRANT_PRIVILEGE,
+                                                          AuthQuery::Action::DENY_PRIVILEGE,
+                                                          AuthQuery::Action::REVOKE_PRIVILEGE,
+                                                          AuthQuery::Action::SHOW_PRIVILEGES,
+                                                          AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                                                          AuthQuery::Action::SHOW_ROLE_FOR_USER,
+                                                          AuthQuery::Action::GRANT_DATABASE_TO_USER,
+                                                          AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
+                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
+                                                          AuthQuery::Action::SET_MAIN_DATABASE};
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
@@ -513,6 +571,73 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
           rows.emplace_back(std::vector<TypedValue>{username});
         }
         return rows;
+      };
+      return callback;
+    case AuthQuery::Action::GRANT_DATABASE_TO_USER:
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+        try {
+          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          if (database != memgraph::auth::kAllDatabases) {
+            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          }
+          if (!auth->GrantDatabaseToUser(database, username)) {
+            throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
+          }
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+#else
+      callback.fn = [] {
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+        try {
+          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          if (database != memgraph::auth::kAllDatabases) {
+            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          }
+          if (!auth->RevokeDatabaseFromUser(database, username)) {
+            throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
+          }
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+#else
+      callback.fn = [] {
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
+      callback.header = {"grants", "denies"};
+      callback.fn = [auth, username] {  // NOLINT
+#ifdef MG_ENTERPRISE
+        return auth->GetDatabasePrivileges(username);
+#else
+        return std::vector<std::vector<TypedValue>>();
+#endif
+      };
+      return callback;
+    case AuthQuery::Action::SET_MAIN_DATABASE:
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+        try {
+          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          if (!auth->SetMainDatabase(database, username)) {
+            throw QueryRuntimeException("Failed to set main database {} for user {}.", database, username);
+          }
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+#else
+      callback.fn = [] {
+#endif
+        return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     default:
@@ -1018,10 +1143,28 @@ struct PullPlanVector {
   std::vector<std::vector<TypedValue>> values_;
 };
 
+struct TxTimeout {
+  TxTimeout() = default;
+  explicit TxTimeout(std::chrono::duration<double> value) noexcept : value_{std::in_place, value} {
+    // validation
+    // - negative timeout makes no sense
+    // - zero timeout means no timeout
+    if (value_ <= std::chrono::milliseconds{0}) value_.reset();
+  };
+  explicit operator bool() const { return value_.has_value(); }
+
+  /// Must call operator bool() first to know if safe
+  auto ValueUnsafe() const -> std::chrono::duration<double> const & { return *value_; }
+
+ private:
+  std::optional<std::chrono::duration<double>> value_;
+};
+
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
+                    std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
                     FrameChangeCollector *frame_change_collector_ = nullptr);
@@ -1061,8 +1204,9 @@ struct PullPlan {
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
-                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   bool use_monotonic_memory, FrameChangeCollector *frame_change_collector)
+                   std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
+                   const std::optional<size_t> memory_limit, bool use_monotonic_memory,
+                   FrameChangeCollector *frame_change_collector)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -1076,6 +1220,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && username.has_value() && dba) {
+    // TODO How can we avoid creating this every time? If we must create it, it would be faster with an auth::User
+    // instead of the username
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
@@ -1086,9 +1232,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     }
   }
 #endif
-  if (interpreter_context->config.execution_timeout_sec > 0) {
-    ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
-  }
+  ctx_.timer = std::move(tx_timer);
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.transaction_status = transaction_status;
   ctx_.is_profile_query = is_profile_query;
@@ -1211,11 +1355,23 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
   return false;
 }
 
+storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) {
+  if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
+                                                     storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+    return mem_storage->GetReplicationRole();
+  }
+  return storage::replication::ReplicationRole::MAIN;
+}
+
 }  // namespace
 
 InterpreterContext::InterpreterContext(const storage::Config storage_config, const InterpreterConfig interpreter_config,
-                                       const std::filesystem::path &data_directory)
-    : trigger_store(data_directory / "triggers"),
+                                       const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
+                                       query::AuthChecker *ac)
+    : auth(ah),
+      auth_checker(ac),
+      trigger_store(data_directory / "triggers"),
       config(interpreter_config),
       streams{this, data_directory / "streams"} {
   if (utils::DirExists(storage_config.disk.main_storage_directory)) {
@@ -1225,9 +1381,12 @@ InterpreterContext::InterpreterContext(const storage::Config storage_config, con
   }
 }
 
-InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
-                                       const std::filesystem::path &data_directory)
+InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
+                                       const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
+                                       query::AuthChecker *ac)
     : db(std::move(db)),
+      auth(ah),
+      auth_checker(ac),
       trigger_store(data_directory / "triggers"),
       config(interpreter_config),
       streams{this, data_directory / "streams"} {}
@@ -1236,14 +1395,30 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
-PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
-                                                   const std::map<std::string, storage::PropertyValue> &metadata) {
+auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
+  using double_seconds = std::chrono::duration<double>;
+
+  auto const global_tx_timeout = double_seconds{config.execution_timeout_sec};
+  auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
+
+  if (tx_timeout_ms) {
+    auto const timeout = std::chrono::duration_cast<double_seconds>(std::chrono::milliseconds{*tx_timeout_ms});
+    if (valid_global_tx_timeout) return TxTimeout{std::min(global_tx_timeout, timeout)};
+    return TxTimeout{timeout};
+  }
+  if (valid_global_tx_timeout) {
+    return TxTimeout{global_tx_timeout};
+  }
+  return TxTimeout{};
+}
+
+PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras) {
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
-    // TODO: Evaluate doing move(metadata). Currently the metadata is very small, but this will be important if it ever
+    // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
     // becomes large.
-    handler = [this, metadata] {
+    handler = [this, extras = extras] {
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
@@ -1252,7 +1427,11 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
 
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
-      metadata_ = GenOptional(metadata);
+      metadata_ = GenOptional(extras.metadata_pv);
+
+      auto const timeout = DetermineTxTimeout(extras.tx_timeout, interpreter_context_->config);
+      explicit_transaction_timer_ =
+          timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
 
       db_accessor_ = interpreter_context_->db->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -1283,6 +1462,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
       metadata_ = std::nullopt;
+      explicit_transaction_timer_.reset();
     };
   } else if (query_upper == "ROLLBACK") {
     handler = [this] {
@@ -1296,6 +1476,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
       metadata_ = std::nullopt;
+      explicit_transaction_timer_.reset();
     };
   } else {
     LOG_FATAL("Should not get here -- unknown transaction query!");
@@ -1354,6 +1535,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  const std::string *username, std::atomic<TransactionStatus> *transaction_status,
+                                 std::shared_ptr<utils::AsyncTimer> tx_timer,
                                  TriggerContextCollector *trigger_context_collector = nullptr,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -1380,8 +1562,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
     contains_csv = true;
   }
+
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses);
+  auto use_monotonic_memory =
+      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
+  spdlog::trace("PrepareCypher has {} encountered all shortest paths and will {} use of monotonic memory",
+                IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
+
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
@@ -1403,10 +1590,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-  auto pull_plan = std::make_shared<PullPlan>(
-      plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
-      StringPointerToOptional(username), transaction_status, trigger_context_collector, memory_limit,
-      use_monotonic_memory, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
+                                 StringPointerToOptional(username), transaction_status, std::move(tx_timer),
+                                 trigger_context_collector, memory_limit, use_monotonic_memory,
+                                 frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -1468,6 +1656,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
                                   std::atomic<TransactionStatus> *transaction_status,
+                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
                                   FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
 
@@ -1512,8 +1701,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     contains_csv = true;
   }
-  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses);
+
+  // If this is LOAD CSV, BatchedProcedure or AllShortest query, use PoolResource without MonotonicMemoryResource as we
+  // want to reuse allocated memory
+  auto use_monotonic_memory =
+      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
@@ -1533,36 +1725,37 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery{
-      {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
-      std::move(parsed_query.required_privileges),
-      [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters), summary, dba,
-       interpreter_context, execution_memory, memory_limit, optional_username,
-       // We want to execute the query we are profiling lazily, so we delay
-       // the construction of the corresponding context.
-       stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
-       frame_change_collector](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        // No output symbols are given so that nothing is streamed.
-        if (!stats_and_total_time) {
-          stats_and_total_time =
-              PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, optional_username,
-                       transaction_status, nullptr, memory_limit, use_monotonic_memory,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
-                  .Pull(stream, {}, {}, summary);
-          pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
-        }
+  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+                       std::move(parsed_query.required_privileges),
+                       [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
+                        summary, dba, interpreter_context, execution_memory, memory_limit, optional_username,
+                        // We want to execute the query we are profiling lazily, so we delay
+                        // the construction of the corresponding context.
+                        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
+                        frame_change_collector, tx_timer = std::move(tx_timer)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         // No output symbols are given so that nothing is streamed.
+                         if (!stats_and_total_time) {
+                           stats_and_total_time =
+                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory,
+                                        optional_username, transaction_status, std::move(tx_timer), nullptr,
+                                        memory_limit, use_monotonic_memory,
+                                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
+                                   .Pull(stream, {}, {}, summary);
+                           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
+                         }
 
-        MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
+                         MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
 
-        if (pull_plan->Pull(stream, n)) {
-          summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
-          return QueryHandlerResult::ABORT;
-        }
+                         if (pull_plan->Pull(stream, n)) {
+                           summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
+                           return QueryHandlerResult::ABORT;
+                         }
 
-        return std::nullopt;
-      },
-      rw_type_checker.type};
+                         return std::nullopt;
+                       },
+                       rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, DbAccessor *dba,
@@ -1947,14 +2140,15 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
-                               std::atomic<TransactionStatus> *transaction_status) {
+                               std::atomic<TransactionStatus> *transaction_status,
+                               std::shared_ptr<utils::AsyncTimer> tx_timer) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, dba);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;
@@ -1967,8 +2161,9 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                                           [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
       0.0, AstStorage{}, symbol_table));
 
-  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, StringPointerToOptional(username), transaction_status);
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
+                                 StringPointerToOptional(username), transaction_status, std::move(tx_timer));
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
       [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
@@ -2362,8 +2557,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
           "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will automatically "
-          "start in the default in-memory transactional storage mode.");
+          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
+          "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
       std::unique_lock main_guard{interpreter_context->db->main_lock_};
@@ -2594,7 +2789,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   bool hasTransactionManagementPrivilege = interpreter_context->auth_checker->IsUserAuthorized(
-      username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT});
+      username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, "");
 
   Callback callback;
   switch (transaction_query->action_) {
@@ -2696,6 +2891,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
+            {TypedValue("name"), TypedValue(db->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
@@ -3044,15 +3240,257 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
-std::optional<uint64_t> Interpreter::GetTransactionId() const {
-  if (db_accessor_) {
-    return db_accessor_->GetTransactionId();
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, bool in_explicit_db,
+                                        InterpreterContext *interpreter_context, const std::string &session_uuid) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
   }
+  // TODO: Remove once replicas support multi-tenant replication
+  if (GetReplicaRole(interpreter_context->db.get()) == storage::replication::ReplicationRole::REPLICA) {
+    throw QueryException("Query forbidden on the replica!");
+  }
+  if (in_explicit_transaction) {
+    throw MultiDatabaseQueryInMulticommandTxException();
+  }
+
+  auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+
+  switch (query->action_) {
+    case MultiDatabaseQuery::Action::CREATE:
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, session_uuid, &sc_handler](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
+
+            const auto success = sc_handler.New(db_name);
+            if (success.HasError()) {
+              switch (success.GetError()) {
+                case dbms::NewError::EXISTS:
+                  res = db_name + " already exists.";
+                  break;
+                case dbms::NewError::DEFUNCT:
+                  throw QueryRuntimeException(
+                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                      "Memgraph.",
+                      db_name);
+                case dbms::NewError::GENERIC:
+                  throw QueryRuntimeException("Failed while creating {}", db_name);
+                case dbms::NewError::NO_CONFIGS:
+                  throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
+              }
+            } else {
+              res = "Successfully created database " + db_name;
+            }
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W,
+          ""  // No target DB possible
+      };
+
+    case MultiDatabaseQuery::Action::USE:
+      if (in_explicit_db) {
+        throw QueryException("Database switching is prohibited if session explicitly defines the used database");
+      }
+      return PreparedQuery{{"STATUS"},
+                           std::move(parsed_query.required_privileges),
+                           [db_name = query->db_name_, session_uuid, &sc_handler](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                             std::vector<std::vector<TypedValue>> status;
+                             std::string res;
+
+                             memgraph::dbms::SetForResult set = memgraph::dbms::SetForResult::SUCCESS;
+
+                             try {
+                               set = sc_handler.SetFor(session_uuid, db_name);
+                             } catch (const utils::BasicException &e) {
+                               throw QueryRuntimeException(e.what());
+                             }
+
+                             switch (set) {
+                               case dbms::SetForResult::SUCCESS:
+                                 res = "Using " + db_name;
+                                 break;
+                               case dbms::SetForResult::ALREADY_SET:
+                                 res = "Already using " + db_name;
+                                 break;
+                               case dbms::SetForResult::FAIL:
+                                 throw QueryRuntimeException("Failed to start using {}", db_name);
+                             }
+
+                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                             if (pull_plan->Pull(stream, n)) {
+                               return QueryHandlerResult::COMMIT;
+                             }
+                             return std::nullopt;
+                           },
+                           RWType::NONE,
+                           query->db_name_};
+
+    case MultiDatabaseQuery::Action::DROP:
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, session_uuid, &sc_handler](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+
+            memgraph::dbms::DeleteResult success{};
+
+            try {
+              success = sc_handler.Delete(db_name);
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            if (success.HasError()) {
+              switch (success.GetError()) {
+                case dbms::DeleteError::DEFAULT_DB:
+                  throw QueryRuntimeException("Cannot delete the default database.");
+                case dbms::DeleteError::NON_EXISTENT:
+                  throw QueryRuntimeException("{} does not exist.", db_name);
+                case dbms::DeleteError::USING:
+                  throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
+                case dbms::DeleteError::FAIL:
+                  throw QueryRuntimeException("Failed while deleting {}", db_name);
+                case dbms::DeleteError::DISK_FAIL:
+                  throw QueryRuntimeException("Failed to clean storage of {}", db_name);
+              }
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W,
+          query->db_name_};
+  }
+#else
+  throw QueryException("Query not supported.");
+#endif
+}
+
+PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                        const std::string &session_uuid, std::map<std::string, TypedValue> *summary,
+                                        DbAccessor *dba, utils::MemoryResource *execution_memory,
+                                        const std::optional<std::string> &username,
+                                        std::atomic<TransactionStatus> *transaction_status,
+                                        std::shared_ptr<utils::AsyncTimer> tx_timer) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+  // TODO: Remove once replicas support multi-tenant replication
+  if (GetReplicaRole(interpreter_context->db.get()) == storage::replication::ReplicationRole::REPLICA) {
+    throw QueryException("SHOW DATABASES forbidden on the replica!");
+  }
+
+  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  AuthQueryHandler *auth = interpreter_context->auth;
+
+  Callback callback;
+  callback.header = {"Name", "Current"};
+  callback.fn = [auth, session_uuid, &sc_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> status;
+    const auto in_use = sc_handler.Current(session_uuid);
+    bool found_current = false;
+
+    auto gen_status = [&]<typename T, typename K>(T all, K denied) {
+      Sort(all);
+      Sort(denied);
+
+      status.reserve(all.size());
+      for (const auto &name : all) {
+        TypedValue use("");
+        if (!found_current && Same(name, in_use)) {
+          use = TypedValue("*");
+          found_current = true;
+        }
+        status.push_back({TypedValue(name), std::move(use)});
+      }
+
+      // No denied databases (no need to filter them out)
+      if (denied.empty()) return;
+
+      auto denied_itr = denied.begin();
+      auto iter = std::remove_if(status.begin(), status.end(), [&denied_itr, &denied](auto &in) -> bool {
+        while (denied_itr != denied.end() && denied_itr->ValueString() < in[0].ValueString()) ++denied_itr;
+        return (denied_itr != denied.end() && denied_itr->ValueString() == in[0].ValueString());
+      });
+      status.erase(iter, status.end());
+    };
+
+    if (!username) {
+      // No user, return all
+      gen_status(sc_handler.All(), std::vector<TypedValue>{});
+    } else {
+      // User has a subset of accessible dbs; this is synched with the SessionContextHandler
+      const auto &db_priv = auth->GetDatabasePrivileges(*username);
+      const auto &allowed = db_priv[0][0];
+      const auto &denied = db_priv[0][1].ValueList();
+      if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
+        // All databases are allowed
+        gen_status(sc_handler.All(), denied);
+      } else {
+        gen_status(allowed.ValueList(), denied);
+      }
+    }
+
+    if (!found_current) throw QueryRuntimeException("Missing current database!");
+    return status;
+  };
+
+  SymbolTable symbol_table;
+  std::vector<Symbol> output_symbols;
+  for (const auto &column : callback.header) {
+    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
+  }
+
+  auto plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
+      std::make_unique<plan::OutputTable>(output_symbols,
+                                          [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
+      0.0, AstStorage{}, symbol_table));
+
+  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
+                                              execution_memory, username, transaction_status, std::move(tx_timer));
+
+  return PreparedQuery{
+      callback.header, std::move(parsed_query.required_privileges),
+      [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
+       summary](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
+          return callback.should_abort_query ? QueryHandlerResult::ABORT : QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE,
+      ""  // No target DB
+  };
+#else
+  throw QueryException("Query not supported.");
+#endif
+}
+
+std::optional<uint64_t> Interpreter::GetTransactionId() const {
+  if (db_accessor_) return db_accessor_->GetTransactionId();
   return {};
 }
 
-void Interpreter::BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata) {
-  const auto prepared_query = PrepareTransactionQuery("BEGIN", metadata);
+void Interpreter::BeginTransaction(QueryExtras const &extras) {
+  const auto prepared_query = PrepareTransactionQuery("BEGIN", extras);
   prepared_query.query_handler(nullptr, {});
 }
 
@@ -3072,13 +3510,18 @@ void Interpreter::RollbackTransaction() {
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
-                                                const std::string *username,
-                                                const std::map<std::string, storage::PropertyValue> &metadata) {
+                                                const std::string *username, QueryExtras const &extras,
+                                                const std::string &session_uuid) {
+  std::shared_ptr<utils::AsyncTimer> current_timer;
   if (!in_explicit_transaction_) {
     query_executions_.clear();
     transaction_queries_->clear();
     // Handle user-defined metadata in auto-transactions
-    metadata_ = GenOptional(metadata);
+    metadata_ = GenOptional(extras.metadata_pv);
+    auto const timeout = DetermineTxTimeout(extras.tx_timeout, interpreter_context_->config);
+    current_timer = timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
+  } else {
+    current_timer = explicit_transaction_timer_;
   }
 
   // This will be done in the handle transaction query. Our handler can save username and then send it to the kill and
@@ -3098,8 +3541,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     std::optional<int> qid =
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
-    query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query, metadata));
-    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
+    query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query, extras));
+    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
 
   // Don't save BEGIN, COMMIT or ROLLBACK
@@ -3136,14 +3579,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         cypher_query = profile_query->cypher_query_;
       }
       if (const auto &clauses = cypher_query->single_query_->clauses_;
-          IsCallBatchedProcedureQuery(clauses) || std::any_of(clauses.begin(), clauses.end(), [](const auto *clause) {
-            return clause->GetTypeInfo() == LoadCsv::kType;
-          })) {
+          IsAllShortestPathsQuery(clauses) || IsCallBatchedProcedureQuery(clauses) ||
+          std::any_of(clauses.begin(), clauses.end(),
+                      [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
         // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(utils::PoolResource(
             128, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
         query_execution_ptr = &query_executions_.back();
+        spdlog::trace("PrepareCypher has {} encountered all shortest paths, QueryExection will use PoolResource",
+                      IsAllShortestPathsQuery(clauses) ? "" : "not");
       }
     }
 
@@ -3184,7 +3629,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(
           std::move(parsed_query), &query_execution->summary, interpreter_context_, &*execution_db_accessor_,
-          memory_resource, &query_execution->notifications, username, &transaction_status_,
+          memory_resource, &query_execution->notifications, username, &transaction_status_, std::move(current_timer),
           trigger_context_collector_ ? &*trigger_context_collector_ : nullptr, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
@@ -3193,7 +3638,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                            interpreter_context_, &*execution_db_accessor_,
                                            &query_execution->execution_memory_with_exception, username,
-                                           &transaction_status_, &*frame_change_collector_);
+                                           &transaction_status_, std::move(current_timer), &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         memory_resource);
@@ -3204,9 +3649,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_,
                                                 &*execution_db_accessor_, interpreter_context_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      prepared_query = PrepareAuthQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
-          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                        interpreter_context_, &*execution_db_accessor_,
+                                        &query_execution->execution_memory_with_exception, username,
+                                        &transaction_status_, std::move(current_timer));
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db.get(),
@@ -3248,6 +3694,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);
+    } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
+                                                 interpreter_context_, session_uuid);
+    } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid,
+                                                 &query_execution->summary, &*execution_db_accessor_,
+                                                 &query_execution->execution_memory_with_exception, username_,
+                                                 &transaction_status_, std::move(current_timer));
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -3265,7 +3719,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw QueryException("Write query forbidden on the replica!");
     }
 
-    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
+    // Set the target db to the current db (some queries have different target from the current db)
+    if (!query_execution->prepared_query->db) {
+      query_execution->prepared_query->db = interpreter_context_->db->id();
+    }
+    query_execution->summary["db"] = *query_execution->prepared_query->db;
+
+    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
+            query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(query_execution_ptr);
@@ -3299,6 +3760,7 @@ void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   metadata_ = std::nullopt;
+  explicit_transaction_timer_.reset();
 
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 
@@ -3316,7 +3778,8 @@ void Interpreter::Abort() {
 
 namespace {
 void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
-                             TriggerContext trigger_context, std::atomic<TransactionStatus> *transaction_status) {
+                             TriggerContext original_trigger_context,
+                             std::atomic<TransactionStatus> *transaction_status) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
@@ -3325,6 +3788,9 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto storage_acc = interpreter_context->db->Access();
     DbAccessor db_accessor{storage_acc.get()};
 
+    // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
+    // So we need to adapt TriggerContext based on user transaction which is still alive.
+    auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
