@@ -53,31 +53,36 @@ void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
 // (m) -[e]- (n), (n) -[f]- (o).
 // This representation makes it easier to permute from which node or edge we
 // want to start expanding.
-std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
+std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns,
+                                         ExpansionId isomorphic_id) {
   std::vector<Expansion> expansions;
   auto ignore_node = [&](auto *) {};
-  auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
-    UsedSymbolsCollector collector(symbol_table);
-    if (edge->IsVariable()) {
-      if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
-      if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
-      if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
-      // Remove symbols which are bound by lambda arguments.
-      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
-      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
-      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
-        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
-      }
-    }
-    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node});
-  };
-  for (const auto &pattern : patterns) {
+  for (size_t i = 0, size = patterns.size(); i < size; i++) {
+    const auto &pattern = patterns[i];
+    ExpansionId pattern_id = ExpansionId::FromUint(i + 1);
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
-      expansions.emplace_back(Expansion{node});
+      expansions.emplace_back(Expansion{.node1 = node, .isomorphic_id = isomorphic_id, .pattern_id = pattern_id});
     } else {
+      auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
+        UsedSymbolsCollector collector(symbol_table);
+        if (edge->IsVariable()) {
+          if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
+          if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
+          if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
+          // Remove symbols which are bound by lambda arguments.
+          collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
+          collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
+          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
+              edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
+          }
+        }
+        expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
+                                          isomorphic_id, pattern_id});
+      };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
   }
@@ -487,7 +492,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
-  auto expansions = NormalizePatterns(symbol_table, patterns);
+  auto pattern_id = ExpansionId::FromUint(matching.expansions.size() + 1);
+  auto expansions = NormalizePatterns(symbol_table, patterns, pattern_id);
   std::unordered_set<Symbol> edge_symbols;
   for (const auto &expansion : expansions) {
     // Matching may already have some expansions, so offset our index.
@@ -513,6 +519,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   if (!edge_symbols.empty()) {
     matching.edge_symbols.emplace_back(edge_symbols);
   }
+
   for (auto *const pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
     if (pattern->identifier_->user_declared_) {

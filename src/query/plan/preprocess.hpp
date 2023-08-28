@@ -103,6 +103,35 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool in_exists{false};
 };
 
+#define PREPROCESS_DEFINE_ID_TYPE(name)                                                                         \
+  class name final {                                                                                            \
+   private:                                                                                                     \
+    explicit name(uint64_t id) : id_(id) {}                                                                     \
+                                                                                                                \
+   public:                                                                                                      \
+    /* Default constructor to allow serialization or preallocation. */                                          \
+    name() = default;                                                                                           \
+                                                                                                                \
+    static name FromUint(uint64_t id) { return name{id}; }                                                      \
+    static name FromInt(int64_t id) { return name{utils::MemcpyCast<uint64_t>(id)}; }                           \
+    uint64_t AsUint() const { return id_; }                                                                     \
+    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                           \
+                                                                                                                \
+   private:                                                                                                     \
+    uint64_t id_;                                                                                               \
+  };                                                                                                            \
+  static_assert(std::is_trivially_copyable<name>::value, "query::plan::" #name " must be trivially copyable!"); \
+  inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); }   \
+  inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); }   \
+  inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }     \
+  inline bool operator>(const name &first, const name &second) { return first.AsUint() > second.AsUint(); }     \
+  inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); }   \
+  inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
+
+PREPROCESS_DEFINE_ID_TYPE(ExpansionId);
+
+#undef STORAGE_DEFINE_ID_TYPE
+
 /// Normalized representation of a pattern that needs to be matched.
 struct Expansion {
   /// The first node in the expansion, it can be a single node.
@@ -119,6 +148,8 @@ struct Expansion {
   /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
+  ExpansionId isomorphic_id = ExpansionId();
+  ExpansionId pattern_id = ExpansionId();
 };
 
 struct FilterMatching;
