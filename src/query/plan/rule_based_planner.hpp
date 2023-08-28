@@ -611,6 +611,16 @@ class RuleBasedPlanner {
                                bound_symbols, new_symbols, named_paths, filters, view);
     }
 
+    std::set<ExpansionId> all_isomorphic_expansions;
+    for (const auto &expansion : matching.expansions) {
+      all_isomorphic_expansions.insert(expansion.isomorphic_id);
+    }
+
+    if (all_isomorphic_expansions.size() == 1) {
+      return GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                         new_symbols, named_paths, filters, view, matching.expansions[0].isomorphic_id);
+    }
+
     std::set<ExpansionId> visited_isomorphic_expansions;
     for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
       const auto &expansion = matching.expansions[i];
@@ -622,9 +632,11 @@ class RuleBasedPlanner {
 
       std::vector<Symbol> once_symbols{bound_symbols.begin(), bound_symbols.end()};
       std::unique_ptr<LogicalOperator> once = std::make_unique<Once>(once_symbols);
+      std::unique_ptr<LogicalOperator> previous_op =
+          visited_isomorphic_expansions.empty() ? std::move(last_op) : std::move(once);
       std::unique_ptr<LogicalOperator> isomorphic_expansion =
-          GenerateIsomorphicExpansion(std::move(once), matching, symbol_table, storage, bound_symbols, new_symbols,
-                                      named_paths, filters, view, expansion.isomorphic_id);
+          GenerateIsomorphicExpansion(std::move(previous_op), matching, symbol_table, storage, bound_symbols,
+                                      new_symbols, named_paths, filters, view, expansion.isomorphic_id);
 
       visited_isomorphic_expansions.insert(expansion.isomorphic_id);
 
