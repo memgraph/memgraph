@@ -120,8 +120,11 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
-#define INVALID_VISIT(expr_name) \
-  TypedValue Visit(expr_name &expr) override { throw 1; }
+#define INVALID_VISIT(expr_name)                                                             \
+  TypedValue Visit(expr_name & /*expr*/) override {                                          \
+    DLOG_FATAL("Invalid expression type visited with PrimitiveLiteralExpressionEvaluator."); \
+    return {};                                                                               \
+  }
 
   INVALID_VISIT(NamedExpression)
   INVALID_VISIT(OrOperator)
