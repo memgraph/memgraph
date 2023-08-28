@@ -174,6 +174,10 @@ struct Delta {
         uint64_t command_id)
       : action(Action::SET_PROPERTY), timestamp(timestamp), command_id(command_id), property({key, value}) {}
 
+  Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue &&value, std::atomic<uint64_t> *timestamp,
+        uint64_t command_id)
+      : action(Action::SET_PROPERTY), timestamp(timestamp), command_id(command_id), property({key, std::move(value)}) {}
+
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : action(Action::ADD_IN_EDGE),

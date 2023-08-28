@@ -261,3 +261,7 @@ import_external_library(librdtsc STATIC
 
 # setup ctre
 import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
+
+# setup absl (cmake sub_directory tolerant)
+set(ABSL_PROPAGATE_CXX_STD ON)
+add_subdirectory(absl EXCLUDE_FROM_ALL)
