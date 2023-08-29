@@ -140,11 +140,7 @@ bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Produce &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* Produce {";
-    utils::PrintIterable(out, op.named_expressions_, ", ", [](auto &out, const auto &nexpr) { out << nexpr->name_; });
-    out << "}";
-  });
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 

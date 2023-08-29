@@ -167,6 +167,7 @@ inline void AbortCheck(ExecutionContext const &context) {
 }  // namespace
 
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+#define SCOPED_PROFILE_OP_NEW() ScopedProfile profile{ComputeProfilingKey(this), this->self_, &context};
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
@@ -435,6 +436,8 @@ class ScanAllCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
+
+    // std::cout << "ScanAll operator type": << input_cursor_.self_.GetTypeInfo().name << std::endl;
 
     AbortCheck(context);
 
@@ -2432,7 +2435,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Produce");
+  SCOPED_PROFILE_OP_NEW();
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.

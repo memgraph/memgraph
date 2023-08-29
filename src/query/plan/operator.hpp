@@ -152,6 +152,12 @@ class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisito
   using typename LogicalOperatorLeafVisitor::ReturnType;
 };
 
+// Temporary (will add ToString to all operators)
+class NamedOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor> {
+ public:
+  virtual std::string ToString() const = 0;
+};
+
 /// Base class for logical operators.
 ///
 /// Each operator describes an operation, which is to be performed on the
@@ -505,7 +511,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
 /// @sa ScanAllByLabel
 /// @sa ScanAllByLabelPropertyRange
 /// @sa ScanAllByLabelPropertyValue
-class ScanAll : public memgraph::query::plan::LogicalOperator {
+class ScanAll : public memgraph::query::plan::LogicalOperator, public memgraph::query::plan::NamedOperator {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -529,6 +535,8 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// command. With @c storage::View::NEW, all vertices will be produced the current
   /// transaction sees along with their modifications.
   storage::View view_;
+
+  std::string ToString() const override { return "ScanAll (" + output_symbol_.name() + ")"; }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAll>();
@@ -1065,7 +1073,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 /// every input Pull (typically a MATCH/RETURN query).
 /// When the input is not provided (typically a standalone
 /// RETURN clause) the Produce's pull succeeds exactly once.
-class Produce : public memgraph::query::plan::LogicalOperator {
+class Produce : public memgraph::query::plan::LogicalOperator, public memgraph::query::plan::NamedOperator {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1093,6 +1101,11 @@ class Produce : public memgraph::query::plan::LogicalOperator {
       object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Clone(storage) : nullptr;
     }
     return object;
+  }
+
+  std::string ToString() const override {
+    return "Produce {" +
+           utils::IterableToString(named_expressions_, ", ", [](const auto &nexpr) { return nexpr->name_; }) + "}";
   }
 
  private:
