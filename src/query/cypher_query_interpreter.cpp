@@ -76,7 +76,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
-    frontend::ParsingContext context{true};
+    frontend::ParsingContext context{.is_query_cached = true};
     frontend::CypherMainVisitor visitor(context, &ast_storage);
 
     visitor.visit(parser->tree());
