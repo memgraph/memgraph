@@ -483,7 +483,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (!inserted) {
       throw utils::BasicException("The edge must be inserted here");
     }
-
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
