@@ -215,8 +215,7 @@ class DiskStorage final : public Storage {
 
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                        const std::vector<LabelId> &label_ids, PropertyStore &&properties,
-                                        Delta *delta);
+                                        std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
 
     bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
                             EdgeDirection edge_direction);
@@ -224,8 +223,7 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
                                             storage::Gid gid, std::string_view properties,
-                                            const std::string &old_disk_key,
-                                            const std::string &ts);
+                                            const std::string &old_disk_key, const std::string &ts);
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
