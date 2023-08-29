@@ -7,6 +7,11 @@ disk_storage: &disk_storage
       validation_queries: []
 
 workloads:
+  - name: "Tests SHOW STORAGE INFO clause"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/storage_info.py"]
+    <<: *disk_storage
+
   - name: "Test that loading vertices from indices and creating edge with them works."
     binary: "tests/e2e/pytest_runner.sh"
     args: ["disk_storage/create_edge_from_indices.py"]
