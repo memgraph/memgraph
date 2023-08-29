@@ -227,13 +227,23 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
 
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
   uint64_t five_percent_chunk = edges_count / 20;
+  if (five_percent_chunk == 0) {
+    spdlog::debug("Started to recover edge set <0 - {}>", edges_count);
+  } else {
+    spdlog::debug("Started to recover edge set <0 - {}>.", 0 + five_percent_chunk);
+  }
+
   uint64_t percentage_delta = 0;
-  spdlog::debug("Started to recover edge set from 0 to {} vertices.", 0 + five_percent_chunk);
   for (uint64_t i = 0; i < edges_count; ++i) {
-    if (i > 0 && i % five_percent_chunk == 0) {
-      percentage_delta += 5;
-      spdlog::info("Recovered {}% of edges.", percentage_delta);
-      if (percentage_delta != 100) spdlog::debug("Started to recover edge set <{} - {}>", i, i + five_percent_chunk);
+    if (five_percent_chunk != 0) {
+      if (i > 0 && i % five_percent_chunk == 0 && percentage_delta != 100) {
+        percentage_delta += 5;
+        spdlog::info("Recovered {}% of edges.", percentage_delta);
+        if (percentage_delta == 95)
+          spdlog::debug("Started to recover edge set <{} - {}>", i, edges_count);
+        else if (percentage_delta != 100)
+          spdlog::debug("Started to recover edge set <{} - {}>", i, i + five_percent_chunk);
+      }
     }
 
     {
@@ -296,16 +306,24 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
   spdlog::info("Recovering {} vertices.", vertices_count);
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
   uint64_t five_percent_chunk = vertices_count / 20;
+  if (five_percent_chunk == 0) {
+    spdlog::debug("Started to recover vertex set <0 - {}>", vertices_count);
+  } else {
+    spdlog::debug("Started to recover vertex set <0 - {}>", 0 + five_percent_chunk);
+  }
+
   uint64_t percentage_delta = 0;
-  spdlog::debug("Started to recover vertices set from 0 to {} vertices.", 0 + five_percent_chunk);
-
   for (uint64_t i = 0; i < vertices_count; ++i) {
-    if (i > 0 && i % five_percent_chunk == 0) {
-      percentage_delta += 5;
-      spdlog::info("Recovered {}% vertices.", percentage_delta);
-      if (percentage_delta != 100) spdlog::debug("Started to recover vertex set <{} - {}>", i, i + five_percent_chunk);
+    if (five_percent_chunk != 0) {
+      if (i > 0 && i % five_percent_chunk == 0 && percentage_delta != 100) {
+        percentage_delta += 5;
+        spdlog::info("Recovered {}% of vertices.", percentage_delta);
+        if (percentage_delta == 95)
+          spdlog::debug("Started to recover vertex set <{} - {}>", i, vertices_count);
+        else if (percentage_delta != 100)
+          spdlog::debug("Started to recover vertex set <{} - {}>", i, i + five_percent_chunk);
+      }
     }
-
     {
       auto marker = snapshot.ReadMarker();
       if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
@@ -427,14 +445,24 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
   uint64_t five_percent_chunk = vertices_count / 20;
+
+  if (five_percent_chunk == 0) {
+    spdlog::debug("Started to recover vertices connectivity set <0 - {}>", vertices_count);
+  } else {
+    spdlog::debug("Started to recover vertices connectivity set <0 - {}>", 0 + five_percent_chunk);
+  }
+
   uint64_t percentage_delta = 0;
-  spdlog::debug("Started to recover connectivity for vertices 0 to {} vertices.", 0 + five_percent_chunk);
   for (uint64_t i = 0; i < vertices_count; ++i) {
-    if (i > 0 && i % five_percent_chunk == 0) {
-      percentage_delta += 5;
-      spdlog::info("Recovered {}% vertices connectivity.", percentage_delta);
-      if (percentage_delta != 100)
-        spdlog::debug("Started to recover vertex connectivity set <{} - {}>", i, i + five_percent_chunk);
+    if (five_percent_chunk != 0) {
+      if (i > 0 && i % five_percent_chunk == 0 && percentage_delta != 100) {
+        percentage_delta += 5;
+        spdlog::info("Recovered {}% of vertices connectivity.", percentage_delta);
+        if (percentage_delta == 95)
+          spdlog::debug("Started to recover vertices connectivity set <{} - {}>", i, vertices_count);
+        else if (percentage_delta != 100)
+          spdlog::debug("Started to recover vertices connectivity set <{} - {}>", i, i + five_percent_chunk);
+      }
     }
 
     auto &vertex = *vertex_it;
