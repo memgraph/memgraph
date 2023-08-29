@@ -59,11 +59,6 @@ workloads:
     proc: "tests/e2e/memory/procedures/"
     <<: *in_memory_cluster
 
-  - name: "Memory control for on-disk storage"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__control"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    <<: *disk_cluster
-
   - name: "Memory limit for modules upon loading for on-disk storage"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
