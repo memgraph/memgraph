@@ -2431,11 +2431,11 @@ inline bool List::operator==(const List &other) const { return util::ListsEqual(
 inline bool List::operator!=(const List &other) const { return !(*this == other); }
 
 inline const std::string List::ToString() const {
-  std::string return_str{"["};
   const size_t size = Size();
   if (size == 0) {
     return "[]";
   }
+  std::string return_str{"["};
   size_t i = 0;
   const mgp::List &list = (*this);
   while (i < size - 1) {
@@ -2616,11 +2616,11 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
 
 inline const std::string Map::ToString() const {
-  std::string return_string{"{"};
   const size_t map_size = Size();
   if (map_size == 0) {
     return "{}";
   }
+  std::string return_string{"{"};
   size_t i = 0;
   for (const auto &[key, value] : *this) {
     if (i == map_size - 1) {
