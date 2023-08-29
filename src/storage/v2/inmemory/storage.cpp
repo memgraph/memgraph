@@ -18,6 +18,7 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/stat.hpp"
 
 /// REPLICATION ///
@@ -234,7 +235,9 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  if (!inserted) {
+    throw utils::BasicException("The edge must be inserted here");
+  }
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   if (delta) {
     delta->prev.Set(&*it);
@@ -477,7 +480,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
+    if (!inserted) {
+      throw utils::BasicException("The edge must be inserted here");
+    }
+
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     if (delta) {
