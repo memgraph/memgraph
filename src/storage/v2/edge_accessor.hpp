@@ -52,6 +52,10 @@ class EdgeAccessor final {
 
   VertexAccessor ToVertex() const;
 
+  VertexAccessor FromVertexWithDeleted() const;
+
+  VertexAccessor ToVertexWithDeleted() const;
+
   EdgeTypeId EdgeType() const { return edge_type_; }
 
   /// Set a property value and return the old value.

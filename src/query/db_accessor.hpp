@@ -94,6 +94,10 @@ class EdgeAccessor final {
 
   VertexAccessor From() const;
 
+  VertexAccessor ToWithDeleted() const;
+
+  VertexAccessor FromWithDeleted() const;
+
   bool IsCycle() const;
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
@@ -205,6 +209,10 @@ class VertexAccessor final {
 inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
 
 inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+
+inline VertexAccessor EdgeAccessor::ToWithDeleted() const { return VertexAccessor(impl_.ToVertexWithDeleted()); }
+
+inline VertexAccessor EdgeAccessor::FromWithDeleted() const { return VertexAccessor(impl_.FromVertexWithDeleted()); }
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
