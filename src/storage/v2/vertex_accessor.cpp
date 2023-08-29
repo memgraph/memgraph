@@ -85,7 +85,7 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction
 
 bool VertexAccessor::IsVisible(View view) const {
   const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
-  return exists && (for_deleted_ || !deleted);
+  return exists && (vertex_->for_deleted_ || !deleted);
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
@@ -149,7 +149,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resLabel = cache.GetHasLabel(view, vertex_, label); resLabel) return {resLabel.value()};
     }
 
@@ -172,7 +172,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   }
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!vertex_->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return has_label;
 }
 
@@ -196,7 +196,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resLabels = cache.GetLabels(view, vertex_); resLabels) return {*resLabels};
     }
 
@@ -219,7 +219,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   }
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!vertex_->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(labels);
 }
 
@@ -325,7 +325,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resProperty = cache.GetProperty(view, vertex_, property); resProperty) return {*resProperty};
     }
 
@@ -349,7 +349,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   }
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!vertex_->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
@@ -373,7 +373,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resProperties = cache.GetProperties(view, vertex_); resProperties) return {*resProperties};
     }
 
@@ -397,7 +397,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   }
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!vertex_->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 
@@ -448,7 +448,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resInEdges = cache.GetInEdges(view, vertex_, destination_vertex, edge_types); resInEdges)
         return {build_result(*resInEdges)};
     }
@@ -523,7 +523,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resOutEdges = cache.GetOutEdges(view, vertex_, dst_vertex, edge_types); resOutEdges)
         return {build_result(*resOutEdges)};
     }
@@ -572,7 +572,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resInDegree = cache.GetInDegree(view, vertex_); resInDegree) return {*resInDegree};
     }
 
@@ -596,7 +596,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   }
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!vertex_->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 
@@ -620,7 +620,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      if (auto resError = HasError(view, cache, vertex_, vertex_->for_deleted_); resError) return *resError;
       if (auto resOutDegree = cache.GetOutDegree(view, vertex_); resOutDegree) return {*resOutDegree};
     }
 
@@ -644,7 +644,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   }
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!vertex_->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 

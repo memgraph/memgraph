@@ -64,7 +64,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
         }
       }
     });
-    return exists && (for_deleted_ || !deleted);
+    return exists && (edge_.ptr->for_deleted_ || !deleted);
   }
 
   Delta *delta = nullptr;
@@ -94,7 +94,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
       }
     }
   });
-  return exists && (for_deleted_ || !deleted);
+  return exists && (edge_.ptr->for_deleted_ || !deleted);
 }
 
 VertexAccessor EdgeAccessor::FromVertex() const {
@@ -225,7 +225,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!edge_.ptr->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
@@ -277,7 +277,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!edge_.ptr->for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 

@@ -39,6 +39,14 @@ struct Edge {
   // uint8_t PAD;
   // uint16_t PAD;
 
+  // if the accessor was created for a deleted edge.
+  // Accessor behaves differently for some methods based on this
+  // flag.
+  // E.g. If this field is set to true, GetProperty will return the property of the edge
+  // even though the edge is deleted.
+  // All the write operations will still return an error if it's called for a deleted edge.
+  bool for_deleted_{false};
+
   Delta *delta;
 };
 

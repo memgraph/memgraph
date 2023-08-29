@@ -33,13 +33,8 @@ class VertexAccessor final {
 
  public:
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, bool for_deleted = false)
-      : vertex_(vertex),
-        transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config),
-        for_deleted_(for_deleted) {}
+                 Config::Items config)
+      : vertex_(vertex), transaction_(transaction), indices_(indices), constraints_(constraints), config_(config) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
@@ -114,15 +109,6 @@ class VertexAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-
-  // if the accessor was created for a deleted vertex.
-  // Accessor behaves differently for some methods based on this
-  // flag.
-  // E.g. If this field is set to true, GetProperty will return the property of the node
-  // even though the node is deleted.
-  // All the write operations, and operators used for traversal (e.g. InEdges) will still
-  // return an error if it's called for a deleted vertex.
-  bool for_deleted_{false};
 };
 
 }  // namespace memgraph::storage

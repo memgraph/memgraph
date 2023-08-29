@@ -268,6 +268,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
+  vertex_ptr->for_deleted_ = true;
   transaction_.manyDeltasCache.Invalidate(vertex_ptr);
 
   // Need to inform the next CollectGarbage call that there are some
@@ -278,7 +279,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
   }
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+                                            config_);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
@@ -346,6 +347,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
+  vertex_ptr->for_deleted_ = true;
   transaction_.manyDeltasCache.Invalidate(vertex_ptr);
 
   // Need to inform the next CollectGarbage call that there are some
@@ -356,7 +358,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_},
       std::move(deleted_edges));
 }
 
@@ -573,6 +575,7 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
     auto *edge_ptr = edge_ref.ptr;
     CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
     edge_ptr->deleted = true;
+    edge_ptr->for_deleted_ = true;
 
     // Need to inform the next CollectGarbage call that there are some
     // non-transactional deletions that need to be collected
@@ -592,7 +595,7 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &storage_->indices_, &storage_->constraints_, config_, true);
+                                          &storage_->indices_, &storage_->constraints_, config_);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
