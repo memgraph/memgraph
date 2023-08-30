@@ -17,6 +17,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
@@ -59,8 +60,8 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(std::string name, memgraph::io::network::Endpoint endpoint, replication::ReplicationMode mode,
-                    const replication::ReplicationClientConfig &config);
+  ReplicationClient(Storage *storage, std::string name, memgraph::io::network::Endpoint endpoint,
+                    replication::ReplicationMode mode, const replication::ReplicationClientConfig &config);
 
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;
@@ -113,6 +114,7 @@ class ReplicationClient {
   std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
 
   utils::Scheduler replica_checker_;
+  Storage *storage_;
 };
 
 }  // namespace memgraph::storage

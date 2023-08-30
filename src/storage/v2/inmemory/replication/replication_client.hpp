@@ -62,7 +62,9 @@ class InMemoryReplicationClient : public ReplicationClient {
   // Transfer the WAL files
   replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
 
-  InMemoryStorage *storage_;
+  InMemoryStorage *storage() { return static_cast<InMemoryStorage *>(storage_); }
+  InMemoryStorage const *storage() const { return static_cast<InMemoryStorage const *>(storage_); }
+  Storage *storage_;
 };
 
 }  // namespace memgraph::storage

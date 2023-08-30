@@ -17,14 +17,12 @@
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-
-#include "storage/v2/replication/replication.hpp"
 
 namespace memgraph::storage {
 
