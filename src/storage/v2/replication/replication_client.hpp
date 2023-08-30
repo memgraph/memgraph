@@ -70,7 +70,7 @@ class ReplicationClient {
 
   virtual ~ReplicationClient();
 
-  virtual void Start() = 0;
+  void Start();
 
   const auto &Name() const { return name_; }
 
@@ -80,11 +80,14 @@ class ReplicationClient {
 
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
 
-  virtual void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) = 0;
+  // Replication clients can be removed at any point
+  // so to avoid any complexity of checking if the client was removed whenever
+  // we want to send part of transaction and to avoid adding some GC logic this
+  // function will run a callback if, after previously callling
+  // StartTransactionReplication, stream is created.
+  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
   auto GetEpochId() const -> std::string const &;
-  ;
-  virtual auto GetStorage() -> Storage * = 0;
-  [[nodiscard]] virtual bool FinalizeTransactionReplication() = 0;
+  auto GetStorage() -> Storage * { return storage_; }
   TimestampInfo GetTimestampInfo();
   virtual void RecoverReplica(uint64_t replica_commit) = 0;
   void InitializeClient();
@@ -92,9 +95,15 @@ class ReplicationClient {
   void TryInitializeClientAsync();
   void TryInitializeClientSync();
   void StartTransactionReplication(const uint64_t current_wal_seq_num);
+  // Return whether the transaction could be finalized on the replication client or not.
+  [[nodiscard]] bool FinalizeTransactionReplication();
 
  protected:
   uint64_t LastCommitTimestamp() const;
+
+  bool FinalizeTransactionReplicationInternal();
+
+  void FrequentCheck();
 
  protected:
   std::string name_;

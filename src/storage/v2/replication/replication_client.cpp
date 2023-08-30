@@ -43,6 +43,7 @@ ReplicationClient::ReplicationClient(Storage *storage, std::string name, memgrap
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();
   spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
+  thread_pool_.Shutdown();
 }
 
 uint64_t ReplicationClient::LastCommitTimestamp() const {
@@ -93,8 +94,7 @@ void ReplicationClient::InitializeClient() {
       std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::RECOVERY);
     }
-    thread_pool_.AddTask(
-        [=, x = static_cast<ReplicationClient *>(this)] { x->RecoverReplica(current_commit_timestamp); });
+    thread_pool_.AddTask([=, this] { this->RecoverReplica(current_commit_timestamp); });
   }
 }
 
@@ -183,7 +183,106 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
       return;
   }
 }
+
 auto ReplicationClient::GetEpochId() const -> std::string const & { return storage_->replication_state_.GetEpoch().id; }
+
+bool ReplicationClient::FinalizeTransactionReplication() {
+  // We can only check the state because it guarantees to be only
+  // valid during a single transaction replication (if the assumption
+  // that this and other transaction replication functions can only be
+  // called from a one thread stands)
+  if (replica_state_ != replication::ReplicaState::REPLICATING) {
+    return false;
+  }
+
+  if (mode_ == replication::ReplicationMode::ASYNC) {
+    thread_pool_.AddTask([this] { (void)this->FinalizeTransactionReplicationInternal(); });
+    return true;
+  }
+
+  return FinalizeTransactionReplicationInternal();
+}
+
+void ReplicationClient::FrequentCheck() {
+  const auto is_success = std::invoke([this]() {
+    try {
+      auto stream{rpc_client_.Stream<replication::FrequentHeartbeatRpc>()};
+      const auto response = stream.AwaitResponse();
+      return response.success;
+    } catch (const rpc::RpcFailedException &) {
+      return false;
+    }
+  });
+  // States: READY, REPLICATING, RECOVERY, INVALID
+  // If success && ready, replicating, recovery -> stay the same because something good is going on.
+  // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
+  // If fail -> [replica is not reachable at all] -> INVALID state.
+  // NOTE: TryInitializeClient might return nothing if there is a branching point.
+  // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
+  if (!is_success) {
+    replica_state_.store(replication::ReplicaState::INVALID);
+    return;
+  }
+  if (replica_state_.load() == replication::ReplicaState::INVALID) {
+    TryInitializeClientAsync();
+  }
+}
+
+void ReplicationClient::Start() {
+  auto const &endpoint = rpc_client_.Endpoint();
+  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
+
+  TryInitializeClientSync();
+
+  // Help the user to get the most accurate replica state possible.
+  if (replica_check_frequency_ > std::chrono::seconds(0)) {
+    replica_checker_.Run("Replica Checker", replica_check_frequency_, [this] { this->FrequentCheck(); });
+  }
+}
+
+void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) {
+  // We can only check the state because it guarantees to be only
+  // valid during a single transaction replication (if the assumption
+  // that this and other transaction replication functions can only be
+  // called from a one thread stands)
+  if (replica_state_ != replication::ReplicaState::REPLICATING) {
+    return;
+  }
+
+  try {
+    callback(*replica_stream_);
+  } catch (const rpc::RpcFailedException &) {
+    {
+      std::unique_lock client_guard{client_lock_};
+      replica_state_.store(replication::ReplicaState::INVALID);
+    }
+    HandleRpcFailure();
+  }
+}
+
+bool ReplicationClient::FinalizeTransactionReplicationInternal() {
+  MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
+  try {
+    auto response = replica_stream_->Finalize();
+    replica_stream_.reset();
+    std::unique_lock client_guard(client_lock_);
+    if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
+      replica_state_.store(replication::ReplicaState::RECOVERY);
+      thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
+    } else {
+      replica_state_.store(replication::ReplicaState::READY);
+      return true;
+    }
+  } catch (const rpc::RpcFailedException &) {
+    replica_stream_.reset();
+    {
+      std::unique_lock client_guard(client_lock_);
+      replica_state_.store(replication::ReplicaState::INVALID);
+    }
+    HandleRpcFailure();
+  }
+  return false;
+}
 
 ////// ReplicaStream //////
 ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,

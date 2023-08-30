@@ -18,23 +18,8 @@ class InMemoryReplicationClient : public ReplicationClient {
  public:
   InMemoryReplicationClient(InMemoryStorage *storage, std::string name, io::network::Endpoint endpoint,
                             replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
-  // Replication clients can be removed at any point
-  // so to avoid any complexity of checking if the client was removed whenever
-  // we want to send part of transaction and to avoid adding some GC logic this
-  // function will run a callback if, after previously callling
-  // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) override;
-
-  auto GetStorage() -> Storage * override;
-
-  void Start() override;
-
-  // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication() override;
 
  private:
-  void FrequentCheck();
-  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
   void RecoverReplica(uint64_t replica_commit) override;
   uint64_t ReplicateCurrentWal();
 

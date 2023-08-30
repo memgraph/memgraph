@@ -73,101 +73,6 @@ InMemoryReplicationClient::InMemoryReplicationClient(InMemoryStorage *storage, s
                                                      const replication::ReplicationClientConfig &config)
     : ReplicationClient{storage, std::move(name), std::move(endpoint), mode, config} {}
 
-void InMemoryReplicationClient::FrequentCheck() {
-  const auto is_success = std::invoke([this]() {
-    try {
-      auto stream{rpc_client_.Stream<replication::FrequentHeartbeatRpc>()};
-      const auto response = stream.AwaitResponse();
-      return response.success;
-    } catch (const rpc::RpcFailedException &) {
-      return false;
-    }
-  });
-  // States: READY, REPLICATING, RECOVERY, INVALID
-  // If success && ready, replicating, recovery -> stay the same because something good is going on.
-  // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
-  // If fail -> [replica is not reachable at all] -> INVALID state.
-  // NOTE: TryInitializeClient might return nothing if there is a branching point.
-  // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
-  if (!is_success) {
-    replica_state_.store(replication::ReplicaState::INVALID);
-    return;
-  }
-  if (replica_state_.load() == replication::ReplicaState::INVALID) {
-    TryInitializeClientAsync();
-  }
-}  /// @throws rpc::RpcFailedException
-
-void InMemoryReplicationClient::Start() {
-  auto const &endpoint = rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
-
-  TryInitializeClientSync();
-
-  // Help the user to get the most accurate replica state possible.
-  if (replica_check_frequency_ > std::chrono::seconds(0)) {
-    replica_checker_.Run("Replica Checker", replica_check_frequency_, [this] { FrequentCheck(); });
-  }
-}
-
-void InMemoryReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) {
-  // We can only check the state because it guarantees to be only
-  // valid during a single transaction replication (if the assumption
-  // that this and other transaction replication functions can only be
-  // called from a one thread stands)
-  if (replica_state_ != replication::ReplicaState::REPLICATING) {
-    return;
-  }
-
-  try {
-    callback(*replica_stream_);
-  } catch (const rpc::RpcFailedException &) {
-    {
-      std::unique_lock client_guard{client_lock_};
-      replica_state_.store(replication::ReplicaState::INVALID);
-    }
-    HandleRpcFailure();
-  }
-}
-bool InMemoryReplicationClient::FinalizeTransactionReplication() {
-  // We can only check the state because it guarantees to be only
-  // valid during a single transaction replication (if the assumption
-  // that this and other transaction replication functions can only be
-  // called from a one thread stands)
-  if (replica_state_ != replication::ReplicaState::REPLICATING) {
-    return false;
-  }
-
-  if (mode_ == replication::ReplicationMode::ASYNC) {
-    thread_pool_.AddTask([this] { static_cast<void>(this->FinalizeTransactionReplicationInternal()); });
-    return true;
-  }
-
-  return FinalizeTransactionReplicationInternal();
-}
-bool InMemoryReplicationClient::FinalizeTransactionReplicationInternal() {
-  MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
-  try {
-    auto response = replica_stream_->Finalize();
-    replica_stream_.reset();
-    std::unique_lock client_guard(client_lock_);
-    if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
-      replica_state_.store(replication::ReplicaState::RECOVERY);
-      thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
-    } else {
-      replica_state_.store(replication::ReplicaState::READY);
-      return true;
-    }
-  } catch (const rpc::RpcFailedException &) {
-    replica_stream_.reset();
-    {
-      std::unique_lock client_guard(client_lock_);
-      replica_state_.store(replication::ReplicaState::INVALID);
-    }
-    HandleRpcFailure();
-  }
-  return false;
-}
 void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
   spdlog::debug("Starting replica recover");
   auto *storage = static_cast<InMemoryStorage *>(storage_);
@@ -251,7 +156,9 @@ uint64_t InMemoryReplicationClient::ReplicateCurrentWal() {
   stream.AppendBufferData(buffer, buffer_size);
   auto response = stream.Finalize();
   return response.current_commit_timestamp;
-}  /// This method tries to find the optimal path for recoverying a single replica.
+}
+
+/// This method tries to find the optimal path for recoverying a single replica.
 /// Based on the last commit transfered to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much
 /// smaller in size as they contain only the Deltas (changes) made during the
@@ -417,8 +324,6 @@ std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::
 
   return recovery_steps;
 }
-
-auto InMemoryReplicationClient::GetStorage() -> Storage * { return storage_; }
 
 replication::SnapshotRes InMemoryReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
   auto stream{rpc_client_.Stream<replication::SnapshotRpc>()};
