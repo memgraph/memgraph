@@ -12,7 +12,7 @@
 #pragma once
 
 #include "rpc/client.hpp"
-#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"

@@ -26,6 +26,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -323,6 +324,8 @@ class Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   const std::string id_;  //!< High-level assigned ID
+ protected:
+  ReplicationState replication_state_;
 };
 
 }  // namespace memgraph::storage

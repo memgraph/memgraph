@@ -36,7 +36,6 @@ namespace memgraph::storage {
 class InMemoryStorage final : public Storage {
   friend class InMemoryReplicationServer;
   friend class InMemoryReplicationClient;
-  friend class ReplicationClient;
 
  public:
   enum class CreateSnapshotError : uint8_t {
@@ -494,8 +493,6 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
-
-  ReplicationState replication_state_;
 };
 
 }  // namespace memgraph::storage
