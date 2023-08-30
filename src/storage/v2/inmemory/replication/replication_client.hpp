@@ -10,9 +10,11 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+
 namespace memgraph::storage {
+
+class InMemoryStorage;
 
 class InMemoryReplicationClient : public ReplicationClient {
  public:
@@ -21,7 +23,6 @@ class InMemoryReplicationClient : public ReplicationClient {
 
  private:
   void RecoverReplica(uint64_t replica_commit) override;
-  uint64_t ReplicateCurrentWal();
 
   using RecoverySnapshot = std::filesystem::path;
   using RecoveryWals = std::vector<std::filesystem::path>;
@@ -31,13 +32,6 @@ class InMemoryReplicationClient : public ReplicationClient {
   };
   using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
   std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
-
-  // Transfer the snapshot file.
-  // @param path Path of the snapshot file.
-  replication::SnapshotRes TransferSnapshot(const std::filesystem::path &path);
-
-  // Transfer the WAL files
-  replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
 };
 
 }  // namespace memgraph::storage

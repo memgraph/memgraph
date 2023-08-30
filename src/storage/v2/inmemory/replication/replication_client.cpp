@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -67,7 +68,40 @@ void CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buf
 
 replication::CurrentWalRes CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
+////// ReplicationClient Helpers //////
+
+replication::WalFilesRes TransferWalFiles(rpc::Client &client, const std::vector<std::filesystem::path> &wal_files) {
+  MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
+  auto stream = client.Stream<replication::WalFilesRpc>(wal_files.size());
+  replication::Encoder encoder(stream.GetBuilder());
+  for (const auto &wal : wal_files) {
+    spdlog::debug("Sending wal file: {}", wal);
+    encoder.WriteFile(wal);
+  }
+  return stream.AwaitResponse();
+}
+
+replication::SnapshotRes TransferSnapshot(rpc::Client &client, const std::filesystem::path &path) {
+  auto stream = client.Stream<replication::SnapshotRpc>();
+  replication::Encoder encoder(stream.GetBuilder());
+  encoder.WriteFile(path);
+  return stream.AwaitResponse();
+}
+
+uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile const &wal_file) {
+  stream.AppendFilename(wal_file.Path().filename());
+  utils::InputFile file;
+  MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file!");
+  const auto [buffer, buffer_size] = wal_file.CurrentFileBuffer();
+  stream.AppendSize(file.GetSize() + buffer_size);
+  stream.AppendFileData(&file);
+  stream.AppendBufferData(buffer, buffer_size);
+  auto response = stream.Finalize();
+  return response.current_commit_timestamp;
+}
+
 ////// ReplicationClient //////
+
 InMemoryReplicationClient::InMemoryReplicationClient(InMemoryStorage *storage, std::string name,
                                                      io::network::Endpoint endpoint, replication::ReplicationMode mode,
                                                      const replication::ReplicationClientConfig &config)
@@ -89,11 +123,11 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
               using StepType = std::remove_cvref_t<T>;
               if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {
                 spdlog::debug("Sending the latest snapshot file: {}", arg);
-                auto response = TransferSnapshot(arg);
+                auto response = TransferSnapshot(rpc_client_, arg);
                 replica_commit = response.current_commit_timestamp;
               } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {
                 spdlog::debug("Sending the latest wal files");
-                auto response = TransferWalFiles(arg);
+                auto response = TransferWalFiles(rpc_client_, arg);
                 replica_commit = response.current_commit_timestamp;
                 spdlog::debug("Wal files successfully transferred.");
               } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
@@ -102,7 +136,8 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
                   storage->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file");
-                  replica_commit = ReplicateCurrentWal();
+                  auto streamHandler = CurrentWalHandler{this};
+                  replica_commit = ReplicateCurrentWal(streamHandler, *storage->wal_file_);
                   storage->wal_file_->EnableFlushing();
                 } else {
                   spdlog::debug("Cannot recover using current wal file");
@@ -141,21 +176,6 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
       return;
     }
   }
-}
-
-uint64_t InMemoryReplicationClient::ReplicateCurrentWal() {
-  auto *storage = static_cast<InMemoryStorage *>(storage_);
-  const auto &wal_file = storage->wal_file_;
-  auto stream = CurrentWalHandler{this};
-  stream.AppendFilename(wal_file->Path().filename());
-  utils::InputFile file;
-  MG_ASSERT(file.Open(storage->wal_file_->Path()), "Failed to open current WAL file!");
-  const auto [buffer, buffer_size] = wal_file->CurrentFileBuffer();
-  stream.AppendSize(file.GetSize() + buffer_size);
-  stream.AppendFileData(&file);
-  stream.AppendBufferData(buffer, buffer_size);
-  auto response = stream.Finalize();
-  return response.current_commit_timestamp;
 }
 
 /// This method tries to find the optimal path for recoverying a single replica.
@@ -323,26 +343,6 @@ std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::
   }
 
   return recovery_steps;
-}
-
-replication::SnapshotRes InMemoryReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
-  auto stream{rpc_client_.Stream<replication::SnapshotRpc>()};
-  replication::Encoder encoder(stream.GetBuilder());
-  encoder.WriteFile(path);
-  return stream.AwaitResponse();
-}
-
-replication::WalFilesRes InMemoryReplicationClient::TransferWalFiles(
-    const std::vector<std::filesystem::path> &wal_files) {
-  MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
-  auto stream{rpc_client_.Stream<replication::WalFilesRpc>(wal_files.size())};
-  replication::Encoder encoder(stream.GetBuilder());
-  for (const auto &wal : wal_files) {
-    spdlog::debug("Sending wal file: {}", wal);
-    encoder.WriteFile(wal);
-  }
-
-  return stream.AwaitResponse();
 }
 
 }  // namespace memgraph::storage
