@@ -362,33 +362,6 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
-  }
-
-  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  auto RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       const replication::ReplicationMode replication_mode,
-                       const replication::RegistrationMode registration_mode,
-                       const replication::ReplicationClientConfig &config) {
-    return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
-                                              config, this);
-  }
-
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
-
-  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
-
-  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
-
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
-    return replication_state_.GetReplicaState(name);
-  }
-
   void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -433,10 +406,6 @@ class InMemoryStorage final : public Storage {
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
-
-  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
 
   void EstablishNewEpoch() override;
 

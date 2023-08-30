@@ -294,6 +294,34 @@ class Storage {
                                        replication::ReplicationServerConfig const &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
+  /// REPLICATION
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
+  }
+  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
+
+  /// @pre The instance should have a MAIN role
+  /// @pre Timeout can only be set for SYNC replication
+  auto RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                       const replication::ReplicationMode replication_mode,
+                       const replication::RegistrationMode registration_mode,
+                       const replication::ReplicationClientConfig &config) {
+    return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
+                                              config, this);
+  }
+  /// @pre The instance should have a MAIN role
+  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
+  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
+  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
+    return replication_state_.GetReplicaState(name);
+  }
+
+ protected:
+  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
+  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
+
+ public:
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing
@@ -324,6 +352,7 @@ class Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   const std::string id_;  //!< High-level assigned ID
+
  protected:
   ReplicationState replication_state_;
 };
