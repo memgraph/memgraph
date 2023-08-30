@@ -538,7 +538,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
       CreateVertexFromDisk(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                           CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
+                           CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), deserializeTimestamp));
     }
   }
 }
@@ -724,9 +724,10 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
     if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      LoadVertexToLabelIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), "0"),
-                                  indexed_vertices->access());
+      LoadVertexToLabelIndexCache(
+          index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), deserializeTimestamp),
+          indexed_vertices->access());
     }
   }
 }
@@ -777,9 +778,10 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
     if (label_property_filter(key, label_property_prefix, gids, curr_gid)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), "0"),
-                                          indexed_vertices->access());
+      LoadVertexToLabelPropertyIndexCache(
+          index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), deserializeTimestamp),
+          indexed_vertices->access());
     }
   }
 }
@@ -808,9 +810,10 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
         properties.IsPropertyEqual(property, value)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), "0"),
-                                          indexed_vertices->access());
+      LoadVertexToLabelPropertyIndexCache(
+          index_it->key().ToString(), index_it->value().ToString(),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), deserializeTimestamp),
+          indexed_vertices->access());
     }
   }
 }
@@ -870,9 +873,10 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
     }
     // We should pass it->timestamp().ToString() instead of "0"
     // This is hack until RocksDB will support timestamp() in WBWI iterator
-    LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                        CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key_str), "0"),
-                                        indexed_vertices->access());
+    LoadVertexToLabelPropertyIndexCache(
+        index_it->key().ToString(), index_it->value().ToString(),
+        CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key_str), deserializeTimestamp),
+        indexed_vertices->access());
   }
 }
 
@@ -993,7 +997,7 @@ void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
   if (edge_import_status == EdgeImportMode::ACTIVE) {
     edge_import_mode_cache_ = std::make_unique<EdgeImportModeCache>(config_);
   } else {
-    edge_import_mode_cache_ = nullptr;
+    edge_import_mode_cache_.reset(nullptr);
   }
 
   edge_import_status_ = edge_import_status;

@@ -157,6 +157,7 @@ def test_throw_on_vertex_add_label_during_edge_import_mode():
     with pytest.raises(Exception):
         execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) SET u:User:Person RETURN u")
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
 def test_throw_on_vertex_remove_label_during_edge_import_mode():
@@ -167,6 +168,7 @@ def test_throw_on_vertex_remove_label_during_edge_import_mode():
     with pytest.raises(Exception):
         execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) REMOVE u:Person RETURN u")
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
 def test_throw_on_vertex_set_property_during_edge_import_mode():
@@ -177,6 +179,7 @@ def test_throw_on_vertex_set_property_during_edge_import_mode():
     with pytest.raises(Exception):
         execute_and_fetch_all(cursor, "MATCH (u:User {id: 1}) SET u.balance = 2000")
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
 def test_throw_on_vertex_create_vertex_during_edge_import_mode():
@@ -187,6 +190,7 @@ def test_throw_on_vertex_create_vertex_during_edge_import_mode():
     with pytest.raises(Exception):
         execute_and_fetch_all(cursor, "CREATE (m:Mother {id: 10})")
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
 def test_throw_changing_import_mode_while_in_explicit_tx():
@@ -196,6 +200,7 @@ def test_throw_changing_import_mode_while_in_explicit_tx():
     execute_and_fetch_all(cursor, "BEGIN")
     with pytest.raises(Exception):
         execute_and_fetch_all(cursor, "EDGE IMPORT MODE ACTIVE")
+    execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
 if __name__ == "__main__":

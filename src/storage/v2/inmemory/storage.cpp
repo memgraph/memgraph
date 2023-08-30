@@ -1097,19 +1097,17 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return VerticesIterable(mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view,
-                                                             &transaction_, &mem_storage->constraints_));
+                                                             &transaction_, &storage_->constraints_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
                                                              utils::MakeBoundInclusive(value), view, &transaction_,
-                                                             &mem_storage->constraints_));
+                                                             &storage_->constraints_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
@@ -1117,9 +1115,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return VerticesIterable(mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view,
-                                                             &transaction_, &mem_storage->constraints_));
+                                                             &transaction_, &storage_->constraints_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
