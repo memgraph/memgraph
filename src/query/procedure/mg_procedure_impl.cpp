@@ -1762,18 +1762,24 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += properties->items.size();
 
-    // auto *trigger_ctx_collector = ctx->trigger_context_collector;
-    // if (!trigger_ctx_collector ||
-    //     !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
-    //   return;
-    // }
-    // const auto old_value = memgraph::query::TypedValue(*result);
-    // if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-    //   trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), prop_key, old_value);
-    //   return;
-    // }
-    // const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    // trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), prop_key, old_value, new_value);
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
+      return;
+    }
+
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
+        return;
+      }
+
+      trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), property_key, old_value, new_value);
+    }
   });
 }
 
@@ -2385,18 +2391,24 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += properties->items.size();
 
-    // auto *trigger_ctx_collector = ctx->trigger_context_collector;
-    // if (!trigger_ctx_collector ||
-    //     !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
-    //   return;
-    // }
-    // const auto old_value = memgraph::query::TypedValue(*result);
-    // if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-    //   ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
-    //   return;
-    // }
-    // const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    // ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value, new_value);
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
+      return;
+    }
+
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
+        return;
+      }
+
+      trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
+    }
   });
 }
 
