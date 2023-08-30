@@ -422,7 +422,7 @@ void DiskStorage::DiskAccessor::LoadVerticesToMainMemoryCache() {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     // We should pass it->timestamp().ToString() instead of "0"
     // This is hack until RocksDB will support timestamp() in WBWI iterator
-    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString(), "0");
+    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString(), deserializeTimestamp);
   }
 }
 
@@ -449,7 +449,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
     std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
     CreateVertexFromDisk(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                         CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
+                         CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), deserializeTimestamp));
   }
 }
 
@@ -484,7 +484,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
       CreateVertexFromDisk(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                           CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
+                           CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), deserializeTimestamp));
     }
   }
 }

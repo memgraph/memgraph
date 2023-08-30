@@ -146,6 +146,7 @@ def test_modification_of_edge_properties_in_edge_import_mode():
     execute_and_fetch_all(cursor, "MATCH (n)-[r:FRIENDS {id: 3}]->(m) SET r.balance = 2000")
     assert list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN r.balance"))[0][0] == 2000
     execute_and_fetch_all(cursor, "EDGE IMPORT MODE INACTIVE")
+    assert list(execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN r.balance"))[0][0] == 2000
     execute_and_fetch_all(cursor, "MATCH (n:User) DETACH DELETE n")
 
 
