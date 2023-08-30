@@ -14,7 +14,7 @@ PIP_DEPS=(
    "parse==1.18.0"
    "parse-type==0.5.2"
    "pytest==7.3.2"
-   "pyyaml==5.4.1"
+   "pyyaml==6.0.1"
    "six==1.15.0"
    "networkx==2.4"
    "gqlalchemy==1.3.3"
