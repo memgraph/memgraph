@@ -239,7 +239,7 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std::string &key,
                                                                        const std::string &value) {
-  std::string labels_str = value.substr(0, value.find('|'));
+  std::string labels_str{GetViewOfFirstPartOfSplit(value, '|')};
   std::vector<storage::LabelId> labels{TransformFromStringLabels(utils::Split(labels_str, ","))};
   std::string indexing_label = key.substr(0, key.find('|'));
   labels.emplace_back(storage::LabelId::FromUint(std::stoull(indexing_label)));

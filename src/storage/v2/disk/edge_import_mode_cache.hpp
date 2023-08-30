@@ -61,8 +61,6 @@ class EdgeImportModeCache final {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
 
-  bool DoesNotHaveDeltas();
-
  private:
   utils::SkipList<Vertex> vertices_;
   utils::SkipList<Edge> edges_;

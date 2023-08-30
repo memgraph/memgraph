@@ -66,7 +66,7 @@ bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, Proper
 }
 
 bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
-  return scanned_all_vertices_ || utils::Contains(scanned_labels_, label);
+  return AllVerticesScanned() || utils::Contains(scanned_labels_, label);
 }
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
@@ -79,15 +79,6 @@ void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true
 
 utils::Synchronized<std::list<Transaction>, utils::SpinLock> &EdgeImportModeCache::GetCommittedTransactions() {
   return committed_transactions_;
-}
-
-bool EdgeImportModeCache::DoesNotHaveDeltas() {
-  bool res{false};
-  committed_transactions_.WithLock([&res](auto &committed_transactions) {
-    res = std::all_of(committed_transactions.begin(), committed_transactions.end(),
-                      [](auto &tx) { return tx.deltas.empty(); });
-  });
-  return res;
 }
 
 }  // namespace memgraph::storage

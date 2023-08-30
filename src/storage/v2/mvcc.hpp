@@ -117,20 +117,23 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta> *deltas) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    return nullptr;
+  }
   transaction->EnsureCommitTimestampExists();
   return &deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
-                                                  const std::string &ts) {
+                                                  std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
-                                                  const std::string &ts) {
+                                                  std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
 }

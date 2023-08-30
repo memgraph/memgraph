@@ -327,7 +327,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
   PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
   return CreateVertex(main_storage_accessor, gid, std::move(labels_id), std::move(properties),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, key, ts));
+                      CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), std::move(ts)));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -430,7 +430,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
     std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
     CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                 CreateDeleteDeserializedObjectDelta(&transaction_, key, "0"));
+                 CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
   }
 }
 
@@ -465,7 +465,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
       CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                   CreateDeleteDeserializedObjectDelta(&transaction_, key, "0"));
+                   CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
     }
   }
 }
@@ -508,7 +508,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
       CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                   CreateDeleteDeserializedObjectDelta(&transaction_, key, "0"));
+                   CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
     }
   }
 }
@@ -706,7 +706,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, key, "0"),
+                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), "0"),
                                   indexed_vertices->access());
     }
   }
@@ -759,7 +759,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, key, "0"),
+                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), "0"),
                                           indexed_vertices->access());
     }
   }
@@ -790,7 +790,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, key, "0"),
+                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), "0"),
                                           indexed_vertices->access());
     }
   }
@@ -852,7 +852,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
     // We should pass it->timestamp().ToString() instead of "0"
     // This is hack until RocksDB will support timestamp() in WBWI iterator
     LoadVertexToLabelPropertyIndexCache(index_it->key().ToString(), index_it->value().ToString(),
-                                        CreateDeleteDeserializedIndexObjectDelta(index_deltas, key_str, "0"),
+                                        CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key_str), "0"),
                                         indexed_vertices->access());
   }
 }
@@ -1178,8 +1178,7 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor *from, const VertexAccessor *to,
                                                            EdgeTypeId edge_type, storage::Gid gid,
                                                            const std::string_view properties,
-                                                           const std::string &old_disk_key,
-                                                           const std::string &read_ts) {
+                                                           std::string &&old_disk_key, std::string &&read_ts) {
   OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
@@ -1196,11 +1195,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(const VertexAccessor 
                           &storage_->constraints_, config_);
     }
   }
-  
+
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
-    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, old_disk_key, read_ts);
+    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, std::move(old_disk_key), std::move(read_ts));
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);

@@ -643,7 +643,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.(
+      // to be validated/committed.
       for (const auto &delta : transaction_.deltas) {
         auto prev = delta.prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
@@ -1091,8 +1091,7 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_, &mem_storage->constraints_));
+  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_, &storage_->constraints_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
