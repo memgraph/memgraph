@@ -13,7 +13,7 @@
 
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/indices_utils.hpp"
+#include "storage/v2/indices_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
