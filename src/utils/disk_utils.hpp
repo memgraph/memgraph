@@ -32,12 +32,11 @@ inline bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
 }
 
 inline uint64_t GetEarliestTimestamp(storage::Delta *head) {
-  uint64_t ts = head->timestamp->load(std::memory_order_acquire);
+  if (head == nullptr) return 0;
   while (head->next != nullptr) {
     head = head->next;
-    ts = std::min(ts, head->timestamp->load(std::memory_order_acquire));
   }
-  return ts;
+  return head->timestamp->load(std::memory_order_acquire);
 }
 
 }  // namespace memgraph::utils

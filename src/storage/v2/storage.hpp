@@ -221,6 +221,7 @@ class Storage {
   StorageMode GetStorageMode() const;
 
   virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+
   void FreeMemory() { FreeMemory({}); }
 
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
@@ -301,7 +302,8 @@ class Storage {
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
-  // keep a separate count of edges that is always updated.
+  // keep a separate count of edges that is always updated. This counter is also used
+  // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;

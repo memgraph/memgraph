@@ -163,12 +163,12 @@ struct Callback {
   bool should_abort_query{false};
 };
 
-TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
-  return expression ? expression->Accept(*eval) : TypedValue();
+TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionVisitor<TypedValue> &eval) {
+  return expression ? expression->Accept(eval) : TypedValue();
 }
 
 template <typename TResult>
-std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionVisitor<TypedValue> &evaluator) {
   if (expression != nullptr) {
     auto int_value = expression->Accept(evaluator);
     MG_ASSERT(int_value.IsNull() || int_value.IsInt());
@@ -179,7 +179,8 @@ std::optional<TResult> GetOptionalValue(query::Expression *expression, Expressio
   return {};
 };
 
-std::optional<std::string> GetOptionalStringValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
+                                                  ExpressionVisitor<TypedValue> &evaluator) {
   if (expression != nullptr) {
     auto value = expression->Accept(evaluator);
     MG_ASSERT(value.IsNull() || value.IsString());
@@ -222,8 +223,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!mem_storage->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
-    }
-    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+    } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
@@ -358,24 +358,17 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
-Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
-                         DbAccessor *db_accessor) {
+Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters) {
   AuthQueryHandler *auth = interpreter_context->auth;
 #ifdef MG_ENTERPRISE
   auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
 #endif
-  // Empty frame for evaluation of password expression. This is OK since
-  // password should be either null or string literal and it's evaluation
-  // should not depend on frame.
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
-
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -388,7 +381,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges =
       auth_query->edge_type_privileges_;
 #endif
-  auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
+  auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
   Callback callback;
 
@@ -648,21 +641,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                                std::vector<Notification> *notifications) {
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
+                                InterpreterContext *interpreter_context, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
-      auto port = EvaluateOptionalExpression(repl_query->port_, &evaluator);
+      auto port = EvaluateOptionalExpression(repl_query->port_, evaluator);
       std::optional<int64_t> maybe_port;
       if (port.IsInt()) {
         maybe_port = port.ValueInt();
@@ -781,7 +771,7 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
   return str == nullptr ? std::nullopt : std::make_optional(*str);
 }
 
-stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvaluator &evaluator) {
+stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
   return {
       .batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator)
                             .value_or(stream::kDefaultBatchInterval),
@@ -789,7 +779,7 @@ stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, Expressi
       .transformation_name = stream_query->transform_name_};
 }
 
-std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
+std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evaluator,
                                             std::variant<Expression *, std::vector<std::string>> topic_variant) {
   return std::visit(utils::Overloaded{[&](Expression *expression) {
                                         auto topic_names = expression->Accept(evaluator);
@@ -800,7 +790,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
                     std::move(topic_variant));
 }
 
-Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
+Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
   static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
@@ -851,7 +841,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   };
 }
 
-Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
+Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
                                                    InterpreterContext *interpreter_context,
                                                    const std::string *username) {
   auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
@@ -877,16 +867,14 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
 }
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
-                           InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                           const std::string *username, std::vector<Notification> *notifications) {
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
+                           InterpreterContext *interpreter_context, const std::string *username,
+                           std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context};
 
   Callback callback;
   switch (stream_query->action_) {
@@ -1042,27 +1030,23 @@ Callback HandleConfigQuery() {
   return callback;
 }
 
-Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   Callback callback;
   switch (setting_query->action_) {
     case SettingQuery::Action::SET_SETTING: {
-      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, &evaluator);
+      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, evaluator);
       if (!setting_name.IsString()) {
         throw utils::BasicException("Setting name should be a string literal");
       }
 
-      const auto setting_value = EvaluateOptionalExpression(setting_query->setting_value_, &evaluator);
+      const auto setting_value = EvaluateOptionalExpression(setting_query->setting_value_, evaluator);
       if (!setting_value.IsString()) {
         throw utils::BasicException("Setting value should be a string literal");
       }
@@ -1077,7 +1061,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       return callback;
     }
     case SettingQuery::Action::SHOW_SETTING: {
-      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, &evaluator);
+      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, evaluator);
       if (!setting_name.IsString()) {
         throw utils::BasicException("Setting name should be a string literal");
       }
@@ -1383,7 +1367,7 @@ InterpreterContext::InterpreterContext(const storage::Config storage_config, con
   }
 }
 
-InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
                                        query::AuthChecker *ac)
     : db(std::move(db)),
@@ -1542,14 +1526,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
-  Frame frame(0);
-  SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
-  const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
@@ -1710,13 +1692,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
       !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
-  Frame frame(0);
-  SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
-  const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
@@ -2140,38 +2120,31 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 }
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
-                               std::atomic<TransactionStatus> *transaction_status,
-                               std::shared_ptr<utils::AsyncTimer> tx_timer) {
+                               InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, dba);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters);
 
-  SymbolTable symbol_table;
-  std::vector<Symbol> output_symbols;
-  for (const auto &column : callback.header) {
-    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
-  }
-
-  auto plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-      std::make_unique<plan::OutputTable>(output_symbols,
-                                          [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
-      0.0, AstStorage{}, symbol_table));
-
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
-                                 StringPointerToOptional(username), transaction_status, std::move(tx_timer));
   return PreparedQuery{
-      callback.header, std::move(parsed_query.required_privileges),
-      [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return callback.should_abort_query ? QueryHandlerResult::ABORT : QueryHandlerResult::COMMIT;
+      std::move(callback.header), std::move(parsed_query.required_privileges),
+      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr), interpreter_context](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          // Run the specific query
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+#ifdef MG_ENTERPRISE
+          // Invalidate auth cache after every type of AuthQuery
+          interpreter_context->auth_checker->ClearCache();
+#endif
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       },
@@ -2179,8 +2152,8 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                      std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                      DbAccessor *dba) {
+                                      std::vector<Notification> *notifications,
+                                      InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
@@ -2191,7 +2164,7 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, dba, notifications);
+      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2445,8 +2418,6 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                 DbAccessor *dba,
-                                 const std::map<std::string, storage::PropertyValue> & /*user_parameters*/,
                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
@@ -2455,7 +2426,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_tran
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
   auto callback =
-      HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username, notifications);
+      HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, username, notifications);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2718,7 +2689,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, dba);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2820,13 +2791,11 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransacti
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      const std::optional<std::string> &username, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
-  Frame frame(0);
-  SymbolTable symbol_table;
+                                     InterpreterContext *interpreter_context) {
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   bool hasTransactionManagementPrivilege = interpreter_context->auth_checker->IsUserAuthorized(
       username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, "");
@@ -2876,7 +2845,7 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
   auto callback =
-      HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters, interpreter_context, dba);
+      HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters, interpreter_context);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -3424,11 +3393,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        const std::string &session_uuid, std::map<std::string, TypedValue> *summary,
-                                        DbAccessor *dba, utils::MemoryResource *execution_memory,
-                                        const std::optional<std::string> &username,
-                                        std::atomic<TransactionStatus> *transaction_status,
-                                        std::shared_ptr<utils::AsyncTimer> tx_timer) {
+                                        const std::string &session_uuid, const std::optional<std::string> &username) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -3493,26 +3458,17 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     return status;
   };
 
-  SymbolTable symbol_table;
-  std::vector<Symbol> output_symbols;
-  for (const auto &column : callback.header) {
-    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
-  }
-
-  auto plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-      std::make_unique<plan::OutputTable>(output_symbols,
-                                          [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
-      0.0, AstStorage{}, symbol_table));
-
-  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, username, transaction_status, std::move(tx_timer));
-
   return PreparedQuery{
-      callback.header, std::move(parsed_query.required_privileges),
-      [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return callback.should_abort_query ? QueryHandlerResult::ABORT : QueryHandlerResult::COMMIT;
+      std::move(callback.header), std::move(parsed_query.required_privileges),
+      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
         }
         return std::nullopt;
       },
@@ -3689,10 +3645,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_,
                                                 &*execution_db_accessor_, interpreter_context_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                        interpreter_context_, &*execution_db_accessor_,
-                                        &query_execution->execution_memory_with_exception, username,
-                                        &transaction_status_, std::move(current_timer));
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db.get(),
@@ -3702,9 +3655,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  interpreter_context_, &*execution_db_accessor_);
+      prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_,
+                                               &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
@@ -3716,9 +3668,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                               interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                             interpreter_context_, &*execution_db_accessor_, params, username);
+      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_,
+                                          &query_execution->notifications, interpreter_context_, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
@@ -3738,10 +3689,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
                                                  interpreter_context_, session_uuid);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid,
-                                                 &query_execution->summary, &*execution_db_accessor_,
-                                                 &query_execution->execution_memory_with_exception, username_,
-                                                 &transaction_status_, std::move(current_timer));
+      prepared_query =
+          PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid, username_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
       prepared_query =
           PrepareEdgeImportModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
