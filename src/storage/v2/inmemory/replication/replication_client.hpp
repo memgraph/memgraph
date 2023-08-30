@@ -18,7 +18,6 @@ class InMemoryReplicationClient : public ReplicationClient {
  public:
   InMemoryReplicationClient(InMemoryStorage *storage, std::string name, io::network::Endpoint endpoint,
                             replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
-  void StartTransactionReplication(uint64_t current_wal_seq_num) override;
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
@@ -26,24 +25,17 @@ class InMemoryReplicationClient : public ReplicationClient {
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) override;
 
-  auto GetEpochId() const -> std::string const & override;
-
   auto GetStorage() -> Storage * override;
 
   void Start() override;
 
   // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication() override;
-  TimestampInfo GetTimestampInfo() override;
 
  private:
-  void TryInitializeClientAsync();
   void FrequentCheck();
-  void InitializeClient();
-  void TryInitializeClientSync();
-  void HandleRpcFailure();
   [[nodiscard]] bool FinalizeTransactionReplicationInternal();
-  void RecoverReplica(uint64_t replica_commit);
+  void RecoverReplica(uint64_t replica_commit) override;
   uint64_t ReplicateCurrentWal();
 
   using RecoverySnapshot = std::filesystem::path;
@@ -61,10 +53,6 @@ class InMemoryReplicationClient : public ReplicationClient {
 
   // Transfer the WAL files
   replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
-
-  InMemoryStorage *storage() { return static_cast<InMemoryStorage *>(storage_); }
-  InMemoryStorage const *storage() const { return static_cast<InMemoryStorage const *>(storage_); }
-  Storage *storage_;
 };
 
 }  // namespace memgraph::storage

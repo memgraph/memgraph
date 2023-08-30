@@ -69,6 +69,9 @@ struct StorageInfo {
 };
 
 class Storage {
+  friend class ReplicationServer;
+  friend class ReplicationClient;
+
  public:
   Storage(Config config, StorageMode storage_mode);
 

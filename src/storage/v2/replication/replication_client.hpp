@@ -80,12 +80,21 @@ class ReplicationClient {
 
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
 
-  virtual void StartTransactionReplication(uint64_t current_wal_seq_num) = 0;
   virtual void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) = 0;
-  virtual auto GetEpochId() const -> std::string const & = 0;  // TODO: make non-virtual once epoch is moved to storage
+  auto GetEpochId() const -> std::string const &;
+  ;
   virtual auto GetStorage() -> Storage * = 0;
   [[nodiscard]] virtual bool FinalizeTransactionReplication() = 0;
-  virtual TimestampInfo GetTimestampInfo() = 0;
+  TimestampInfo GetTimestampInfo();
+  virtual void RecoverReplica(uint64_t replica_commit) = 0;
+  void InitializeClient();
+  void HandleRpcFailure();
+  void TryInitializeClientAsync();
+  void TryInitializeClientSync();
+  void StartTransactionReplication(const uint64_t current_wal_seq_num);
+
+ protected:
+  uint64_t LastCommitTimestamp() const;
 
  protected:
   std::string name_;
