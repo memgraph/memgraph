@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,10 @@
 #include "utils/synchronized.hpp"
 
 class StreamsTest;
+
+namespace memgraph::dbms {
+class Database;
+}  // namespace memgraph::dbms
 namespace memgraph::query {
 
 struct InterpreterContext;
@@ -81,13 +85,13 @@ class Streams final {
   ///
   /// @param interpreter_context context to use to run the result of transformations
   /// @param directory a directory path to store the persisted streams metadata
-  Streams(InterpreterContext *interpreter_context, std::filesystem::path directory);
+  explicit Streams(std::filesystem::path directory);
 
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
   /// logged. If a stream was running previously, then after restoration it will be started.
   /// This function should only be called when there are no existing streams.
-  void RestoreStreams();
+  void RestoreStreams(InterpreterContext *interpreter_context);
 
   /// Creates a new import stream.
   /// The create implies connecting to the server to get metadata necessary to initialize the stream. This
@@ -98,7 +102,8 @@ class Streams final {
   ///
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   template <Stream TStream>
-  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner);
+  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner,
+              InterpreterContext *interpreter_context);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -161,7 +166,7 @@ class Streams final {
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
-  TransformationResult Check(const std::string &stream_name,
+  TransformationResult Check(const std::string &stream_name, std::shared_ptr<dbms::Database> db,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<uint64_t> batch_limit = std::nullopt) const;
 
@@ -182,7 +187,8 @@ class Streams final {
 
   template <Stream TStream>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
-                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner);
+                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner,
+                                      InterpreterContext *interpreter_context);
 
   template <Stream TStream>
   void Persist(StreamStatus<TStream> &&status) {
@@ -196,7 +202,6 @@ class Streams final {
   void RegisterKafkaProcedures();
   void RegisterPulsarProcedures();
 
-  InterpreterContext *interpreter_context_;
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;

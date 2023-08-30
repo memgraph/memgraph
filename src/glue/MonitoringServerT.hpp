@@ -14,12 +14,11 @@
 #include "dbms/session_context.hpp"
 #include "http_handlers/metrics.hpp"
 
-extern template class memgraph::communication::http::Server<
-    memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>, memgraph::dbms::SessionContext>;
+extern template class memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler,
+                                                            memgraph::storage::Storage>;
 
 namespace memgraph::glue {
 
 using MonitoringServerT =
-    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>,
-                                          memgraph::dbms::SessionContext>;
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler, memgraph::storage::Storage>;
 }  // namespace memgraph::glue

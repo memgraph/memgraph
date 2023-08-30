@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query/interpreter.hpp"
 #ifndef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
 #endif
@@ -34,6 +35,8 @@
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
+
+#include "dbms/new_session_handler.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
@@ -320,6 +323,10 @@ int main(int argc, char **argv) {
       };
 
 #ifdef MG_ENTERPRISE
+
+  // WIP
+  memgraph::dbms::NewSessionHandler new_handler(db_config);
+
   // SessionContext handler (multi-tenancy)
   memgraph::dbms::SessionContextHandler sc_handler(audit_log, {db_config, interp_config, auth_glue},
                                                    FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
@@ -434,8 +441,9 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
+  // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_context, &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, session_context.db.get(), &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {

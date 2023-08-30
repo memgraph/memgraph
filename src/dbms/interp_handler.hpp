@@ -76,7 +76,7 @@ class InterpContextHandler : public Handler<ExpandedInterpContext<TSCHandler>, E
     if (std::any_of(this->cbegin(), this->cend(), [&](const auto &elem) {
           const auto &config = elem.second.config();
           const auto &context = *elem.second.get();
-          return config.storage_dir == dir || context.db == db;
+          return config.storage_dir == dir;  // || context.db == db;
         })) {
       // LOG
       return NewError::EXISTS;

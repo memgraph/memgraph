@@ -15,7 +15,8 @@
 
 #include <gflags/gflags.h>
 
-// #include "dbms/session_context_handler.hpp"
+// #include "dbms/new_session_handler.hpp"
+#include "dbms/database_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -48,6 +49,9 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
+namespace memgraph::dbms {
+class NewSessionHandler;
+}  // namespace memgraph::dbms
 namespace memgraph::metrics {
 extern const Event FailedQuery;
 }  // namespace memgraph::metrics
@@ -241,32 +245,38 @@ class Interpreter;
  *
  */
 /// TODO: andi decouple in a separate file why here?
+
 struct InterpreterContext {
   InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
                      const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                      query::AuthChecker *ac = nullptr);
+  // TODO: Remove
+  ~InterpreterContext();
 
+  memgraph::dbms::NewSessionHandler *db_handler;
+
+  // Internal
   const InterpreterConfig config;
-
-  storage::Storage *db;
-  // memgraph::dbms::SessionContextHandler *storage_handler;  // TODO Modify SessionContextHandler for new arch
-
-  std::atomic<bool> is_shutting_down{false};
+  std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
+  utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 
   // Tided to storage
-  utils::SkipList<QueryCacheEntry> ast_cache;
+  // TODO Create a storage aware version (container of the of cache)
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  // TODO Figure out
-  TriggerStore trigger_store;
-  utils::ThreadPool after_commit_trigger_pool{1};
-  query::stream::Streams streams;
+  // There will be a trigger store and stream per database
+  // after_commit_trigger_pool is used only for triggers; make a wrapper
+  // storage::Storage *db;  // TODO: Remove once storage_handler is done
+  // TriggerStore trigger_store;
+  // utils::ThreadPool after_commit_trigger_pool{1};  // TODO: One queue per tenant <- what's a tenant? a database
+  // query::stream::Streams streams;
 
   // Used to check active transactions
+  // TODO: Have a way to read the current database
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
 };
 
@@ -296,6 +306,10 @@ class Interpreter final {
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
+
+  std::shared_ptr<dbms::Database> db_;  // Current db (TODO: expand to support multiple)
+
+  void SetCurrentDB(std::string_view db_name);
 
   /**
    * Prepare a query for execution.
@@ -429,6 +443,8 @@ class Interpreter final {
   // To avoid this, we use unique_ptr with which we manualy control construction
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
+  // TODO Figure out how this would work for multi-database
+  // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;

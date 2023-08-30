@@ -400,10 +400,10 @@ class SessionContextHandler {
   void RestoreTriggers() {
     std::lock_guard<LockT> wr(lock_);
     for (auto &[_, ic] : interp_handler_) {
-      spdlog::debug("Restoring trigger for database \"{}\"", ic->db->id());
-      auto storage_accessor = ic->db->Access();
-      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-      ic->trigger_store.RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+      // spdlog::debug("Restoring trigger for database \"{}\"", ic->db->id());
+      // auto storage_accessor = ic->db->Access();
+      // auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+      // ic->trigger_store.RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
     }
   }
 
@@ -414,8 +414,8 @@ class SessionContextHandler {
   void RestoreStreams() {
     std::lock_guard<LockT> wr(lock_);
     for (auto &[_, ic] : interp_handler_) {
-      spdlog::debug("Restoring streams for database \"{}\"", ic->db->id());
-      ic->streams.RestoreStreams();
+      // spdlog::debug("Restoring streams for database \"{}\"", ic->db->id());
+      // ic->streams.RestoreStreams(ic.get().get());
     }
   }
 
@@ -464,7 +464,7 @@ class SessionContextHandler {
         if (new_db.HasError()) {
           throw utils::BasicException("Failed to create disk storage.");
         }
-        ic->db = new_db.GetValue().get();
+        // ic->db = new_db.GetValue().get();
       });
     } catch (UnknownDatabaseException &) {
       throw utils::BasicException("Tried to switch modes of an unknown database \"{}\"", name);

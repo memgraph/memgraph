@@ -49,14 +49,14 @@ auto ToQueryExtras(const memgraph::communication::bolt::Value &extra) -> memgrap
 
 class TypedValueResultStreamBase {
  public:
-  explicit TypedValueResultStreamBase(memgraph::query::InterpreterContext *interpreterContext);
+  explicit TypedValueResultStreamBase(memgraph::storage::Storage *storage);
 
   std::vector<memgraph::communication::bolt::Value> DecodeValues(
       const std::vector<memgraph::query::TypedValue> &values) const;
 
- private:
+ protected:
   // NOTE: Needed only for ToBoltValue conversions
-  memgraph::query::InterpreterContext *interpreter_context_;
+  memgraph::storage::Storage *storage_;
 };
 
 /// Wrapper around TEncoder which converts TypedValue to Value
@@ -64,8 +64,8 @@ class TypedValueResultStreamBase {
 template <typename TEncoder>
 class TypedValueResultStream : public TypedValueResultStreamBase {
  public:
-  TypedValueResultStream(TEncoder *encoder, memgraph::query::InterpreterContext *ic)
-      : TypedValueResultStreamBase{ic}, encoder_(encoder) {}
+  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
+      : TypedValueResultStreamBase{storage}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) { encoder_->MessageRecord(DecodeValues(values)); }
 
@@ -78,7 +78,7 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
   std::vector<memgraph::communication::bolt::Value> decoded_values;
   decoded_values.reserve(values.size());
   for (const auto &v : values) {
-    auto maybe_value = memgraph::glue::ToBoltValue(v, *interpreter_context_->db, memgraph::storage::View::NEW);
+    auto maybe_value = memgraph::glue::ToBoltValue(v, *storage_, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -95,8 +95,7 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
   }
   return decoded_values;
 }
-TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::query::InterpreterContext *interpreterContext)
-    : interpreter_context_(interpreterContext) {}
+TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
 
 namespace memgraph::glue {
 
@@ -134,21 +133,24 @@ std::string SessionHL::GetDefaultDB() {
 }
 
 bool SessionHL::OnDelete(const std::string &db_name) {
-  MG_ASSERT(current_.interpreter_context()->db->id() != db_name && (!defunct_ || defunct_->defunct()),
-            "Trying to delete a database while still in use.");
+  // MG_ASSERT(current_.interpreter_context()->db->id() != db_name && (!defunct_ || defunct_->defunct()),
+  //           "Trying to delete a database while still in use.");
   return true;
 }
 memgraph::dbms::SetForResult SessionHL::OnChange(const std::string &db_name) {
   MultiDatabaseAuth(db_name);
-  if (db_name != current_.interpreter_context()->db->id()) {
-    UpdateAndDefunct(db_name);  // Done during Pull, so we cannot just replace the current db
-    return memgraph::dbms::SetForResult::SUCCESS;
-  }
+  // if (db_name != current_.interpreter_context()->db->id()) {
+  //   UpdateAndDefunct(db_name);  // Done during Pull, so we cannot just replace the current db
+  //   return memgraph::dbms::SetForResult::SUCCESS;
+  // }
   return memgraph::dbms::SetForResult::ALREADY_SET;
 }
 
 #endif
-std::string SessionHL::GetDatabaseName() const { return interpreter_context_->db->id(); }
+std::string SessionHL::GetDatabaseName() const {
+  // return interpreter_context_->db->id();
+  return "memgraph";
+}
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
@@ -164,10 +166,10 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   if (user_.has_value()) {
     const auto &db = user_->db_access().GetDefault();
     // Check if the underlying database needs to be updated
-    if (db != current_.interpreter_context()->db->id()) {
-      const auto &res = sc_handler_.SetFor(UUID(), db);
-      return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
-    }
+    // if (db != current_.interpreter_context()->db->id()) {
+    //   const auto &res = sc_handler_.SetFor(UUID(), db);
+    //   return res == memgraph::dbms::SetForResult::SUCCESS || res == memgraph::dbms::SetForResult::ALREADY_SET;
+    // }
   }
 #endif
   return user_.has_value();
@@ -189,7 +191,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
                                                                             std::optional<int> n,
                                                                             std::optional<int> qid) {
   try {
-    TypedValueResultStream<TEncoder> stream(encoder, interpreter_context_);
+    TypedValueResultStream<TEncoder> stream(encoder, interpreter_->db_->storage());
     return DecodeSummary(interpreter_->Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     // Wrap QueryException into ClientError, because we want to allow the
@@ -211,8 +213,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                       memgraph::storage::PropertyValue(params_pv), interpreter_context_->db->id());
+    // audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
+    //                    memgraph::storage::PropertyValue(params_pv), interpreter_context_->db->id());
   }
 #endif
   try {
@@ -248,6 +250,8 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 #ifdef MG_ENTERPRISE
   std::string db;
   bool update = false;
+  // TODO: Fix to not return to default one, but to the previous one (that might be destroyed....)
+  // std::optional<std::string> prev_{default};
   // Check if user explicitly defined the database to use
   if (run_time_info.contains("db")) {
     const auto &db_info = run_time_info.at("db");
@@ -255,25 +259,29 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
       throw memgraph::communication::bolt::ClientError("Malformed database name.");
     }
     db = db_info.ValueString();
-    update = db != current_.interpreter_context()->db->id();
+    // update = db != current_.interpreter_context()->db->id();
     in_explicit_db_ = true;
+    // if (!prev_) prev_ = current_;
     // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
   } else if (in_explicit_db_ && !interpreter_->in_explicit_transaction_) {  // Just on a switch
+    // TODO: Keep track of the last used (set via query) and use it
     db = GetDefaultDB();
-    update = db != current_.interpreter_context()->db->id();
+    // db = prev_;
+    // update = db != current_.interpreter_context()->db->id();
     in_explicit_db_ = false;
   }
 
   // Check if the underlying database needs to be updated
   if (update) {
+    // intpreter_->SetCurrentDB(db);
     sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
-      const auto &db_name = new_sc.interpreter_context->db->id();
-      MultiDatabaseAuth(db_name);
+      // const auto &db_name = new_sc.interpreter_context->db->id();
+      // MultiDatabaseAuth(db_name);
       try {
         Update(ContextWrapper(new_sc));
         return memgraph::dbms::SetForResult::SUCCESS;
       } catch (memgraph::dbms::UnknownDatabaseException &e) {
-        throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", db_name);
+        throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", "db_name");
       }
     });
   }
@@ -355,7 +363,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSum
     const std::map<std::string, memgraph::query::TypedValue> &summary) {
   std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = ToBoltValue(kv.second, *interpreter_context_->db, memgraph::storage::View::NEW);
+    auto maybe_value = ToBoltValue(kv.second, *interpreter_->db_->storage(), memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:

@@ -83,6 +83,7 @@ class Storage {
   class Accessor {
    public:
     Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(std::shared_ptr<Storage> storage, IsolationLevel isolation_level, StorageMode storage_mode);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -189,6 +190,7 @@ class Storage {
 
    protected:
     Storage *storage_;
+    std::shared_ptr<Storage> storage_sp_;  // TODO Use a different way of reference counting and unify with raw pointer
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;

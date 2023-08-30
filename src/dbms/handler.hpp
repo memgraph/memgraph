@@ -62,8 +62,8 @@ class Handler {
    * @param name Name associated with the wanted context
    * @return std::optional<std::shared_ptr<TContext>>
    */
-  std::optional<std::shared_ptr<TContext>> Get(const std::string &name) {
-    if (auto search = items_.find(name); search != items_.end()) {
+  std::optional<std::shared_ptr<TContext>> Get(std::string_view name) {
+    if (auto search = items_.find(name.data()); search != items_.end()) {
       return search->second.get();
     }
     return {};
