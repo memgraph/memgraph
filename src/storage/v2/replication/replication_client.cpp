@@ -15,9 +15,9 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"

@@ -13,9 +13,9 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/inmemory/replication/replication_client.hpp"
-#include "storage/v2/inmemory/replication/replication_server.hpp"
-#include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_server.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 

@@ -16,6 +16,7 @@
 /// REPLICATION ///
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 
 namespace memgraph::storage {
 
