@@ -27,12 +27,13 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  virtual void SetUp() override { mgp::memory = &memory; }
+  virtual void SetUp() override { mgp::mrd.Register(&memory); }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
+    mgp::mrd.UnRegister();
   }
 
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
@@ -574,6 +575,22 @@ TYPED_TEST(CppApiTestFixture, TestNodeRemoveProperty) {
   ASSERT_EQ(node.Properties().size(), 0);
 }
 
+TYPED_TEST(CppApiTestFixture, TestRelationshipRemoveProperty) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Relationship");
+
+  int64_t int_1{0};
+  mgp::Value value{int_1};
+  relationship.SetProperty("property", value);
+
+  ASSERT_EQ(relationship.Properties().size(), 1);
+  relationship.RemoveProperty("property");
+  ASSERT_EQ(relationship.Properties().size(), 0);
+}
+
 TYPED_TEST(CppApiTestFixture, TestValuePrint) {
   std::string string_1{"abc"};
   int64_t int_1{4};
@@ -597,4 +614,78 @@ TYPED_TEST(CppApiTestFixture, TestValuePrint) {
   oss_date << date_value;
   std::string date_test = oss_date.str();
   ASSERT_EQ("2020-12-12", date_test);
+}
+
+TYPED_TEST(CppApiTestFixture, TestValueToString) {
+  /*graph and node shared by multiple types*/
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+
+  /*null*/
+  ASSERT_EQ(mgp::Value().ToString(), "");
+  /*bool*/
+  ASSERT_EQ(mgp::Value(false).ToString(), "false");
+  /*int*/
+  const int64_t int1 = 60;
+  ASSERT_EQ(mgp::Value(int1).ToString(), "60");
+  /*double*/
+  const double double1 = 2.567891;
+  ASSERT_EQ(mgp::Value(double1).ToString(), "2.567891");
+  /*string*/
+  const std::string str = "string";
+  ASSERT_EQ(mgp::Value(str).ToString(), "string");
+  /*list*/
+  mgp::List list;
+  auto node_list = graph.CreateNode();
+  node_list.AddLabel("Label_list");
+  list.AppendExtend(mgp::Value("inside"));
+  list.AppendExtend(mgp::Value("2"));
+  list.AppendExtend(mgp::Value(node_list));
+  ASSERT_EQ(mgp::Value(list).ToString(), "[inside, 2, (id: 0, :Label_list, properties: {})]");
+  /*map*/
+  mgp::Map map;
+  auto node_map = graph.CreateNode();
+  node_map.AddLabel("Label_map");
+  map.Insert("key", mgp::Value(int1));
+  map.Insert("node", mgp::Value(node_map));
+  ASSERT_EQ(mgp::Value(map).ToString(), "{key: 60, node: (id: 1, :Label_map, properties: {})}");
+  /*date*/
+  mgp::Date date_1{"2020-12-12"};
+  ASSERT_EQ(mgp::Value(date_1).ToString(), "2020-12-12");
+
+  /*local time*/
+  mgp::LocalTime local_time{"09:15:00.360"};
+  ASSERT_EQ(mgp::Value(local_time).ToString(), "9:15:0,3600");
+
+  /*local date time*/
+  mgp::LocalDateTime local_date_time{"2021-10-05T14:15:00"};
+  ASSERT_EQ(mgp::Value(local_date_time).ToString(), "2021-10-5T14:15:0,00");
+
+  /*duration*/
+  mgp::Duration duration{"P14DT17H2M45S"};
+  ASSERT_EQ(mgp::Value(duration).ToString(), "1270965000000ms");
+
+  /*node and relationship*/
+  auto node1 = graph.CreateNode();
+  node1.AddLabel("Label1");
+  node1.AddLabel("Label2");
+  auto node2 = graph.CreateNode();
+  node2.SetProperty("key", mgp::Value("node_property"));
+  node2.SetProperty("key2", mgp::Value("node_property2"));
+  auto rel = graph.CreateRelationship(node1, node2, "Loves");
+
+  rel.SetProperty("key", mgp::Value("property"));
+  ASSERT_EQ(mgp::Value(rel).ToString(),
+            "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, "
+            "properties: {key: node_property, key2: node_property2})");
+  /*path*/
+  mgp::Path path = mgp::Path(node1);
+  path.Expand(rel);
+  auto node3 = graph.CreateNode();
+  auto rel2 = graph.CreateRelationship(node2, node3, "Loves2");
+  path.Expand(rel2);
+  ASSERT_EQ(
+      mgp::Value(path).ToString(),
+      "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, properties: "
+      "{key: node_property, key2: node_property2})-[type: Loves2, id: 1, properties: {}]->(id: 4, properties: {})");
 }

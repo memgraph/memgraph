@@ -1986,35 +1986,6 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
       result);
 }
 
-mgp_error mgp_vertex_get_properties(mgp_vertex *v, mgp_memory *memory, mgp_map **result) {
-  return WrapExceptions(
-      [v, memory]() -> mgp_map * {
-        auto maybe_properties = v->getImpl().Properties(v->graph->view);
-        if (maybe_properties.HasError()) {
-          switch (maybe_properties.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting a property of a vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting a property of a vertex.");
-          }
-        }
-
-        memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
-        for (const auto &item : *maybe_properties) {
-          auto property_key =
-              std::visit([item](auto *impl) { return impl->PropertyToName(item.first); }, v->graph->impl);
-          items.emplace(memgraph::utils::pmr::string(property_key, memory->impl), mgp_value(item.second, memory->impl));
-        }
-        return NewRawMgpObject<mgp_map>(memory, std::move(items));
-      },
-      result);
-}
-
 mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into the iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
@@ -2319,35 +2290,6 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
           }
         }
         return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
-      },
-      result);
-}
-
-mgp_error mgp_edge_get_properties(mgp_edge *e, mgp_memory *memory, mgp_map **result) {
-  return WrapExceptions(
-      [e, memory]() -> mgp_map * {
-        auto maybe_properties = e->impl.Properties(e->from.graph->view);
-        if (maybe_properties.HasError()) {
-          switch (maybe_properties.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting a property of a vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting a property of a vertex.");
-          }
-        }
-
-        memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
-        for (const auto &item : *maybe_properties) {
-          auto property_key =
-              std::visit([item](auto *impl) { return impl->PropertyToName(item.first); }, e->from.graph->impl);
-          items.emplace(memgraph::utils::pmr::string(property_key, memory->impl), mgp_value(item.second, memory->impl));
-        }
-        return NewRawMgpObject<mgp_map>(memory, std::move(items));
       },
       result);
 }

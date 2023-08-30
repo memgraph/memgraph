@@ -72,7 +72,7 @@ std::optional<std::string> KVStore::Get(const std::string &key) const noexcept {
   return value;
 }
 
-bool KVStore::Delete(const std::string &key) {
+bool KVStore::Delete(std::string_view key) {
   auto s = pimpl_->db->Delete(rocksdb::WriteOptions(), key);
   return s.ok();
 }

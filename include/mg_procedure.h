@@ -723,12 +723,6 @@ enum mgp_error mgp_vertex_has_label_named(struct mgp_vertex *v, const char *labe
 enum mgp_error mgp_vertex_get_property(struct mgp_vertex *v, const char *property_name, struct mgp_memory *memory,
                                        struct mgp_value **result);
 
-/// Get a copy of a vertex properties mapped to given names.
-/// Resulting map must be freed with mgp_map_destroy.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
-/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
-enum mgp_error mgp_vertex_get_properties(struct mgp_vertex *v, struct mgp_memory *memory, struct mgp_map **result);
-
 /// Start iterating over properties stored in the given vertex.
 /// The properties of the vertex are copied when the iterator is created, therefore later changes won't affect them.
 /// The resulting mgp_properties_iterator needs to be deallocated with
@@ -818,12 +812,6 @@ enum mgp_error mgp_edge_get_to(struct mgp_edge *e, struct mgp_vertex **result);
 /// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `e` has been deleted.
 enum mgp_error mgp_edge_get_property(struct mgp_edge *e, const char *property_name, struct mgp_memory *memory,
                                      struct mgp_value **result);
-
-/// Get a copy of edge properties mapped to given names.
-/// Resulting value must be freed with mgp_value_destroy.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
-/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `e` has been deleted.
-enum mgp_error mgp_edge_get_properties(struct mgp_edge *e, struct mgp_memory *memory, struct mgp_map **result);
 
 /// Set the value of a property on an edge.
 /// When the value is `null`, then the property is removed from the edge.
