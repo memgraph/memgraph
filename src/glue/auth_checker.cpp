@@ -94,19 +94,23 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
     return {};
   }
   try {
-    auto locked_auth = auth_->Lock();
-    if (username != user_.username()) {
-      auto maybe_user = locked_auth->GetUser(username);
+    auto user = user_.Lock();
+    if (username != user->username()) {
+      auto maybe_user = auth_->ReadLock()->GetUser(username);
       if (!maybe_user) {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
-      user_ = std::move(*maybe_user);
+      *user = std::move(*maybe_user);
     }
-    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(user_, dba);
+    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(*user, dba);
 
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
+}
+
+void AuthChecker::ClearCache() const {
+  user_.WithLock([](auto &user) mutable { user = {}; });
 }
 #endif
 
