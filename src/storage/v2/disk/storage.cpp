@@ -348,7 +348,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
   PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
   return CreateVertexFromDisk(main_storage_accessor, gid, std::move(labels_id), std::move(properties),
-                      CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), std::move(ts)));
+                              CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), std::move(ts)));
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
@@ -448,8 +448,8 @@ void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
 
     std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
-    CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                 CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
+    CreateVertexFromDisk(cache_accessor, gid, std::move(labels_id), std::move(properties),
+                         CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
   }
 }
 
@@ -483,8 +483,8 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
 
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
-      CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                   CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
+      CreateVertexFromDisk(cache_accessor, gid, std::move(labels_id), std::move(properties),
+                           CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
     }
   }
 }
@@ -496,6 +496,17 @@ void DiskStorage::DiskAccessor::HandleLoadingLabelForEdgeImportCache(LabelId lab
 
     if (!disk_storage->edge_import_mode_cache_->CreateIndex(label)) {
       throw utils::BasicException("Failed creation of in-memory label index.");
+    }
+  }
+}
+
+void DiskStorage::DiskAccessor::HandleLoadingLabelPropertyForEdgeImportCache(LabelId label, PropertyId property) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (!disk_storage->edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
+    LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(label, property);
+
+    if (!disk_storage->edge_import_mode_cache_->CreateIndex(label, property)) {
+      throw utils::BasicException("Failed creation of in-memory label-property index.");
     }
   }
 }
@@ -526,23 +537,9 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
 
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
-      CreateVertex(cache_accessor, gid, std::move(labels_id), std::move(properties),
-                   CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
+      CreateVertexFromDisk(cache_accessor, gid, std::move(labels_id), std::move(properties),
+                           CreateDeleteDeserializedObjectDelta(&transaction_, std::move(key), "0"));
     }
-  }
-}
-
-void DiskStorage::DiskAccessor::HandleLoadingLabelPropertyForEdgeImportCache(LabelId label, PropertyId property) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (!disk_storage->edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
-    LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(label, property);
-
-    if (!disk_storage->edge_import_mode_cache_->CreateIndex(label, property)) {
-      throw utils::BasicException("Failed creation of in-memory label-property index.");
-    }
-    // We should pass it->timestamp().ToString() instead of deserializeTimestamp
-    // This is hack until RocksDB will support timestamp() in WBWI iterator
-    LoadVertexToMainMemoryCache(it->key().ToString(), it->value().ToString(), deserializeTimestamp);
   }
 }
 
@@ -1206,9 +1203,9 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
-                                                           EdgeTypeId edge_type, storage::Gid gid,
-                                                           const std::string_view properties,
-                                                           std::string &&old_disk_key, std::string &&read_ts) {
+                                                                   EdgeTypeId edge_type, storage::Gid gid,
+                                                                   const std::string_view properties,
+                                                                   std::string &&old_disk_key, std::string &&read_ts) {
   OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
