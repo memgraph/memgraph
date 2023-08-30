@@ -195,12 +195,36 @@ bool ReplicationClient::FinalizeTransactionReplication() {
     return false;
   }
 
+  auto task = [this]() {
+    MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
+    try {
+      auto response = replica_stream_->Finalize();
+      replica_stream_.reset();
+      std::unique_lock client_guard(client_lock_);
+      if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
+        replica_state_.store(replication::ReplicaState::RECOVERY);
+        thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
+      } else {
+        replica_state_.store(replication::ReplicaState::READY);
+        return true;
+      }
+    } catch (const rpc::RpcFailedException &) {
+      replica_stream_.reset();
+      {
+        std::unique_lock client_guard(client_lock_);
+        replica_state_.store(replication::ReplicaState::INVALID);
+      }
+      HandleRpcFailure();
+    }
+    return false;
+  };
+
   if (mode_ == replication::ReplicationMode::ASYNC) {
-    thread_pool_.AddTask([this] { (void)this->FinalizeTransactionReplicationInternal(); });
+    thread_pool_.AddTask([=] { (void)task(); });
     return true;
   }
 
-  return FinalizeTransactionReplicationInternal();
+  return task();
 }
 
 void ReplicationClient::FrequentCheck() {
@@ -258,30 +282,6 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
     }
     HandleRpcFailure();
   }
-}
-
-bool ReplicationClient::FinalizeTransactionReplicationInternal() {
-  MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
-  try {
-    auto response = replica_stream_->Finalize();
-    replica_stream_.reset();
-    std::unique_lock client_guard(client_lock_);
-    if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
-      replica_state_.store(replication::ReplicaState::RECOVERY);
-      thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
-    } else {
-      replica_state_.store(replication::ReplicaState::READY);
-      return true;
-    }
-  } catch (const rpc::RpcFailedException &) {
-    replica_stream_.reset();
-    {
-      std::unique_lock client_guard(client_lock_);
-      replica_state_.store(replication::ReplicaState::INVALID);
-    }
-    HandleRpcFailure();
-  }
-  return false;
 }
 
 ////// ReplicaStream //////

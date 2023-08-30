@@ -35,7 +35,7 @@ struct Edge;
 class Storage;
 class ReplicationClient;
 
-// Handler used for transfering the current transaction.
+// Handler used for transferring the current transaction.
 class ReplicaStream {
  public:
   explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
@@ -99,7 +99,6 @@ class ReplicationClient {
   auto GetStorage() -> Storage * { return storage_; }
   auto GetEpochId() const -> std::string const &;
   auto LastCommitTimestamp() const -> uint64_t;
-  bool FinalizeTransactionReplicationInternal();
   void InitializeClient();
   void HandleRpcFailure();
   void TryInitializeClientAsync();
