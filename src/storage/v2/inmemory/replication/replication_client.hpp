@@ -21,9 +21,10 @@ class InMemoryReplicationClient : public ReplicationClient {
   InMemoryReplicationClient(InMemoryStorage *storage, std::string name, io::network::Endpoint endpoint,
                             replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
 
- private:
+ protected:
   void RecoverReplica(uint64_t replica_commit) override;
 
+  // TODO: move the GetRecoverySteps stuff below as an internal detail
   using RecoverySnapshot = std::filesystem::path;
   using RecoveryWals = std::vector<std::filesystem::path>;
   struct RecoveryCurrentWal {

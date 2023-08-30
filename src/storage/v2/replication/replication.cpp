@@ -185,7 +185,7 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
     }
   }
 
-  auto client = storage->CreateReplicationClient(std::move(name), endpoint, replication_mode, config);
+  auto client = storage->CreateReplicationClient(std::move(name), std::move(endpoint), replication_mode, config);
   client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {

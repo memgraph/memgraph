@@ -1772,7 +1772,7 @@ auto InMemoryStorage::CreateReplicationClient(std::string name, io::network::End
                                               replication::ReplicationMode mode,
                                               replication::ReplicationClientConfig const &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, std::move(name), endpoint, mode, config);
+  return std::make_unique<InMemoryReplicationClient>(this, std::move(name), std::move(endpoint), mode, config);
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(

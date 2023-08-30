@@ -13,20 +13,26 @@
 
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/storage.hpp"
-#include "storage/v2/vertex.hpp"
-#include "utils/file.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/thread_pool.hpp"
 
+#include <atomic>
+#include <optional>
+#include <set>
+#include <string>
+
 namespace memgraph::storage {
 
+struct Delta;
+struct Vertex;
+struct Edge;
 class Storage;
-
 class ReplicationClient;
 
 // Handler used for transfering the current transaction.
@@ -70,42 +76,36 @@ class ReplicationClient {
 
   virtual ~ReplicationClient();
 
-  void Start();
-
-  const auto &Name() const { return name_; }
-
-  auto State() const { return replica_state_.load(); }
-
-  auto Mode() const { return mode_; }
-
+  auto Mode() const -> replication::ReplicationMode { return mode_; }
+  auto Name() const -> std::string const & { return name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
+  auto State() const -> replication::ReplicaState { return replica_state_.load(); }
+  auto GetTimestampInfo() -> TimestampInfo;
 
+  void Start();
+  void StartTransactionReplication(const uint64_t current_wal_seq_num);
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
-  auto GetEpochId() const -> std::string const &;
-  auto GetStorage() -> Storage * { return storage_; }
-  TimestampInfo GetTimestampInfo();
-  virtual void RecoverReplica(uint64_t replica_commit) = 0;
-  void InitializeClient();
-  void HandleRpcFailure();
-  void TryInitializeClientAsync();
-  void TryInitializeClientSync();
-  void StartTransactionReplication(const uint64_t current_wal_seq_num);
   // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication();
 
  protected:
-  uint64_t LastCommitTimestamp() const;
+  virtual void RecoverReplica(uint64_t replica_commit) = 0;
 
+  auto GetStorage() -> Storage * { return storage_; }
+  auto GetEpochId() const -> std::string const &;
+  auto LastCommitTimestamp() const -> uint64_t;
   bool FinalizeTransactionReplicationInternal();
-
+  void InitializeClient();
+  void HandleRpcFailure();
+  void TryInitializeClientAsync();
+  void TryInitializeClientSync();
   void FrequentCheck();
 
- protected:
   std::string name_;
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
