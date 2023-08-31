@@ -19,13 +19,12 @@
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
-
-enum class EdgeDirection : uint8_t { OUT = 0, IN = 1 };
 
 /// TODO: this should be somehow more wrapped inside the storage class so from the software engineering perspective
 /// it isn't great to have this here. But for now it is ok.
@@ -51,18 +50,6 @@ struct RocksDBStorage {
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
-
-  uint64_t ApproximateVertexCount() const {
-    uint64_t estimate_num_keys = 0;
-    db_->GetIntProperty(vertex_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
-    return estimate_num_keys;
-  }
-
-  uint64_t ApproximateEdgeCount() const {
-    uint64_t estimate_num_keys = 0;
-    db_->GetIntProperty(edge_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
-    return estimate_num_keys;
-  }
 };
 
 /// RocksDB comparator that compares keys with timestamps.

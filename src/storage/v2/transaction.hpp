@@ -25,6 +25,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/pmr/list.hpp"
 
@@ -68,7 +69,8 @@ struct Transaction {
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
         isolation_level(other.isolation_level),
-        storage_mode(other.storage_mode) {}
+        storage_mode(other.storage_mode),
+        manyDeltasCache{std::move(other.manyDeltasCache)} {}
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
@@ -95,6 +97,11 @@ struct Transaction {
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;
+
+  // A cache which is consistent to the current transaction_id + command_id.
+  // Used to speedup getting info about a vertex when there is a long delta
+  // chain involved in rebuilding that info.
+  mutable VertexInfoCache manyDeltasCache;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

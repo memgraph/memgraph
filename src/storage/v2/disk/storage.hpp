@@ -22,6 +22,7 @@
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
+#include <rocksdb/slice.h>
 #include <unordered_set>
 
 namespace memgraph::storage {
@@ -192,6 +193,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
+    void UpdateObjectsCountOnAbort();
+
     void Abort() override;
 
     void FinalizeTransaction() override;
@@ -200,25 +203,27 @@ class DiskStorage final : public Storage {
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value);
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const std::string &key, const std::string &value,
+                                                                       const std::string &ts);
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
         LabelId indexing_label, std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
+                                                         const rocksdb::Slice &ts);
 
    private:
-    VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
+    VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
+                                        std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
 
     bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
                             EdgeDirection edge_direction);
     void PrefetchEdges(const VertexAccessor &vertex_acc, EdgeDirection edge_direction);
 
-    Result<EdgeAccessor> CreateEdge(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
-                                    storage::Gid gid, std::string_view properties, const std::string &old_disk_key);
-
+    Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
+                                            storage::Gid gid, std::string_view properties,
+                                            const std::string &old_disk_key, const std::string &ts);
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
@@ -317,6 +322,8 @@ class DiskStorage final : public Storage {
 
   void LoadTimestampIfExists();
 
+  void LoadVertexAndEdgeCountIfExists();
+
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 
@@ -334,13 +341,28 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
+  void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+
+  auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint, replication::ReplicationMode mode,
+                               const replication::ReplicationClientConfig &config)
+      -> std::unique_ptr<ReplicationClient> override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
+
+  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+      -> std::unique_ptr<ReplicationServer> override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
+
+ private:
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
-
   using transaction_id_type = decltype(std::declval<Transaction>().transaction_id);
   // Every transaction will have its own monotonic buffer resource, mapping between transaction id and
   // monotonic buffer exist so we can clean resources once deltas are unlinked
   utils::Synchronized<std::map<transaction_id_type, utils::MonotonicBufferResource>> monotonic_resources_;
+
+  std::atomic<uint64_t> vertex_count_{0};
 };
 
 }  // namespace memgraph::storage

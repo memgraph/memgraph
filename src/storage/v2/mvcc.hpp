@@ -26,18 +26,23 @@ namespace memgraph::storage {
 /// that should be applied it calls the callback function with the delta that
 /// should be applied passed as a parameter to the callback. It is up to the
 /// caller to apply the deltas.
+/// @return number of deltas that were processed
 template <typename TCallback>
-inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, View view, const TCallback &callback) {
+inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delta *delta, View view,
+                                      const TCallback &callback) {
+  // Avoid work if no deltas or
+  // IsolationLevel::READ_UNCOMMITTED, where deltas are never applied
+  if (!delta || transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED) return 0;
+
   // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
   // its commit timestamp set.
   // This allows the transaction to see its changes even though it's committed.
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
                                     : transaction->transaction_id;
-  while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    auto cid = delta->command_id;
 
+  std::size_t n_processed = 0;
+  while (delta != nullptr) {
     // For SNAPSHOT ISOLATION -> we can only see the changes which were committed before the start of the current
     // transaction
     //
@@ -46,15 +51,16 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     // always higher than start or commit timestamps so we know if the timestamp is lower than the initial transaction
     // id value, that the change is committed.
     //
-    // For READ UNCOMMITTED -> we accept any change.
+    // For READ UNCOMMITTED -> we accept any change. (already handled above)
+    auto ts = delta->timestamp->load(std::memory_order_acquire);
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
-        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId) ||
-        (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
+        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
       break;
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
+    auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
       break;
     }
@@ -69,10 +75,12 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 
     // This delta must be applied, call the callback.
     callback(*delta);
+    ++n_processed;
 
     // Move to the next delta.
     delta = delta->next.load(std::memory_order_acquire);
   }
+  return n_processed;
 }
 
 /// This function prepares the object for a write. It checks whether there are
@@ -107,18 +115,23 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction,
-                                                  const std::optional<std::string> &old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(),
-                                            old_disk_key);
+
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
+                                                  const std::string &ts) {
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  return &transaction->deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
+}
+
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
+                                                       std::optional<std::string> old_disk_key, const uint64_t ts) {
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, old_disk_key);
 }
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(Transaction *transaction, std::list<Delta> &deltas,
-                                                       const std::optional<std::string> &old_disk_key) {
-  transaction->EnsureCommitTimestampExists();
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), transaction->commit_timestamp.get(), old_disk_key);
+                                                       std::optional<std::string> old_disk_key, const std::string &ts) {
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  return CreateDeleteDeserializedIndexObjectDelta(transaction, deltas, old_disk_key, std::stoull(ts));
 }
 
 /// This function creates a delta in the transaction for the object and links
