@@ -10,23 +10,13 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
-#include <stdexcept>
-#include <utility>
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/edge_direction.hpp"
-#include "storage/v2/storage_mode.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex_accessor.hpp"
-#include "utils/memory.hpp"
-#include "utils/stat.hpp"
 
 /// REPLICATION ///
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 
 namespace memgraph::storage {
 
@@ -38,9 +28,7 @@ InMemoryStorage::InMemoryStorage(Config config)
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       uuid_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()),
-      replication_state_(config_.durability.restore_replication_state_on_startup,
-                         config_.durability.storage_directory) {
+      global_locker_(file_retainer_.AddLocker()) {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -1684,8 +1672,8 @@ bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperati
 
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   FinalizeWalFile();
-  return replication_state_.AppendToWalDataDefinition(wal_file_->SequenceNumber(), operation, label, properties,
-                                                      final_commit_timestamp);
+  return replication_state_.AppendOperation(wal_file_->SequenceNumber(), operation, label, properties,
+                                            final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
@@ -1796,7 +1784,7 @@ auto InMemoryStorage::CreateReplicationClient(std::string name, io::network::End
                                               replication::ReplicationMode mode,
                                               replication::ReplicationClientConfig const &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, std::move(name), endpoint, mode, config);
+  return std::make_unique<InMemoryReplicationClient>(this, std::move(name), std::move(endpoint), mode, config);
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(

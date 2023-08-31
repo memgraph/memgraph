@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -106,18 +107,6 @@ struct WalDeltaData {
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
-
-/// Enum used to indicate a global database operation that isn't transactional.
-enum class StorageGlobalOperation {
-  LABEL_INDEX_CREATE,
-  LABEL_INDEX_DROP,
-  LABEL_PROPERTY_INDEX_CREATE,
-  LABEL_PROPERTY_INDEX_DROP,
-  EXISTENCE_CONSTRAINT_CREATE,
-  EXISTENCE_CONSTRAINT_DROP,
-  UNIQUE_CONSTRAINT_CREATE,
-  UNIQUE_CONSTRAINT_DROP,
-};
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
   switch (type) {
