@@ -401,6 +401,8 @@ class Relationships {
   Iterator cbegin() const;
   Iterator cend() const;
 
+  ~Relationships();
+
  private:
   mgp_edges_iterator *relationships_iterator_ = nullptr;
 };
@@ -2258,6 +2260,12 @@ inline Relationships::Iterator Relationships::end() const { return Iterator(null
 inline Relationships::Iterator Relationships::cbegin() const { return Iterator(relationships_iterator_); }
 
 inline Relationships::Iterator Relationships::cend() const { return Iterator(nullptr); }
+
+inline Relationships::~Relationships() {
+  if (relationships_iterator_ != nullptr) {
+    mgp::edges_iterator_destroy(relationships_iterator_);
+  }
+}
 
 // Labels:
 
