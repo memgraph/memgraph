@@ -1163,7 +1163,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   }
   utils::MemoryResource *memory_resource{nullptr};
   monotonic_resources_.WithLock([&transaction_id, &memory_resource](auto &monotonic_resources) {
-    monotonic_resources.emplace(transaction_id, 100UL * 1024UL);
+    monotonic_resources.emplace(transaction_id, 1UL * 1024UL);
     auto it = monotonic_resources.find(transaction_id);
     if (it != monotonic_resources.end()) {
       memory_resource = &(it->second);
