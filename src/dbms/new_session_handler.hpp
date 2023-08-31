@@ -26,7 +26,6 @@
 #include "constants.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
-#include "query/interpreter.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -203,68 +202,60 @@ class NewSessionHandler {
   //     return sessions_.erase(session.UUID()) > 0;
   //   }
 
-  //   /**
-  //    * @brief Delete database.
-  //    *
-  //    * @param db_name database name
-  //    * @return DeleteResult error on failure
-  //    */
-  //   DeleteResult Delete(const std::string &db_name) {
-  //     std::lock_guard<LockT> wr(lock_);
-  //     if (db_name == kDefaultDB) {
-  //       // MSG cannot delete the default db
-  //       return DeleteError::DEFAULT_DB;
-  //     }
-  //     // Check if db exists
-  //     try {
-  //       auto sc = Get_(db_name);
-  //       // Check if a session is using the db
-  //       if (!sc.interpreter_context->interpreters->empty()) {
-  //         return DeleteError::USING;
-  //       }
-  //     } catch (UnknownDatabaseException &) {
-  //       return DeleteError::NON_EXISTENT;
-  //     }
+  /**
+   * @brief Delete database.
+   *
+   * @param db_name database name
+   * @return DeleteResult error on failure
+   */
+  DeleteResult Delete(const std::string &db_name) {
+    std::lock_guard<LockT> wr(lock_);
+    if (db_name == kDefaultDB) {
+      // MSG cannot delete the default db
+      return DeleteError::DEFAULT_DB;
+    }
+    // Check if db exists
+    try {
+      auto db = Get_(db_name);
+      // Check if a session is using the db
+      // TODO use the new reference counter
+      if (db.use_count() > 1) {
+        return DeleteError::USING;
+      }
+    } catch (UnknownDatabaseException &) {
+      return DeleteError::NON_EXISTENT;
+    }
 
-  //     // High level handlers
-  //     for (auto &[_, s] : sessions_) {
-  //       if (!s.OnDelete(db_name)) {
-  //         spdlog::error("Partial failure while deleting database \"{}\".", db_name);
-  //         defunct_dbs_.emplace(db_name);
-  //         return DeleteError::FAIL;
-  //       }
-  //     }
+    // Low level handlers
+    const auto storage_path = StorageDir_(db_name);
+    MG_ASSERT(storage_path, "Missing storage for {}", db_name);
+    if (!db_handler_.Delete(db_name)) {
+      spdlog::error("Partial failure while deleting database \"{}\".", db_name);
+      // defunct_dbs_.emplace(db_name);
+      return DeleteError::FAIL;
+    }
 
-  //     // Low level handlers
-  //     const auto storage_path = StorageDir_(db_name);
-  //     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
-  //     if (!db_handler_.Delete(db_name) || !interp_handler_.Delete(db_name)) {
-  //       spdlog::error("Partial failure while deleting database \"{}\".", db_name);
-  //       defunct_dbs_.emplace(db_name);
-  //       return DeleteError::FAIL;
-  //     }
+    // Remove from auth
+    // auth_->Lock()->DeleteDatabase(db_name);
+    // Remove from durability list
+    // if (durability_) durability_->Delete(db_name);
 
-  //     // Remove from auth
-  //     auth_->Lock()->DeleteDatabase(db_name);
-  //     // Remove from durability list
-  //     if (durability_) durability_->Delete(db_name);
+    // Delete disk storage
+    // if (delete_on_drop_) {
+    //   std::error_code ec;
+    //   (void)std::filesystem::remove_all(*storage_path, ec);
+    //   if (ec) {
+    //     spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
+    //     defunct_dbs_.emplace(db_name);
+    //     return DeleteError::DISK_FAIL;
+    //   }
+    // }
 
-  //     // Delete disk storage
-  //     if (delete_on_drop_) {
-  //       std::error_code ec;
-  //       (void)std::filesystem::remove_all(*storage_path, ec);
-  //       if (ec) {
-  //         spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
-  //         defunct_dbs_.emplace(db_name);
-  //         return DeleteError::DISK_FAIL;
-  //       }
-  //     }
+    // // Delete from defunct_dbs_ (in case a second delete call was successful)
+    // defunct_dbs_.erase(db_name);
 
-  //     // Delete from defunct_dbs_ (in case a second delete call was successful)
-  //     defunct_dbs_.erase(db_name);
-
-  //     return {};  // Success
-  //   }
+    return {};  // Success
+  }
 
   // /**
   //  * @brief Set the default configurations.
@@ -286,15 +277,15 @@ class NewSessionHandler {
   //   return default_config_;
   // }
 
-  //   /**
-  //    * @brief Return all active databases.
-  //    *
-  //    * @return std::vector<std::string>
-  //    */
-  //   std::vector<std::string> All() const {
-  //     std::shared_lock<LockT> rd(lock_);
-  //     return db_handler_.All();
-  //   }
+  /**
+   * @brief Return all active databases.
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> All() const {
+    std::shared_lock<LockT> rd(lock_);
+    return db_handler_.All();
+  }
 
   //   /**
   //    * @brief Return the number of vertex across all databases.

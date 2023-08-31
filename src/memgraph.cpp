@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query/config.hpp"
 #include "query/interpreter.hpp"
 #ifndef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
@@ -322,30 +323,17 @@ int main(int argc, char **argv) {
         }
       };
 
-#ifdef MG_ENTERPRISE
-
   // WIP
   memgraph::dbms::NewSessionHandler new_handler(db_config);
-
-  // SessionContext handler (multi-tenancy)
-  memgraph::dbms::SessionContextHandler sc_handler(audit_log, {db_config, interp_config, auth_glue},
-                                                   FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
-                                                   FLAGS_storage_delete_on_drop);
-  // Just for current support... TODO remove
-  auto session_context = sc_handler.Get(memgraph::dbms::kDefaultDB);
-#else
 
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
                                                                                                      "auth"};
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
-  auto session_context = memgraph::dbms::Init(db_config, interp_config, &auth_, auth_handler.get(), auth_checker.get());
 
-#endif
-
-  auto *auth = session_context.auth;
-  auto &interpreter_context = *session_context.interpreter_context;  // TODO remove
+  memgraph::query::InterpreterContext interpreter_context_(nullptr, interp_config, {}, auth_handler.get(),
+                                                           auth_checker.get(), &new_handler);
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);
@@ -356,9 +344,9 @@ int main(int argc, char **argv) {
     spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+      InitFromCypherlFile(interpreter_context_, FLAGS_init_file, &audit_log);
     } else {
-      InitFromCypherlFile(interpreter_context, FLAGS_init_file);
+      InitFromCypherlFile(interpreter_context_, FLAGS_init_file);
     }
 #else
     InitFromCypherlFile(interpreter_context, FLAGS_init_file);
@@ -366,8 +354,8 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  sc_handler.RestoreTriggers();
-  sc_handler.RestoreStreams();
+  // sc_handler.RestoreTriggers();
+  // sc_handler.RestoreStreams();
 #else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
@@ -395,7 +383,8 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
 #ifdef MG_ENTERPRISE
-  memgraph::glue::ServerT server(server_endpoint, &sc_handler, &context, FLAGS_bolt_session_inactivity_timeout,
+  Context context_{&interpreter_context_, &auth_, &audit_log};
+  memgraph::glue::ServerT server(server_endpoint, &context_, &context, FLAGS_bolt_session_inactivity_timeout,
                                  service_name, FLAGS_bolt_num_workers);
 #else
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
@@ -403,68 +392,84 @@ int main(int argc, char **argv) {
 #endif
 
   const auto machine_id = memgraph::utils::GetMachineId();
-  const auto run_id = session_context.run_id;  // For current compatibility
+  const auto run_id = "aaaa";  // session_context.run_id;  // For current compatibility
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
+    // telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
 #ifdef MG_ENTERPRISE
-    telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
-      const auto &info = sc_handler.Info();
-      return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
-    });
+    // telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
+    //   const auto &info = sc_handler.Info();
+    //   return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
+    // });
 #else
     telemetry->AddCollector("storage", [&interpreter_context]() -> nlohmann::json {
       auto info = interpreter_context.db->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
-    });
+      // });
 #endif
-    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
-      nlohmann::json ret;
-      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
-        ret[memgraph::metrics::GetCounterName(i)] =
-            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
-      }
-      return ret;
-    });
-    telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
-      return memgraph::query::plan::CallProcedure::GetAndResetCounters();
-    });
+    //   telemetry->AddCollector("event_counters", []() -> nlohmann::json {
+    //     nlohmann::json ret;
+    //     for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
+    //       ret[memgraph::metrics::GetCounterName(i)] =
+    //           memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
+    //     }
+    //     return ret;
+    //   });
+    //   telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
+    //     return memgraph::query::plan::CallProcedure::GetAndResetCounters();
+    //   });
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{auth};
+  memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
   // TODO: Make multi-tenant
-  memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, session_context.db.get(), &context};
+  // memgraph::glue::MonitoringServerT metrics_server{
+  //     {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, session_context.db.get(), &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    auto shutdown = [&metrics_server, &websocket_server, &server, &sc_handler] {
+    // auto shutdown = [&metrics_server, &websocket_server, &server, &sc_handler] {
+    //   // Server needs to be shutdown first and then the database. This prevents
+    //   // a race condition when a transaction is accepted during server shutdown.
+    //   server.Shutdown();
+    //   // After the server is notified to stop accepting and processing
+    //   // connections we tell the execution engine to stop processing all pending
+    //   // queries.
+    //   sc_handler.Shutdown();
+
+    //   websocket_server.Shutdown();
+    //   metrics_server.Shutdown();
+    // };
+
+    // InitSignalHandlers(shutdown);
+  } else {
+    // Handler for regular termination signals
+    auto shutdown = [&websocket_server, &server, &interpreter_context_] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
       // After the server is notified to stop accepting and processing
       // connections we tell the execution engine to stop processing all pending
       // queries.
-      sc_handler.Shutdown();
+      memgraph::query::Shutdown(&interpreter_context_);
 
       websocket_server.Shutdown();
-      metrics_server.Shutdown();
     };
 
     InitSignalHandlers(shutdown);
-  } else {
-    // Handler for regular termination signals
-    auto shutdown = [&websocket_server, &server, &interpreter_context] {
+  }
+#else
+      // Handler for regular termination signals
+      auto shutdown = [&websocket_server, &server, &interpreter_context] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
@@ -474,55 +479,39 @@ int main(int argc, char **argv) {
       memgraph::query::Shutdown(&interpreter_context);
 
       websocket_server.Shutdown();
-    };
+      };
 
-    InitSignalHandlers(shutdown);
-  }
-#else
-  // Handler for regular termination signals
-  auto shutdown = [&websocket_server, &server, &interpreter_context] {
-    // Server needs to be shutdown first and then the database. This prevents
-    // a race condition when a transaction is accepted during server shutdown.
-    server.Shutdown();
-    // After the server is notified to stop accepting and processing
-    // connections we tell the execution engine to stop processing all pending
-    // queries.
-    memgraph::query::Shutdown(&interpreter_context);
-
-    websocket_server.Shutdown();
-  };
-
-  InitSignalHandlers(shutdown);
+      InitSignalHandlers(shutdown);
 #endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
 
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.Start();
-  }
+  // if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  //   metrics_server.Start();
+  // }
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+      InitFromCypherlFile(interpreter_context_, FLAGS_init_data_file, &audit_log);
     } else {
-      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+      InitFromCypherlFile(interpreter_context_, FLAGS_init_data_file);
     }
 #else
-    InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
 #endif
   }
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.AwaitShutdown();
-  }
+  // if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  //   metrics_server.AwaitShutdown();
+  // }
 #endif
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();

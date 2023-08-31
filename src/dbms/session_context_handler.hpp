@@ -215,7 +215,8 @@ class SessionContextHandler {
         db_name);  // throws if db doesn't exist (TODO: Better to pass it via OnChange - but injecting dependency)
     try {
       auto &s = sessions_.at(uuid);
-      return s.OnChange(db_name);
+      // return s.OnChange(db_name);
+      return {};
     } catch (std::out_of_range &) {
       throw UnknownSessionException("Unknown session \"{}\"", uuid);
     }
@@ -294,11 +295,11 @@ class SessionContextHandler {
 
     // High level handlers
     for (auto &[_, s] : sessions_) {
-      if (!s.OnDelete(db_name)) {
-        spdlog::error("Partial failure while deleting database \"{}\".", db_name);
-        defunct_dbs_.emplace(db_name);
-        return DeleteError::FAIL;
-      }
+      // if (!s.OnDelete(db_name)) {
+      //   spdlog::error("Partial failure while deleting database \"{}\".", db_name);
+      //   defunct_dbs_.emplace(db_name);
+      //   return DeleteError::FAIL;
+      // }
     }
 
     // Low level handlers

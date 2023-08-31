@@ -367,7 +367,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters) {
   AuthQueryHandler *auth = interpreter_context->auth;
 #ifdef MG_ENTERPRISE
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  auto *db_handler = interpreter_context->db_handler;
 #endif
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
@@ -576,11 +576,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+      callback.fn = [auth, database, username, &db_handler] {  // NOLINT
         try {
-          memgraph::dbms::SessionContext sc(nullptr, nullptr, "", nullptr, nullptr);
+          std::shared_ptr<memgraph::dbms::Database> db{};  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
-            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
           if (!auth->GrantDatabaseToUser(database, username)) {
             throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
@@ -596,11 +596,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+      callback.fn = [auth, database, username, &db_handler] {  // NOLINT
         try {
-          memgraph::dbms::SessionContext sc(nullptr, nullptr, "", nullptr, nullptr);
+          std::shared_ptr<memgraph::dbms::Database> db{};  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
-            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
           if (!auth->RevokeDatabaseFromUser(database, username)) {
             throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
@@ -628,9 +628,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+      callback.fn = [auth, database, username, &db_handler] {  // NOLINT
         try {
-          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          const auto db =
+              db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           if (!auth->SetMainDatabase(database, username)) {
             throw QueryRuntimeException("Failed to set main database {} for user {}.", database, username);
           }
@@ -1360,14 +1361,8 @@ storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) 
 
 InterpreterContext::InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
                                        const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
-                                       query::AuthChecker *ac)
-    : db_handler(
-          new memgraph::dbms::NewSessionHandler(db->config_)),  // TODO Remove from here and link from memgraph.cpp
-      config(interpreter_config),
-      auth(ah),
-      auth_checker(ac) {}
-
-InterpreterContext::~InterpreterContext() { delete db_handler; }
+                                       query::AuthChecker *ac, memgraph::dbms::NewSessionHandler *handler)
+    : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -2517,9 +2512,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   Callback callback;
   callback.fn = [current_mode, requested_mode, storage, interpreter_context]() mutable {
 #ifdef MG_ENTERPRISE
-    // TODO this will be called directly from the ic
-    auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
-    auto db_name = storage->id();
+    auto *db_handler = interpreter_context->db_handler;
+    const auto &db_name = storage->id();
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -2530,7 +2524,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      sc_handler.SwitchMemoryDevice(db_name);
+      // TODO
+      // db_handler->SwitchMemoryDevice(db_name);
     }
     return std::vector<std::vector<TypedValue>>();
 #else
@@ -2811,8 +2806,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::optional<std::string> &username,
-                                           bool in_explicit_transaction, InterpreterContext *interpreter_context,
-                                           DbAccessor *dba) {
+                                           bool in_explicit_transaction, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw TransactionQueueInMulticommandTxException();
   }
@@ -3220,7 +3214,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, bool in_explicit_db,
                                         storage::Storage *storage, InterpreterContext *interpreter_context,
-                                        const std::string &session_uuid) {
+                                        std::shared_ptr<dbms::Database> &db,
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -3234,20 +3229,19 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
-  // TODO pick handler directly from ic
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  auto *db_handler = interpreter_context->db_handler;
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sc_handler](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, db_handler](AnyStream *stream,
+                                                  std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            const auto success = sc_handler.New(db_name);
+            const auto success = db_handler->New(db_name);
             if (success.HasError()) {
               switch (success.GetError()) {
                 case dbms::NewError::EXISTS:
@@ -3283,28 +3277,22 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, session_uuid, &sc_handler](
+                           [db_name = query->db_name_, db_handler, &db, on_change_cb](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                              std::vector<std::vector<TypedValue>> status;
                              std::string res;
 
-                             memgraph::dbms::SetForResult set = memgraph::dbms::SetForResult::SUCCESS;
-
                              try {
-                               set = sc_handler.SetFor(session_uuid, db_name);
+                               const auto tmp = db_handler->Get(db_name);
+                               if (tmp == db) {
+                                 res = "Already using " + db_name;
+                               } else {
+                                 if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
+                                 db = tmp;
+                                 res = "Using " + db_name;
+                               }
                              } catch (const utils::BasicException &e) {
                                throw QueryRuntimeException(e.what());
-                             }
-
-                             switch (set) {
-                               case dbms::SetForResult::SUCCESS:
-                                 res = "Using " + db_name;
-                                 break;
-                               case dbms::SetForResult::ALREADY_SET:
-                                 res = "Already using " + db_name;
-                                 break;
-                               case dbms::SetForResult::FAIL:
-                                 throw QueryRuntimeException("Failed to start using {}", db_name);
                              }
 
                              status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
@@ -3321,14 +3309,14 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sc_handler](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, db_handler](AnyStream *stream,
+                                                  std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
 
             memgraph::dbms::DeleteResult success{};
 
             try {
-              success = sc_handler.Delete(db_name);
+              success = db_handler->Delete(db_name);
             } catch (const utils::BasicException &e) {
               throw QueryRuntimeException(e.what());
             }
@@ -3364,7 +3352,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, storage::Storage *storage,
-                                        InterpreterContext *interpreter_context, const std::string &session_uuid,
+                                        InterpreterContext *interpreter_context,
                                         const std::optional<std::string> &username) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -3376,14 +3364,14 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, storage::Stora
   }
 
   // TODO pick directly from ic
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  auto *db_handler = interpreter_context->db_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
   callback.header = {"Name", "Current"};
-  callback.fn = [auth, session_uuid, &sc_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [auth, storage, db_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
-    const auto in_use = sc_handler.Current(session_uuid);
+    const auto &in_use = storage->id();
     bool found_current = false;
 
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
@@ -3413,7 +3401,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, storage::Stora
 
     if (!username) {
       // No user, return all
-      gen_status(sc_handler.All(), std::vector<TypedValue>{});
+      gen_status(db_handler->All(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(*username);
@@ -3421,7 +3409,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, storage::Stora
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(sc_handler.All(), denied);
+        gen_status(db_handler->All(), denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }
@@ -3666,13 +3654,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                interpreter_context_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
-                                                    interpreter_context_, &*execution_db_accessor_);
+                                                    interpreter_context_);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
-                                                 db_->storage(), interpreter_context_, session_uuid);
+                                                 db_->storage(), interpreter_context_, db_, on_change_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), db_->storage(), interpreter_context_,
-                                                 session_uuid, username_);
+      prepared_query =
+          PrepareShowDatabasesQuery(std::move(parsed_query), db_->storage(), interpreter_context_, username_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

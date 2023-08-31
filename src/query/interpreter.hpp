@@ -249,9 +249,7 @@ class Interpreter;
 struct InterpreterContext {
   InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
                      const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
-                     query::AuthChecker *ac = nullptr);
-  // TODO: Remove
-  ~InterpreterContext();
+                     query::AuthChecker *ac = nullptr, memgraph::dbms::NewSessionHandler *db_handler = nullptr);
 
   memgraph::dbms::NewSessionHandler *db_handler;
 
@@ -264,16 +262,10 @@ struct InterpreterContext {
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 
-  // Tided to storage
-  // TODO Create a storage aware version (container of the of cache)
+  // TODO: Is this actually storage-aware?
+  // I don't actually think it is. You pass db_accessor and other database specific stuff at execution time
+  // Optimal plans can differ between databases, but we currently don't optimize, so is this really important?
   utils::SkipList<PlanCacheEntry> plan_cache;
-
-  // There will be a trigger store and stream per database
-  // after_commit_trigger_pool is used only for triggers; make a wrapper
-  // storage::Storage *db;  // TODO: Remove once storage_handler is done
-  // TriggerStore trigger_store;
-  // utils::ThreadPool after_commit_trigger_pool{1};  // TODO: One queue per tenant <- what's a tenant? a database
-  // query::stream::Streams streams;
 
   // Used to check active transactions
   // TODO: Have a way to read the current database
@@ -309,7 +301,10 @@ class Interpreter final {
 
   std::shared_ptr<dbms::Database> db_;  // Current db (TODO: expand to support multiple)
 
+#ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name);
+  void OnChangeCB(auto cb) { on_change_.emplace(cb); }
+#endif
 
   /**
    * Prepare a query for execution.
@@ -472,6 +467,8 @@ class Interpreter final {
     return std::count_if(query_executions_.begin(), query_executions_.end(),
                          [](const auto &execution) { return execution && execution->prepared_query; });
   }
+
+  std::optional<std::function<void(std::string_view)>> on_change_{};
 };
 
 class TransactionQueueQueryHandler {

@@ -13,6 +13,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "dbms/session_context.hpp"
+#include "query/interpreter.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
@@ -51,15 +52,12 @@ struct ContextWrapper {
 class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                       memgraph::communication::v2::OutputStream> {
  public:
-  SessionHL(
-#ifdef MG_ENTERPRISE
-      memgraph::dbms::SessionContextHandler &sc_handler,
-#else
-      memgraph::dbms::SessionContext sc,
-#endif
-      const memgraph::communication::v2::ServerEndpoint &endpoint,
-      memgraph::communication::v2::InputStream *input_stream, memgraph::communication::v2::OutputStream *output_stream,
-      const std::string &default_db = memgraph::dbms::kDefaultDB);
+  SessionHL(memgraph::query::InterpreterContext *interpreter_context,
+            const memgraph::communication::v2::ServerEndpoint &endpoint,
+            memgraph::communication::v2::InputStream *input_stream,
+            memgraph::communication::v2::OutputStream *output_stream,
+            memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+            memgraph::audit::Log *audit_log);
 
   ~SessionHL() override;
 
@@ -92,14 +90,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void Abort() override;
 
   // Called during Init
-  // During Init, the user cannot choose the landing DB (switch is done during query execution)
   bool Authenticate(const std::string &username, const std::string &password) override;
 
-#ifdef MG_ENTERPRISE
-  memgraph::dbms::SetForResult OnChange(const std::string &db_name) override;
-
-  bool OnDelete(const std::string &db_name) override;
-#endif
   std::optional<std::string> GetServerNameForInit() override;
 
   std::string GetDatabaseName() const override;
@@ -108,45 +100,18 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::map<std::string, memgraph::communication::bolt::Value> DecodeSummary(
       const std::map<std::string, memgraph::query::TypedValue> &summary);
 
-#ifdef MG_ENTERPRISE
-  /**
-   * @brief Update setup to the new database.
-   *
-   * @param db_name name of the target database
-   * @throws UnknownDatabaseException if handler cannot get it
-   */
-  void UpdateAndDefunct(const std::string &db_name);
-
-  void UpdateAndDefunct(ContextWrapper &&cntxt);
-
-  void Update(const std::string &db_name);
-
-  void Update(ContextWrapper &&cntxt);
-
-  /**
-   * @brief Authenticate user on passed database.
-   *
-   * @param db database to check against
-   * @throws bolt::ClientError when user is not authorized
-   */
-  void MultiDatabaseAuth(const std::string &db);
-
   /**
    * @brief Get the user's default database
    *
    * @return std::string
    */
   std::string GetDefaultDB();
-#endif
 
 #ifdef MG_ENTERPRISE
-  memgraph::dbms::SessionContextHandler &sc_handler_;
+  // memgraph::dbms::SessionContextHandler &sc_handler_;
 #endif
-  ContextWrapper current_;
-  std::optional<ContextWrapper> defunct_;
-
   memgraph::query::InterpreterContext *interpreter_context_;
-  memgraph::query::Interpreter *interpreter_;
+  memgraph::query::Interpreter interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
 #ifdef MG_ENTERPRISE

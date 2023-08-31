@@ -89,22 +89,6 @@ class SessionInterface {
    * @return std::string
    */
   virtual std::string GetDatabaseName() const = 0;
-
-#ifdef MG_ENTERPRISE
-  /**
-   * @brief Gets called on database change.
-   *
-   * @return SetForResult enum (SUCCESS, ALREADY_SET or FAIL)
-   */
-  virtual dbms::SetForResult OnChange(const std::string &) = 0;
-
-  /**
-   * @brief Callback that gets called on database delete (drop).
-   *
-   * @return true on success
-   */
-  virtual bool OnDelete(const std::string &) = 0;
-#endif
 };
 
 }  // namespace memgraph::dbms
