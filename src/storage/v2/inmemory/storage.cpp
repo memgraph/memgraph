@@ -19,6 +19,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory.hpp"
 #include "utils/stat.hpp"
@@ -190,22 +191,7 @@ InMemoryStorage::~InMemoryStorage() {
     }
   }
   if (!committed_transactions_->empty()) {
-    committed_transactions_.WithLock([](auto &transactions) {
-      for (auto &transaction : transactions) {
-        auto *transaction_deltas_ptr = transaction.deltas.release();
-        if (transaction_deltas_ptr) {
-          auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
-          auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
-          auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
-          if (monotonic_buffer == nullptr && pool_resource == nullptr) {
-            utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
-          }
-          if (monotonic_buffer) {
-            monotonic_buffer->Release();
-          }
-        }
-      }
-    });
+    committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
   }
 }
 
@@ -626,14 +612,14 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  if (transaction_.deltas->empty()) {
+  if (transaction_.deltas.use().empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Validate that existence constraints are satisfied for all modified
     // vertices.
-    for (const auto &delta : *transaction_.deltas) {
+    for (const auto &delta : transaction_.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) {
@@ -665,7 +651,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
       // to be validated/committed.
-      for (const auto &delta : *transaction_.deltas) {
+      for (const auto &delta : transaction_.deltas.use()) {
         auto prev = delta.prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::VERTEX) {
@@ -676,7 +662,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
       // Validate that unique constraints are satisfied for all modified
       // vertices.
-      for (const auto &delta : *transaction_.deltas) {
+      for (const auto &delta : transaction_.deltas.use()) {
         auto prev = delta.prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::VERTEX) {
@@ -755,7 +741,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   std::list<Gid> my_deleted_vertices;
   std::list<Gid> my_deleted_edges;
 
-  for (const auto &delta : *transaction_.deltas) {
+  for (const auto &delta : transaction_.deltas.use()) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
@@ -1161,17 +1147,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
       start_timestamp = timestamp_++;
     }
   }
-  utils::MemoryResource *memory_resource{nullptr};
-  monotonic_resources_.WithLock([&transaction_id, &memory_resource](auto &monotonic_resources) {
-    monotonic_resources.emplace(transaction_id, 1UL * 1024UL);
-    auto it = monotonic_resources.find(transaction_id);
-    if (it != monotonic_resources.end()) {
-      memory_resource = &(it->second);
-    } else {
-      throw std::runtime_error("memory resource was not created");
-    }
-  });
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, memory_resource};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode};
 }
 
 template <bool force>
@@ -1230,7 +1206,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::tuple<uint64_t, transaction_id_type, UPPmrLd>> unlinked_undo_buffers;
+  std::list<std::tuple<uint64_t, transaction_id_type, BondPmrLd>> unlinked_undo_buffers;
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1298,7 +1274,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    for (Delta &delta : *transaction->deltas) {
+    for (Delta &delta : transaction->deltas.use()) {
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1419,52 +1395,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     // no transaction is active
     if constexpr (force) {
       for (auto &[timestamp, transaction_id, transaction_deltas] : undo_buffers) {
-        auto *transaction_deltas_ptr = transaction_deltas.release();
-        if (transaction_deltas_ptr) {
-          auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
-          auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
-          auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
-          utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
-          if (monotonic_buffer) {
-            monotonic_buffer->Release();
-          }
-          if (pool_resource) {
-            pool_resource->Release();
-          }
-        }
+        transaction_deltas.~Bond<PmrListDelta>();
       }
       undo_buffers.clear();
 
     } else {
       while (!undo_buffers.empty() && std::get<0>(undo_buffers.front()) <= oldest_active_start_timestamp) {
         auto &[timestamp, transaction_id, transaction_deltas] = undo_buffers.front();
-
-        auto *transaction_deltas_ptr = transaction_deltas.release();
-        if (transaction_deltas_ptr) {
-          auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
-          auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
-          auto *pool_resource = dynamic_cast<utils::PoolResource *>(memory_resource);
-          utils::Allocator<PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
-          if (monotonic_buffer) {
-            monotonic_buffer->Release();
-          }
-          if (pool_resource) {
-            pool_resource->Release();
-          }
-        }
+        transaction_deltas.~Bond<PmrListDelta>();
         // this will trigger destory of object
         // but since we release pointer, it will just destory other stuff
         undo_buffers.pop_front();
       }
-    }
-
-    if constexpr (force) {
-      monotonic_resources_.WithLock([](auto &monotonic_resources) {
-        for (auto &[id, monotonic_resource] : monotonic_resources) {
-          monotonic_resource.Release();
-        }
-        monotonic_resources.clear();
-      });
     }
   });
 
@@ -1608,7 +1550,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
-    for (const auto &delta : *transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -1631,7 +1573,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
-    for (const auto &delta : *transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -1653,7 +1595,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
-    for (const auto &delta : *transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
@@ -1675,7 +1617,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 4. Process all Vertex deltas and store all operations that delete edges.
-    for (const auto &delta : *transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -1697,7 +1639,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 5. Process all Vertex deltas and store all operations that delete vertices.
-    for (const auto &delta : *transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;

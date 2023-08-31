@@ -61,28 +61,11 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, memgraph::utils::NewDeleteResource()) {}
+                       gen->storage_mode_) {}
 
    public:
-    ~Transaction() {
-      auto *transaction_deltas_ptr = transaction_.deltas.release();
-      if (transaction_deltas_ptr) {
-        auto *memory_resource = transaction_deltas_ptr->get_allocator().GetMemoryResource();
-        auto *monotonic_buffer = dynamic_cast<memgraph::utils::MonotonicBufferResource *>(memory_resource);
-        auto *pool_resource = dynamic_cast<memgraph::utils::PoolResource *>(memory_resource);
+    ~Transaction() {}
 
-        if (monotonic_buffer) {
-          monotonic_buffer->Release();
-          memgraph::utils::Allocator<memgraph::storage::PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
-        } else if (pool_resource) {
-          pool_resource->Release();
-          memgraph::utils::Allocator<memgraph::storage::PmrListDelta>(memory_resource).destroy(transaction_deltas_ptr);
-        } else {
-          memgraph::utils::Allocator<memgraph::storage::PmrListDelta>(memory_resource)
-              .delete_object(transaction_deltas_ptr);
-        }
-      }
-    }
     memgraph::storage::Vertex *CreateVertex() {
       auto gid = memgraph::storage::Gid::FromUint(gen_->vertices_count_++);
       auto delta = memgraph::storage::CreateDeleteObjectDelta(&transaction_);
@@ -164,8 +147,8 @@ class DeltaGenerator final {
 
     void Finalize(bool append_transaction_end = true) {
       auto commit_timestamp = gen_->timestamp_++;
-      if (transaction_.deltas->empty()) return;
-      for (const auto &delta : *transaction_.deltas) {
+      if (transaction_.deltas.use().empty()) return;
+      for (const auto &delta : transaction_.deltas.use()) {
         auto owner = delta.prev.Get();
         while (owner.type == memgraph::storage::PreviousPtr::Type::DELTA) {
           owner = owner.delta->prev.Get();
@@ -181,7 +164,7 @@ class DeltaGenerator final {
       if (append_transaction_end) {
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
         if (gen_->valid_) {
-          gen_->UpdateStats(commit_timestamp, transaction_.deltas->size() + 1);
+          gen_->UpdateStats(commit_timestamp, transaction_.deltas.use().size() + 1);
           for (auto &data : data_) {
             if (data.type == memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
               // We need to put the final property value into the SET_PROPERTY

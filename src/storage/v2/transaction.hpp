@@ -27,6 +27,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
 
 namespace memgraph::storage {
@@ -34,32 +35,17 @@ namespace memgraph::storage {
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
 using PmrListDelta = utils::pmr::list<Delta>;
-struct empty_deleter {
-  void operator()(PmrListDelta *p) const {
-    // auto *memory_resource = p->get_allocator().GetMemoryResource();
-    // std::cout << "call deleter for utils::pmr::list<Delta> object 0x" << std::hex << (void *)p << '\n';
-
-    // if (auto *monotonic_buffer = dynamic_cast<utils::MonotonicBufferResource *>(memory_resource);
-    //     monotonic_buffer != nullptr) {
-    //   // auto allocator = utils::Allocator<PmrListDelta>(monotonic_buffer);
-    //   // allocator.delete_object(p);
-    // }
-  }
-};
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, utils::MemoryResource *memory_resource)
+              StorageMode storage_mode)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        deltas(nullptr),
+        deltas(1024UL),
         must_abort(false),
         isolation_level(isolation_level),
-        storage_mode(storage_mode) {
-    auto *ptr_list = utils::Allocator<PmrListDelta>(memory_resource).new_object<PmrListDelta>();
-    deltas = std::unique_ptr<PmrListDelta, empty_deleter>(ptr_list, empty_deleter());
-  }
+        storage_mode(storage_mode) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id),
@@ -93,7 +79,7 @@ struct Transaction {
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
 
-  std::unique_ptr<PmrListDelta, empty_deleter> deltas;
+  Bond<PmrListDelta> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;
