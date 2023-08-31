@@ -149,7 +149,6 @@ struct Expansion {
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
   ExpansionId isomorphic_id = ExpansionId();
-  ExpansionId pattern_id = ExpansionId();
 };
 
 struct FilterMatching;
@@ -425,6 +424,9 @@ struct Matching {
   Filters filters;
   /// Maps node symbols to expansions which bind them.
   std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
+
+  size_t number_of_isomorphisms{0};
+  std::unordered_map<Symbol, ExpansionId> node_symbol_to_isomorphic_id{};
   /// Maps named path symbols to a vector of Symbols that define its pattern.
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).

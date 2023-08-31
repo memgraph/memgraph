@@ -500,33 +500,11 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> GenerateExpansionForPattern(
-      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
-      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
-      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
-      const ExpansionId isomorphic_id, const ExpansionId pattern_id) {
-    for (const auto &expansion : matching.expansions) {
-      if (expansion.isomorphic_id != isomorphic_id) {
-        continue;
-      }
-      if (expansion.pattern_id != pattern_id) {
-        continue;
-      }
-
-      last_op = GenerateExpansion(std::move(last_op), matching, expansion, symbol_table, storage, bound_symbols,
-                                  new_symbols, named_paths, filters, view);
-    }
-
-    return last_op;
-  }
-
   std::unique_ptr<LogicalOperator> GenerateIsomorphicExpansion(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
       ExpansionId isomorphic_id) {
-    std::unordered_set<Symbol> initial_bound_symbols = bound_symbols;
-
     for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
       const auto &expansion = matching.expansions[i];
 
@@ -534,59 +512,10 @@ class RuleBasedPlanner {
         continue;
       }
 
-      std::vector<Symbol> new_isomorphic_symbols;
-      std::unordered_set<Symbol> new_bound_symbols = initial_bound_symbols;
-
       // When we picked a pattern to expand, we expand it through the end
-      last_op = GenerateExpansionForPattern(std::move(last_op), matching, symbol_table, storage, new_bound_symbols,
-                                            new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id,
-                                            expansion.pattern_id);
-
-      new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
-      new_isomorphic_symbols.clear();
-      bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
-      new_bound_symbols = initial_bound_symbols;
-
-      std::set<ExpansionId> visited_pattern_expansions{expansion.pattern_id};
-      // We want to search through different patterns in same Cyphermorphism
-      for (size_t j = i + 1; j < size; j++) {
-        const auto &new_expansion = matching.expansions[j];
-
-        // 1. new isomorphic id -> new cartesian product without Cyphermorphism
-        // 2. we don't want to expand on the same pattern because we already did this
-        if (new_expansion.isomorphic_id != expansion.isomorphic_id ||
-            visited_pattern_expansions.contains(new_expansion.pattern_id)) {
-          continue;
-        }
-
-        // we now have a new pattern which needs to account for cyphermorphism
-        // add now a cartesian + uniqueness filter
-        std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
-        std::unique_ptr<LogicalOperator> once = std::make_unique<Once>(once_symbols);
-
-        std::unique_ptr<LogicalOperator> right_expansion_op = GenerateExpansionForPattern(
-            std::move(once), matching, symbol_table, storage, new_bound_symbols, new_isomorphic_symbols, named_paths,
-            filters, view, new_expansion.isomorphic_id, new_expansion.pattern_id);
-
-        last_op = GenerateCartesian(std::move(last_op), std::move(right_expansion_op), symbol_table);
-
-        for (const auto &new_symbol : new_isomorphic_symbols) {
-          if (new_symbol.type_ == Symbol::Type::EDGE) {
-            last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, bound_symbols);
-          }
-        }
-
-        visited_pattern_expansions.insert(new_expansion.pattern_id);
-
-        new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
-        new_isomorphic_symbols.clear();
-        bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
-        new_bound_symbols = initial_bound_symbols;
-      }
-
-      break;
+      last_op = GenerateExpansion(std::move(last_op), matching, expansion, symbol_table, storage, bound_symbols,
+                                  new_symbols, named_paths, filters, view);
     }
-
     return last_op;
   }
 
@@ -621,6 +550,7 @@ class RuleBasedPlanner {
                                          new_symbols, named_paths, filters, view, matching.expansions[0].isomorphic_id);
     }
 
+    std::unordered_set<Symbol> initial_bound_symbols = bound_symbols;
     std::set<ExpansionId> visited_isomorphic_expansions;
     for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
       const auto &expansion = matching.expansions[i];
@@ -630,15 +560,20 @@ class RuleBasedPlanner {
         continue;
       }
 
+      std::vector<Symbol> new_isomorphic_symbols;
+      std::unordered_set<Symbol> new_bound_symbols = initial_bound_symbols;
       std::vector<Symbol> once_symbols{bound_symbols.begin(), bound_symbols.end()};
       std::unique_ptr<LogicalOperator> once = std::make_unique<Once>(once_symbols);
       std::unique_ptr<LogicalOperator> previous_op =
           visited_isomorphic_expansions.empty() ? std::move(last_op) : std::move(once);
       std::unique_ptr<LogicalOperator> isomorphic_expansion =
-          GenerateIsomorphicExpansion(std::move(previous_op), matching, symbol_table, storage, bound_symbols,
-                                      new_symbols, named_paths, filters, view, expansion.isomorphic_id);
+          GenerateIsomorphicExpansion(std::move(previous_op), matching, symbol_table, storage, new_bound_symbols,
+                                      new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
 
       visited_isomorphic_expansions.insert(expansion.isomorphic_id);
+
+      new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
+      bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
 
       if (visited_isomorphic_expansions.size() == 1) {
         last_op = std::move(isomorphic_expansion);
@@ -646,6 +581,12 @@ class RuleBasedPlanner {
       }
 
       last_op = GenerateCartesian(std::move(last_op), std::move(isomorphic_expansion), symbol_table);
+
+      for (const auto &new_symbol : new_isomorphic_symbols) {
+        if (new_symbol.type_ == Symbol::Type::EDGE) {
+          last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, bound_symbols);
+        }
+      }
     }
 
     return last_op;

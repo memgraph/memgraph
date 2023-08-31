@@ -53,17 +53,16 @@ void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
 // (m) -[e]- (n), (n) -[f]- (o).
 // This representation makes it easier to permute from which node or edge we
 // want to start expanding.
-std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns,
-                                         ExpansionId isomorphic_id) {
+std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
+  ExpansionId unknown_expansion_id = ExpansionId::FromInt(-1);
   auto ignore_node = [&](auto *) {};
   for (size_t i = 0, size = patterns.size(); i < size; i++) {
     const auto &pattern = patterns[i];
-    ExpansionId pattern_id = ExpansionId::FromUint(i + 1);
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
-      expansions.emplace_back(Expansion{.node1 = node, .isomorphic_id = isomorphic_id, .pattern_id = pattern_id});
+      expansions.emplace_back(Expansion{.node1 = node, .isomorphic_id = unknown_expansion_id});
     } else {
       auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
         UsedSymbolsCollector collector(symbol_table);
@@ -81,7 +80,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
           }
         }
         expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
-                                          isomorphic_id, pattern_id});
+                                          unknown_expansion_id});
       };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
@@ -492,10 +491,26 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
-  auto pattern_id = ExpansionId::FromUint(matching.expansions.size() + 1);
-  auto expansions = NormalizePatterns(symbol_table, patterns, pattern_id);
+  ExpansionId next_isomorphic_id = ExpansionId::FromUint(matching.number_of_isomorphisms + 1);
+
+  auto assign_isomorphic_id = [&matching, &next_isomorphic_id](Symbol symbol, Expansion &expansion) {
+    auto isomorphic_id_to_assign = next_isomorphic_id;
+    if (matching.node_symbol_to_isomorphic_id.contains(symbol)) {
+      isomorphic_id_to_assign = matching.node_symbol_to_isomorphic_id[symbol];
+    }
+
+    if (expansion.isomorphic_id.AsInt() == -1) {
+      expansion.isomorphic_id = isomorphic_id_to_assign;
+    } else if (isomorphic_id_to_assign.AsInt() < expansion.isomorphic_id.AsInt()) {
+      expansion.isomorphic_id = isomorphic_id_to_assign;
+    }
+
+    matching.node_symbol_to_isomorphic_id[symbol] = expansion.isomorphic_id;
+  };
+
+  auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
-  for (const auto &expansion : expansions) {
+  for (auto &expansion : expansions) {
     // Matching may already have some expansions, so offset our index.
     const size_t expansion_ix = matching.expansions.size();
     // Map node1 symbol to expansion
@@ -503,6 +518,9 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
     // Add node1 to all symbols.
     matching.expansion_symbols.insert(node1_sym);
+
+    assign_isomorphic_id(node1_sym, expansion);
+
     if (expansion.edge) {
       const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
       // Fill edge symbols for Cyphermorphism.
@@ -513,9 +531,18 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
       // Add edge and node2 to all symbols
       matching.expansion_symbols.insert(edge_sym);
       matching.expansion_symbols.insert(node2_sym);
+
+      assign_isomorphic_id(edge_sym, expansion);
+      assign_isomorphic_id(node2_sym, expansion);
     }
+
     matching.expansions.push_back(expansion);
+    matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.isomorphic_id.AsUint()
+                                          ? expansion.isomorphic_id.AsUint()
+                                          : matching.number_of_isomorphisms;
+    next_isomorphic_id = ExpansionId::FromUint(matching.number_of_isomorphisms + 1);
   }
+
   if (!edge_symbols.empty()) {
     matching.edge_symbols.emplace_back(edge_symbols);
   }
@@ -531,6 +558,10 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   }
   if (where) {
     matching.filters.CollectWhereFilter(*where, symbol_table);
+  }
+
+  for (const auto &expansion : matching.expansions) {
+    MG_ASSERT(expansion.isomorphic_id.AsInt() != -1, "Expansion isomorphic ID is not assigned to the pattern!");
   }
 }
 
