@@ -218,16 +218,15 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!mem_storage->SetMainReplicationRole()) {
+      if (!db_->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
     } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
-      if (!mem_storage->SetReplicaRole(
+      if (!db_->SetReplicaRole(
               io::network::Endpoint(storage::replication::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)),
               storage::replication::ReplicationServerConfig{})) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -237,7 +236,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
-    switch (static_cast<storage::InMemoryStorage *>(db_)->GetReplicationRole()) {
+    switch (db_->GetReplicationRole()) {
       case storage::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
       case storage::replication::ReplicationRole::REPLICA:
@@ -250,8 +249,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-    if (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
@@ -276,9 +274,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, storage::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret = mem_storage->RegisterReplica(
-          name, {std::move(ip), port}, repl_mode, storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
-          {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                      {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -289,26 +287,23 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void DropReplica(const std::string &replica_name) override {
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-
-    if (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
-    if (!mem_storage->UnregisterReplica(replica_name)) {
+    if (!db_->UnregisterReplica(replica_name)) {
       throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
     }
   }
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_);
-    if (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
 
-    auto repl_infos = mem_storage->ReplicasInfo();
+    auto repl_infos = db_->ReplicasInfo();
     std::vector<Replica> replicas;
     replicas.reserve(repl_infos.size());
 
@@ -1334,8 +1329,7 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
                                      const query::plan::ReadWriteTypeChecker::RWType query_type) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-    return (mem_storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) &&
+    return (storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) &&
            (query_type == RWType::W || query_type == RWType::RW);
   }
   return false;
@@ -1344,8 +1338,7 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
 storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-    return mem_storage->GetReplicationRole();
+    return storage->GetReplicationRole();
   }
   return storage::replication::ReplicationRole::MAIN;
 }

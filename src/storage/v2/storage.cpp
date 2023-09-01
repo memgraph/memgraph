@@ -51,7 +51,9 @@ Storage::Storage(Config config, StorageMode storage_mode)
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      id_(config.name) {}
+      id_(config.name),
+      replication_state_(config_.durability.restore_replication_state_on_startup,
+                         config_.durability.storage_directory) {}
 
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),

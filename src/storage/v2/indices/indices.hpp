@@ -12,28 +12,14 @@
 #pragma once
 
 #include <memory>
-#include "storage/v2/disk/label_index.hpp"
-#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
-#include "storage/v2/inmemory/label_index.hpp"
-#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode) {
-    std::invoke([this, config, storage_mode]() {
-      if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-        label_index_ = std::make_unique<InMemoryLabelIndex>(this, config);
-        label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(this, config);
-      } else {
-        label_index_ = std::make_unique<DiskLabelIndex>(this, config);
-        label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(this, config);
-      }
-    });
-  }
+  Indices(Constraints *constraints, const Config &config, StorageMode storage_mode);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
