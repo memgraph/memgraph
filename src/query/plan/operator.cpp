@@ -960,7 +960,9 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("ExpandVariable");
+    self_.dba_ = context.db_accessor;
+    SCOPED_PROFILE_OP_NEW(self_);
+    self_.dba_ = nullptr;
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);

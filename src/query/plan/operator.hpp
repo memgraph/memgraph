@@ -993,10 +993,38 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
+  mutable DbAccessor *dba_{nullptr};
 
-  // TODO ante
-  // std::string ToString() const override {
-  // }
+  std::string OperatorName() const {
+    using Type = query::EdgeAtom::Type;
+    switch (type_) {
+      case Type::DEPTH_FIRST:
+        return "ExpandVariable";
+        break;
+      case Type::BREADTH_FIRST:
+        return (common_.existing_node ? "STShortestPath" : "BFSExpand");
+        break;
+      case Type::WEIGHTED_SHORTEST_PATH:
+        return "WeightedShortestPath";
+        break;
+      case Type::ALL_SHORTEST_PATHS:
+        return "AllShortestPaths";
+        break;
+      case Type::SINGLE:
+        LOG_FATAL("Unexpected ExpandVariable::type_");
+      default:
+        LOG_FATAL("Unexpected ExpandVariable::type_");
+    }
+  }
+
+  std::string ToString() const override {
+    return OperatorName() + " (" + input_symbol_.name() + ")" +
+           (common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") + "[" + common_.edge_symbol.name() +
+           utils::IterableToString(common_.edge_types, "|",
+                                   [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }) +
+           "]" + (common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") + "(" +
+           common_.node_symbol.name() + ")";
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ExpandVariable>();
