@@ -54,13 +54,18 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuite = "interpreter";
   const std::string testSuiteCsv = "interpreter_csv";
 
-  InterpreterTest()
-      : data_directory(std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"),
-        storage(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite))),
-        interpreter_context(storage.get(), {.execution_timeout_sec = 600}, data_directory) {}
+  InterpreterTest() : interpreter_context({.execution_timeout_sec = 600}, nullptr) {}
 
-  std::filesystem::path data_directory;
-  std::unique_ptr<StorageType> storage;
+  std::shared_ptr<memgraph::dbms::Database> db = [&]() {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
+    } else {
+      auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
+      tmp.force_on_disk = true;
+      return std::make_shared<memgraph::dbms::Database>(tmp);
+    }
+  }();  // iile
+
   memgraph::query::InterpreterContext interpreter_context;
 
   void TearDown() override {
@@ -70,7 +75,7 @@ class InterpreterTest : public ::testing::Test {
     }
   }
 
-  InterpreterFaker default_interpreter{&interpreter_context};
+  InterpreterFaker default_interpreter{&interpreter_context, db};
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
     return default_interpreter.Prepare(query, params);
@@ -318,7 +323,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    auto storage_dba = this->interpreter_context.db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
@@ -1096,11 +1101,15 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
         "row"};
 
-    std::unique_ptr<TypeParam> storage =
-        std::make_unique<TypeParam>(disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv));
-    memgraph::query::InterpreterContext csv_interpreter_context{
-        storage.get(), {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
-    InterpreterFaker interpreter_faker{&csv_interpreter_context};
+    std::shared_ptr<memgraph::dbms::Database> db;
+    if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+      db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
+    } else {
+      db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{.force_on_disk = true});
+    }
+
+    memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}}, nullptr};
+    InterpreterFaker interpreter_faker{&csv_interpreter_context, db};
     for (const auto &query : queries) {
       if (allow_load_csv) {
         SCOPED_TRACE(fmt::format("'{}' should not throw because LOAD CSV is allowed", query));

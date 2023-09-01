@@ -23,6 +23,7 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "query/stream/streams.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -32,20 +33,31 @@ template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
   const std::string testSuite = "query_plan_edge_cases";
-  std::unique_ptr<memgraph::storage::Storage> storage_;
+  std::shared_ptr<memgraph::dbms::Database> db_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
-    storage_ = std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite));
-    interpreter_context_.emplace(storage_.get(), memgraph::query::InterpreterConfig{}, data_directory);
-    interpreter_.emplace(&*interpreter_context_);
+    db_ = [&]() {
+      if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+        return std::make_shared<memgraph::dbms::Database>(
+            memgraph::storage::Config{.durability.storage_directory = data_directory});
+      } else {
+        auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
+        tmp.force_on_disk = true;
+        tmp.durability.storage_directory = data_directory;
+        return std::make_shared<memgraph::dbms::Database>(tmp);
+      }
+    }();  // iile
+
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
+    interpreter_.emplace(&*interpreter_context_, db_);
   }
 
   void TearDown() {
-    storage_.reset();
+    db_.reset();
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
 
@@ -60,7 +72,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(this->interpreter_context_->db);
+    ResultStreamFaker stream(this->db_->storage());
 
     auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
     stream.Header(header);

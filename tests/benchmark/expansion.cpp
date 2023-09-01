@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <benchmark/benchmark.h>
+#include <memory>
 
 #include "communication/result_stream_faker.hpp"
 #include "query/config.hpp"
@@ -25,11 +26,11 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
   void SetUp(const benchmark::State &state) override {
-    memgraph::storage::InMemoryStorage inmem(memgraph::storage::Config{});
-    memgraph::storage::Storage *db = &inmem;
-    interpreter_context.emplace(db, memgraph::query::InterpreterConfig{}, data_directory);
+    std::shared_ptr<memgraph::dbms::Database> db =
+        std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
 
-    auto label = db->NameToLabel("Starting");
+    auto label = db->storage()->NameToLabel("Starting");
 
     {
       auto dba = db->Access();
@@ -46,9 +47,9 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       MG_ASSERT(!dba->Commit().HasError());
     }
 
-    MG_ASSERT(!db->CreateIndex(label).HasError());
+    MG_ASSERT(!db->storage()->CreateIndex(label).HasError());
 
-    interpreter.emplace(&*interpreter_context);
+    interpreter.emplace(&*interpreter_context, db);
   }
 
   void TearDown(const benchmark::State &) override {
