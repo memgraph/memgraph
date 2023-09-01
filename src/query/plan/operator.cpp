@@ -347,7 +347,9 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
 }  // namespace
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+  self_.dba_ = context.db_accessor;
   SCOPED_PROFILE_OP_NEW(self_);
+  self_.dba_ = nullptr;
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -741,7 +743,9 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *me
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+  self_.dba_ = context.db_accessor;
   SCOPED_PROFILE_OP_NEW(self_);
+  self_.dba_ = nullptr;
 
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
