@@ -403,6 +403,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
+    // TODO(gitbuda): Add the current storage mode info (figure out the best place).
 #ifdef MG_ENTERPRISE
     telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
       const auto &info = sc_handler.Info();
