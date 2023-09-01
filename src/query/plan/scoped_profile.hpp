@@ -37,8 +37,9 @@ class ScopedProfile {
       if (!root_) {
         stats_ = &context_->stats;
         stats_->key = key;
+        op.dba_ = context->db_accessor;
         stats_->name = op.ToString();
-        // stats_->name = OperatorPrinter(context->db_accessor).ToString(op);
+        op.dba_ = nullptr;
       } else {
         stats_ = nullptr;
 
@@ -50,8 +51,9 @@ class ScopedProfile {
           root_->children.emplace_back();
           stats_ = &root_->children.back();
           stats_->key = key;
+          op.dba_ = context->db_accessor;
           stats_->name = op.ToString();
-          // stats_->name = OperatorPrinter(context->db_accessor).ToString(op);
+          op.dba_ = nullptr;
         } else {
           stats_ = &(*it);
         }

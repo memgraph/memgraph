@@ -154,6 +154,7 @@ class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisito
 
 class NamedOperator {
  public:
+  mutable DbAccessor *dba_{nullptr};
   virtual std::string ToString() const = 0;
 };
 
@@ -471,7 +472,6 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   Symbol input_symbol_;
   /// if the given node atom refers to an existing node (either matched or created)
   bool existing_node_;
-  mutable DbAccessor *dba_{nullptr};
 
   std::string ToString() const override {
     return "CreateExpand (" + input_symbol_.name() + ")" +
@@ -546,7 +546,6 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// command. With @c storage::View::NEW, all vertices will be produced the current
   /// transaction sees along with their modifications.
   storage::View view_;
-  mutable DbAccessor *dba_{nullptr};
 
   std::string ToString() const override { return "ScanAll (" + output_symbol_.name() + ")"; }
 
@@ -876,7 +875,6 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpandCommon common_;
   /// State from which the input node should get expanded.
   storage::View view_;
-  mutable DbAccessor *dba_{nullptr};
 
   std::string ToString() const override {
     return "Expand (" + input_symbol_.name() + ")" +
@@ -993,7 +991,6 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
-  mutable DbAccessor *dba_{nullptr};
 
   std::string OperatorName() const {
     using Type = query::EdgeAtom::Type;
