@@ -52,8 +52,3 @@ struct Bond {
   std::unique_ptr<resource> res_{nullptr};
   Container *container_{nullptr};
 };
-
-// void func(){
-//     using list = memgraph::utils::pmr::list<memgraph::storage::Delta>;
-//     Bond<list> my_list;
-// }
