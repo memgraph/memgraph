@@ -689,3 +689,20 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
       "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, properties: "
       "{key: node_property, key2: node_property2})-[type: Loves2, id: 1, properties: {}]->(id: 4, properties: {})");
 }
+
+TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Relationship1");
+  auto relationship2 = graph.CreateRelationship(node_1, node_2, "Relationship2");
+  auto relationship3 = graph.CreateRelationship(node_1, node_2, "Relationship3");
+  auto relationship4 = graph.CreateRelationship(node_1, node_2, "Relationship4");
+
+  size_t in_degrees = node_2.InDegree();
+  size_t out_degrees = node_1.OutDegree();
+
+  ASSERT_EQ(in_degrees, 4);
+  ASSERT_EQ(out_degrees, 4);
+}
