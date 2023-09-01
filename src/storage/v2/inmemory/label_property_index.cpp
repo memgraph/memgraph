@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/inmemory/indices_utils.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 
 namespace memgraph::storage {
 
@@ -67,6 +67,9 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
 
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+
+  indices_by_property_[property].insert({label, &index_.at({label, property})});
+
   if (!emplaced) {
     // Index already exists.
     return false;
@@ -75,6 +78,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   if (parallel_exec_info) {
     return create_index_par(label, property, vertices, it, *parallel_exec_info);
   }
+
   return create_index_seq(label, property, vertices, it);
 }
 
@@ -97,18 +101,26 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   if (value.IsNull()) {
     return;
   }
-  for (auto &[label_prop, storage] : index_) {
-    if (label_prop.second != property) {
-      continue;
-    }
-    if (utils::Contains(vertex->labels, label_prop.first)) {
-      auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
-    }
+
+  if (!indices_by_property_.contains(property)) {
+    return;
+  }
+
+  for (const auto &[_, storage] : indices_by_property_.at(property)) {
+    auto acc = storage->access();
+    acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
+  if (indices_by_property_.find(property) != indices_by_property_.end()) {
+    indices_by_property_.at(property).erase(label);
+
+    if (indices_by_property_.at(property).empty()) {
+      indices_by_property_.erase(property);
+    }
+  }
+
   return index_.erase({label, property}) > 0;
 }
 

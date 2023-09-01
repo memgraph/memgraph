@@ -10,7 +10,6 @@
 # licenses/APL.txt.
 
 import sys
-import typing
 
 import pytest
 from common import connect, execute_and_fetch_all
