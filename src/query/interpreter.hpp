@@ -247,9 +247,8 @@ class Interpreter;
 /// TODO: andi decouple in a separate file why here?
 
 struct InterpreterContext {
-  InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
-                     const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
-                     query::AuthChecker *ac = nullptr, memgraph::dbms::NewSessionHandler *db_handler = nullptr);
+  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::NewSessionHandler *db_handler,
+                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
 
   memgraph::dbms::NewSessionHandler *db_handler;
 

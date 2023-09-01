@@ -10,15 +10,10 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "audit/log.hpp"
 #include "communication/v2/server.hpp"
 #include "glue/SessionHL.hpp"
 #include "query/interpreter.hpp"
-
-#ifdef MG_ENTERPRISE
-#include "dbms/session_context_handler.hpp"
-#else
-#include "dbms/session_context.hpp"
-#endif
 
 #ifdef MG_ENTERPRISE
 

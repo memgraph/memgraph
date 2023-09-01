@@ -329,8 +329,8 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
-  memgraph::query::InterpreterContext interpreter_context_(nullptr, interp_config, {}, auth_handler.get(),
-                                                           auth_checker.get(), &new_handler);
+  memgraph::query::InterpreterContext interpreter_context_(interp_config, &new_handler, auth_handler.get(),
+                                                           auth_checker.get());
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);

@@ -10,44 +10,13 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "audit/log.hpp"
+#include "auth/auth.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
-#include "dbms/session_context.hpp"
 #include "query/interpreter.hpp"
 
-#ifdef MG_ENTERPRISE
-#include "dbms/session_context_handler.hpp"
-#else
-#include "dbms/session_context.hpp"
-#endif
-
 namespace memgraph::glue {
-
-struct ContextWrapper {
-  explicit ContextWrapper(memgraph::dbms::SessionContext sc);
-  ~ContextWrapper();
-
-  ContextWrapper(const ContextWrapper &) = delete;
-  ContextWrapper &operator=(const ContextWrapper &) = delete;
-
-  ContextWrapper(ContextWrapper &&in) noexcept;
-  ContextWrapper &operator=(ContextWrapper &&in) noexcept;
-
-  void Defunct();
-  memgraph::query::InterpreterContext *interpreter_context();
-  memgraph::query::Interpreter *interp();
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth() const;
-  std::string run_id() const;
-  bool defunct() const;
-#ifdef MG_ENTERPRISE
-  memgraph::audit::Log *audit_log() const;
-#endif
-
- private:
-  memgraph::dbms::SessionContext session_context;
-  std::unique_ptr<memgraph::query::Interpreter> interpreter;
-  bool defunct_;
-};
 
 class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                       memgraph::communication::v2::OutputStream> {

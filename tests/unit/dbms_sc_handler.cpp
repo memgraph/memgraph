@@ -8,7 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
+#if 0
 #include <system_error>
 #include "query/interpreter.hpp"
 #ifdef MG_ENTERPRISE
@@ -41,8 +41,6 @@ class TestInterface : public memgraph::dbms::SessionInterface {
   }
   std::string UUID() const override { return std::to_string(id_); }
   std::string GetDatabaseName() const override { return db_; }
-  memgraph::dbms::SetForResult OnChange(const std::string &name) override { return on_change_(name); }
-  bool OnDelete(const std::string &name) override { return on_delete_(name); }
 
   static int id;
   int id_;
@@ -340,4 +338,5 @@ int main(int argc, char *argv[]) {
   return RUN_ALL_TESTS();
 }
 
+#endif
 #endif

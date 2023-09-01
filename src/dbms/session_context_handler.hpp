@@ -8,7 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
+#if 0
 #pragma once
 
 #include <algorithm>
@@ -673,3 +673,4 @@ static inline SessionContext Init(storage::Config &storage_config, query::Interp
 #endif
 
 }  // namespace memgraph::dbms
+#endif

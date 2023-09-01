@@ -1362,9 +1362,8 @@ storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) 
 
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, InterpreterConfig interpreter_config,
-                                       const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
-                                       query::AuthChecker *ac, memgraph::dbms::NewSessionHandler *handler)
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::NewSessionHandler *handler,
+                                       query::AuthQueryHandler *ah, query::AuthChecker *ac)
     : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, std::shared_ptr<dbms::Database> db)

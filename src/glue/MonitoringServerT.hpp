@@ -11,8 +11,8 @@
 #pragma once
 
 #include "communication/http/server.hpp"
-#include "dbms/session_context.hpp"
 #include "http_handlers/metrics.hpp"
+#include "storage/v2/storage.hpp"
 
 extern template class memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler,
                                                             memgraph::storage::Storage>;

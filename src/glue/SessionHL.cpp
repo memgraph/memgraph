@@ -267,47 +267,6 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }
 
-/// ContextWrapper
-ContextWrapper::ContextWrapper(memgraph::dbms::SessionContext sc)
-    : session_context(sc),
-      interpreter(std::make_unique<memgraph::query::Interpreter>(session_context.interpreter_context.get())),
-      defunct_(false) {}
-ContextWrapper::~ContextWrapper() { Defunct(); }
-void ContextWrapper::Defunct() {
-  if (!defunct_) {
-    session_context.interpreter_context->interpreters.WithLock(
-        [this](auto &interpreters) { interpreters.erase(interpreter.get()); });
-    defunct_ = true;
-  }
-}
-ContextWrapper::ContextWrapper(ContextWrapper &&in) noexcept
-    : session_context(std::move(in.session_context)), interpreter(std::move(in.interpreter)), defunct_(in.defunct_) {
-  in.defunct_ = true;
-}
-ContextWrapper &ContextWrapper::operator=(ContextWrapper &&in) noexcept {
-  if (this != &in) {
-    Defunct();
-    session_context = std::move(in.session_context);
-    interpreter = std::move(in.interpreter);
-    defunct_ = in.defunct_;
-    in.defunct_ = true;
-  }
-  return *this;
-}
-memgraph::query::InterpreterContext *ContextWrapper::interpreter_context() {
-  return session_context.interpreter_context.get();
-}
-memgraph::query::Interpreter *ContextWrapper::interp() { return interpreter.get(); }
-memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *ContextWrapper::auth()
-    const {
-  return session_context.auth;
-}
-std::string ContextWrapper::run_id() const { return session_context.run_id; }
-bool ContextWrapper::defunct() const { return defunct_; }
-#ifdef MG_ENTERPRISE
-memgraph::audit::Log *ContextWrapper::audit_log() const { return session_context.audit_log; }
-#endif
-
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
     const std::map<std::string, memgraph::query::TypedValue> &summary) {
   std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
