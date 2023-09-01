@@ -152,8 +152,7 @@ class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisito
   using typename LogicalOperatorLeafVisitor::ReturnType;
 };
 
-// Temporary (will add ToString to all operators)
-class NamedOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor> {
+class NamedOperator {
  public:
   virtual std::string ToString() const = 0;
 };
@@ -163,7 +162,8 @@ class NamedOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor
 /// Each operator describes an operation, which is to be performed on the
 /// database. Operators are iterated over using a @c Cursor. Various operators
 /// can serve as inputs to others and thus a sequence of operations is formed.
-class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor> {
+class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor>,
+                        public memgraph::query::plan::NamedOperator {
  public:
   static const utils::TypeInfo kType;
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -176,6 +176,8 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
    *     the lifetime of the returned Cursor.
    */
   virtual UniqueCursorPtr MakeCursor(utils::MemoryResource *) const = 0;
+
+  std::string ToString() const override { return GetTypeInfo().name; }
 
   /** Return @c Symbol vector where the query results will be stored.
    *
@@ -511,7 +513,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
 /// @sa ScanAllByLabel
 /// @sa ScanAllByLabelPropertyRange
 /// @sa ScanAllByLabelPropertyValue
-class ScanAll : public memgraph::query::plan::LogicalOperator, public memgraph::query::plan::NamedOperator {
+class ScanAll : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -535,8 +537,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator, public memgraph::
   /// command. With @c storage::View::NEW, all vertices will be produced the current
   /// transaction sees along with their modifications.
   storage::View view_;
-
-  std::string ToString() const override { return "ScanAll (" + output_symbol_.name() + ")"; }
+  mutable DbAccessor *dba_{nullptr};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAll>();
@@ -675,6 +676,11 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
   storage::PropertyId property_;
   std::string property_name_;
   Expression *expression_;
+
+  std::string ToString() const override {
+    return "ScanAllByLabelPropertyValue (" + output_symbol_.name() + " :" + dba_->LabelToName(label_) + " {" +
+           dba_->PropertyToName(property_) + "})";
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelPropertyValue>();
@@ -1073,7 +1079,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 /// every input Pull (typically a MATCH/RETURN query).
 /// When the input is not provided (typically a standalone
 /// RETURN clause) the Produce's pull succeeds exactly once.
-class Produce : public memgraph::query::plan::LogicalOperator, public memgraph::query::plan::NamedOperator {
+class Produce : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }

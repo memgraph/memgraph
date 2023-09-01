@@ -38,6 +38,7 @@ class ScopedProfile {
         stats_ = &context_->stats;
         stats_->key = key;
         stats_->name = op.ToString();
+        // stats_->name = OperatorPrinter(context->db_accessor).ToString(op);
       } else {
         stats_ = nullptr;
 
@@ -50,6 +51,7 @@ class ScopedProfile {
           stats_ = &root_->children.back();
           stats_->key = key;
           stats_->name = op.ToString();
+          // stats_->name = OperatorPrinter(context->db_accessor).ToString(op);
         } else {
           stats_ = &(*it);
         }
