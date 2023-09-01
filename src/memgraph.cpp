@@ -9,15 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/config.hpp"
-#include "query/interpreter.hpp"
-#ifndef MG_ENTERPRISE
-#include "dbms/session_context_handler.hpp"
-#endif
-
 #include "audit/log.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "dbms/constants.hpp"
 #include "flags/all.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
@@ -25,7 +20,9 @@
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
+#include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
+#include "query/interpreter.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
@@ -392,7 +389,7 @@ int main(int argc, char **argv) {
 #endif
 
   const auto machine_id = memgraph::utils::GetMachineId();
-  const auto run_id = memgraph::utils::GenerateUUID();  // For current compatibility
+  const auto run_id = memgraph::utils::GenerateUUID();
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
@@ -431,18 +428,19 @@ int main(int argc, char **argv) {
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
   // TODO: Make multi-tenant
-  // memgraph::glue::MonitoringServerT metrics_server{
-  //     {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, session_context.db.get(), &context};
+  memgraph::glue::MonitoringServerT metrics_server{{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)},
+                                                   new_handler.Get(memgraph::dbms::kDefaultDB)->storage(),
+                                                   &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    auto shutdown = [/*&metrics_server, */ &websocket_server, &server] {
+    auto shutdown = [&metrics_server, &websocket_server, &server] {
       // Server needs to be shutdown first and then the database. This prevents
       // a race condition when a transaction is accepted during server shutdown.
       server.Shutdown();
       websocket_server.Shutdown();
-      // metrics_server.Shutdown();
+      metrics_server.Shutdown();
     };
 
     InitSignalHandlers(shutdown);
@@ -483,9 +481,9 @@ int main(int argc, char **argv) {
   websocket_server.Start();
 
 #ifdef MG_ENTERPRISE
-  // if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-  //   metrics_server.Start();
-  // }
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.Start();
+  }
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
@@ -504,9 +502,9 @@ int main(int argc, char **argv) {
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
 #ifdef MG_ENTERPRISE
-  // if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-  //   metrics_server.AwaitShutdown();
-  // }
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.AwaitShutdown();
+  }
 #endif
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
