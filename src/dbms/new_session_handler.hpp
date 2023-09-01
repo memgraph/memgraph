@@ -62,11 +62,11 @@ class NewSessionHandler {
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, std::shared_ptr<Database>>;
 
-  // struct Statistics {
-  //   uint64_t num_vertex;     //!< Sum of vertexes in every database
-  //   uint64_t num_edges;      //!< Sum of edges in every database
-  //   uint64_t num_databases;  //! number of isolated databases
-  // };
+  struct Statistics {
+    uint64_t num_vertex;     //!< Sum of vertexes in every database
+    uint64_t num_edges;      //!< Sum of edges in every database
+    uint64_t num_databases;  //! number of isolated databases
+  };
 
   /**
    * @brief Initialize the handler.
@@ -75,8 +75,7 @@ class NewSessionHandler {
    * @param configs storage and interpreter configurations
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  NewSessionHandler(storage::Config config)
-      : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)}, run_id_{utils::GenerateUUID()} {
+  NewSessionHandler(storage::Config config) : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)} {
     // Update
     const auto &root = default_config_->durability.storage_directory;
     utils::EnsureDirOrDie(root);
@@ -106,10 +105,6 @@ class NewSessionHandler {
     // Generate the default database
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
   }
-
-  //   void Shutdown() {
-  //     for (auto &ic : interp_handler_) memgraph::query::Shutdown(ic.second.get().get());
-  //   }
 
   /**
    * @brief Create a new SessionContext associated with the "name" database
@@ -287,62 +282,50 @@ class NewSessionHandler {
     return db_handler_.All();
   }
 
-  //   /**
-  //    * @brief Return the number of vertex across all databases.
-  //    *
-  //    * @return uint64_t
-  //    */
-  //   Statistics Info() const {
-  //     // TODO: Handle overflow
-  //     uint64_t nv = 0;
-  //     uint64_t ne = 0;
-  //     std::shared_lock<LockT> rd(lock_);
-  //     const uint64_t ndb = std::distance(db_handler_.cbegin(), db_handler_.cend());
-  //     for (const auto &[_, db] : db_handler_) {
-  //       const auto &info = db->GetInfo();
-  //       nv += info.vertex_count;
-  //       ne += info.edge_count;
-  //     }
-  //     return {nv, ne, ndb};
-  //   }
+  /**
+   * @brief Return the number of vertex across all databases.
+   *
+   * @return uint64_t
+   */
+  Statistics Info() const {
+    // TODO: Handle overflow?
+    uint64_t nv = 0;
+    uint64_t ne = 0;
+    std::shared_lock<LockT> rd(lock_);
+    const uint64_t ndb = std::distance(db_handler_.cbegin(), db_handler_.cend());
+    for (const auto &[_, db] : db_handler_) {
+      const auto &info = db->GetInfo();
+      nv += info.vertex_count;
+      ne += info.edge_count;
+    }
+    return {nv, ne, ndb};
+  }
 
-  //   /**
-  //    * @brief Return the currently active database for a particular session.
-  //    *
-  //    * @param uuid session's unique identifier
-  //    * @return std::string name of the database
-  //    * @throw
-  //    */
-  //   std::string Current(const std::string &uuid) const {
-  //     std::shared_lock<LockT> rd(lock_);
-  //     return sessions_.at(uuid).GetDatabaseName();
-  //   }
+  /**
+   * @brief Restore triggers for all currently defined databases.
+   * @note: Triggers can execute query procedures, so we need to reload the modules first and then the triggers
+   */
+  void RestoreTriggers(query::InterpreterContext *ic) {
+    std::lock_guard<LockT> wr(lock_);
+    for (auto &[_, db] : db_handler_) {
+      spdlog::debug("Restoring trigger for database \"{}\"", db->id());
+      auto storage_accessor = db->Access();
+      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+      db->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+    }
+  }
 
-  //   /**
-  //    * @brief Restore triggers for all currently defined databases.
-  //    * @note: Triggers can execute query procedures, so we need to reload the modules first and then the triggers
-  //    */
-  //   void RestoreTriggers() {
-  //     std::lock_guard<LockT> wr(lock_);
-  //     for (auto &[_, ic] : interp_handler_) {
-  //       spdlog::debug("Restoring trigger for database \"{}\"", ic->db->id());
-  //       auto storage_accessor = ic->db->Access();
-  //       auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-  //       ic->trigger_store.RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
-  //     }
-  //   }
-
-  //   /**
-  //    * @brief Restore streams of all currently defined databases.
-  //    * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  //    */
-  //   void RestoreStreams() {
-  //     std::lock_guard<LockT> wr(lock_);
-  //     for (auto &[_, ic] : interp_handler_) {
-  //       spdlog::debug("Restoring streams for database \"{}\"", ic->db->id());
-  //       ic->streams.RestoreStreams();
-  //     }
-  //   }
+  /**
+   * @brief Restore streams of all currently defined databases.
+   * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
+   */
+  void RestoreStreams(query::InterpreterContext *ic) {
+    std::lock_guard<LockT> wr(lock_);
+    for (auto &[_, db] : db_handler_) {
+      spdlog::debug("Restoring streams for database \"{}\"", db->id());
+      db->streams()->RestoreStreams(db.get(), ic);
+    }
+  }
 
   //   void SwitchMemoryDevice(std::string_view name) {
   //     std::shared_lock<LockT> rd(lock_);
@@ -543,7 +526,6 @@ class NewSessionHandler {
   // std::unique_ptr<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>> auth_;
   // std::unique_ptr<query::AuthQueryHandler> auth_handler_;
   // std::unique_ptr<query::AuthChecker> auth_checker_;
-  const std::string run_id_;  //!< run's unique identifier (auto generated)
   // memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
   // std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
   // std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)

@@ -99,7 +99,8 @@ class Database {
     return storage_->Access(override_isolation_level);
   }
   const std::string &id() const { return storage_->id(); }
-  auto GetStorageMode() const { return storage_->GetStorageMode(); }
+  storage::StorageMode GetStorageMode() const { return storage_->GetStorageMode(); }
+  storage::StorageInfo GetInfo() const { return storage_->GetInfo(); }
 
   query::TriggerStore *trigger_store() { return &trigger_store_; }
 

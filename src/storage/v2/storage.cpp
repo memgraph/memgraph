@@ -63,17 +63,6 @@ Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, St
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
 
-Storage::Accessor::Accessor(std::shared_ptr<Storage> storage, IsolationLevel isolation_level, StorageMode storage_mode)
-    : storage_(storage.get()),
-      storage_sp_(std::move(storage)),
-      // The lock must be acquired before creating the transaction object to
-      // prevent freshly created transactions from dangling in an active state
-      // during exclusive operations.
-      storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
-      is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
-
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),

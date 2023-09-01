@@ -33,7 +33,6 @@ struct CommonStreamInfo {
   std::chrono::milliseconds batch_interval;
   int64_t batch_size;
   std::string transformation_name;
-  std::string database_name;
 };
 
 template <typename T>

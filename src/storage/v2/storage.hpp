@@ -83,7 +83,6 @@ class Storage {
   class Accessor {
    public:
     Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
-    Accessor(std::shared_ptr<Storage> storage, IsolationLevel isolation_level, StorageMode storage_mode);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;

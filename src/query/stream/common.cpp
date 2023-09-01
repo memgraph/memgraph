@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/stream/common.hpp"
-#include "dbms/global.hpp"
 
 #include <json/json.hpp>
 
@@ -19,14 +18,12 @@ namespace {
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kTransformationName{"transformation_name"};
-const std::string kDatabaseName{"database_name"};
 }  // namespace
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&common_info) {
   data[kBatchIntervalKey] = common_info.batch_interval.count();
   data[kBatchSizeKey] = common_info.batch_size;
   data[kTransformationName] = common_info.transformation_name;
-  data[kDatabaseName] = common_info.database_name;
 }
 
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
@@ -44,12 +41,5 @@ void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
   }
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
-
-  // TODO Better handling
-  try {
-    data.at(kDatabaseName).get_to(common_info.database_name);
-  } catch (const std::out_of_range &) {
-    common_info.database_name = dbms::kDefaultDB;
-  }
 }
 }  // namespace memgraph::query::stream

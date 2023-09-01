@@ -448,9 +448,9 @@ void Streams::RegisterPulsarProcedures() {
 
 template <Stream TStream>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
-                     std::optional<std::string> owner, InterpreterContext *ic) {
+                     std::optional<std::string> owner, std::shared_ptr<dbms::Database> db, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
-  auto it = CreateConsumer<TStream>(*locked_streams, stream_name, std::move(info), std::move(owner), ic);
+  auto it = CreateConsumer<TStream>(*locked_streams, stream_name, std::move(info), std::move(owner), std::move(db), ic);
 
   try {
     std::visit(
@@ -466,14 +466,17 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
 }
 
 template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
-                                           std::optional<std::string> owner, InterpreterContext *ic);
+                                           std::optional<std::string> owner, std::shared_ptr<dbms::Database> db,
+                                           InterpreterContext *ic);
 template void Streams::Create<PulsarStream>(const std::string &stream_name, PulsarStream::StreamInfo info,
-                                            std::optional<std::string> owner, InterpreterContext *ic);
+                                            std::optional<std::string> owner, std::shared_ptr<dbms::Database> db,
+                                            InterpreterContext *ic);
 
 template <Stream TStream>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
                                                       std::optional<std::string> owner,
+                                                      std::shared_ptr<dbms::Database> db,
                                                       InterpreterContext *interpreter_context) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
@@ -483,14 +486,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto consumer_function = [interpreter_context, memory_resource, stream_name,
                             transformation_name = stream_info.common_info.transformation_name, owner = owner,
-                            db = interpreter_context->db_handler->Get(""),
-                            interpreter = std::make_shared<Interpreter>(interpreter_context),
+                            interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db)),
                             result = mgp_result{nullptr, memory_resource},
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
-    auto accessor = db->Access();  // How is this accessor used?
-    // TODO Link interpreter and current db
+    interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
+    auto accessor = interpreter->db_->Access();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
     utils::OnScopeExit interpreter_cleanup{
@@ -553,7 +555,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   return insert_result.first;
 }
 
-void Streams::RestoreStreams(InterpreterContext *ic) {
+// TODO: Update to new Database access thing
+void Streams::RestoreStreams(std::shared_ptr<dbms::Database> db, InterpreterContext *ic) {
   spdlog::info("Loading streams...");
   auto locked_streams_map = streams_.Lock();
   MG_ASSERT(locked_streams_map->empty(), "Cannot restore streams when some streams already exist!");
@@ -578,8 +581,8 @@ void Streams::RestoreStreams(InterpreterContext *ic) {
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
       try {
-        auto it =
-            CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner), ic);
+        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner),
+                                    db, ic);
         if (status.is_running) {
           std::visit(
               [&](const auto &stream_data) {

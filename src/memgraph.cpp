@@ -354,8 +354,8 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  // sc_handler.RestoreTriggers();
-  // sc_handler.RestoreStreams();
+  new_handler.RestoreTriggers(&interpreter_context_);
+  new_handler.RestoreStreams(&interpreter_context_);
 #else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
@@ -392,35 +392,35 @@ int main(int argc, char **argv) {
 #endif
 
   const auto machine_id = memgraph::utils::GetMachineId();
-  const auto run_id = "aaaa";  // session_context.run_id;  // For current compatibility
+  const auto run_id = memgraph::utils::GenerateUUID();  // For current compatibility
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    // telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
+    telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
 #ifdef MG_ENTERPRISE
-    // telemetry->AddCollector("storage", [&sc_handler]() -> nlohmann::json {
-    //   const auto &info = sc_handler.Info();
-    //   return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
-    // });
+    telemetry->AddCollector("storage", [&new_handler]() -> nlohmann::json {
+      const auto &info = new_handler.Info();
+      return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
+    });
 #else
     telemetry->AddCollector("storage", [&interpreter_context]() -> nlohmann::json {
       auto info = interpreter_context.db->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
-      // });
+    });
 #endif
-    //   telemetry->AddCollector("event_counters", []() -> nlohmann::json {
-    //     nlohmann::json ret;
-    //     for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
-    //       ret[memgraph::metrics::GetCounterName(i)] =
-    //           memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
-    //     }
-    //     return ret;
-    //   });
-    //   telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
-    //     return memgraph::query::plan::CallProcedure::GetAndResetCounters();
-    //   });
+    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
+      nlohmann::json ret;
+      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
+        ret[memgraph::metrics::GetCounterName(i)] =
+            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
+      }
+      return ret;
+    });
+    telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
+      return memgraph::query::plan::CallProcedure::GetAndResetCounters();
+    });
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
@@ -437,20 +437,15 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
-    // auto shutdown = [&metrics_server, &websocket_server, &server, &sc_handler] {
-    //   // Server needs to be shutdown first and then the database. This prevents
-    //   // a race condition when a transaction is accepted during server shutdown.
-    //   server.Shutdown();
-    //   // After the server is notified to stop accepting and processing
-    //   // connections we tell the execution engine to stop processing all pending
-    //   // queries.
-    //   sc_handler.Shutdown();
+    auto shutdown = [/*&metrics_server, */ &websocket_server, &server] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      websocket_server.Shutdown();
+      // metrics_server.Shutdown();
+    };
 
-    //   websocket_server.Shutdown();
-    //   metrics_server.Shutdown();
-    // };
-
-    // InitSignalHandlers(shutdown);
+    InitSignalHandlers(shutdown);
   } else {
     // Handler for regular termination signals
     auto shutdown = [&websocket_server, &server, &interpreter_context_] {
@@ -468,20 +463,20 @@ int main(int argc, char **argv) {
     InitSignalHandlers(shutdown);
   }
 #else
-      // Handler for regular termination signals
-      auto shutdown = [&websocket_server, &server, &interpreter_context] {
-      // Server needs to be shutdown first and then the database. This prevents
-      // a race condition when a transaction is accepted during server shutdown.
-      server.Shutdown();
-      // After the server is notified to stop accepting and processing
-      // connections we tell the execution engine to stop processing all pending
-      // queries.
-      memgraph::query::Shutdown(&interpreter_context);
+  // Handler for regular termination signals
+  auto shutdown = [&websocket_server, &server, &interpreter_context] {
+    // Server needs to be shutdown first and then the database. This prevents
+    // a race condition when a transaction is accepted during server shutdown.
+    server.Shutdown();
+    // After the server is notified to stop accepting and processing
+    // connections we tell the execution engine to stop processing all pending
+    // queries.
+    memgraph::query::Shutdown(&interpreter_context);
 
-      websocket_server.Shutdown();
-      };
+    websocket_server.Shutdown();
+  };
 
-      InitSignalHandlers(shutdown);
+  InitSignalHandlers(shutdown);
 #endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
@@ -502,7 +497,7 @@ int main(int argc, char **argv) {
       InitFromCypherlFile(interpreter_context_, FLAGS_init_data_file);
     }
 #else
-      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+    InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
 #endif
   }
 

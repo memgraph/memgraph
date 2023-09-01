@@ -278,7 +278,7 @@ inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.st
 
 class Interpreter final {
  public:
-  explicit Interpreter(InterpreterContext *interpreter_context);
+  explicit Interpreter(InterpreterContext *interpreter_context, std::shared_ptr<dbms::Database> db = nullptr);
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;

@@ -91,7 +91,7 @@ class Streams final {
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
   /// logged. If a stream was running previously, then after restoration it will be started.
   /// This function should only be called when there are no existing streams.
-  void RestoreStreams(InterpreterContext *interpreter_context);
+  void RestoreStreams(std::shared_ptr<dbms::Database> db, InterpreterContext *interpreter_context);
 
   /// Creates a new import stream.
   /// The create implies connecting to the server to get metadata necessary to initialize the stream. This
@@ -103,7 +103,7 @@ class Streams final {
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   template <Stream TStream>
   void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner,
-              InterpreterContext *interpreter_context);
+              std::shared_ptr<dbms::Database> db, InterpreterContext *interpreter_context);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -188,7 +188,7 @@ class Streams final {
   template <Stream TStream>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                       typename TStream::StreamInfo stream_info, std::optional<std::string> owner,
-                                      InterpreterContext *interpreter_context);
+                                      std::shared_ptr<dbms::Database> db, InterpreterContext *interpreter_context);
 
   template <Stream TStream>
   void Persist(StreamStatus<TStream> &&status) {

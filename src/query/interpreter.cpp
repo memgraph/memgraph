@@ -798,7 +798,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evalu
 }
 
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
-                                                  query::stream::Streams *streams,
+                                                  std::shared_ptr<dbms::Database> db,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
   static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
@@ -827,7 +827,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
-  return [streams, interpreter_context, stream_name = stream_query->stream_name_,
+  return [db = std::move(db), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
           bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username),
@@ -836,21 +836,21 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
           default_server = interpreter_context->config.default_kafka_bootstrap_servers]() mutable {
     std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : std::move(default_server);
 
-    streams->Create<query::stream::KafkaStream>(stream_name,
-                                                {.common_info = std::move(common_stream_info),
-                                                 .topics = std::move(topic_names),
-                                                 .consumer_group = std::move(consumer_group),
-                                                 .bootstrap_servers = std::move(bootstrap),
-                                                 .configs = std::move(configs),
-                                                 .credentials = std::move(credentials)},
-                                                std::move(owner), interpreter_context);
+    db->streams()->Create<query::stream::KafkaStream>(stream_name,
+                                                      {.common_info = std::move(common_stream_info),
+                                                       .topics = std::move(topic_names),
+                                                       .consumer_group = std::move(consumer_group),
+                                                       .bootstrap_servers = std::move(bootstrap),
+                                                       .configs = std::move(configs),
+                                                       .credentials = std::move(credentials)},
+                                                      std::move(owner), db, interpreter_context);
 
     return std::vector<std::vector<TypedValue>>{};
   };
 }
 
 Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
-                                                   query::stream::Streams *streams,
+                                                   std::shared_ptr<dbms::Database> db,
                                                    InterpreterContext *interpreter_context,
                                                    const std::string *username) {
   auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
@@ -860,16 +860,16 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
-  return [streams, interpreter_context, stream_name = stream_query->stream_name_,
+  return [db = std::move(db), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
           owner = StringPointerToOptional(username),
           default_service = interpreter_context->config.default_pulsar_service_url]() mutable {
     std::string url = service_url ? std::move(*service_url) : std::move(default_service);
-    streams->Create<query::stream::PulsarStream>(
+    db->streams()->Create<query::stream::PulsarStream>(
         stream_name,
         {.common_info = std::move(common_stream_info), .topics = std::move(topic_names), .service_url = std::move(url)},
-        std::move(owner), interpreter_context);
+        std::move(owner), db, interpreter_context);
 
     return std::vector<std::vector<TypedValue>>{};
   };
@@ -890,10 +890,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     case StreamQuery::Action::CREATE_STREAM: {
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
-          callback.fn = GetKafkaCreateCallback(stream_query, evaluator, db->streams(), interpreter_context, username);
+          callback.fn = GetKafkaCreateCallback(stream_query, evaluator, db, interpreter_context, username);
           break;
         case StreamQuery::Type::PULSAR:
-          callback.fn = GetPulsarCreateCallback(stream_query, evaluator, db->streams(), interpreter_context, username);
+          callback.fn = GetPulsarCreateCallback(stream_query, evaluator, db, interpreter_context, username);
           break;
       }
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
@@ -998,7 +998,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
       callback.fn = [db = std::move(db), stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
-                     batch_limit]() mutable { return db->streams()->Check(stream_name, db, timeout, batch_limit); };
+                     batch_limit]() mutable {
+        // TODO Is this safe
+        return db->streams()->Check(stream_name, db, timeout, batch_limit);
+      };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
                                   fmt::format("Checked stream {}.", stream_query->stream_name_));
       return callback;
@@ -1364,7 +1367,8 @@ InterpreterContext::InterpreterContext(storage::Storage *db, InterpreterConfig i
                                        query::AuthChecker *ac, memgraph::dbms::NewSessionHandler *handler)
     : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
 
-Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+Interpreter::Interpreter(InterpreterContext *interpreter_context, std::shared_ptr<dbms::Database> db)
+    : db_(std::move(db)), interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
@@ -3929,6 +3933,7 @@ void Interpreter::Commit() {
   if (trigger_context && db_->trigger_store()->AfterCommitTriggers().size() > 0) {
     db_->AddTask([this, trigger_context = std::move(*trigger_context),
                   user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
+      // TODO: Should this take the db_ and not Access()?
       RunTriggersIndividually(this->db_->trigger_store()->AfterCommitTriggers(), db_->Access(),
                               this->interpreter_context_, std::move(trigger_context), &this->transaction_status_);
       user_transaction->FinalizeTransaction();
