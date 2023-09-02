@@ -245,7 +245,7 @@ struct InterpreterContext {
                               const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                               query::AuthChecker *ac = nullptr);
 
-  InterpreterContext(std::unique_ptr<storage::Storage> db, InterpreterConfig interpreter_config,
+  InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
                      const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
                      query::AuthChecker *ac = nullptr);
 
