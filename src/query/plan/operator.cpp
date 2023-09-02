@@ -69,6 +69,7 @@
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
+// NOLINTNEXTLINE
 #define ACCEPT_WITH_INPUT(class_name)                                                            \
   bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) {                         \
     if (visitor.PreVisit(*this)) {                                                               \
