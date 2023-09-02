@@ -321,13 +321,14 @@ int main(int argc, char **argv) {
       };
 
   // WIP
-  memgraph::dbms::NewSessionHandler new_handler(db_config);
-
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
                                                                                                      "auth"};
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
+
+  memgraph::dbms::NewSessionHandler new_handler(db_config, &auth_, FLAGS_data_recovery_on_startup,
+                                                FLAGS_storage_delete_on_drop);
 
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &new_handler, auth_handler.get(),
                                                            auth_checker.get());

@@ -24,6 +24,7 @@
 #include <unordered_map>
 
 #include "constants.hpp"
+#include "dbms/database_handler.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
 #include "spdlog/spdlog.h"
@@ -37,9 +38,7 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
-#include "dbms/database_handler.hpp"
-
-#include "handler.hpp"
+#include "auth/auth.hpp"
 
 #ifdef MG_ENTERPRISE
 #else
@@ -75,7 +74,11 @@ class NewSessionHandler {
    * @param configs storage and interpreter configurations
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  NewSessionHandler(storage::Config config) : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)} {
+  NewSessionHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
+      : lock_{utils::RWLock::Priority::READ},
+        default_config_{std::move(config)},
+        delete_on_drop_(delete_on_drop),
+        auth_(auth) {
     // Update
     const auto &root = default_config_->durability.storage_directory;
     utils::EnsureDirOrDie(root);
@@ -101,9 +104,28 @@ class NewSessionHandler {
     const auto &db_dir = default_config_->durability.storage_directory;
     const auto durability_dir = db_dir / ".durability";
     utils::EnsureDirOrDie(db_dir);
+    utils::EnsureDirOrDie(durability_dir);
+    durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 
     // Generate the default database
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
+
+    // Recover previous databases
+    if (recovery_on_startup) {
+      for (const auto &[name, _] : *durability_) {
+        if (name == kDefaultDB) continue;  // Already set
+        spdlog::info("Restoring database {}.", name);
+        MG_ASSERT(!New_(name).HasError(), "Failed while creating database {}.", name);
+        spdlog::info("Database {} restored.", name);
+      }
+    } else {  // Clear databases from the durability list and auth
+      auto locked_auth = auth_->Lock();
+      for (const auto &[name, _] : *durability_) {
+        if (name == kDefaultDB) continue;
+        locked_auth->DeleteDatabase(name);
+        durability_->Delete(name);
+      }
+    }
   }
 
   /**
@@ -128,74 +150,6 @@ class NewSessionHandler {
     std::shared_lock<LockT> rd(lock_);
     return Get_(name);
   }
-
-  //   /**
-  //    * @brief Set the undelying database for a particular session.
-  //    *
-  //    * @param uuid unique session identifier
-  //    * @param db_name unique database name
-  //    * @return SetForResult enum
-  //    * @throws UnknownDatabaseException, UnknownSessionException or anything OnChange throws
-  //    */
-  //   SetForResult SetFor(const std::string &uuid, const std::string &db_name) {
-  //     std::shared_lock<LockT> rd(lock_);
-  //     (void)Get_(
-  //         db_name);  // throws if db doesn't exist (TODO: Better to pass it via OnChange - but injecting dependency)
-  //     try {
-  //       auto &s = sessions_.at(uuid);
-  //       return s.OnChange(db_name);
-  //     } catch (std::out_of_range &) {
-  //       throw UnknownSessionException("Unknown session \"{}\"", uuid);
-  //     }
-  //   }
-
-  //   /**
-  //    * @brief Set the undelying database from a session itself. SessionContext handler.
-  //    *
-  //    * @param db_name unique database name
-  //    * @param handler function that gets called in place with the appropriate SessionContext
-  //    * @return SetForResult enum
-  //    */
-  //   template <typename THandler>
-  //   requires std::invocable<THandler, SessionContext> SetForResult SetInPlace(const std::string &db_name,
-  //                                                                             THandler handler) {
-  //     std::shared_lock<LockT> rd(lock_);
-  //     return handler(Get_(db_name));
-  //   }
-
-  //   /**
-  //    * @brief Call void handler under a shared lock.
-  //    *
-  //    * @param handler function that gets called in place
-  //    */
-  //   template <typename THandler>
-  //   requires std::invocable<THandler>
-  //   void CallInPlace(THandler handler) {
-  //     std::shared_lock<LockT> rd(lock_);
-  //     handler();
-  //   }
-
-  //   /**
-  //    * @brief Register an active session (used to handle callbacks).
-  //    *
-  //    * @param session
-  //    * @return true on success
-  //    */
-  //   bool Register(SessionInterface &session) {
-  //     std::lock_guard<LockT> wr(lock_);
-  //     auto [_, success] = sessions_.emplace(session.UUID(), session);
-  //     return success;
-  //   }
-
-  //   /**
-  //    * @brief Delete a session.
-  //    *
-  //    * @param session
-  //    */
-  //   bool Delete(const SessionInterface &session) {
-  //     std::lock_guard<LockT> wr(lock_);
-  //     return sessions_.erase(session.UUID()) > 0;
-  //   }
 
   /**
    * @brief Delete database.
@@ -226,51 +180,32 @@ class NewSessionHandler {
     MG_ASSERT(storage_path, "Missing storage for {}", db_name);
     if (!db_handler_.Delete(db_name)) {
       spdlog::error("Partial failure while deleting database \"{}\".", db_name);
-      // defunct_dbs_.emplace(db_name);
+      defunct_dbs_.emplace(db_name);
       return DeleteError::FAIL;
     }
 
     // Remove from auth
-    // auth_->Lock()->DeleteDatabase(db_name);
+    auth_->Lock()->DeleteDatabase(db_name);
+
     // Remove from durability list
-    // if (durability_) durability_->Delete(db_name);
+    if (durability_) durability_->Delete(db_name);
 
     // Delete disk storage
-    // if (delete_on_drop_) {
-    //   std::error_code ec;
-    //   (void)std::filesystem::remove_all(*storage_path, ec);
-    //   if (ec) {
-    //     spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
-    //     defunct_dbs_.emplace(db_name);
-    //     return DeleteError::DISK_FAIL;
-    //   }
-    // }
+    if (delete_on_drop_) {
+      std::error_code ec;
+      (void)std::filesystem::remove_all(*storage_path, ec);
+      if (ec) {
+        spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
+        defunct_dbs_.emplace(db_name);
+        return DeleteError::DISK_FAIL;
+      }
+    }
 
-    // // Delete from defunct_dbs_ (in case a second delete call was successful)
-    // defunct_dbs_.erase(db_name);
+    // Delete from defunct_dbs_ (in case a second delete call was successful)
+    defunct_dbs_.erase(db_name);
 
     return {};  // Success
   }
-
-  // /**
-  //  * @brief Set the default configurations.
-  //  *
-  //  * @param configs storage, interpreter and authorization configurations
-  //  */
-  // void SetDefaultConfigs(storage::Config configs) {
-  //   std::lock_guard<LockT> wr(lock_);
-  //   default_config_ = std::move(configs);
-  // }
-
-  // /**
-  //  * @brief Get the default configurations.
-  //  *
-  //  * @return std::optional<Config>
-  //  */
-  // std::optional<storage::Config> GetDefaultConfigs() const {
-  //   std::shared_lock<LockT> rd(lock_);
-  //   return default_config_;
-  // }
 
   /**
    * @brief Return all active databases.
@@ -421,22 +356,18 @@ class NewSessionHandler {
    * @param inter_config interpreter configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, storage::Config &storage_config/*,
-                    const std::string &ah_flags*/) {
-    // MG_ASSERT(auth_handler_, "No high level AuthQueryHandler has been supplied.");
-    // MG_ASSERT(auth_checker_, "No high level AuthChecker has been supplied.");
-
-    // if (defunct_dbs_.contains(name)) {
-    //   spdlog::warn("Failed to generate database due to the unknown state of the previously defunct database
-    //     \"{}\".", name);
-    //   return NewError::DEFUNCT;
-    // }
+  NewResultT New_(const std::string &name, storage::Config &storage_config) {
+    if (defunct_dbs_.contains(name)) {
+      spdlog::warn("Failed to generate database due to the unknown state of the previously defunct database\"{}\".",
+                   name);
+      return NewError::DEFUNCT;
+    }
 
     auto new_db = db_handler_.New(name, storage_config);
     if (new_db.HasValue()) {
       // Success
-      // if (durability_) durability_->Put(name, "ok");
-      return new_db.GetValue();  // shared_ptr to Database
+      if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
+      return new_db.GetValue();                       // shared_ptr to Database
     }
     return new_db.GetError();
   }
@@ -518,24 +449,15 @@ class NewSessionHandler {
   }
 
   // Should storage objects ever be deleted?
-  mutable LockT lock_;                    //!< protective lock
-  std::filesystem::path lock_file_path_;  //!< Lock file protecting the main storage
-  utils::OutputFile lock_file_handle_;    //!< Handler the lock (crash if already open)
-  DatabaseHandler db_handler_;            //!< multi-tenancy storage handler
-  std::optional<storage::Config> default_config_;
-  // std::unique_ptr<utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>> auth_;
-  // std::unique_ptr<query::AuthQueryHandler> auth_handler_;
-  // std::unique_ptr<query::AuthChecker> auth_checker_;
-  // memgraph::audit::Log *audit_log_;                               //!< pointer to the audit logger
-  // std::unordered_map<std::string, SessionInterface &> sessions_;  //!< map of active/registered sessions
-  // std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
-
-  // std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
-  // bool delete_on_drop_;                //!< Flag defining if dropping storage also deletes its directory
-  //  public:
-  //   static SessionContextHandler &ExtractSCH(query::InterpreterContext *interpreter_context) {
-  //     return static_cast<typename decltype(interp_handler_)::InterpContextT *>(interpreter_context)->sc_handler_;
-  //   }
+  mutable LockT lock_;                             //!< protective lock
+  std::filesystem::path lock_file_path_;           //!< Lock file protecting the main storage
+  utils::OutputFile lock_file_handle_;             //!< Handler the lock (crash if already open)
+  DatabaseHandler db_handler_;                     //!< multi-tenancy storage handler
+  std::optional<storage::Config> default_config_;  //!< Storage configuration used when creating new databases
+  std::unique_ptr<kvstore::KVStore> durability_;   //!< list of active dbs (pointer so we can postpone its creation)
+  std::set<std::string> defunct_dbs_;              //!< Databases that are in an unknown state due to various failures
+  bool delete_on_drop_;                            //!< Flag defining if dropping storage also deletes its directory
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;  // TODO: Can this be avoided?
 };
 
 #else

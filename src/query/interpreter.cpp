@@ -34,7 +34,6 @@
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/global.hpp"
-#include "dbms/session_context_handler.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -576,7 +575,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &db_handler] {  // NOLINT
+      callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
           std::shared_ptr<memgraph::dbms::Database> db{};  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
@@ -596,7 +595,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &db_handler] {  // NOLINT
+      callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
           std::shared_ptr<memgraph::dbms::Database> db{};  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
@@ -628,7 +627,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &db_handler] {  // NOLINT
+      callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
           const auto db =
               db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
@@ -3278,35 +3277,36 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       if (in_explicit_db) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-      return PreparedQuery{{"STATUS"},
-                           std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, db_handler, &db, on_change_cb](
-                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                             std::vector<std::vector<TypedValue>> status;
-                             std::string res;
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [db_name = query->db_name_, db_handler, &db /* Updating the interpreter's pointer */, on_change_cb](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
 
-                             try {
-                               const auto tmp = db_handler->Get(db_name);
-                               if (tmp == db) {
-                                 res = "Already using " + db_name;
-                               } else {
-                                 if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
-                                 db = tmp;
-                                 res = "Using " + db_name;
-                               }
-                             } catch (const utils::BasicException &e) {
-                               throw QueryRuntimeException(e.what());
-                             }
+            try {
+              const auto tmp = db_handler->Get(db_name);
+              if (tmp == db) {
+                res = "Already using " + db_name;
+              } else {
+                if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
+                db = tmp;
+                res = "Using " + db_name;
+              }
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
 
-                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-                             if (pull_plan->Pull(stream, n)) {
-                               return QueryHandlerResult::COMMIT;
-                             }
-                             return std::nullopt;
-                           },
-                           RWType::NONE,
-                           query->db_name_};
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::NONE,
+          query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
       return PreparedQuery{
