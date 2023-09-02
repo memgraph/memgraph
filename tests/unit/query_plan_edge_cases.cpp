@@ -41,15 +41,19 @@ class QueryExecution : public testing::Test {
 
   void SetUp() {
     db_ = [&]() {
-      if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-        return std::make_shared<memgraph::dbms::Database>(
-            memgraph::storage::Config{.durability.storage_directory = data_directory});
-      } else {
-        auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
-        tmp.force_on_disk = true;
-        tmp.durability.storage_directory = data_directory;
-        return std::make_shared<memgraph::dbms::Database>(tmp);
+      memgraph::storage::Config config{};
+      config.durability.storage_directory = data_directory;
+      config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+      if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+        config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+        config.force_on_disk = true;
       }
+      auto db = std::make_shared<memgraph::dbms::Database>(config);
+      MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                             ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                             : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+                "Wrong storage mode!");
+      return db;
     }();  // iile
 
     interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
@@ -64,6 +68,7 @@ class QueryExecution : public testing::Test {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
+    std::filesystem::remove_all(data_directory);
   }
 
   /**

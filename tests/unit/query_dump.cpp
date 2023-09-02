@@ -208,7 +208,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
 
 auto Execute(memgraph::query::InterpreterContext *context, std::shared_ptr<memgraph::dbms::Database> db,
              const std::string &query) {
-  memgraph::query::Interpreter interpreter(context);
+  memgraph::query::Interpreter interpreter(context, db);
   ResultStreamFaker stream(db->storage());
 
   auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, nullptr);
@@ -278,15 +278,19 @@ class DumpTest : public ::testing::Test {
   const std::string testSuite = "query_dump";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_class"};
   std::shared_ptr<memgraph::dbms::Database> db = [&]() {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return std::make_shared<memgraph::dbms::Database>(
-          memgraph::storage::Config{.durability.storage_directory = data_directory});
-    } else {
-      auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
-      tmp.force_on_disk = true;
-      tmp.durability.storage_directory = data_directory;
-      return std::make_shared<memgraph::dbms::Database>(tmp);
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+      config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+      config.force_on_disk = true;
     }
+    auto db = std::make_shared<memgraph::dbms::Database>(config);
+    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    return db;
   }();  // iile
   memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr};
 
@@ -294,6 +298,7 @@ class DumpTest : public ::testing::Test {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
+    std::filesystem::remove_all(data_directory);
   }
 };
 
@@ -658,11 +663,14 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   }
 
   std::shared_ptr<memgraph::dbms::Database> db;
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
-    db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
-  } else {
-    db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{.force_on_disk = true});
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = this->data_directory / "s1";
+  config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
+    config.force_on_disk = true;
   }
+  db = std::make_shared<memgraph::dbms::Database>(config);
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
 
   {
@@ -747,11 +755,14 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 
   const auto &db_initial_state = GetState(this->db->storage());
   std::shared_ptr<memgraph::dbms::Database> db;
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
-    db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
-  } else {
-    db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{.force_on_disk = true});
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = this->data_directory / "s2";
+  config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
+    config.force_on_disk = true;
   }
+  db = std::make_shared<memgraph::dbms::Database>(config);
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
   {
     ResultStreamFaker stream(this->db->storage());

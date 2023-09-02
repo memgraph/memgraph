@@ -75,15 +75,19 @@ class StreamsTestFixture : public ::testing::Test {
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
   std::shared_ptr<memgraph::dbms::Database> db_ = [&]() {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return std::make_shared<memgraph::dbms::Database>(
-          memgraph::storage::Config{.durability.storage_directory = data_directory_});
-    } else {
-      auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
-      tmp.force_on_disk = true;
-      tmp.durability.storage_directory = data_directory_;
-      return std::make_shared<memgraph::dbms::Database>(tmp);
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory_;
+    config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+      config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+      config.force_on_disk = true;
     }
+    auto db = std::make_shared<memgraph::dbms::Database>(config);
+    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    return db;
   }();  // iile
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
@@ -93,6 +97,7 @@ class StreamsTestFixture : public ::testing::Test {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
+    std::filesystem::remove_all(data_directory_);
   }
 
   void ResetStreamsObject() {

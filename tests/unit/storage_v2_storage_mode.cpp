@@ -68,8 +68,13 @@ INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testin
 
 class StorageModeMultiTxTest : public ::testing::Test {
  protected:
-  std::shared_ptr<memgraph::dbms::Database> db =
-      std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
+  std::filesystem::path data_directory = []() {
+    const auto tmp = std::filesystem::temp_directory_path() / "MG_tests_unit_storage_mode";
+    std::filesystem::remove_all(tmp);
+    return tmp;
+  }();  // iile
+  std::shared_ptr<memgraph::dbms::Database> db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{
+      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
   memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };

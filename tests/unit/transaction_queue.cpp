@@ -30,21 +30,28 @@ class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
   const std::string testSuite = "transactin_queue";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
-  std::shared_ptr<memgraph::dbms::Database> db = [&]() {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return std::make_shared<memgraph::dbms::Database>(
-          memgraph::storage::Config{.durability.storage_directory = data_directory});
-    } else {
-      auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
-      tmp.force_on_disk = true;
-      tmp.durability.storage_directory = data_directory;
-      return std::make_shared<memgraph::dbms::Database>(tmp);
+  std::shared_ptr<memgraph::dbms::Database> db = [&]() -> std::shared_ptr<memgraph::dbms::Database> {
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+      config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+      config.force_on_disk = true;
     }
+    auto db = std::make_shared<memgraph::dbms::Database>(config);
+    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    return db;
   }();  // iile
   memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 
-  void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
+  void TearDown() override {
+    disk_test_utils::RemoveRocksDbDirs(testSuite);
+    std::filesystem::remove_all(data_directory);
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

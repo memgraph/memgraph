@@ -31,6 +31,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/logging.hpp"
 
 namespace {
@@ -57,13 +58,20 @@ class InterpreterTest : public ::testing::Test {
   InterpreterTest() : interpreter_context({.execution_timeout_sec = 600}, nullptr) {}
 
   std::shared_ptr<memgraph::dbms::Database> db = [&]() {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
-    } else {
-      auto tmp = disk_test_utils::GenerateOnDiskConfig(testSuite);
-      tmp.force_on_disk = true;
-      return std::make_shared<memgraph::dbms::Database>(tmp);
+    auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+      config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+      config.force_on_disk = true;
     }
+    auto db = std::make_shared<memgraph::dbms::Database>(config);
+    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    return db;
   }();  // iile
 
   memgraph::query::InterpreterContext interpreter_context;
@@ -1101,12 +1109,14 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
         "row"};
 
-    std::shared_ptr<memgraph::dbms::Database> db;
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
-      db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
-    } else {
-      db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{.force_on_disk = true});
+    memgraph::storage::Config config2{};
+    config2.durability.storage_directory = directory_manager.Path();
+    config2.disk.main_storage_directory = config2.durability.storage_directory / "disk";
+    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+      config2.disk = disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv).disk;
+      config2.force_on_disk = true;
     }
+    auto db = std::make_shared<memgraph::dbms::Database>(config2);
 
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}}, nullptr};
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db};

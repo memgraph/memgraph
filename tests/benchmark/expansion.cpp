@@ -26,8 +26,8 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
   void SetUp(const benchmark::State &state) override {
-    std::shared_ptr<memgraph::dbms::Database> db =
-        std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{});
+    std::shared_ptr<memgraph::dbms::Database> db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{
+        .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
     interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
 
     auto label = db->storage()->NameToLabel("Starting");
