@@ -131,7 +131,7 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
-  std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
+  auto storage_guard = std::unique_lock{storage_->main_lock_};
   spdlog::trace("Clearing database since recovering from snapshot.");
   // Clear the database
   storage_->vertices_.clear();
@@ -416,7 +416,7 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
           bool is_visible = true;
           Delta *delta = nullptr;
           {
-            std::lock_guard<utils::SpinLock> guard(edge->lock);
+            auto guard = std::shared_lock{edge->lock};
             is_visible = !edge->deleted;
             delta = edge->delta;
           }
