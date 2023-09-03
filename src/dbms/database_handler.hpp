@@ -109,11 +109,16 @@ class Database {
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
   void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(new_task); }
 
+  utils::SkipList<query::PlanCacheEntry> *plan_cache() { return &plan_cache_; }
+
  private:
   std::unique_ptr<storage::Storage> storage_;
   query::TriggerStore trigger_store_;
   utils::ThreadPool after_commit_trigger_pool_{1};
   query::stream::Streams streams_;
+
+  // TODO: Move to a better place
+  utils::SkipList<query::PlanCacheEntry> plan_cache_;
 };
 
 class DatabaseHandler : public Handler<Database, storage::Config> {

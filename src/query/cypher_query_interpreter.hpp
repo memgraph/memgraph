@@ -57,8 +57,6 @@ class CachedPlan {
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
 
   bool IsExpired() const {
-    // TODO: Re-enable
-    return true;
     // NOLINTNEXTLINE (modernize-use-nullptr)
     return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl);
   };

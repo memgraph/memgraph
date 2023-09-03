@@ -252,7 +252,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
       interpreter_context_(interpreter_context),
-      interpreter_(std::make_unique<query::Interpreter>(interpreter_context_)),
+      interpreter_(interpreter_context_),
       auth_(auth),
       audit_log_(audit_log),
       endpoint_(endpoint),
@@ -261,12 +261,12 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
   interpreter_.SetCurrentDB(dbms::kDefaultDB);  // Connect to the default db NOTE: User can never access this, since it
                                                 // gets updated on Authentication
   interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_, db_name); });
-  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(interpreter_.get()); });
+  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }
 
 SessionHL::~SessionHL() {
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
-  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(interpreter_.get()); });
+  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 }
 
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(

@@ -265,11 +265,6 @@ struct InterpreterContext {
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 
-  // TODO: Is this actually storage-aware?
-  // I don't actually think it is. You pass db_accessor and other database specific stuff at execution time
-  // Optimal plans can differ between databases, but we currently don't optimize, so is this really important?
-  utils::SkipList<PlanCacheEntry> plan_cache;
-
   // Used to check active transactions
   // TODO: Have a way to read the current database
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;

@@ -1510,7 +1510,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  const std::string *username, std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                 std::shared_ptr<utils::AsyncTimer> tx_timer, auto *plan_cache,
                                  TriggerContextCollector *trigger_context_collector = nullptr,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -1543,8 +1543,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                 IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
-                                parsed_query.parameters,
-                                parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+                                parsed_query.parameters, plan_cache, dba);
 
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
@@ -1580,8 +1579,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                  utils::MemoryResource *execution_memory) {
+                                  InterpreterContext *interpreter_context, DbAccessor *dba, auto *plan_cache) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -1601,7 +1599,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? plan_cache : nullptr, dba);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
@@ -1629,7 +1627,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
                                   std::atomic<TransactionStatus> *transaction_status,
-                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                  std::shared_ptr<utils::AsyncTimer> tx_timer, auto *plan_cache,
                                   FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
 
@@ -1689,7 +1687,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? plan_cache : nullptr, dba);
   TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   auto optional_username = StringPointerToOptional(username);
@@ -1951,13 +1949,13 @@ Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAcces
 }
 
 PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                       DbAccessor *execution_db_accessor, InterpreterContext *interpreter_context) {
+                                       DbAccessor *execution_db_accessor, auto *plan_cache) {
   if (in_explicit_transaction) {
     throw AnalyzeGraphInMulticommandTxException();
   }
 
   // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
+  auto invalidate_plan_cache = [plan_cache] {
     auto access = plan_cache->access();
     for (auto &kv : access) {
       access.remove(kv.first);
@@ -1985,8 +1983,7 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::vector<Notification> *notifications, storage::Storage *storage,
-                                InterpreterContext *interpreter_context) {
+                                std::vector<Notification> *notifications, storage::Storage *storage, auto *plan_cache) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -1995,7 +1992,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   std::function<void(Notification &)> handler;
 
   // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
+  auto invalidate_plan_cache = [plan_cache] {
     auto access = plan_cache->access();
     for (auto &kv : access) {
       access.remove(kv.first);
@@ -3591,6 +3588,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
     }
 
+    const auto is_cacheable = parsed_query.is_cacheable;
+    auto *plan_cache = db_->plan_cache();
+    auto get_plan_cache = [&]() {
+      return is_cacheable ? plan_cache : nullptr;
+    };  // Some queries run additional parsing and may need the plan_cache even if the outer query is not cacheable
+
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource =
@@ -3599,27 +3602,28 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     frame_change_collector_.reset();
     frame_change_collector_.emplace(memory_resource);
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(
-          std::move(parsed_query), &query_execution->summary, interpreter_context_, &*execution_db_accessor_,
-          memory_resource, &query_execution->notifications, username, &transaction_status_, std::move(current_timer),
-          trigger_context_collector_ ? &*trigger_context_collector_ : nullptr, &*frame_change_collector_);
+      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
+                                          &*execution_db_accessor_, memory_resource, &query_execution->notifications,
+                                          username, &transaction_status_, std::move(current_timer), get_plan_cache(),
+                                          trigger_context_collector_ ? &*trigger_context_collector_ : nullptr,
+                                          &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                           &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
+                                           &*execution_db_accessor_, plan_cache);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           interpreter_context_, &*execution_db_accessor_,
-                                           &query_execution->execution_memory_with_exception, username,
-                                           &transaction_status_, std::move(current_timer), &*frame_change_collector_);
+      prepared_query = PrepareProfileQuery(
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_,
+          std::move(current_timer), plan_cache, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         memory_resource);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                         &query_execution->notifications, db_->storage(), interpreter_context_);
+                                         &query_execution->notifications, db_->storage(), get_plan_cache());
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_,
-                                                &*execution_db_accessor_, interpreter_context_);
+                                                &*execution_db_accessor_, get_plan_cache());
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
