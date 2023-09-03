@@ -427,6 +427,10 @@ inline mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>
 
 inline mgp_vertex *edge_get_from(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_from, e); }
 
+inline void edge_change_from(mgp_edge *e, mgp_vertex *new_from) {
+  return MgInvokeVoid(mgp_edge_change_from, e, new_from);
+}
+
 inline mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_to, e); }
 
 inline mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_memory *memory) {

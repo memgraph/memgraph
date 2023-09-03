@@ -2209,6 +2209,33 @@ mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
+mgp_error mgp_edge_change_from(struct mgp_edge *e, struct mgp_vertex *new_from) {
+  return WrapExceptions([&]() -> void {
+    auto result = std::visit(
+        memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *accessor) {
+                                      return accessor->ChangeEdgeFrom(
+                                          &e->impl, &std::get<memgraph::query::VertexAccessor>(new_from->impl));
+                                    },
+                                    [&](memgraph::query::SubgraphDbAccessor *accessor) {
+                                      return accessor->ChangeEdgeFrom(
+                                          &e->impl, &std::get<memgraph::query::SubgraphVertexAccessor>(new_from->impl));
+                                    }},
+        new_from->graph->impl);
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");
+        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when removing an edge.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize removing an edge."};
+      }
+    }
+  });
+}
+
 mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
   *result = &e->to;
   return mgp_error::MGP_ERROR_NO_ERROR;

@@ -19,6 +19,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -370,6 +371,13 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
+  storage::Result<void> ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+    auto result = static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->ChangeEdgeFrom(
+        &edge->impl_, &new_from->impl_);
+    if (result.HasError()) return storage::Result<void>(result.GetError());
+    return {};
+  }
+
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (res.HasError()) {
@@ -538,6 +546,8 @@ class SubgraphDbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type);
+
+  storage::Result<void> ChangeEdgeFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);

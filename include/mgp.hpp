@@ -250,6 +250,8 @@ class Graph {
   void DetachDeleteNode(const Node &node);
   /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
+  /// @brief Changes a relationship from node.
+  void ChangeRelationshipFrom(Relationship &relationship, const Node &new_from);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
@@ -797,6 +799,8 @@ class Relationship {
 
   /// @brief Returns the relationship’s source node.
   Node From() const;
+  /// @brief todo
+  void ChangeFrom(Node *new_from);
   /// @brief Returns the relationship’s destination node.
   Node To() const;
 
@@ -1977,6 +1981,10 @@ inline Relationship Graph::CreateRelationship(const Node &from, const Node &to, 
   mgp::edge_destroy(edge);
 
   return relationship;
+}
+
+inline void Graph::ChangeRelationshipFrom(Relationship &relationship, const Node &new_from) {
+  mgp::edge_change_from(relationship.ptr_, new_from.ptr_);
 }
 
 inline void Graph::DeleteRelationship(const Relationship &relationship) {

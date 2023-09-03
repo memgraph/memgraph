@@ -76,6 +76,18 @@ SubgraphDbAccessor::DetachRemoveVertex(  // NOLINT(readability-convert-member-fu
       "Vertex holds only partial information about edges. Cannot detach delete safely while using projected graph."};
 }
 
+storage::Result<void> SubgraphDbAccessor::ChangeEdgeFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from) {
+  VertexAccessor *new_from_impl = &new_from->impl_;
+  if (!this->graph_->ContainsVertex(*new_from_impl)) {
+    throw std::logic_error{"Projected graph must contain the new vertex!"};
+  }
+  auto result = db_accessor_.ChangeEdgeFrom(edge, new_from_impl);
+  if (result.HasError()) {
+    return result;
+  }
+  return {};
+}
+
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     SubgraphVertexAccessor *subgraphvertex_accessor) {
   VertexAccessor *vertex_accessor = &subgraphvertex_accessor->impl_;

@@ -792,6 +792,8 @@ enum mgp_error mgp_edge_get_type(struct mgp_edge *e, struct mgp_edge_type *resul
 /// Current implementation always returns without errors.
 enum mgp_error mgp_edge_get_from(struct mgp_edge *e, struct mgp_vertex **result);
 
+enum mgp_error mgp_edge_change_from(struct mgp_edge *e, struct mgp_vertex *new_from);
+
 /// Get the destination vertex of the given edge.
 /// Resulting vertex is valid until the edge is valid and it must not be used afterwards.
 /// Current implementation always returns without errors.
