@@ -868,6 +868,10 @@ enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex 
 enum mgp_error mgp_graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
                                           mgp_memory *memory, mgp_edge **result);
 
+/// Change edge from vertex
+enum mgp_error mgp_graph_change_edge_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                        mgp_memory *memory, mgp_edge **result);
+
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by

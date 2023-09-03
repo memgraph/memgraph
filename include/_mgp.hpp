@@ -255,6 +255,16 @@ inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_verte
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
+inline mgp_edge *graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                        mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_change_edge_from, graph, e, new_from, memory);
+}
+
+inline mgp_edge *graph_change_edge_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                      mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_change_edge_to, graph, e, new_to, memory);
+}
+
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
@@ -426,11 +436,6 @@ inline bool edge_equal(mgp_edge *e1, mgp_edge *e2) { return MgInvoke<int>(mgp_ed
 inline mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>(mgp_edge_get_type, e); }
 
 inline mgp_vertex *edge_get_from(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_from, e); }
-
-inline mgp_edge *graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
-                                        mgp_memory *memory) {
-  return MgInvoke<mgp_edge *>(mgp_graph_change_edge_from, graph, e, new_from, memory);
-}
 
 inline mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_to, e); }
 
