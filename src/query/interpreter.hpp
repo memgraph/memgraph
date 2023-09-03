@@ -98,6 +98,10 @@ class AuthQueryHandler {
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool SetMainDatabase(const std::string &db, const std::string &username) = 0;
+
+  /// Delete database from all users
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DeleteDatabase(std::string_view db) = 0;
 #endif
 
   /// Return false if the role already exists.
@@ -302,6 +306,7 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name);
+  void SetCurrentDB(std::shared_ptr<dbms::Database> new_db);
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #endif
 

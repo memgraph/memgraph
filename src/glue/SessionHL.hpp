@@ -89,7 +89,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
   memgraph::communication::v2::ServerEndpoint endpoint_;
   // NOTE: run_id should be const but that complicates code a lot.
-  std::optional<std::string> run_id_;
+  std::optional<std::string> run_id_;  // TODO connect
+  std::optional<std::string> implicit_db_;
 };
 
 }  // namespace memgraph::glue

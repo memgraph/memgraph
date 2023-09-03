@@ -125,13 +125,16 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
   bool res = true;
-  auto locked_auth = auth_->Lock();
-  if (locked_auth->HasUsers()) {
-    user_ = locked_auth->Authenticate(username, password);
-    res = user_.has_value();
+  {
+    auto locked_auth = auth_->Lock();
+    if (locked_auth->HasUsers()) {
+      user_ = locked_auth->Authenticate(username, password);
+      res = user_.has_value();
+    }
   }
   // Start off with the default database
   interpreter_.SetCurrentDB(GetDefaultDB());
+  implicit_db_.emplace(GetDatabaseName());
   return res;
 }
 
@@ -211,8 +214,6 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 #ifdef MG_ENTERPRISE
   std::string db;
   bool update = false;
-  // TODO: Fix to not return to default one, but to the previous one (that might be destroyed....)
-  // std::optional<std::string> prev_{default};
   // Check if user explicitly defined the database to use
   if (run_time_info.contains("db")) {
     const auto &db_info = run_time_info.at("db");
@@ -220,35 +221,28 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
       throw memgraph::communication::bolt::ClientError("Malformed database name.");
     }
     db = db_info.ValueString();
-    // update = db != current_.interpreter_context()->db->id();
+    const auto &current = GetDatabaseName();
+    update = db != current;
+    if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
     in_explicit_db_ = true;
-    // if (!prev_) prev_ = current_;
     // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
   } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
-    // TODO: Keep track of the last used (set via query) and use it
-    db = GetDefaultDB();
-    // db = prev_;
-    // update = db != current_.interpreter_context()->db->id();
+    if (implicit_db_) {
+      db = *implicit_db_;
+    } else {
+      db = GetDefaultDB();
+    }
+    update = db != GetDatabaseName();
     in_explicit_db_ = false;
   }
 
   // Check if the underlying database needs to be updated
   if (update) {
-    // intpreter_->SetCurrentDB(db);
-    // sc_handler_.SetInPlace(db, [this](auto new_sc) mutable {
-    // const auto &db_name = new_sc.interpreter_context->db->id();
-    // MultiDatabaseAuth(db_name);
-    // try {
-    //   Update(ContextWrapper(new_sc));
-    //   return memgraph::dbms::SetForResult::SUCCESS;
-    // } catch (memgraph::dbms::UnknownDatabaseException &e) {
-    //   throw memgraph::communication::bolt::ClientError("No database named \"{}\" found!", "db_name");
-    // }
-    // });
+    MultiDatabaseAuth(user_, db);
+    interpreter_.SetCurrentDB(db);
   }
 #endif
 }
-SessionHL::~SessionHL() { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions); }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
                      const memgraph::communication::v2::ServerEndpoint &endpoint,
                      memgraph::communication::v2::InputStream *input_stream,
@@ -258,13 +252,21 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
       interpreter_context_(interpreter_context),
-      interpreter_(interpreter_context_),
+      interpreter_(std::make_unique<query::Interpreter>(interpreter_context_)),
       auth_(auth),
       audit_log_(audit_log),
-      endpoint_(endpoint) {
+      endpoint_(endpoint),
+      implicit_db_(dbms::kDefaultDB) {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
-  interpreter_.OnChangeCB([&](std::string_view sv) { MultiDatabaseAuth(user_, sv); });
-  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
+  interpreter_.SetCurrentDB(dbms::kDefaultDB);  // Connect to the default db NOTE: User can never access this, since it
+                                                // gets updated on Authentication
+  interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_, db_name); });
+  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(interpreter_.get()); });
+}
+
+SessionHL::~SessionHL() {
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
+  interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(interpreter_.get()); });
 }
 
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(

@@ -75,10 +75,7 @@ class NewSessionHandler {
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
   NewSessionHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
-      : lock_{utils::RWLock::Priority::READ},
-        default_config_{std::move(config)},
-        delete_on_drop_(delete_on_drop),
-        auth_(auth) {
+      : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)}, delete_on_drop_(delete_on_drop) {
     // Update
     const auto &root = default_config_->durability.storage_directory;
     utils::EnsureDirOrDie(root);
@@ -119,7 +116,7 @@ class NewSessionHandler {
         spdlog::info("Database {} restored.", name);
       }
     } else {  // Clear databases from the durability list and auth
-      auto locked_auth = auth_->Lock();
+      auto locked_auth = auth->Lock();
       for (const auto &[name, _] : *durability_) {
         if (name == kDefaultDB) continue;
         locked_auth->DeleteDatabase(name);
@@ -168,7 +165,7 @@ class NewSessionHandler {
       auto db = Get_(db_name);
       // Check if a session is using the db
       // TODO use the new reference counter
-      if (db.use_count() > 1) {
+      if (db.use_count() > 2) {  // 2 = 1 (from main handler) + 1 (from here)
         return DeleteError::USING;
       }
     } catch (UnknownDatabaseException &) {
@@ -183,9 +180,6 @@ class NewSessionHandler {
       defunct_dbs_.emplace(db_name);
       return DeleteError::FAIL;
     }
-
-    // Remove from auth
-    auth_->Lock()->DeleteDatabase(db_name);
 
     // Remove from durability list
     if (durability_) durability_->Delete(db_name);
@@ -457,7 +451,6 @@ class NewSessionHandler {
   std::unique_ptr<kvstore::KVStore> durability_;   //!< list of active dbs (pointer so we can postpone its creation)
   std::set<std::string> defunct_dbs_;              //!< Databases that are in an unknown state due to various failures
   bool delete_on_drop_;                            //!< Flag defining if dropping storage also deletes its directory
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;  // TODO: Can this be avoided?
 };
 
 #else

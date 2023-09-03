@@ -3215,15 +3215,15 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 }
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, bool in_explicit_db,
-                                        storage::Storage *storage, InterpreterContext *interpreter_context,
-                                        std::shared_ptr<dbms::Database> &db,
+                                        InterpreterContext *interpreter_context,
+                                        memgraph::query::Interpreter &interpreter,
                                         std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(storage) == storage::replication::ReplicationRole::REPLICA) {
+  if (GetReplicaRole(interpreter.db_->storage()) == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("Query forbidden on the replica!");
   }
   if (in_explicit_transaction) {
@@ -3277,66 +3277,68 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       if (in_explicit_db) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-      return PreparedQuery{
-          {"STATUS"},
-          std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler, &db /* Updating the interpreter's pointer */, on_change_cb](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            std::vector<std::vector<TypedValue>> status;
-            std::string res;
+      return PreparedQuery{{"STATUS"},
+                           std::move(parsed_query.required_privileges),
+                           [db_name = query->db_name_, db_handler, &interpreter, on_change_cb](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                             std::vector<std::vector<TypedValue>> status;
+                             std::string res;
 
-            try {
-              const auto tmp = db_handler->Get(db_name);
-              if (tmp == db) {
-                res = "Already using " + db_name;
-              } else {
-                if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
-                db = tmp;
-                res = "Using " + db_name;
-              }
-            } catch (const utils::BasicException &e) {
-              throw QueryRuntimeException(e.what());
-            }
+                             try {
+                               const auto tmp = db_handler->Get(db_name);
+                               if (tmp == interpreter.db_) {
+                                 res = "Already using " + db_name;
+                               } else {
+                                 if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
+                                 interpreter.SetCurrentDB(tmp);
+                                 res = "Using " + db_name;
+                               }
+                             } catch (const utils::BasicException &e) {
+                               throw QueryRuntimeException(e.what());
+                             }
 
-            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
-            }
-            return std::nullopt;
-          },
-          RWType::NONE,
-          query->db_name_};
+                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                             if (pull_plan->Pull(stream, n)) {
+                               return QueryHandlerResult::COMMIT;
+                             }
+                             return std::nullopt;
+                           },
+                           RWType::NONE,
+                           query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler](AnyStream *stream,
-                                                  std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
 
             memgraph::dbms::DeleteResult success{};
 
             try {
+              // Remove database
               success = db_handler->Delete(db_name);
+              if (!success.HasError()) {
+                // Remove from auth
+                auth->DeleteDatabase(db_name);
+              } else {
+                switch (success.GetError()) {
+                  case dbms::DeleteError::DEFAULT_DB:
+                    throw QueryRuntimeException("Cannot delete the default database.");
+                  case dbms::DeleteError::NON_EXISTENT:
+                    throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::DeleteError::USING:
+                    throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
+                  case dbms::DeleteError::FAIL:
+                    throw QueryRuntimeException("Failed while deleting {}", db_name);
+                  case dbms::DeleteError::DISK_FAIL:
+                    throw QueryRuntimeException("Failed to clean storage of {}", db_name);
+                }
+              }
             } catch (const utils::BasicException &e) {
               throw QueryRuntimeException(e.what());
-            }
-
-            if (success.HasError()) {
-              switch (success.GetError()) {
-                case dbms::DeleteError::DEFAULT_DB:
-                  throw QueryRuntimeException("Cannot delete the default database.");
-                case dbms::DeleteError::NON_EXISTENT:
-                  throw QueryRuntimeException("{} does not exist.", db_name);
-                case dbms::DeleteError::USING:
-                  throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
-                case dbms::DeleteError::FAIL:
-                  throw QueryRuntimeException("Failed while deleting {}", db_name);
-                case dbms::DeleteError::DISK_FAIL:
-                  throw QueryRuntimeException("Failed to clean storage of {}", db_name);
-              }
             }
 
             status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
@@ -3471,6 +3473,7 @@ void Interpreter::RollbackTransaction() {
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name) { db_ = interpreter_context_->db_handler->Get(db_name); }
+void Interpreter::SetCurrentDB(std::shared_ptr<dbms::Database> new_db) { db_ = new_db; }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
@@ -3660,7 +3663,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                     interpreter_context_);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
-                                                 db_->storage(), interpreter_context_, db_, on_change_);
+                                                 interpreter_context_, *this, on_change_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query =
           PrepareShowDatabasesQuery(std::move(parsed_query), db_->storage(), interpreter_context_, username_);
