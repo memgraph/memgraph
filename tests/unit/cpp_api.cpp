@@ -689,3 +689,39 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
       "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, properties: "
       "{key: node_property, key2: node_property2})-[type: Loves2, id: 1, properties: {}]->(id: 4, properties: {})");
 }
+
+TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
+  mgp_graph raw_graph = this->CreateGraph();
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
+
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+
+  ASSERT_EQ(relationship.From().Id(), node_1.Id());
+  graph.ChangeRelationshipFrom(relationship, node_3);
+
+  ASSERT_EQ(std::string(relationship.Type()), "Edge");
+  ASSERT_EQ(relationship.From().Id(), node_3.Id());
+  ASSERT_EQ(relationship.To().Id(), node_2.Id());
+}
+
+TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
+  mgp_graph raw_graph = this->CreateGraph();
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
+
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+
+  ASSERT_EQ(relationship.To().Id(), node_2.Id());
+  graph.ChangeRelationshipTo(relationship, node_3);
+
+  ASSERT_EQ(std::string(relationship.Type()), "Edge");
+  ASSERT_EQ(relationship.From().Id(), node_1.Id());
+  ASSERT_EQ(relationship.To().Id(), node_3.Id());
+}
