@@ -371,11 +371,11 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
-  storage::Result<void> ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+  storage::Result<EdgeAccessor> ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
     auto result = static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->ChangeEdgeFrom(
         &edge->impl_, &new_from->impl_);
-    if (result.HasError()) return storage::Result<void>(result.GetError());
-    return {};
+    if (result.HasError()) return storage::Result<EdgeAccessor>(result.GetError());
+    return *edge;
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
@@ -547,7 +547,7 @@ class SubgraphDbAccessor final {
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type);
 
-  storage::Result<void> ChangeEdgeFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
+  storage::Result<EdgeAccessor> ChangeEdgeFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);

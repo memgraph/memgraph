@@ -792,8 +792,6 @@ enum mgp_error mgp_edge_get_type(struct mgp_edge *e, struct mgp_edge_type *resul
 /// Current implementation always returns without errors.
 enum mgp_error mgp_edge_get_from(struct mgp_edge *e, struct mgp_vertex **result);
 
-enum mgp_error mgp_edge_change_from(struct mgp_edge *e, struct mgp_vertex *new_from);
-
 /// Get the destination vertex of the given edge.
 /// Resulting vertex is valid until the edge is valid and it must not be used afterwards.
 /// Current implementation always returns without errors.
@@ -865,6 +863,10 @@ enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mg
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge from vertex
+enum mgp_error mgp_graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                          mgp_memory *memory, mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.

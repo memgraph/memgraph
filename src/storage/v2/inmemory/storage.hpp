@@ -216,7 +216,7 @@ class InMemoryStorage final : public Storage {
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
     /// Change edge from
-    Result<void> ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from);
+    Result<EdgeAccessor> ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from);
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc

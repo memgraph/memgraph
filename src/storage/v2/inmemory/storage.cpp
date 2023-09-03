@@ -494,7 +494,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                       &storage_->constraints_, config_);
 }
 
-Result<void> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
   MG_ASSERT(edge->transaction_ == new_from->transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
             "accessor when deleting an edge!");
@@ -588,7 +588,7 @@ Result<void> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAccessor *edg
   transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  return {};
+  return *edge;
 }
 
 Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdge(EdgeAccessor *edge) {

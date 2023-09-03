@@ -25,6 +25,7 @@
 
 #include "license/license.hpp"
 #include "mg_procedure.h"
+#include "mgp.hpp"
 #include "module.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -2209,33 +2210,6 @@ mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_edge_change_from(struct mgp_edge *e, struct mgp_vertex *new_from) {
-  return WrapExceptions([&]() -> void {
-    auto result = std::visit(
-        memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *accessor) {
-                                      return accessor->ChangeEdgeFrom(
-                                          &e->impl, &std::get<memgraph::query::VertexAccessor>(new_from->impl));
-                                    },
-                                    [&](memgraph::query::SubgraphDbAccessor *accessor) {
-                                      return accessor->ChangeEdgeFrom(
-                                          &e->impl, &std::get<memgraph::query::SubgraphVertexAccessor>(new_from->impl));
-                                    }},
-        new_from->graph->impl);
-    if (result.HasError()) {
-      switch (result.GetError()) {
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");
-        case memgraph::storage::Error::DELETED_OBJECT:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
-          LOG_FATAL("Unexpected error when removing an edge.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
-          throw SerializationException{"Cannot serialize removing an edge."};
-      }
-    }
-  });
-}
-
 mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
   *result = &e->to;
   return mgp_error::MGP_ERROR_NO_ERROR;
@@ -2576,6 +2550,62 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
                   return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to, from->graph);
                 }},
             graph->impl);
+      },
+      result);
+}
+
+mgp_error mgp_graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                     mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions(
+      [&]() -> mgp_edge * {
+        auto *ctx = graph->ctx;
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+            !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw AuthorizationException{"Insufficient permissions for changing an edge!"};
+        }
+#endif
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot remove an edge from an immutable graph!"};
+        }
+
+        auto edge = std::visit(memgraph::utils::Overloaded{
+                                   [&](memgraph::query::DbAccessor *accessor) {
+                                     return accessor->ChangeEdgeFrom(
+                                         &e->impl, &std::get<memgraph::query::VertexAccessor>(new_from->impl));
+                                   },
+                                   [&](memgraph::query::SubgraphDbAccessor *accessor) {
+                                     return accessor->ChangeEdgeFrom(
+                                         &e->impl, &std::get<memgraph::query::SubgraphVertexAccessor>(new_from->impl));
+                                   }},
+                               graph->impl);
+
+        if (edge.HasError()) {
+          switch (edge.GetError()) {
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing an edge!");
+            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+              LOG_FATAL("Unexpected error when removing an edge.");
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              throw SerializationException{"Cannot serialize removing an edge."};
+          }
+        }
+        // destroy old edge and return new one from same accessor (since mgp_edge.from is not changeable)
+        mgp_edge_destroy(e);
+        return std::visit(
+            memgraph::utils::Overloaded{
+                [memory, edge, new_from](memgraph::query::DbAccessor *) {
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), new_from->graph);
+                },
+                [memory, edge, new_from](memgraph::query::SubgraphDbAccessor *db_impl) {
+                  const auto &v_from =
+                      memgraph::query::SubgraphVertexAccessor(edge.GetValue().From(), db_impl->getGraph());
+                  const auto &v_to = memgraph::query::SubgraphVertexAccessor(edge.GetValue().To(), db_impl->getGraph());
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to, new_from->graph);
+                }},
+            new_from->graph->impl);
       },
       result);
 }

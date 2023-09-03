@@ -427,8 +427,9 @@ inline mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>
 
 inline mgp_vertex *edge_get_from(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_from, e); }
 
-inline void edge_change_from(mgp_edge *e, mgp_vertex *new_from) {
-  return MgInvokeVoid(mgp_edge_change_from, e, new_from);
+inline mgp_edge *graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                        mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_change_edge_from, graph, e, new_from, memory);
 }
 
 inline mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_to, e); }
