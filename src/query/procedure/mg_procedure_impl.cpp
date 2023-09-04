@@ -2585,12 +2585,18 @@ mgp_error mgp_graph_change_edge_from(struct mgp_graph *graph, struct mgp_edge *e
             case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing an edge!");
             case memgraph::storage::Error::DELETED_OBJECT:
+              LOG_FATAL("The edge was already deleted.");
             case memgraph::storage::Error::PROPERTIES_DISABLED:
             case memgraph::storage::Error::VERTEX_HAS_EDGES:
               LOG_FATAL("Unexpected error when removing an edge.");
             case memgraph::storage::Error::SERIALIZATION_ERROR:
-              throw SerializationException{"Cannot serialize removing an edge."};
+              throw SerializationException{"Cannot serialize changing an edge."};
           }
+        }
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
+          ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
 
         return std::visit(
@@ -2640,12 +2646,18 @@ mgp_error mgp_graph_change_edge_to(struct mgp_graph *graph, struct mgp_edge *e, 
             case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing an edge!");
             case memgraph::storage::Error::DELETED_OBJECT:
+              LOG_FATAL("The edge was already deleted.");
             case memgraph::storage::Error::PROPERTIES_DISABLED:
             case memgraph::storage::Error::VERTEX_HAS_EDGES:
               LOG_FATAL("Unexpected error when removing an edge.");
             case memgraph::storage::Error::SERIALIZATION_ERROR:
-              throw SerializationException{"Cannot serialize removing an edge."};
+              throw SerializationException{"Cannot serialize changing an edge."};
           }
+        }
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
+          ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
 
         return std::visit(

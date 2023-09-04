@@ -496,11 +496,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
   MG_ASSERT(edge->transaction_ == new_from->transaction_,
-            "EdgeAccessor must be from the same transaction as the storage "
+            "EdgeAccessor must be from the same transaction as the new from vertex "
             "accessor when deleting an edge!");
   MG_ASSERT(edge->transaction_ == &transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
-            "accessor when deleting an edge!");
+            "accessor when changing an edge!");
 
   auto *old_from_vertex = edge->from_vertex_;
   auto *new_from_vertex = new_from->vertex_;
@@ -525,6 +525,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAcces
   std::unique_lock<utils::RWSpinLock> guard_new_from(new_from_vertex->lock, std::defer_lock);
   std::unique_lock<utils::RWSpinLock> guard_to(to_vertex->lock, std::defer_lock);
 
+  // lock in increasing gid order, if two vertices have the same gid need to only lock once
   std::vector<memgraph::storage::Vertex *> vertices{old_from_vertex, new_from_vertex, to_vertex};
   std::sort(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid < y->gid; });
   vertices.erase(std::unique(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid == y->gid; }),
@@ -597,7 +598,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAcces
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeTo(EdgeAccessor *edge, VertexAccessor *new_to) {
   MG_ASSERT(edge->transaction_ == new_to->transaction_,
-            "EdgeAccessor must be from the same transaction as the storage "
+            "EdgeAccessor must be from the same transaction as the new to vertex "
             "accessor when deleting an edge!");
   MG_ASSERT(edge->transaction_ == &transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
@@ -626,6 +627,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeTo(EdgeAccesso
   std::unique_lock<utils::RWSpinLock> guard_old_to(old_to_vertex->lock, std::defer_lock);
   std::unique_lock<utils::RWSpinLock> guard_new_to(new_to_vertex->lock, std::defer_lock);
 
+  // lock in increasing gid order, if two vertices have the same gid need to only lock once
   std::vector<memgraph::storage::Vertex *> vertices{from_vertex, old_to_vertex, new_to_vertex};
   std::sort(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid < y->gid; });
   vertices.erase(std::unique(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid == y->gid; }),
