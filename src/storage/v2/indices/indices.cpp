@@ -10,7 +10,10 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 
 namespace memgraph::storage {
 
@@ -33,6 +36,18 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transacti
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+}
+
+Indices::Indices(Constraints *constraints, const Config &config, StorageMode storage_mode) {
+  std::invoke([this, constraints, config, storage_mode]() {
+    if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      label_index_ = std::make_unique<InMemoryLabelIndex>(this, constraints, config);
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(this, constraints, config);
+    } else {
+      label_index_ = std::make_unique<DiskLabelIndex>(this, constraints, config);
+      label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(this, constraints, config);
+    }
+  });
 }
 
 }  // namespace memgraph::storage
