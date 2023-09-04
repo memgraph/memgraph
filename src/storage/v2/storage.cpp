@@ -309,10 +309,19 @@ EdgeInfoForDeletion Storage::Accessor::PrepareEdgesForDeletion(const std::unorde
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
     for (auto *vertex_ptr : vertices) {
-      for (const auto &item : vertex_ptr->in_edges) {
+      std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+      std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+
+      {
+        auto vertex_lock = std::shared_lock{vertex_ptr->lock};
+        in_edges = vertex_ptr->in_edges;
+        out_edges = vertex_ptr->out_edges;
+      }
+
+      for (const auto &item : in_edges) {
         try_adding_partial_delete_vertices(partial_src_vertices, src_edge_refs, item);
       }
-      for (const auto &item : vertex_ptr->out_edges) {
+      for (const auto &item : out_edges) {
         try_adding_partial_delete_vertices(partial_dest_vertices, dest_edge_refs, item);
       }
     }
