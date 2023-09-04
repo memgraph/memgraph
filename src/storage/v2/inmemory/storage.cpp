@@ -878,7 +878,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // emplace back could take a long time.
       engine_guard.unlock();
 
-      garbage_undo_buffers.emplace_back(mark_timestamp, transaction_.transaction_id, std::move(transaction_.deltas));
+      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
     mem_storage->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
@@ -1194,7 +1194,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::tuple<uint64_t, transaction_id_type, BondPmrLd>> unlinked_undo_buffers;
+  std::list<std::pair<uint64_t, BondPmrLd>> unlinked_undo_buffers;
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1339,7 +1339,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     }
 
     committed_transactions_.WithLock([&](auto &committed_transactions) {
-      unlinked_undo_buffers.emplace_back(0, transaction->transaction_id, std::move(transaction->deltas));
+      unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
       committed_transactions.pop_front();
     });
   }
@@ -1368,7 +1368,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
       // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
       // transactions from aborting until we're done marking, maybe we should
       // add them one-by-one or something
-      for (auto &[timestamp, transaction_id, transaction_deltas] : unlinked_undo_buffers) {
+      for (auto &[timestamp, transaction_deltas] : unlinked_undo_buffers) {
         timestamp = mark_timestamp;
       }
       garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
@@ -1382,14 +1382,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     // if force is set to true we can simply delete all the leftover undos because
     // no transaction is active
     if constexpr (force) {
-      for (auto &[timestamp, transaction_id, transaction_deltas] : undo_buffers) {
+      for (auto &[timestamp, transaction_deltas] : undo_buffers) {
         transaction_deltas.~Bond<PmrListDelta>();
       }
       undo_buffers.clear();
 
     } else {
-      while (!undo_buffers.empty() && std::get<0>(undo_buffers.front()) <= oldest_active_start_timestamp) {
-        auto &[timestamp, transaction_id, transaction_deltas] = undo_buffers.front();
+      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
+        auto &[timestamp, transaction_deltas] = undo_buffers.front();
         transaction_deltas.~Bond<PmrListDelta>();
         // this will trigger destory of object
         // but since we release pointer, it will just destory other stuff

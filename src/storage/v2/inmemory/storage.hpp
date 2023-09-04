@@ -445,16 +445,13 @@ class InMemoryStorage final : public Storage {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
-  using transaction_id_type = decltype(std::declval<Transaction>().transaction_id);
-
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
+  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
   // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
-  utils::Synchronized<std::list<std::tuple<uint64_t, transaction_id_type, BondPmrLd>>, utils::SpinLock>
-      garbage_undo_buffers_;
+  utils::Synchronized<std::list<std::pair<uint64_t, BondPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
