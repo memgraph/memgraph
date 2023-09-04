@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
-#include <optional>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 

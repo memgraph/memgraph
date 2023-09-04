@@ -25,7 +25,6 @@
 
 #include "license/license.hpp"
 #include "mg_procedure.h"
-#include "mgp.hpp"
 #include "module.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"

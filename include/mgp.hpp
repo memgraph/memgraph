@@ -801,7 +801,6 @@ class Relationship {
 
   /// @brief Returns the relationship’s source node.
   Node From() const;
-
   /// @brief Returns the relationship’s destination node.
   Node To() const;
 
