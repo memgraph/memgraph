@@ -15,8 +15,13 @@
 #include "utils/memory.hpp"
 #include "utils/pmr/list.hpp"
 
+/// struct Bond presents the association of a collection and its resource
+/// and makes them tightly bound for easier handling of construction, moving and destruction
+/// of container
 template <typename Container>
 struct Bond {
+  using resource = memgraph::utils::MonotonicBufferResource;
+
   explicit Bond(std::size_t initial_size)
       : res_(std::make_unique<resource>(initial_size)),
         container_(memgraph::utils::Allocator<Container>(res_.get()).template new_object<Container>()){};
@@ -35,7 +40,7 @@ struct Bond {
 
   auto use() const -> const Container & { return *container_; }
 
-  auto res() -> memgraph::utils::MonotonicBufferResource * { return res_.get(); }
+  auto res() -> resource * { return res_.get(); }
 
   ~Bond() {
     if (res_) {
@@ -47,7 +52,6 @@ struct Bond {
   }
 
  private:
-  using resource = memgraph::utils::MonotonicBufferResource;
   std::unique_ptr<resource> res_{nullptr};
   Container *container_{nullptr};
 };

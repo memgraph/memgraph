@@ -64,8 +64,6 @@ class DeltaGenerator final {
                        gen->storage_mode_) {}
 
    public:
-    ~Transaction() {}
-
     memgraph::storage::Vertex *CreateVertex() {
       auto gid = memgraph::storage::Gid::FromUint(gen_->vertices_count_++);
       auto delta = memgraph::storage::CreateDeleteObjectDelta(&transaction_);
