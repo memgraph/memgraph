@@ -63,6 +63,7 @@ add_subdirectory(analytical_mode)
 add_subdirectory(batched_procedures)
 add_subdirectory(concurrent_query_modules)
 add_subdirectory(show_index_info)
+add_subdirectory(set_properties)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

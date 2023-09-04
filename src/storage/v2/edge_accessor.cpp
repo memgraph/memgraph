@@ -32,7 +32,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
   if (!config_.properties_on_edges) {
     Delta *delta = nullptr;
     {
-      std::lock_guard<utils::SpinLock> guard(from_vertex_->lock);
+      auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
       deleted = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
                   return std::get<2>(out_edge) == edge_;
@@ -69,7 +69,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
 
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     delta = edge_.ptr->delta;
   }
@@ -109,7 +109,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -133,7 +133,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -152,7 +152,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -170,7 +170,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -193,7 +193,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   PropertyValue value;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     value = edge_.ptr->properties.GetProperty(property);
     delta = edge_.ptr->delta;
@@ -236,7 +236,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     properties = edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta;
