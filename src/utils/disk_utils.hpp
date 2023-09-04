@@ -25,4 +25,12 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
   return std::nullopt;
 }
 
+inline uint64_t GetEarliestTimestamp(storage::Delta *head) {
+  if (head == nullptr) return 0;
+  while (head->next != nullptr) {
+    head = head->next;
+  }
+  return head->timestamp->load(std::memory_order_acquire);
+}
+
 }  // namespace memgraph::utils
