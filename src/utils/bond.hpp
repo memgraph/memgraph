@@ -21,9 +21,8 @@ struct Bond {
       : res_(std::make_unique<resource>(initial_size)),
         container_(memgraph::utils::Allocator<Container>(res_.get()).template new_object<Container>()){};
 
-  Bond(Bond &&other) noexcept : res_(std::move(other.res_)), container_(other.container_) {
+  Bond(Bond &&other) noexcept : res_(std::exchange(other.res_, nullptr)), container_(other.container_) {
     other.container_ = nullptr;
-    [[maybe_unused]] auto _ = other.res_.release();
   }
 
   Bond(const Bond &other) = delete;
