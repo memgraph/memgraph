@@ -1760,7 +1760,8 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
       }
     }
 
-    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += properties->items.size();
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
+        static_cast<int64_t>(properties->items.size());
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector ||
@@ -2389,7 +2390,8 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
       }
     }
 
-    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += properties->items.size();
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
+        static_cast<int64_t>(properties->items.size());
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector ||

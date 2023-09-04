@@ -1710,6 +1710,7 @@ PyObject *PyEdgeSetProperties(PyEdge *self, PyObject *args) {
   PyObject *value{nullptr};
   Py_ssize_t pos{0};
   while (PyDict_Next(props, &pos, &key, &value)) {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     if (!PyUnicode_Check(key)) {
       throw std::invalid_argument("Dictionary keys must be strings");
     }
@@ -2015,6 +2016,7 @@ PyObject *PyVertexSetProperties(PyVertex *self, PyObject *args) {
   PyObject *value{nullptr};
   Py_ssize_t pos{0};
   while (PyDict_Next(props, &pos, &key, &value)) {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     if (!PyUnicode_Check(key)) {
       throw std::invalid_argument("Dictionary keys must be strings");
     }
