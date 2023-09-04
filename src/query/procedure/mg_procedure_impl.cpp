@@ -1729,11 +1729,11 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(v->getImpl(), v->graph->view,
                                 memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw AuthorizationException{"Insufficient permissions for setting a property on vertex!"};
+      throw AuthorizationException{"Insufficient permissions for setting properties on the vertex!"};
     }
 #endif
     if (!MgpVertexIsMutable(*v)) {
-      throw ImmutableObjectException{"Cannot properties on an immutable vertex!"};
+      throw ImmutableObjectException{"Cannot set properties of an immutable vertex!"};
     }
 
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
@@ -1775,7 +1775,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
 
       if (new_value.IsNull()) {
         trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
-        return;
+        continue;
       }
 
       trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), property_key, old_value, new_value);
@@ -2357,12 +2357,12 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw AuthorizationException{"Insufficient permissions for setting a property on edge!"};
+      throw AuthorizationException{"Insufficient permissions for setting properties on the edge!"};
     }
 #endif
 
     if (!MgpEdgeIsMutable(*e)) {
-      throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
+      throw ImmutableObjectException{"Cannot set properties of an immutable edge!"};
     }
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
     for (const auto &item : properties->items) {
@@ -2404,7 +2404,7 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
 
       if (new_value.IsNull()) {
         trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
-        return;
+        continue;
       }
 
       trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
