@@ -248,9 +248,7 @@ Result<std::unordered_set<Vertex *>> Storage::Accessor::PrepareNodesForDeletion(
     auto *vertex_ptr = vertex->vertex_;
 
     {
-      std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+      auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
       if (vertex_ptr->deleted) {
         continue;
@@ -268,7 +266,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
   deleted_vertices.reserve(vertices.size());
 
   for (auto *vertex_ptr : vertices) {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+    auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -347,16 +345,16 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     while (!edges_collection->empty()) {
       auto [edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
-      std::unique_lock<utils::SpinLock> guard;
+      std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.items.properties_on_edges) {
         auto edge_ptr = edge_ref.ptr;
-        guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+        guard = std::unique_lock{edge_ptr->lock};
 
         if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
       }
 
-      std::unique_lock<utils::SpinLock> guard_vertex(vertex_ptr->lock, std::defer_lock);
-      std::unique_lock<utils::SpinLock> guard_opposing_vertex(opposing_vertex->lock, std::defer_lock);
+      std::unique_lock<utils::RWSpinLock> guard_vertex{vertex_ptr->lock, std::defer_lock};
+      std::unique_lock<utils::RWSpinLock> guard_opposing_vertex{opposing_vertex->lock, std::defer_lock};
 
       // Obtain the locks by `gid` order to avoid lock cycles.
       if (vertex_ptr->gid < opposing_vertex->gid) {
@@ -420,7 +418,7 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachEdgesFromNodes(EdgeInfoForDel
   auto detach_non_deletable_nodes = [this, &deleted_edges, &deleted_edges_set](auto *vertex_ptr, auto *edges_collection,
                                                                                auto &set_for_erasure, auto delta,
                                                                                auto reverse_vertex_order) {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+    std::unique_lock<utils::RWSpinLock> vertex_lock{vertex_ptr->lock};
 
     auto mid = std::partition(
         edges_collection->begin(), edges_collection->end(),
@@ -428,10 +426,10 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachEdgesFromNodes(EdgeInfoForDel
          reverse_vertex_order](auto &edge) {
           auto [edge_type, opposing_vertex, edge_ref] = edge;
           if (set_for_erasure.contains(edge_ref)) {
-            std::unique_lock<utils::SpinLock> guard;
+            std::unique_lock<utils::RWSpinLock> guard;
             if (storage_->config_.items.properties_on_edges) {
               auto edge_ptr = edge_ref.ptr;
-              guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+              guard = std::unique_lock{edge_ptr->lock};
               // this can happen only if we marked edges for deletion with no nodes,
               // so the method detaching nodes will not do anything
               MarkEdgeAsDeleted(edge_ptr);
