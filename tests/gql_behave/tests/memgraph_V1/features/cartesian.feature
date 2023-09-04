@@ -171,3 +171,81 @@ Feature: Cartesian
             MATCH (a)-[]->() MATCH (a:B) MATCH (a:C) RETURN a
             """
         Then the result should be empty
+
+    Scenario: Multiple match + with 01
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1}), (:A {id: 2}), (:B {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:A) WITH a MATCH (b:B) WHERE a.id = b.id RETURN a, b
+            """
+        Then the result should be:
+            | a            | b            |
+            | (:A {id: 1}) | (:B {id: 1}) |
+
+    Scenario: Multiple match + with 02
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1}), (:A {id: 2}), (:B {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:A) WITH a.id as id MATCH (a:A) return a;
+            """
+        Then the result should be:
+            | a            |
+            | (:A {id: 1}) |
+            | (:A {id: 2}) |
+            | (:A {id: 1}) |
+            | (:A {id: 2}) |
+
+    Scenario: Multiple match + with 03
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1})-[:TYPE]->(:B {id: 1}), (:A {id: 2})-[:TYPE]->(:B {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:A) WITH a.id as id MATCH (a)-[:TYPE]->(b) return a, b;
+            """
+        Then the result should be:
+            | a            | b            |
+            | (:A {id: 1}) | (:B {id: 1}) |
+            | (:A {id: 2}) | (:B {id: 2}) |
+            | (:A {id: 1}) | (:B {id: 1}) |
+            | (:A {id: 2}) | (:B {id: 2}) |
+
+    Scenario: Multiple match + with 04
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1})-[:TYPE]->(:B {id: 1}), (:A {id: 2})-[:TYPE]->(:B {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:A) WITH a MATCH (a)-[:TYPE]->(b) return a, b;
+            """
+        Then the result should be:
+            | a            | b            |
+            | (:A {id: 1}) | (:B {id: 1}) |
+            | (:A {id: 2}) | (:B {id: 2}) |
+
+    Scenario: Multiple match + with 05
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1})-[:TYPE]->(:B {id: 1}), (:A {id: 2})-[:TYPE]->(:B {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:A) WITH a MATCH (c:A {id: 1}), (a)-[:TYPE]->(b) return a, b;
+            """
+        Then the result should be:
+            | a            | b            |
+            | (:A {id: 1}) | (:B {id: 1}) |
+            | (:A {id: 2}) | (:B {id: 2}) |

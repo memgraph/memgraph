@@ -4301,7 +4301,6 @@ class CartesianCursor : public Cursor {
 
     if (left_op_frames_it_ == left_op_frames_.end()) {
       // Advance right_op_cursor_.
-      restore_frame(self_.left_symbols_, *left_op_frames_.begin());
       if (!right_op_cursor_->Pull(frame, context)) return false;
 
       right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
