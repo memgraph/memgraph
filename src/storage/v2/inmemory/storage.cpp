@@ -251,7 +251,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  auto guard = std::unique_lock{vertex_ptr->lock};
 
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -289,7 +289,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+    auto guard = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -329,7 +329,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
     }
   }
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  auto guard = std::unique_lock{vertex_ptr->lock};
 
   // We need to check again for serialization errors because we unlocked the
   // vertex. Some other transaction could have modified the vertex in the
@@ -369,8 +369,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
   if (from_vertex->gid < to_vertex->gid) {
     guard_from.lock();
     guard_to.lock();
@@ -435,8 +435,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
   if (from_vertex->gid < to_vertex->gid) {
     guard_from.lock();
     guard_to.lock();
@@ -503,10 +503,10 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   auto edge_ref = edge->edge_;
   auto edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::SpinLock> guard;
+  std::unique_lock<utils::RWSpinLock> guard;
   if (config_.properties_on_edges) {
     auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+    guard = std::unique_lock{edge_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -517,8 +517,8 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   auto *to_vertex = edge->to_vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
   if (from_vertex->gid < to_vertex->gid) {
     guard_from.lock();
     guard_to.lock();
@@ -734,7 +734,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
-        std::lock_guard<utils::SpinLock> guard(vertex->lock);
+        auto guard = std::unique_lock{vertex->lock};
         Delta *current = vertex->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -822,7 +822,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       case PreviousPtr::Type::EDGE: {
         auto *edge = prev.edge;
-        std::lock_guard<utils::SpinLock> guard(edge->lock);
+        auto guard = std::lock_guard{edge->lock};
         Delta *current = edge->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -1268,7 +1268,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
         switch (prev.type) {
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
-            std::lock_guard<utils::SpinLock> vertex_guard(vertex->lock);
+            auto vertex_guard = std::unique_lock{vertex->lock};
             if (vertex->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
@@ -1282,7 +1282,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
           }
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
-            std::lock_guard<utils::SpinLock> edge_guard(edge->lock);
+            auto edge_guard = std::unique_lock{edge->lock};
             if (edge->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
@@ -1301,7 +1301,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
               // part of the suffix later.
               break;
             }
-            std::unique_lock<utils::SpinLock> guard;
+            std::unique_lock<utils::RWSpinLock> guard;
             {
               // We need to find the parent object in order to be able to use
               // its lock.
@@ -1311,10 +1311,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
               }
               switch (parent.type) {
                 case PreviousPtr::Type::VERTEX:
-                  guard = std::unique_lock<utils::SpinLock>(parent.vertex->lock);
+                  guard = std::unique_lock{parent.vertex->lock};
                   break;
                 case PreviousPtr::Type::EDGE:
-                  guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
+                  guard = std::unique_lock{parent.edge->lock};
                   break;
                 case PreviousPtr::Type::DELTA:
                 case PreviousPtr::Type::NULLPTR:

@@ -490,7 +490,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Config::Ite
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
-  std::lock_guard<utils::SpinLock> guard(vertex.lock);
+  auto guard = std::shared_lock{vertex.lock};
   switch (delta.action) {
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
@@ -546,7 +546,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
-  std::lock_guard<utils::SpinLock> guard(edge.lock);
+  auto guard = std::shared_lock{edge.lock};
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
