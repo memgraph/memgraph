@@ -2756,8 +2756,8 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 inline bool Node::operator!=(const Node &other) const { return !(*this == other); }
 
 // this functions is used both in relationship and node ToString
-inline std::string PropertiesToString(const std::unordered_map<std::string, Value> &property_map) {
-  std::string properties{""};
+inline std::string PropertiesToString(const std::map<std::string, Value> &property_map) {
+  std::string properties;
   const auto map_size = property_map.size();
   size_t i = 0;
   for (const auto &[key, value] : property_map) {
@@ -2780,7 +2780,13 @@ inline const std::string Node::ToString() const {
     labels = "";  // dont use labels if they dont exist
   }
   std::unordered_map<std::string, Value> properties_map{Properties()};
-  std::string properties{PropertiesToString(properties_map)};
+  std::map<std::string, Value> properties_map_sorted{};
+
+  for (const auto &[k, v] : properties_map) {
+    properties_map_sorted.emplace(k, v);
+  }
+  std::string properties{PropertiesToString(properties_map_sorted)};
+
   return "(id: " + std::to_string(Id().AsInt()) + labels + ", properties: {" + properties + "})";
 }
 
@@ -2875,7 +2881,13 @@ inline const std::string Relationship::ToString() const {
 
   const std::string type{Type()};
   std::unordered_map<std::string, Value> properties_map{Properties()};
-  std::string properties{PropertiesToString(properties_map)};
+  std::map<std::string, Value> properties_map_sorted{};
+
+  for (const auto &[k, v] : properties_map) {
+    properties_map_sorted.emplace(k, v);
+  }
+  std::string properties{PropertiesToString(properties_map_sorted)};
+
   const std::string relationship{"[type: " + type + ", id: " + std::to_string(Id().AsInt()) + ", properties: {" +
                                  properties + "}]"};
 
@@ -2953,7 +2965,13 @@ inline const std::string Path::ToString() const {
 
     const Relationship rel = GetRelationshipAt(i);
     std::unordered_map<std::string, Value> properties_map{rel.Properties()};
-    std::string properties = PropertiesToString(properties_map);
+    std::map<std::string, Value> properties_map_sorted{};
+
+    for (const auto &[k, v] : properties_map) {
+      properties_map_sorted.emplace(k, v);
+    }
+    std::string properties{PropertiesToString(properties_map_sorted)};
+
     return_string.append("[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
                          ", properties: {" + properties + "}]->");
   }
