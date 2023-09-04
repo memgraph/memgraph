@@ -273,7 +273,6 @@ class DiskStorage final : public Storage {
     /// transaction is done
     std::vector<std::list<Delta>> index_deltas_storage_;
     utils::SkipList<Edge> edges_;
-    std::unordered_map<Gid, std::pair<Delta::Action, std::string>> modified_edges_;
     Config::Items config_;
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;

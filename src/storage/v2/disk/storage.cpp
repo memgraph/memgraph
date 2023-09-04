@@ -39,6 +39,7 @@
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/modified_edge.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -1239,9 +1240,9 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexA
     edge.ptr->properties.SetBuffer(properties);
   }
 
-  const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge, config_.properties_on_edges);
-  modified_edges_.emplace(gid,
-                          std::make_pair(Delta::Action::DELETE_DESERIALIZED_OBJECT, disk_edge_key.GetSerializedKey()));
+  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type,
+                                 edge);
+  transaction_.AddModifiedEdge(gid, modified_edge);
 
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
@@ -1276,8 +1277,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     delta->prev.Set(&*it);
   }
 
-  const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge, config_.properties_on_edges);
-  modified_edges_.emplace(gid, std::make_pair(Delta::Action::DELETE_OBJECT, disk_edge_key.GetSerializedKey()));
+  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
+  transaction_.AddModifiedEdge(gid, modified_edge);
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
@@ -1331,7 +1332,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
   const DiskEdgeKey disk_edge_key(from_vertex->gid, to_vertex->gid, edge_type, edge_ref, config_.properties_on_edges);
   edges_to_delete_.emplace(disk_edge_key.GetSerializedKey());
 
-  modified_edges_.erase(edge->Gid());
+  transaction_.RemoveModifiedEdge(edge->Gid());
 
   if (config_.properties_on_edges) {
     MG_ASSERT((op1 && op2), "Invalid database state!");
@@ -1550,10 +1551,11 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
-  for (const auto &modified_edge : modified_edges_) {
+  for (const auto &modified_edge : transaction_.modified_edges_) {
     const storage::Gid &gid = modified_edge.first;
-    const Delta::Action action = modified_edge.second.first;
-    const std::string &ser_edge_key = modified_edge.second.second;
+    const Delta::Action action = modified_edge.second.delta_action;
+    DiskEdgeKey disk_edge_key(modified_edge.second, config_.properties_on_edges);
+    const std::string &ser_edge_key = disk_edge_key.GetSerializedKey();
 
     if (!config_.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false

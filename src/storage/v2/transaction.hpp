@@ -21,6 +21,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
@@ -61,11 +62,21 @@ struct Transaction {
 
   ~Transaction() {}
 
+  bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
+
   /// @throw std::bad_alloc if failed to create the `commit_timestamp`
   void EnsureCommitTimestampExists() {
     if (commit_timestamp != nullptr) return;
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id.load(std::memory_order_relaxed));
   }
+
+  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
+    if (IsDiskStorage()) {
+      modified_edges_.emplace(gid, modified_edge);
+    }
+  }
+
+  void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
 
   std::atomic<uint64_t> transaction_id;
   uint64_t start_timestamp;
@@ -85,6 +96,9 @@ struct Transaction {
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
   mutable VertexInfoCache manyDeltasCache;
+
+  // Store modified edges GID mapped to changed Delta and serialized edge key
+  ModifiedEdgesMap modified_edges_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
