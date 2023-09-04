@@ -47,6 +47,7 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
   MOCK_CONST_METHOD2(GetFineGrainedAuthChecker,
                      std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
                          const std::string &username, const memgraph::query::DbAccessor *db_accessor));
+  MOCK_CONST_METHOD0(ClearCache, void());
 #endif
 };
 }  // namespace

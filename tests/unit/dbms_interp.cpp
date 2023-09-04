@@ -76,6 +76,8 @@ class TestAuthChecker : public memgraph::query::AuthChecker {
       const std::string & /*username*/, const memgraph::query::DbAccessor * /*db_accessor*/) const override {
     return {};
   }
+
+  void ClearCache() const override {}
 };
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_interp"};
