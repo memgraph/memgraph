@@ -4610,7 +4610,7 @@ class CallProcedureCursor : public Cursor {
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on new query calls.
       auto *memory = self_->memory_resource;
-      auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+      auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           result_, call_initializer);
