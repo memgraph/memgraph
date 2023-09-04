@@ -2811,11 +2811,11 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       PropertiesMap new_properties;
       for (const auto &[string_key, value] : rhs.ValueMap()) {
         storage::PropertyId property_id;
-        if (auto it = cached_name_id.find(std::string(string_key)); it == cached_name_id.end()) {
+        if (auto it = cached_name_id.find(std::string(string_key)); it != cached_name_id.end()) [[likely]] {
+          property_id = it->second;
+        } else {
           property_id = context->db_accessor->NameToProperty(string_key);
           cached_name_id.emplace(string_key, property_id);
-        } else {
-          property_id = it->second;
         }
         new_properties.emplace(property_id, value);
       }
@@ -2845,7 +2845,6 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &lhs = frame[self_.input_symbol_];
-  // context.frame_change_collector->AddTrackingKey("a");
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
