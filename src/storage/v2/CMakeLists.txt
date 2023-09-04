@@ -5,6 +5,7 @@ find_package(Threads REQUIRED)
 add_library(mg-storage-v2 STATIC
         commit_log.cpp
         constraints/existence_constraints.cpp
+        constraints/constraints.cpp
         temporal.cpp
         durability/durability.cpp
         durability/serialization.cpp
