@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <rocksdb/iterator.h>
 #include <rocksdb/utilities/transaction.h>
 
@@ -21,7 +23,7 @@
 namespace memgraph::storage {
 class DiskLabelIndex : public storage::LabelIndex {
  public:
-  DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config);
+  DiskLabelIndex(Indices *indices, const Config &config);
 
   [[nodiscard]] bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
@@ -52,6 +54,8 @@ class DiskLabelIndex : public storage::LabelIndex {
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadIndexInfo(const std::vector<std::string> &labels);
+
+  std::unordered_set<LabelId> GetInfo() const;
 
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<LabelId>>>> entries_for_deletion;
