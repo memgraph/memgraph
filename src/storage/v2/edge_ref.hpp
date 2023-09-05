@@ -38,6 +38,4 @@ static_assert(std::is_standard_layout_v<EdgeRef>, "The EdgeRef must have a stand
 inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
 inline bool operator<(const EdgeRef &first, const EdgeRef &second) { return first.gid < second.gid; }
 inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
-inline bool operator<(const EdgeRef &first, const Gid &second) { return first.gid < second; }
-
 }  // namespace memgraph::storage

@@ -69,11 +69,10 @@ struct StorageInfo {
 };
 
 struct EdgeInfoForDeletion {
-  std::set<EdgeRef> partial_src_edges{};
-  std::set<EdgeRef> partial_dest_edges{};
+  std::unordered_set<Gid> partial_src_edge_ids{};
+  std::unordered_set<Gid> partial_dest_edge_ids{};
   std::set<Vertex *> partial_src_vertices{};
   std::set<Vertex *> partial_dest_vertices{};
-  uint64_t total_edges_to_delete{0};
 };
 
 class Storage {
@@ -209,14 +208,15 @@ class Storage {
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
 
-    Result<std::unordered_set<Vertex *>> PrepareNodesForDeletion(const std::vector<VertexAccessor *> &vertices);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
-    static EdgeInfoForDeletion PrepareEdgesForDeletion(const std::unordered_set<Vertex *> &vertices,
-                                                       const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
+    // Detach delete private methods
+    std::unordered_set<Vertex *> PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices);
+    EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
+                                              const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
     Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
-                                                                          std::set<EdgeRef> &deleted_edges_set);
-    std::vector<EdgeAccessor> DetachEdgesFromNodes(EdgeInfoForDeletion info, std::set<EdgeRef> &deleted_edges_set);
-
+                                                                          std::unordered_set<Gid> &deleted_edge_ids);
+    std::vector<EdgeAccessor> DetachRemainingEdges(EdgeInfoForDeletion info,
+                                                   std::unordered_set<Gid> &partially_detached_edge_ids);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
     void MarkEdgeAsDeleted(Edge *edge);
 
    private:

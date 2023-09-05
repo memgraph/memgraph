@@ -200,23 +200,16 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
-
-  // Gather nodes for deletion and check write conflicts
-  auto maybe_nodes_to_delete = PrepareNodesForDeletion(nodes);
-  if (maybe_nodes_to_delete.HasError()) {
-    return maybe_nodes_to_delete.GetError();
-  }
-
-  std::unordered_set<Vertex *> &nodes_to_delete = maybe_nodes_to_delete.GetValue();
-
-  EdgeInfoForDeletion edge_deletion_info = PrepareEdgesForDeletion(nodes_to_delete, edges, detach);
-
-  std::set<EdgeRef> deleted_edges_set;
-  std::vector<EdgeAccessor> deleted_edges;
+  // 1. Gather nodes which are not deleted yet in the system
+  std::unordered_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
+  // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
+  EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
 
   // Detach nodes which need to be deleted
+  std::unordered_set<Gid> deleted_edge_ids;
+  std::vector<EdgeAccessor> deleted_edges;
   if (detach) {
-    auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edges_set);
+    auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edge_ids);
     if (maybe_cleared_edges.HasError()) {
       return maybe_cleared_edges.GetError();
     }
@@ -225,7 +218,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
-  std::vector<EdgeAccessor> another_edges = DetachEdgesFromNodes(std::move(edge_deletion_info), deleted_edges_set);
+  std::vector<EdgeAccessor> another_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids);
   deleted_edges.insert(deleted_edges.end(), another_edges.begin(), another_edges.end());
 
   auto maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
@@ -238,8 +231,8 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
-Result<std::unordered_set<Vertex *>> Storage::Accessor::PrepareNodesForDeletion(
-    const std::vector<VertexAccessor *> &vertices) {
+std::unordered_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices) {
+  // Some of the vertices could be already deleted in the system so we need to check
   std::unordered_set<Vertex *> nodes_to_delete{};
   for (const auto &vertex : vertices) {
     MG_ASSERT(vertex->transaction_ == &transaction_,
@@ -259,6 +252,205 @@ Result<std::unordered_set<Vertex *>> Storage::Accessor::PrepareNodesForDeletion(
   }
 
   return nodes_to_delete;
+}
+
+EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
+                                                             const std::vector<EdgeAccessor *> &edges,
+                                                             bool detach) noexcept {
+  std::set<Vertex *> partial_src_vertices;
+  std::set<Vertex *> partial_dest_vertices;
+  std::unordered_set<Gid> src_edge_ids;
+  std::unordered_set<Gid> dest_edge_ids;
+
+  auto try_adding_partial_delete_vertices = [this, &vertices](auto &partial_delete_vertices, auto &edge_ids,
+                                                              auto &item) {
+    // For the nodes on the other end of the edge, they might not get deleted in the system but only cut out
+    // of the edge. Therefore, information is gathered in this step to account for every vertices' in and out
+    // edges and what must be deleted
+    const auto &[edge_type, opposing_vertex, edge] = item;
+    if (!vertices.contains(opposing_vertex)) {
+      partial_delete_vertices.insert(opposing_vertex);
+      auto const edge_gid = storage_->config_.items.properties_on_edges ? edge.ptr->gid : edge.gid;
+      edge_ids.insert(edge_gid);
+    }
+  };
+
+  // add nodes which need to be detached on the other end of the edge
+  if (detach) {
+    for (auto *vertex_ptr : vertices) {
+      std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+      std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+
+      {
+        auto vertex_lock = std::shared_lock{vertex_ptr->lock};
+        in_edges = vertex_ptr->in_edges;
+        out_edges = vertex_ptr->out_edges;
+      }
+
+      for (auto const &item : in_edges) {
+        try_adding_partial_delete_vertices(partial_src_vertices, src_edge_ids, item);
+      }
+      for (auto const &item : out_edges) {
+        try_adding_partial_delete_vertices(partial_dest_vertices, dest_edge_ids, item);
+      }
+    }
+  }
+
+  // also add edges which we want to delete from the query
+  for (const auto &edge_accessor : edges) {
+    partial_src_vertices.insert(edge_accessor->from_vertex_);
+    partial_dest_vertices.insert(edge_accessor->to_vertex_);
+
+    auto const edge_gid = edge_accessor->Gid();
+    src_edge_ids.insert(edge_gid);
+    dest_edge_ids.insert(edge_gid);
+  }
+
+  return EdgeInfoForDeletion{.partial_src_edge_ids = std::move(src_edge_ids),
+                             .partial_dest_edge_ids = std::move(dest_edge_ids),
+                             .partial_src_vertices = std::move(partial_src_vertices),
+                             .partial_dest_vertices = std::move(partial_dest_vertices)};
+}
+
+Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(
+    const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids) {
+  // We want to gather all edges that we delete in this step so that we can proceed with
+  // further deletion
+  using ReturnType = std::vector<EdgeAccessor>;
+  std::vector<EdgeAccessor> deleted_edges{};
+
+  auto clear_edges = [this, &deleted_edges, &deleted_edge_ids](
+                         auto *vertex_ptr, auto *attached_edges_to_vertex, auto deletion_delta,
+                         auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
+    auto vertex_lock = std::unique_lock{vertex_ptr->lock, std::defer_lock};
+    while (!attached_edges_to_vertex->empty()) {
+      // get the information about the last edge in the vertex collection
+      vertex_lock.lock();
+      auto const &[edge_type, opposing_vertex, edge_ref] = *attached_edges_to_vertex->rbegin();
+      vertex_lock.unlock();
+
+      std::unique_lock<utils::RWSpinLock> guard;
+      if (storage_->config_.items.properties_on_edges) {
+        auto edge_ptr = edge_ref.ptr;
+        guard = std::unique_lock{edge_ptr->lock};
+
+        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+      }
+
+      auto opposing_vertex_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
+
+      // Obtain the locks by `gid` order to avoid lock cycles.
+      if (vertex_ptr->gid < opposing_vertex->gid) {
+        vertex_lock.lock();
+        opposing_vertex_lock.lock();
+      } else if (vertex_ptr->gid > opposing_vertex->gid) {
+        opposing_vertex_lock.lock();
+        vertex_lock.lock();
+      } else {
+        // The vertices are the same vertex, only lock one.
+        vertex_lock.lock();
+      }
+
+      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+      MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+
+      if (opposing_vertex != vertex_ptr) {
+        if (!PrepareForWrite(&transaction_, opposing_vertex)) return Error::SERIALIZATION_ERROR;
+        MG_ASSERT(!opposing_vertex->deleted, "Invalid database state!");
+      }
+
+      attached_edges_to_vertex->pop_back();
+      if (storage_->config_.items.properties_on_edges) {
+        auto *edge_ptr = edge_ref.ptr;
+        MarkEdgeAsDeleted(edge_ptr);
+      }
+
+      auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+      auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
+      bool const edge_cleared_from_both_directions = !was_inserted;
+      if (edge_cleared_from_both_directions) {
+        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                                   &storage_->constraints_, storage_->config_.items, true);
+      }
+
+      CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+    }
+
+    return std::make_optional<ReturnType>();
+  };
+
+  // delete the in and out edges from the nodes we want to delete
+  // no need to lock here, we are just passing the pointer of the in and out edges collections
+  for (auto *vertex_ptr : vertices) {
+    auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
+
+    maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
+  }
+
+  return std::make_optional<ReturnType>(deleted_edges);
+}
+
+std::vector<EdgeAccessor> Storage::Accessor::DetachRemainingEdges(
+    EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids) {
+  std::vector<EdgeAccessor> deleted_edges{};
+
+  auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids](
+                                            auto *vertex_ptr, auto *edges_attached_to_vertex, auto &set_for_erasure,
+                                            auto deletion_delta, auto reverse_vertex_order) {
+    auto vertex_lock = std::unique_lock{vertex_ptr->lock};
+    auto mid = std::partition(
+        edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [this, &set_for_erasure](auto &edge) {
+          auto const &[edge_type, opposing_vertex, edge_ref] = edge;
+          auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+          return !set_for_erasure.contains(edge_gid);
+        });
+
+    for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = *it;
+      std::unique_lock<utils::RWSpinLock> guard;
+      if (storage_->config_.items.properties_on_edges) {
+        auto edge_ptr = edge_ref.ptr;
+        guard = std::unique_lock{edge_ptr->lock};
+        // this can happen only if we marked edges for deletion with no nodes,
+        // so the method detaching nodes will not do anything
+        MarkEdgeAsDeleted(edge_ptr);
+      }
+
+      CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+
+      auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+      auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
+      bool const edge_cleared_from_both_directions = !was_inserted;
+      if (edge_cleared_from_both_directions) {
+        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                                   &storage_->constraints_, storage_->config_.items, true);
+      }
+    }
+
+    edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
+  };
+
+  // remove edges from vertex collections which we aggregated for just detaching
+  for (auto *vertex_ptr : info.partial_src_vertices) {
+    clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
+                                   Delta::AddOutEdgeTag(), false);
+  }
+  for (auto *vertex_ptr : info.partial_dest_vertices) {
+    clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids, Delta::AddInEdgeTag(),
+                                   true);
+  }
+
+  return deleted_edges;
 }
 
 Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const std::unordered_set<Vertex *> &vertices) {
@@ -284,196 +476,6 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
   }
 
   return deleted_vertices;
-}
-
-EdgeInfoForDeletion Storage::Accessor::PrepareEdgesForDeletion(const std::unordered_set<Vertex *> &vertices,
-                                                               const std::vector<EdgeAccessor *> &edges,
-                                                               bool detach) noexcept {
-  std::set<EdgeRef> deleted_edges_set;
-  std::set<Vertex *> partial_src_vertices;
-  std::set<Vertex *> partial_dest_vertices;
-  std::set<EdgeRef> src_edge_refs;
-  std::set<EdgeRef> dest_edge_refs;
-  uint64_t total_edges_to_delete = 0;
-
-  auto try_adding_partial_delete_vertices = [&vertices, &total_edges_to_delete](auto &partial_delete_vertices,
-                                                                                auto &edge_refs, auto &item) {
-    const auto &[edge_type, opposing_vertex, edge] = item;
-    if (!vertices.contains(opposing_vertex)) {
-      partial_delete_vertices.insert(opposing_vertex);
-      edge_refs.insert(edge);
-      total_edges_to_delete++;
-    }
-  };
-
-  // add nodes which need to be detached on the other end of the edge
-  if (detach) {
-    for (auto *vertex_ptr : vertices) {
-      std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-      std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
-
-      {
-        auto vertex_lock = std::shared_lock{vertex_ptr->lock};
-        in_edges = vertex_ptr->in_edges;
-        out_edges = vertex_ptr->out_edges;
-      }
-
-      for (const auto &item : in_edges) {
-        try_adding_partial_delete_vertices(partial_src_vertices, src_edge_refs, item);
-      }
-      for (const auto &item : out_edges) {
-        try_adding_partial_delete_vertices(partial_dest_vertices, dest_edge_refs, item);
-      }
-    }
-  }
-
-  // also add edges which we want to delete from the query
-  for (const auto &edge_accessor : edges) {
-    partial_src_vertices.insert(edge_accessor->from_vertex_);
-    partial_dest_vertices.insert(edge_accessor->to_vertex_);
-
-    src_edge_refs.insert(edge_accessor->edge_);
-    dest_edge_refs.insert(edge_accessor->edge_);
-    total_edges_to_delete++;
-  }
-
-  return EdgeInfoForDeletion{.partial_src_edges = std::move(src_edge_refs),
-                             .partial_dest_edges = std::move(dest_edge_refs),
-                             .partial_src_vertices = std::move(partial_src_vertices),
-                             .partial_dest_vertices = std::move(partial_dest_vertices),
-                             .total_edges_to_delete = total_edges_to_delete};
-}
-
-Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(
-    const std::unordered_set<Vertex *> &vertices, std::set<EdgeRef> &deleted_edges_set) {
-  using ReturnType = std::vector<EdgeAccessor>;
-  std::vector<EdgeAccessor> deleted_edges{};
-
-  auto clear_edges = [this, &deleted_edges, &deleted_edges_set](
-                         auto *vertex_ptr, auto *edges_collection, auto delta,
-                         auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
-    while (!edges_collection->empty()) {
-      auto const &[edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
-      std::unique_lock<utils::RWSpinLock> guard;
-      if (storage_->config_.items.properties_on_edges) {
-        auto edge_ptr = edge_ref.ptr;
-        guard = std::unique_lock{edge_ptr->lock};
-
-        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-      }
-
-      std::unique_lock<utils::RWSpinLock> guard_vertex{vertex_ptr->lock, std::defer_lock};
-      std::unique_lock<utils::RWSpinLock> guard_opposing_vertex{opposing_vertex->lock, std::defer_lock};
-
-      // Obtain the locks by `gid` order to avoid lock cycles.
-      if (vertex_ptr->gid < opposing_vertex->gid) {
-        guard_vertex.lock();
-        guard_opposing_vertex.lock();
-      } else if (vertex_ptr->gid > opposing_vertex->gid) {
-        guard_opposing_vertex.lock();
-        guard_vertex.lock();
-      } else {
-        // The vertices are the same vertex, only lock one.
-        guard_vertex.lock();
-      }
-
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
-      MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
-
-      if (opposing_vertex != vertex_ptr) {
-        if (!PrepareForWrite(&transaction_, opposing_vertex)) return Error::SERIALIZATION_ERROR;
-        MG_ASSERT(!opposing_vertex->deleted, "Invalid database state!");
-      }
-
-      edges_collection->pop_back();
-      if (storage_->config_.items.properties_on_edges) {
-        auto *edge_ptr = edge_ref.ptr;
-        MarkEdgeAsDeleted(edge_ptr);
-      }
-
-      auto const [_, was_inserted] = deleted_edges_set.insert(edge_ref);
-      bool const edge_cleared_from_both_directions = !was_inserted;
-      if (edge_cleared_from_both_directions) {
-        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                   &storage_->constraints_, storage_->config_.items, true);
-      }
-
-      CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-    }
-
-    return std::make_optional<ReturnType>();
-  };
-
-  // delete the in and out edges from the nodes we want to delete
-  for (auto *vertex_ptr : vertices) {
-    auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
-    if (maybe_error.HasError()) {
-      return maybe_error;
-    }
-
-    maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
-    if (maybe_error.HasError()) {
-      return maybe_error;
-    }
-  }
-
-  return std::make_optional<ReturnType>(deleted_edges);
-}
-
-std::vector<EdgeAccessor> Storage::Accessor::DetachEdgesFromNodes(EdgeInfoForDeletion info,
-                                                                  std::set<EdgeRef> &deleted_edges_set) {
-  std::vector<EdgeAccessor> deleted_edges{};
-
-  auto detach_non_deletable_nodes = [this, &deleted_edges, &deleted_edges_set](auto *vertex_ptr, auto *edges_collection,
-                                                                               auto &set_for_erasure, auto delta,
-                                                                               auto reverse_vertex_order) {
-    std::unique_lock<utils::RWSpinLock> vertex_lock{vertex_ptr->lock};
-
-    auto mid = std::partition(
-        edges_collection->begin(), edges_collection->end(),
-        [this, &set_for_erasure, &deleted_edges, &deleted_edges_set, vertex_ptr, delta,
-         reverse_vertex_order](auto &edge) {
-          auto const &[edge_type, opposing_vertex, edge_ref] = edge;
-          if (set_for_erasure.contains(edge_ref)) {
-            std::unique_lock<utils::RWSpinLock> guard;
-            if (storage_->config_.items.properties_on_edges) {
-              auto edge_ptr = edge_ref.ptr;
-              guard = std::unique_lock{edge_ptr->lock};
-              // this can happen only if we marked edges for deletion with no nodes,
-              // so the method detaching nodes will not do anything
-              MarkEdgeAsDeleted(edge_ptr);
-            }
-
-            auto const [_, was_inserted] = deleted_edges_set.insert(edge_ref);
-            bool const edge_cleared_from_both_directions = !was_inserted;
-            if (edge_cleared_from_both_directions) {
-              auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-              auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-              deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                         &storage_->indices_, &storage_->constraints_, storage_->config_.items, true);
-            }
-
-            CreateAndLinkDelta(&transaction_, vertex_ptr, delta, edge_type, opposing_vertex, edge_ref);
-            return false;
-          }
-          return true;
-        });
-
-    edges_collection->erase(mid, edges_collection->end());
-  };
-
-  // remove edges from vertex collections which we aggregated for just detaching
-  for (auto *vertex_ptr : info.partial_src_vertices) {
-    detach_non_deletable_nodes(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edges, Delta::AddOutEdgeTag(),
-                               false);
-  }
-  for (auto *vertex_ptr : info.partial_dest_vertices) {
-    detach_non_deletable_nodes(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edges, Delta::AddInEdgeTag(), true);
-  }
-
-  return deleted_edges;
 }
 
 void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
