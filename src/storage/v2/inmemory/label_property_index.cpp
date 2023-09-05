@@ -10,7 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/inmemory/indices_utils.hpp"
+#include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 
 namespace memgraph::storage {
 
@@ -32,12 +33,13 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
-    : LabelPropertyIndex(indices, constraints, config) {}
+InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, const Config &config)
+    : LabelPropertyIndex(indices, config) {}
 
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
-                                             const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                             const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+  spdlog::trace("Vertices size when creating index: {}", vertices.size());
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -53,11 +55,11 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto create_index_par =
       [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParalellizedIndexCreationInfo &paralell_exec_info) {
+             const ParallelizedIndexCreationInfo &parallel_exec_info) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), paralell_exec_info,
+            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             });
@@ -67,14 +69,18 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
 
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+
+  indices_by_property_[property].insert({label, &index_.at({label, property})});
+
   if (!emplaced) {
     // Index already exists.
     return false;
   }
 
-  if (paralell_exec_info) {
-    return create_index_par(label, property, vertices, it, *paralell_exec_info);
+  if (parallel_exec_info) {
+    return create_index_par(label, property, vertices, it, *parallel_exec_info);
   }
+
   return create_index_seq(label, property, vertices, it);
 }
 
@@ -97,18 +103,26 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   if (value.IsNull()) {
     return;
   }
-  for (auto &[label_prop, storage] : index_) {
-    if (label_prop.second != property) {
-      continue;
-    }
-    if (utils::Contains(vertex->labels, label_prop.first)) {
-      auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
-    }
+
+  if (!indices_by_property_.contains(property)) {
+    return;
+  }
+
+  for (const auto &[_, storage] : indices_by_property_.at(property)) {
+    auto acc = storage->access();
+    acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
+  if (indices_by_property_.find(property) != indices_by_property_.end()) {
+    indices_by_property_.at(property).erase(label);
+
+    if (indices_by_property_.at(property).empty()) {
+      indices_by_property_.erase(property);
+    }
+  }
+
   return index_.erase({label, property}) > 0;
 }
 
@@ -414,11 +428,12 @@ void InMemoryLabelPropertyIndex::RunGC() {
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction) {
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
+    Constraints *constraints) {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), label,    property,     lower_bound, upper_bound, view,
-          transaction,         indices_, constraints_, config_};
+  return {it->second.access(), label,    property,    lower_bound, upper_bound, view,
+          transaction,         indices_, constraints, config_};
 }
 
 }  // namespace memgraph::storage

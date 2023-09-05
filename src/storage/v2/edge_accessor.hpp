@@ -63,6 +63,9 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
+  Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
+
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
@@ -76,9 +79,8 @@ class EdgeAccessor final {
   Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
-    } else {
-      return edge_.gid;
     }
+    return edge_.gid;
   }
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }

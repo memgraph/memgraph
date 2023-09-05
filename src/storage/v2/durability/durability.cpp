@@ -27,7 +27,9 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
-#include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -127,13 +129,13 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                                  const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                  const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
     auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
-    if (!mem_label_index->CreateIndex(item, vertices->access(), paralell_exec_info))
+    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");
@@ -145,7 +147,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
                indices_constraints.indices.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_constraints.indices.label_property) {
-    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), std::nullopt))
+    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("A label+property index is recreated from metadata.");
   }

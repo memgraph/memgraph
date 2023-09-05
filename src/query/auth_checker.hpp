@@ -30,6 +30,8 @@ class AuthChecker {
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username, const memgraph::query::DbAccessor *db_accessor) const = 0;
+
+  virtual void ClearCache() const = 0;
 #endif
 };
 #ifdef MG_ENTERPRISE
@@ -103,6 +105,8 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
                                                                     const query::DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
+
+  void ClearCache() const override {}
 #endif
 };  // namespace memgraph::query
 

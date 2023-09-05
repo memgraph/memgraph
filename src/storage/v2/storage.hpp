@@ -24,6 +24,11 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertices_iterable.hpp"
@@ -64,6 +69,9 @@ struct StorageInfo {
 };
 
 class Storage {
+  friend class ReplicationServer;
+  friend class ReplicationClient;
+
  public:
   Storage(Config config, StorageMode storage_mode);
 
@@ -72,7 +80,7 @@ class Storage {
   Storage &operator=(const Storage &) = delete;
   Storage &operator=(Storage &&) = delete;
 
-  virtual ~Storage() {}
+  virtual ~Storage() = default;
 
   const std::string &id() const { return id_; }
 
@@ -217,6 +225,7 @@ class Storage {
   StorageMode GetStorageMode() const;
 
   virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+
   void FreeMemory() { FreeMemory({}); }
 
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
@@ -277,6 +286,45 @@ class Storage {
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
+  virtual void EstablishNewEpoch() = 0;
+
+  virtual auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint,
+                                       replication::ReplicationMode mode,
+                                       replication::ReplicationClientConfig const &config)
+      -> std::unique_ptr<ReplicationClient> = 0;
+
+  virtual auto CreateReplicationServer(io::network::Endpoint endpoint,
+                                       replication::ReplicationServerConfig const &config)
+      -> std::unique_ptr<ReplicationServer> = 0;
+
+  /// REPLICATION
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
+  }
+  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
+
+  /// @pre The instance should have a MAIN role
+  /// @pre Timeout can only be set for SYNC replication
+  auto RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                       const replication::ReplicationMode replication_mode,
+                       const replication::RegistrationMode registration_mode,
+                       const replication::ReplicationClientConfig &config) {
+    return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
+                                              config, this);
+  }
+  /// @pre The instance should have a MAIN role
+  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
+  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
+  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
+    return replication_state_.GetReplicaState(name);
+  }
+
+ protected:
+  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
+  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
+
+ public:
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing
@@ -286,7 +334,8 @@ class Storage {
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
-  // keep a separate count of edges that is always updated.
+  // keep a separate count of edges that is always updated. This counter is also used
+  // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
@@ -306,6 +355,9 @@ class Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   const std::string id_;  //!< High-level assigned ID
+
+ protected:
+  ReplicationState replication_state_;
 };
 
 }  // namespace memgraph::storage

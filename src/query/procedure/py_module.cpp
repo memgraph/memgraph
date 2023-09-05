@@ -57,6 +57,8 @@ PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 constexpr bool kStartGarbageCollection{true};
+constexpr auto kMicrosecondsInMillisecond{1000};
+constexpr auto kMicrosecondsInSecond{1000000};
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
@@ -1683,6 +1685,60 @@ PyObject *PyEdgeSetProperty(PyEdge *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
+PyObject *PyEdgeSetProperties(PyEdge *self, PyObject *args) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->edge);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+
+  PyObject *props{nullptr};
+  if (!PyArg_ParseTuple(args, "O", &props)) {
+    return nullptr;
+  }
+
+  MgpUniquePtr<mgp_map> properties_map{nullptr, mgp_map_destroy};
+  const auto map_err = CreateMgpObject(properties_map, mgp_map_make_empty, self->py_graph->memory);
+
+  if (map_err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    throw std::bad_alloc{};
+  }
+  if (map_err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::runtime_error{"Unexpected error during creating mgp_map"};
+  }
+
+  PyObject *key{nullptr};
+  PyObject *value{nullptr};
+  Py_ssize_t pos{0};
+  while (PyDict_Next(props, &pos, &key, &value)) {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    if (!PyUnicode_Check(key)) {
+      throw std::invalid_argument("Dictionary keys must be strings");
+    }
+
+    const char *k = PyUnicode_AsUTF8(key);
+
+    if (!k) {
+      PyErr_Clear();
+      throw std::bad_alloc{};
+    }
+
+    MgpUniquePtr<mgp_value> prop_value{PyObjectToMgpValueWithPythonExceptions(value, self->py_graph->memory),
+                                       mgp_value_destroy};
+
+    if (const auto err = mgp_map_insert(properties_map.get(), k, prop_value.get());
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during inserting an item to mgp_map"};
+    }
+  }
+
+  if (RaiseExceptionFromErrorCode(mgp_edge_set_properties(self->edge, properties_map.get()))) {
+    return nullptr;
+  }
+
+  Py_RETURN_NONE;
+}
 static PyMethodDef PyEdgeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
@@ -1699,6 +1755,8 @@ static PyMethodDef PyEdgeMethods[] = {
      "Return edge property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
      "Set the value of the property on the edge."},
+    {"set_properties", reinterpret_cast<PyCFunction>(PyEdgeSetProperties), METH_VARARGS,
+     "Set the values of the properties on the edge."},
     {nullptr, {}, {}, {}},
 };
 
@@ -1933,6 +1991,61 @@ PyObject *PyVertexSetProperty(PyVertex *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
+PyObject *PyVertexSetProperties(PyVertex *self, PyObject *args) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->vertex);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+
+  PyObject *props{nullptr};
+  if (!PyArg_ParseTuple(args, "O", &props)) {
+    return nullptr;
+  }
+
+  MgpUniquePtr<mgp_map> properties_map{nullptr, mgp_map_destroy};
+  const auto map_err = CreateMgpObject(properties_map, mgp_map_make_empty, self->py_graph->memory);
+
+  if (map_err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    throw std::bad_alloc{};
+  }
+  if (map_err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::runtime_error{"Unexpected error during creating mgp_map"};
+  }
+
+  PyObject *key{nullptr};
+  PyObject *value{nullptr};
+  Py_ssize_t pos{0};
+  while (PyDict_Next(props, &pos, &key, &value)) {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    if (!PyUnicode_Check(key)) {
+      throw std::invalid_argument("Dictionary keys must be strings");
+    }
+
+    const char *k = PyUnicode_AsUTF8(key);
+
+    if (!k) {
+      PyErr_Clear();
+      throw std::bad_alloc{};
+    }
+
+    MgpUniquePtr<mgp_value> prop_value{PyObjectToMgpValueWithPythonExceptions(value, self->py_graph->memory),
+                                       mgp_value_destroy};
+
+    if (const auto err = mgp_map_insert(properties_map.get(), k, prop_value.get());
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during inserting an item to mgp_map"};
+    }
+  }
+
+  if (RaiseExceptionFromErrorCode(mgp_vertex_set_properties(self->vertex, properties_map.get()))) {
+    return nullptr;
+  }
+
+  Py_RETURN_NONE;
+}
+
 PyObject *PyVertexAddLabel(PyVertex *self, PyObject *args) {
   MG_ASSERT(self);
   MG_ASSERT(self->vertex);
@@ -1987,6 +2100,8 @@ static PyMethodDef PyVertexMethods[] = {
      "Return vertex property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
      "Set the value of the property on the vertex."},
+    {"set_properties", reinterpret_cast<PyCFunction>(PyVertexSetProperties), METH_VARARGS,
+     "Set the values of the properties on the vertex."},
     {nullptr, {}, {}, {}},
 };
 
@@ -2488,21 +2603,23 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto &local_time = value.local_time_v->local_time;
-      py::Object py_local_time(PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
-                                               local_time.millisecond * 1000 + local_time.microsecond));
+      py::Object py_local_time(
+          PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
+                          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto &local_time = value.local_date_time_v->local_date_time.local_time;
       const auto &date = value.local_date_time_v->local_date_time.date;
-      py::Object py_local_date_time(PyDateTime_FromDateAndTime(date.year, date.month, date.day, local_time.hour,
-                                                               local_time.minute, local_time.second,
-                                                               local_time.millisecond * 1000 + local_time.microsecond));
+      py::Object py_local_date_time(PyDateTime_FromDateAndTime(
+          date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
+          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto &duration = value.duration_v->duration;
-      py::Object py_duration(PyDelta_FromDSU(0, 0, duration.microseconds));
+      py::Object py_duration(PyDelta_FromDSU(0, duration.microseconds / kMicrosecondsInSecond,
+                                             duration.microseconds % kMicrosecondsInSecond));
       return py_duration;
     }
   }
