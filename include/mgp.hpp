@@ -136,7 +136,7 @@ class MemoryDispatcher final {
 // header. The use of the 'mgp_memory *memory' pointer is deprecated
 // and will be removed in upcoming releases.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline extern MemoryDispatcher mrd{};
+inline MemoryDispatcher mrd{};
 
 // TODO - Once we deprecate this we should remove this
 // and make sure nothing relies on it anymore. This alone
