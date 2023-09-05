@@ -246,6 +246,12 @@ class SubgraphVertexAccessor final {
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
+
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
+  }
+
   VertexAccessor GetVertexAccessor() const;
 };
 }  // namespace memgraph::query

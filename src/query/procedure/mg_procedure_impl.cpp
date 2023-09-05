@@ -1721,6 +1721,69 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
   });
 }
 
+mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *properties) {
+  return WrapExceptions([=] {
+    auto *ctx = v->graph->ctx;
+
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+        !ctx->auth_checker->Has(v->getImpl(), v->graph->view,
+                                memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw AuthorizationException{"Insufficient permissions for setting properties on the vertex!"};
+    }
+#endif
+    if (!MgpVertexIsMutable(*v)) {
+      throw ImmutableObjectException{"Cannot set properties of an immutable vertex!"};
+    }
+
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
+    for (const auto &item : properties->items) {
+      props.insert(std::visit(
+          [&item](auto *impl) {
+            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second));
+          },
+          v->graph->impl));
+    }
+
+    const auto result = v->getImpl().UpdateProperties(props);
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a vertex!");
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when setting a property of a vertex.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize setting a property of a vertex."};
+      }
+    }
+
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
+        static_cast<int64_t>(properties->items.size());
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
+      return;
+    }
+
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
+        continue;
+      }
+
+      trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), property_key, old_value, new_value);
+    }
+  });
+}
+
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     auto *ctx = v->graph->ctx;
@@ -2285,6 +2348,69 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
     const auto new_value = ToTypedValue(*property_value, property_value->memory);
     e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value, new_value);
+  });
+}
+
+mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties) {
+  return WrapExceptions([=] {
+    auto *ctx = e->from.graph->ctx;
+
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+        !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw AuthorizationException{"Insufficient permissions for setting properties on the edge!"};
+    }
+#endif
+
+    if (!MgpEdgeIsMutable(*e)) {
+      throw ImmutableObjectException{"Cannot set properties of an immutable edge!"};
+    }
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
+    for (const auto &item : properties->items) {
+      props.insert(std::visit(
+          [&item](auto *impl) {
+            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second));
+          },
+          e->from.graph->impl));
+    }
+
+    const auto result = e->impl.UpdateProperties(props);
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of an edge!");
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+          throw std::logic_error{"Cannot set the properties of edges, because properties on edges are disabled!"};
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when setting a property of an edge.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize setting a property of an edge."};
+      }
+    }
+
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
+        static_cast<int64_t>(properties->items.size());
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
+      return;
+    }
+
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
+        continue;
+      }
+
+      trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
+    }
   });
 }
 
