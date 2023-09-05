@@ -698,7 +698,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TMap all_properties_lookup(ctx_->memory);
 
     auto map_variable = literal.map_variable_->Accept(*this);
-    if (map_variable.type() == TypedValue::Type::Null) {
+    if (map_variable.IsNull()) {
       return TypedValue(ctx_->memory);
     }
 
