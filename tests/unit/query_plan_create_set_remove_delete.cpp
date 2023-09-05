@@ -2564,40 +2564,40 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   frame[scan_node_by_label.sym_] = this->v1;
 
   auto *mem = memgraph::utils::NewDeleteResource();
-  auto *initial_cursor =
-      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, -1, -1, mem).get());
+  auto initial_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, -1, -1, mem);
+  auto *initial_cursor = dynamic_cast<ExpandCursor *>(initial_cursor_ptr.get());
   auto expansion_info = initial_cursor->GetExpansionInfo(frame);
 
   ASSERT_EQ(expansion_info.input_node.value(), this->v4);
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::OUT);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v1);
 
-  auto *expanded_first_cursor =
-      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, -1, mem).get());
+  auto expanded_first_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, -1, mem);
+  auto *expanded_first_cursor = dynamic_cast<ExpandCursor *>(expanded_first_cursor_ptr.get());
   expansion_info = expanded_first_cursor->GetExpansionInfo(frame);
 
   ASSERT_EQ(expansion_info.input_node.value(), this->v1);
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
 
-  auto *expanded_both_take_first =
-      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, 100, mem).get());
+  auto expanded_both_take_first_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 1, 100, mem);
+  auto *expanded_both_take_first = dynamic_cast<ExpandCursor *>(expanded_both_take_first_cursor_ptr.get());
   expansion_info = expanded_both_take_first->GetExpansionInfo(frame);
 
   ASSERT_EQ(expansion_info.input_node.value(), this->v4);
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::OUT);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v1);
 
-  auto *expanded_both_take_second =
-      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 100, 1, mem).get());
+  auto expanded_both_take_second_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 100, 1, mem);
+  auto *expanded_both_take_second = dynamic_cast<ExpandCursor *>(expanded_both_take_second_cursor_ptr.get());
   expansion_info = expanded_both_take_second->GetExpansionInfo(frame);
 
   ASSERT_EQ(expansion_info.input_node.value(), this->v1);
   ASSERT_EQ(expansion_info.direction, EdgeAtom::Direction::IN);
   ASSERT_EQ(expansion_info.existing_node.value(), this->v4);
 
-  auto *expanded_equal_take_second =
-      dynamic_cast<ExpandCursor *>(MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 5, 5, mem).get());
+  auto expanded_equal_take_second_cursror_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, 5, 5, mem);
+  auto *expanded_equal_take_second = dynamic_cast<ExpandCursor *>(expanded_equal_take_second_cursror_ptr.get());
   expansion_info = expanded_equal_take_second->GetExpansionInfo(frame);
 
   ASSERT_EQ(expansion_info.input_node.value(), this->v1);
