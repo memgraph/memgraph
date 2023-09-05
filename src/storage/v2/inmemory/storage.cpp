@@ -261,19 +261,23 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
   auto &[deleted_vertices, deleted_edges] = *value;
 
-  // // Need to inform the next CollectGarbage call that there are some
-  // // non-transactional deletions that need to be collected
-  if (transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && !deleted_vertices.empty()) {
-    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-    if (!deleted_vertices.empty()) {
+  // Need to inform the next CollectGarbage call that there are some
+  // non-transactional deletions that need to be collected
+  auto const inform_gc_vertex_deletion = utils::OnScopeExit{[this, &deleted_vertices = deleted_vertices]() {
+    if (!deleted_vertices.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_vertices_delete_ = true;
     }
-    if (!deleted_edges.empty()) {
+  }};
+
+  auto const inform_gc_edge_deletion = utils::OnScopeExit{[this, &deleted_edges = deleted_edges]() {
+    if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_edges_delete_ = true;
     }
-  }
+  }};
 
-  for (const auto &vertex : deleted_vertices) {
+  for (auto const &vertex : deleted_vertices) {
     transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
   }
 
