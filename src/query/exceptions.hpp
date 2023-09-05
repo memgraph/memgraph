@@ -158,9 +158,12 @@ class ExplicitTransactionUsageException : public QueryRuntimeException {
   using QueryRuntimeException::QueryRuntimeException;
 };
 
-/**
- * An exception for serialization error
- */
+class WriteVertexOperationInEdgeImportModeException : public QueryException {
+ public:
+  WriteVertexOperationInEdgeImportModeException()
+      : QueryException("Write operations on vertices are forbidden while the edge import mode is active.") {}
+};
+
 class TransactionSerializationException : public QueryException {
  public:
   using QueryException::QueryException;
@@ -271,6 +274,12 @@ class StorageModeModificationInMulticommandTxException : public QueryException {
       : QueryException("Storage mode cannot be modified in multicommand transactions.") {}
 };
 
+class EdgeImportModeModificationInMulticommandTxException : public QueryException {
+ public:
+  EdgeImportModeModificationInMulticommandTxException()
+      : QueryException("Edge import mode cannot be modified in multicommand transactions.") {}
+};
+
 class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()
@@ -280,6 +289,12 @@ class CreateSnapshotInMulticommandTxException final : public QueryException {
 class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
  public:
   CreateSnapshotDisabledOnDiskStorage() : QueryException("In the on-disk storage mode data is already persistent.") {}
+};
+
+class EdgeImportModeQueryDisabledOnDiskStorage final : public QueryException {
+ public:
+  EdgeImportModeQueryDisabledOnDiskStorage()
+      : QueryException("Edge import mode is only allowed for on-disk storage mode.") {}
 };
 
 class SettingConfigInMulticommandTxException final : public QueryException {
