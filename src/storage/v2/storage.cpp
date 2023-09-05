@@ -257,8 +257,8 @@ std::unordered_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std:
 EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                                              const std::vector<EdgeAccessor *> &edges,
                                                              bool detach) noexcept {
-  std::set<Vertex *> partial_src_vertices;
-  std::set<Vertex *> partial_dest_vertices;
+  std::unordered_set<Vertex *> partial_src_vertices;
+  std::unordered_set<Vertex *> partial_dest_vertices;
   std::unordered_set<Gid> src_edge_ids;
   std::unordered_set<Gid> dest_edge_ids;
 

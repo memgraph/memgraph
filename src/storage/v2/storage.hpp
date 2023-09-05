@@ -71,8 +71,8 @@ struct StorageInfo {
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};
   std::unordered_set<Gid> partial_dest_edge_ids{};
-  std::set<Vertex *> partial_src_vertices{};
-  std::set<Vertex *> partial_dest_vertices{};
+  std::unordered_set<Vertex *> partial_src_vertices{};
+  std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
 class Storage {
