@@ -1,0 +1,15 @@
+set_properties_cluster: &set_properties_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "analyze_graph.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Setting multiple properties"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/set_properties/procedures/"
+    args: ["set_properties/set_properties.py"]
+    <<: *set_properties_cluster
