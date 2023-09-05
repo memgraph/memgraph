@@ -90,19 +90,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // See if it might be better to do ScanAllBy<Index> of the destination and
-  // then do Expand to existing.
-  bool PostVisit(Expand &expand) override {
+  bool PostVisit(Expand & /*expand*/) override {
     prev_ops_.pop_back();
-    if (expand.common_.existing_node) {
-      return true;
-    }
-    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
-    auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    if (indexed_scan) {
-      expand.set_input(std::move(indexed_scan));
-      expand.common_.existing_node = true;
-    }
     return true;
   }
 
