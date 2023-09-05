@@ -2555,29 +2555,25 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
+  delete_executed_ = true;
+
   if (*res) {
     context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
     context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
   }
 
-  std::invoke([&] {
-    if (!context.trigger_context_collector || !*res) {
-      return;
-    }
-
+  // Update deleted objects for triggers
+  if (context.trigger_context_collector && *res) {
     for (const auto &node : (*res)->first) {
       context.trigger_context_collector->RegisterDeletedObject(node);
     }
 
-    if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-      return;
+    if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+      for (const auto &edge : (*res)->second) {
+        context.trigger_context_collector->RegisterDeletedObject(edge);
+      }
     }
-    for (const auto &edge : (*res)->second) {
-      context.trigger_context_collector->RegisterDeletedObject(edge);
-    }
-  });
-
-  delete_executed_ = true;
+  }
 
   return true;
 }

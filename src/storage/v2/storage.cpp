@@ -209,7 +209,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   std::unordered_set<Vertex *> &nodes_to_delete = maybe_nodes_to_delete.GetValue();
 
-  auto edge_deletion_info = PrepareEdgesForDeletion(nodes_to_delete, edges, detach);
+  EdgeInfoForDeletion edge_deletion_info = PrepareEdgesForDeletion(nodes_to_delete, edges, detach);
 
   std::set<EdgeRef> deleted_edges_set;
   std::vector<EdgeAccessor> deleted_edges;
@@ -225,7 +225,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
-  auto another_edges = DetachEdgesFromNodes(std::move(edge_deletion_info), deleted_edges_set);
+  std::vector<EdgeAccessor> another_edges = DetachEdgesFromNodes(std::move(edge_deletion_info), deleted_edges_set);
   deleted_edges.insert(deleted_edges.end(), another_edges.begin(), another_edges.end());
 
   auto maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
@@ -298,7 +298,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareEdgesForDeletion(const std::unorde
 
   auto try_adding_partial_delete_vertices = [&vertices, &total_edges_to_delete](auto &partial_delete_vertices,
                                                                                 auto &edge_refs, auto &item) {
-    auto [edge_type, opposing_vertex, edge] = item;
+    const auto &[edge_type, opposing_vertex, edge] = item;
     if (!vertices.contains(opposing_vertex)) {
       partial_delete_vertices.insert(opposing_vertex);
       edge_refs.insert(edge);
@@ -353,7 +353,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
                          auto *vertex_ptr, auto *edges_collection, auto delta,
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     while (!edges_collection->empty()) {
-      auto [edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
+      auto const &[edge_type, opposing_vertex, edge_ref] = *edges_collection->rbegin();
       std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.items.properties_on_edges) {
         auto edge_ptr = edge_ref.ptr;
@@ -391,7 +391,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         MarkEdgeAsDeleted(edge_ptr);
       }
 
-      if (!deleted_edges_set.insert(edge_ref).second) {
+      auto const [_, was_inserted] = deleted_edges_set.insert(edge_ref);
+      bool const edge_cleared_from_both_directions = !was_inserted;
+      if (edge_cleared_from_both_directions) {
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
         deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
@@ -433,7 +435,7 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachEdgesFromNodes(EdgeInfoForDel
         edges_collection->begin(), edges_collection->end(),
         [this, &set_for_erasure, &deleted_edges, &deleted_edges_set, vertex_ptr, delta,
          reverse_vertex_order](auto &edge) {
-          auto [edge_type, opposing_vertex, edge_ref] = edge;
+          auto const &[edge_type, opposing_vertex, edge_ref] = edge;
           if (set_for_erasure.contains(edge_ref)) {
             std::unique_lock<utils::RWSpinLock> guard;
             if (storage_->config_.items.properties_on_edges) {
@@ -444,7 +446,9 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachEdgesFromNodes(EdgeInfoForDel
               MarkEdgeAsDeleted(edge_ptr);
             }
 
-            if (!deleted_edges_set.insert(edge_ref).second) {
+            auto const [_, was_inserted] = deleted_edges_set.insert(edge_ref);
+            bool const edge_cleared_from_both_directions = !was_inserted;
+            if (edge_cleared_from_both_directions) {
               auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
               auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
               deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
