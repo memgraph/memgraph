@@ -285,4 +285,8 @@ constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MU
 
 constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
                                                            &query::Query::kType};
+
+constexpr utils::TypeInfo query::EdgeImportModeQuery::kType{utils::TypeId::AST_EDGE_IMPORT_MODE_QUERY,
+                                                            "EdgeImportModeQuery", &query::Query::kType};
+
 }  // namespace memgraph
