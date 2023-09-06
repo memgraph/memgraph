@@ -28,7 +28,7 @@ def test_show_index_info(cursor):
         ("label+property", "Gene", "i5"),
         ("label+property", "Gene", "id"),
     }
-    assert index_info == set(expected_index_info)
+    assert set(index_info) == expected_index_info
 
 
 def test_index_info_sorted(cursor):
