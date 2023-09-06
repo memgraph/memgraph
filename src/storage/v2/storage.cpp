@@ -201,9 +201,9 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
   // 1. Gather nodes which are not deleted yet in the system
-  std::unordered_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
+  const std::unordered_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
-  EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
+  const EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
 
   // Detach nodes which need to be deleted
   std::unordered_set<Gid> deleted_edge_ids;
@@ -218,10 +218,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
-  std::vector<EdgeAccessor> another_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids);
+  const std::vector<EdgeAccessor> another_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids);
   deleted_edges.insert(deleted_edges.end(), another_edges.begin(), another_edges.end());
 
-  auto maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
+  auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
   if (maybe_deleted_vertices.HasError()) {
     return maybe_deleted_vertices.GetError();
   }
@@ -257,10 +257,10 @@ std::unordered_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std:
 EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                                              const std::vector<EdgeAccessor *> &edges,
                                                              bool detach) noexcept {
-  std::unordered_set<Vertex *> partial_src_vertices;
-  std::unordered_set<Vertex *> partial_dest_vertices;
-  std::unordered_set<Gid> src_edge_ids;
-  std::unordered_set<Gid> dest_edge_ids;
+  absl::flat_hash_set<Vertex *> partial_src_vertices;
+  absl::flat_hash_set<Vertex *> partial_dest_vertices;
+  absl::flat_hash_set<Gid> src_edge_ids;
+  absl::flat_hash_set<Gid> dest_edge_ids;
 
   auto try_adding_partial_delete_vertices = [this, &vertices](auto &partial_delete_vertices, auto &edge_ids,
                                                               auto &item) {

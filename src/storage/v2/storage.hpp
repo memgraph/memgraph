@@ -13,6 +13,8 @@
 
 #include <span>
 
+#include "absl/container/flat_hash_set.h"
+
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
@@ -69,10 +71,10 @@ struct StorageInfo {
 };
 
 struct EdgeInfoForDeletion {
-  std::unordered_set<Gid> partial_src_edge_ids{};
-  std::unordered_set<Gid> partial_dest_edge_ids{};
-  std::unordered_set<Vertex *> partial_src_vertices{};
-  std::unordered_set<Vertex *> partial_dest_vertices{};
+  absl::flat_hash_set<Gid> partial_src_edge_ids{};
+  absl::flat_hash_set<Gid> partial_dest_edge_ids{};
+  absl::flat_hash_set<Vertex *> partial_src_vertices{};
+  absl::flat_hash_set<Vertex *> partial_dest_vertices{};
 };
 
 class Storage {

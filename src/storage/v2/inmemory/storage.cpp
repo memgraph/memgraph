@@ -281,6 +281,11 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
   }
 
+  for (const auto &edge : deleted_edges) {
+    transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
+  }
+
   return maybe_result;
 }
 
