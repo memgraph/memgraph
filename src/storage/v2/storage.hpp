@@ -211,14 +211,14 @@ class Storage {
     bool is_transaction_active_;
 
     // Detach delete private methods
-    std::unordered_set<Vertex *> PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices);
-    EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
+    absl::flat_hash_set<Vertex *> PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices);
+    EdgeInfoForDeletion PrepareDeletableEdges(const absl::flat_hash_set<Vertex *> &vertices,
                                               const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
-    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
-                                                                          std::unordered_set<Gid> &deleted_edge_ids);
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const absl::flat_hash_set<Vertex *> &vertices,
+                                                                          absl::flat_hash_set<Gid> &deleted_edge_ids);
     std::vector<EdgeAccessor> DetachRemainingEdges(EdgeInfoForDeletion info,
-                                                   std::unordered_set<Gid> &partially_detached_edge_ids);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
+                                                   absl::flat_hash_set<Gid> &partially_detached_edge_ids);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const absl::flat_hash_set<Vertex *> &vertices);
     void MarkEdgeAsDeleted(Edge *edge);
 
    private:

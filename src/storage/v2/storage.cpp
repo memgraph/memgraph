@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
 #include "storage/v2/disk/name_id_mapper.hpp"
@@ -201,12 +202,12 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
   // 1. Gather nodes which are not deleted yet in the system
-  const std::unordered_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
+  const absl::flat_hash_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
   const EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
 
   // Detach nodes which need to be deleted
-  std::unordered_set<Gid> deleted_edge_ids;
+  absl::flat_hash_set<Gid> deleted_edge_ids;
   std::vector<EdgeAccessor> deleted_edges;
   if (detach) {
     auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edge_ids);
@@ -231,9 +232,9 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
-std::unordered_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices) {
+absl::flat_hash_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices) {
   // Some of the vertices could be already deleted in the system so we need to check
-  std::unordered_set<Vertex *> nodes_to_delete{};
+  absl::flat_hash_set<Vertex *> nodes_to_delete{};
   for (const auto &vertex : vertices) {
     MG_ASSERT(vertex->transaction_ == &transaction_,
               "VertexAccessor must be from the same transaction as the storage "
@@ -254,7 +255,7 @@ std::unordered_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std:
   return nodes_to_delete;
 }
 
-EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
+EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const absl::flat_hash_set<Vertex *> &vertices,
                                                              const std::vector<EdgeAccessor *> &edges,
                                                              bool detach) noexcept {
   absl::flat_hash_set<Vertex *> partial_src_vertices;
@@ -313,7 +314,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
 }
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(
-    const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids) {
+    const absl::flat_hash_set<Vertex *> &vertices, absl::flat_hash_set<Gid> &deleted_edge_ids) {
   // We want to gather all edges that we delete in this step so that we can proceed with
   // further deletion
   using ReturnType = std::vector<EdgeAccessor>;
@@ -399,7 +400,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 }
 
 std::vector<EdgeAccessor> Storage::Accessor::DetachRemainingEdges(
-    EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids) {
+    EdgeInfoForDeletion info, absl::flat_hash_set<Gid> &partially_detached_edge_ids) {
   std::vector<EdgeAccessor> deleted_edges{};
 
   auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids](
@@ -453,7 +454,8 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachRemainingEdges(
   return deleted_edges;
 }
 
-Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const std::unordered_set<Vertex *> &vertices) {
+Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
+    const absl::flat_hash_set<Vertex *> &vertices) {
   std::vector<VertexAccessor> deleted_vertices;
   deleted_vertices.reserve(vertices.size());
 
