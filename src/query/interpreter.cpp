@@ -2910,18 +2910,21 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       };
       break;
     case InfoQuery::InfoType::INDEX:
-      header = {"index type", "label", "property"};
+      header = {"index type", "label", "property", "count"};
       handler = [interpreter_context] {
         auto *db = interpreter_context->db.get();
         auto info = db->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
+        auto acc = db->Access();
         for (const auto &item : info.label) {
-          results.push_back({TypedValue("label"), TypedValue(db->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue("label"), TypedValue(db->LabelToName(item)), TypedValue(),
+                             TypedValue(static_cast<int>(acc->ApproximateVertexCount(item)))});
         }
         for (const auto &item : info.label_property) {
           results.push_back({TypedValue("label+property"), TypedValue(db->LabelToName(item.first)),
-                             TypedValue(db->PropertyToName(item.second))});
+                             TypedValue(db->PropertyToName(item.second)),
+                             TypedValue(static_cast<int>(acc->ApproximateVertexCount(item.first, item.second)))});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
