@@ -323,12 +323,10 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
   auto clear_edges = [this, &deleted_edges, &deleted_edge_ids](
                          auto *vertex_ptr, auto *attached_edges_to_vertex, auto deletion_delta,
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
-    auto vertex_lock = std::unique_lock{vertex_ptr->lock, std::defer_lock};
+    auto vertex_lock = std::unique_lock{vertex_ptr->lock};
     while (!attached_edges_to_vertex->empty()) {
       // get the information about the last edge in the vertex collection
-      vertex_lock.lock();
       auto const &[edge_type, opposing_vertex, edge_ref] = *attached_edges_to_vertex->rbegin();
-      vertex_lock.unlock();
 
       std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.items.properties_on_edges) {
@@ -338,27 +336,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
       }
 
-      auto opposing_vertex_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
-
-      // Obtain the locks by `gid` order to avoid lock cycles.
-      if (vertex_ptr->gid < opposing_vertex->gid) {
-        vertex_lock.lock();
-        opposing_vertex_lock.lock();
-      } else if (vertex_ptr->gid > opposing_vertex->gid) {
-        opposing_vertex_lock.lock();
-        vertex_lock.lock();
-      } else {
-        // The vertices are the same vertex, only lock one.
-        vertex_lock.lock();
-      }
-
       if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
       MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
-
-      if (opposing_vertex != vertex_ptr) {
-        if (!PrepareForWrite(&transaction_, opposing_vertex)) return Error::SERIALIZATION_ERROR;
-        MG_ASSERT(!opposing_vertex->deleted, "Invalid database state!");
-      }
 
       attached_edges_to_vertex->pop_back();
       if (storage_->config_.items.properties_on_edges) {
@@ -407,6 +386,10 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachRemainingEdges(
                                             auto *vertex_ptr, auto *edges_attached_to_vertex, auto &set_for_erasure,
                                             auto deletion_delta, auto reverse_vertex_order) {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
+
+    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+
     auto mid = std::partition(
         edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [this, &set_for_erasure](auto &edge) {
           auto const &[edge_type, opposing_vertex, edge_ref] = edge;
