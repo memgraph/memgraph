@@ -135,6 +135,11 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
+  if (transaction_->IsDiskStorage()) {
+    ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
+    transaction_->AddModifiedEdge(Gid(), modified_edge);
+  }
+
   return std::move(current_value);
 }
 
