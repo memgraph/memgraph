@@ -139,10 +139,9 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
 
   storage_->constraints_.existence_constraints_ = std::make_unique<ExistenceConstraints>();
   storage_->constraints_.unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
-  storage_->indices_.label_index_ =
-      std::make_unique<InMemoryLabelIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
+  storage_->indices_.label_index_ = std::make_unique<InMemoryLabelIndex>(&storage_->indices_, storage_->config_);
   storage_->indices_.label_property_index_ =
-      std::make_unique<InMemoryLabelPropertyIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
+      std::make_unique<InMemoryLabelPropertyIndex>(&storage_->indices_, storage_->config_);
   try {
     spdlog::debug("Loading snapshot");
     auto &epoch =

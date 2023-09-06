@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ACTIVE
                       | AFTER
                       | ALTER
                       | ANALYZE
@@ -48,6 +49,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE
                       | EDGE_TYPES
                       | EXECUTE
                       | FOR
@@ -60,9 +62,11 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | NULLIF
-                      | ISOLATION
+                      | IMPORT
+                      | INACTIVE
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
+                      | ISOLATION
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -143,6 +147,7 @@ query : cypherQuery
       | transactionQueueQuery
       | multiDatabaseQuery
       | showDatabases
+      | edgeImportModeQuery
       ;
 
 authQuery : createRole
@@ -475,3 +480,5 @@ useDatabase : USE DATABASE databaseName ;
 dropDatabase : DROP DATABASE databaseName ;
 
 showDatabases: SHOW DATABASES ;
+
+edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
