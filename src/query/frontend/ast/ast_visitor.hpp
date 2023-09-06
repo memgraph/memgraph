@@ -105,6 +105,7 @@ class TransactionQueueQuery;
 class Exists;
 class MultiDatabaseQuery;
 class ShowDatabasesQuery;
+class EdgeImportModeQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -143,6 +144,6 @@ class QueryVisitor
                             ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
                             IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery,
                             ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
-                            MultiDatabaseQuery, ShowDatabasesQuery> {};
+                            MultiDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery> {};
 
 }  // namespace memgraph::query
