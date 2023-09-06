@@ -16,6 +16,7 @@ import subprocess
 import time
 from argparse import ArgumentParser
 from pathlib import Path
+from typing import List
 
 import interactive_mg_runner
 import yaml
@@ -27,27 +28,39 @@ BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 log = logging.getLogger("memgraph.tests.e2e")
 
 
+class Workload:
+    def __init__(self, dir_name: str, yaml_obj) -> None:
+        self._dir_name = dir_name
+        self._yaml_obj = yaml_obj
+
+
 def load_args():
     parser = ArgumentParser()
     parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
+    parser.add_argument("--workload-dir", default=None, required=False)
     parser.add_argument("--debug", default=False, required=False)
     return parser.parse_args()
 
 
-def load_workloads(root_directory):
+def load_workloads(root_directory) -> List[Workload]:
     workloads = []
     for file in Path(root_directory).rglob("*.yaml"):
         with open(file, "r") as f:
-            workloads.extend(yaml.load(f, Loader=yaml.FullLoader)["workloads"])
+            obj = yaml.load(f, Loader=yaml.FullLoader)["workloads"]
+            for o in obj:
+                workloads.append(Workload(file.parent.absolute().name, o))
     return workloads
 
 
 def run(args):
     workloads = load_workloads(args.workloads_root_directory)
-    for workload in workloads:
+    for workload_obj in workloads:
+        workload = workload_obj._yaml_obj
         workload_name = workload["name"]
-        if args.workload_name is not None and args.workload_name != workload_name:
+        if args.workload_dir is not None and args.workload_dir != workload_obj._dir_name:
+            continue
+        if args.workload_name is not None and args.workload_name != "*" and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)
 
