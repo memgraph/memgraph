@@ -6,4 +6,4 @@ add_library(mg-flags STATIC audit.cpp
                             memory_limit.cpp
                             run_time_configurable.cpp)
 target_include_directories(mg-flags PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-flags PUBLIC spdlog::spdlog mg-settings)
+target_link_libraries(mg-flags PUBLIC spdlog::spdlog mg-settings mg-utils)

@@ -31,6 +31,7 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
