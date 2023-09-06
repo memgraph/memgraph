@@ -202,7 +202,12 @@ Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAcce
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
   // 1. Gather nodes which are not deleted yet in the system
-  const absl::flat_hash_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
+  auto maybe_nodes_to_delete = PrepareDeletableNodes(nodes);
+  if (maybe_nodes_to_delete.HasError()) {
+    return maybe_nodes_to_delete.GetError();
+  }
+  const absl::flat_hash_set<Vertex *> nodes_to_delete = *maybe_nodes_to_delete.GetValue();
+
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
   EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
 
@@ -236,7 +241,8 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
-absl::flat_hash_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std::vector<VertexAccessor *> &vertices) {
+Result<std::optional<absl::flat_hash_set<Vertex *>>> Storage::Accessor::PrepareDeletableNodes(
+    const std::vector<VertexAccessor *> &vertices) {
   // Some of the vertices could be already deleted in the system so we need to check
   absl::flat_hash_set<Vertex *> nodes_to_delete{};
   for (const auto &vertex : vertices) {
@@ -248,6 +254,8 @@ absl::flat_hash_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std
     {
       auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
+      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+
       if (vertex_ptr->deleted) {
         continue;
       }
@@ -256,7 +264,7 @@ absl::flat_hash_set<Vertex *> Storage::Accessor::PrepareDeletableNodes(const std
     nodes_to_delete.insert(vertex_ptr);
   }
 
-  return nodes_to_delete;
+  return std::make_optional<absl::flat_hash_set<Vertex *>>(nodes_to_delete);
 }
 
 EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const absl::flat_hash_set<Vertex *> &vertices,
