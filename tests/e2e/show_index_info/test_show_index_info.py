@@ -16,19 +16,19 @@ from common import Row, cursor, execute_and_fetch_all
 
 
 def test_show_index_info(cursor):
-    index_info = set(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
     expected_index_info = {
         ("label", "Anatomy", None),
-        ("label", "Gene", None),
-        ("label+property", "Compound", "inchikey"),
-        ("label+property", "Gene", "id"),
         ("label", "Compound", None),
-        ("label+property", "Gene", "i5"),
-        ("label+property", "Compound", "id"),
         ("label", "Disease", None),
+        ("label", "Gene", None),
+        ("label+property", "Compound", "id"),
+        ("label+property", "Compound", "inchikey"),
         ("label+property", "Compound", "mgid"),
+        ("label+property", "Gene", "i5"),
+        ("label+property", "Gene", "id"),
     }
-    assert index_info == expected_index_info
+    assert index_info == set(expected_index_info)
 
 
 def test_index_info_sorted(cursor):
