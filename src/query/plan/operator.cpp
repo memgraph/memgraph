@@ -166,11 +166,11 @@ inline void AbortCheck(ExecutionContext const &context) {
 
 }  // namespace
 
-#define SCOPED_PROFILE_OP(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
-#define SCOPED_PROFILE_OP_BY_NAME(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+#define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+#define SCOPED_PROFILE_OP_BY_REF(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Once");
+  SCOPED_PROFILE_OP("Once");
 
   if (!did_pull_) {
     did_pull_ = true;
@@ -257,7 +257,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("CreateNode");
+  SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.node_info_.labels,
@@ -347,7 +347,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
 }  // namespace
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP(self_);
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -436,7 +436,7 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(self_);
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     AbortCheck(context);
 
@@ -729,7 +729,7 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *me
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP(self_);
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
@@ -944,7 +944,7 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(self_);
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -1168,7 +1168,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("STShortestPath");
+    SCOPED_PROFILE_OP("STShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -1429,7 +1429,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("SingleSourceShortestPath");
+    SCOPED_PROFILE_OP("SingleSourceShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -1612,7 +1612,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("ExpandWeightedShortestPath");
+    SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -1871,7 +1871,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("ExpandAllShortestPathsCursor");
+    SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -2228,7 +2228,7 @@ class ConstructNamedPathCursor : public Cursor {
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("ConstructNamedPath");
+    SCOPED_PROFILE_OP("ConstructNamedPath");
 
     if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -2358,7 +2358,7 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
       pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Filter");
+  SCOPED_PROFILE_OP("Filter");
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
@@ -2397,7 +2397,7 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
 }
 
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("EvaluatePatternFilter");
+  SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
   input_cursor_->Reset();
 
@@ -2435,8 +2435,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
-  // SCOPED_PROFILE_OP_BY_NAME("Produce");
-  SCOPED_PROFILE_OP(self_);
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
@@ -2475,7 +2474,7 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *me
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Delete");
+  SCOPED_PROFILE_OP("Delete");
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -2629,7 +2628,7 @@ SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("SetProperty");
+  SCOPED_PROFILE_OP("SetProperty");
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -2837,7 +2836,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 }  // namespace
 
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("SetProperties");
+  SCOPED_PROFILE_OP("SetProperties");
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -2901,7 +2900,7 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("SetLabels");
+  SCOPED_PROFILE_OP("SetLabels");
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -2973,7 +2972,7 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("RemoveProperty");
+  SCOPED_PROFILE_OP("RemoveProperty");
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -3059,7 +3058,7 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("RemoveLabels");
+  SCOPED_PROFILE_OP("RemoveLabels");
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -3153,7 +3152,7 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 }  // namespace
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("EdgeUniquenessFilter");
+  SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
   auto expansion_ok = [&]() {
     const auto &expand_value = frame[self_.expand_symbol_];
@@ -3195,7 +3194,7 @@ class EmptyResultCursor : public Cursor {
       : input_cursor_(self.input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("EmptyResult");
+    SCOPED_PROFILE_OP("EmptyResult");
 
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
@@ -3238,7 +3237,7 @@ class AccumulateCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("Accumulate");
+    SCOPED_PROFILE_OP("Accumulate");
 
     auto &dba = *context.db_accessor;
     // cache all the input
@@ -3335,8 +3334,7 @@ class AggregateCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), aggregation_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // SCOPED_PROFILE_OP_BY_NAME("Aggregate");
-    SCOPED_PROFILE_OP(self_);
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
       ProcessAll(&frame, &context);
@@ -3685,7 +3683,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Skip");
+  SCOPED_PROFILE_OP("Skip");
 
   while (input_cursor_->Pull(frame, context)) {
     if (to_skip_ == -1) {
@@ -3738,7 +3736,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Limit");
+  SCOPED_PROFILE_OP("Limit");
 
   // We need to evaluate the limit expression before the first input Pull
   // because it might be 0 and thereby we shouldn't Pull from input at all.
@@ -3800,8 +3798,7 @@ class OrderByCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // SCOPED_PROFILE_OP_BY_NAME("OrderBy");
-    SCOPED_PROFILE_OP(self_);
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -3912,7 +3909,7 @@ Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem)
       merge_create_cursor_(self.merge_create_->MakeCursor(mem)) {}
 
 bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Merge");
+  SCOPED_PROFILE_OP("Merge");
 
   while (true) {
     if (pull_input_) {
@@ -3988,7 +3985,7 @@ Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryReso
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)), optional_cursor_(self.optional_->MakeCursor(mem)) {}
 
 bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Optional");
+  SCOPED_PROFILE_OP("Optional");
 
   while (true) {
     if (pull_input_) {
@@ -4055,7 +4052,7 @@ class UnwindCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("Unwind");
+    SCOPED_PROFILE_OP("Unwind");
     while (true) {
       AbortCheck(context);
       // if we reached the end of our list of values
@@ -4114,7 +4111,7 @@ class DistinctCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), seen_rows_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("Distinct");
+    SCOPED_PROFILE_OP("Distinct");
 
     while (true) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -4203,8 +4200,7 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
     : self_(self), left_cursor_(self.left_op_->MakeCursor(mem)), right_cursor_(self.right_op_->MakeCursor(mem)) {}
 
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
-  // SCOPED_PROFILE_OP_BY_NAME("Union");
-  SCOPED_PROFILE_OP(self_);
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
   if (left_cursor_->Pull(frame, context)) {
@@ -4278,7 +4274,7 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(self_);
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
@@ -4567,8 +4563,7 @@ class CallProcedureCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // SCOPED_PROFILE_OP_BY_NAME("CallProcedure");
-    SCOPED_PROFILE_OP(*self_);
+    SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
 
@@ -4709,7 +4704,7 @@ class CallValidateProcedureCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME("CallValidateProcedureCursor");
+    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
 
     AbortCheck(context);
     if (!input_cursor_->Pull(frame, context)) {
@@ -4847,8 +4842,7 @@ class LoadCsvCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // SCOPED_PROFILE_OP_BY_NAME("LoadCsv");
-    SCOPED_PROFILE_OP(*self_);
+    SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
 
@@ -4934,7 +4928,7 @@ class ForeachCursor : public Cursor {
         expression(foreach.expression_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP_BY_NAME(op_name_);
+    SCOPED_PROFILE_OP(op_name_);
 
     if (!input_->Pull(frame, context)) {
       return false;
@@ -5041,7 +5035,7 @@ std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
 }
 
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP_BY_NAME("Apply");
+  SCOPED_PROFILE_OP("Apply");
 
   while (true) {
     if (pull_input_ && !input_->Pull(frame, context)) {

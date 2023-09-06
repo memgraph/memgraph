@@ -32,7 +32,7 @@ namespace memgraph::utils {
  * @param transformation Function which accepts an item and returns a derived value.
  */
 template <typename TIterator, typename TTransformation>
-inline std::string IterableToString(TIterator first, TIterator last, const std::string &delim = ", ",
+inline std::string IterableToString(TIterator first, TIterator last, const std::string_view delim = ", ",
                                     TTransformation transformation = {}) {
   std::string representation;
   if (first != last) {
@@ -40,7 +40,8 @@ inline std::string IterableToString(TIterator first, TIterator last, const std::
     ++first;
   }
   for (; first != last; ++first) {
-    representation.append(delim + transformation(*first));
+    representation.append(delim);
+    representation.append(transformation(*first));
   }
 
   return representation;
@@ -54,7 +55,7 @@ inline std::string IterableToString(TIterator first, TIterator last, const std::
  * @param transformation Function which accepts an item and returns a derived value.
  */
 template <typename TIterable, typename TTransformation>
-inline std::string IterableToString(const TIterable &iterable, const std::string &delim = ", ",
+inline std::string IterableToString(const TIterable &iterable, const std::string_view delim = ", ",
                                     TTransformation transformation = {}) {
   return IterableToString(iterable.begin(), iterable.end(), delim, transformation);
 }
@@ -66,7 +67,7 @@ inline std::string IterableToString(const TIterable &iterable, const std::string
  * @param delim Delimiter that is put between items.
  */
 template <typename TIterable>
-inline std::string IterableToString(const TIterable &iterable, const std::string &delim = ", ") {
+inline std::string IterableToString(const TIterable &iterable, const std::string_view delim = ", ") {
   return IterableToString(iterable, delim, [](const auto &item) { return item; });
 }
 

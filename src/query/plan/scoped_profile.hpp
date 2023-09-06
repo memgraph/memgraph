@@ -28,7 +28,7 @@ namespace memgraph::query::plan {
  */
 class ScopedProfile {
  public:
-  ScopedProfile(uint64_t key, const query::plan::NamedOperator &op, query::ExecutionContext *context) noexcept
+  ScopedProfile(uint64_t key, const query::plan::NamedLogicalOperator &op, query::ExecutionContext *context) noexcept
       : context_(context) {
     if (UNLIKELY(context_->is_profile_query)) {
       root_ = context_->stats_root;
