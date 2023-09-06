@@ -204,7 +204,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   // 1. Gather nodes which are not deleted yet in the system
   const absl::flat_hash_set<Vertex *> nodes_to_delete = PrepareDeletableNodes(nodes);
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
-  const EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
+  EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
 
   // Detach nodes which need to be deleted
   absl::flat_hash_set<Gid> deleted_edge_ids;
@@ -219,8 +219,12 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
-  const std::vector<EdgeAccessor> another_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids);
-  deleted_edges.insert(deleted_edges.end(), another_edges.begin(), another_edges.end());
+  auto maybe_remaining_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids);
+  if (maybe_remaining_edges.HasError()) {
+    return maybe_remaining_edges.GetError();
+  }
+  const std::vector<EdgeAccessor> remaining_edges = *maybe_remaining_edges.GetValue();
+  deleted_edges.insert(deleted_edges.end(), remaining_edges.begin(), remaining_edges.end());
 
   auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
   if (maybe_deleted_vertices.HasError()) {
@@ -378,13 +382,15 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
   return std::make_optional<ReturnType>(deleted_edges);
 }
 
-std::vector<EdgeAccessor> Storage::Accessor::DetachRemainingEdges(
+Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemainingEdges(
     EdgeInfoForDeletion info, absl::flat_hash_set<Gid> &partially_detached_edge_ids) {
+  using ReturnType = std::vector<EdgeAccessor>;
   std::vector<EdgeAccessor> deleted_edges{};
 
   auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids](
                                             auto *vertex_ptr, auto *edges_attached_to_vertex, auto &set_for_erasure,
-                                            auto deletion_delta, auto reverse_vertex_order) {
+                                            auto deletion_delta,
+                                            auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
@@ -422,19 +428,27 @@ std::vector<EdgeAccessor> Storage::Accessor::DetachRemainingEdges(
     }
 
     edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
+
+    return std::make_optional<ReturnType>();
   };
 
   // remove edges from vertex collections which we aggregated for just detaching
   for (auto *vertex_ptr : info.partial_src_vertices) {
-    clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
-                                   Delta::AddOutEdgeTag(), false);
+    auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
+                                                      Delta::AddOutEdgeTag(), false);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
   }
   for (auto *vertex_ptr : info.partial_dest_vertices) {
-    clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids, Delta::AddInEdgeTag(),
-                                   true);
+    auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids,
+                                                      Delta::AddInEdgeTag(), true);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
   }
 
-  return deleted_edges;
+  return std::make_optional<ReturnType>(deleted_edges);
 }
 
 Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
