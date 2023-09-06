@@ -23,6 +23,7 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
+ACTIVE                  : A C T I V E ;
 AFTER                   : A F T E R ;
 ALTER                   : A L T E R ;
 ANALYZE                 : A N A L Y Z E ;
@@ -55,6 +56,7 @@ DIRECTORY               : D I R E C T O R Y ;
 DROP                    : D R O P ;
 DUMP                    : D U M P ;
 DURABILITY              : D U R A B I L I T Y ;
+EDGE                    : E D G E ;
 EDGE_TYPES              : E D G E UNDERSCORE T Y P E S ;
 EXECUTE                 : E X E C U T E ;
 FOR                     : F O R ;
@@ -69,9 +71,11 @@ GRANTS                  : G R A N T S ;
 HEADER                  : H E A D E R ;
 IDENTIFIED              : I D E N T I F I E D ;
 IGNORE                  : I G N O R E ;
-ISOLATION               : I S O L A T I O N ;
+IMPORT                  : I M P O R T ;
+INACTIVE                : I N A C T I V E ;
 IN_MEMORY_ANALYTICAL    : I N UNDERSCORE M E M O R Y UNDERSCORE A N A L Y T I C A L ;
 IN_MEMORY_TRANSACTIONAL : I N UNDERSCORE M E M O R Y UNDERSCORE T R A N S A C T I O N A L ;
+ISOLATION               : I S O L A T I O N ;
 KAFKA                   : K A F K A ;
 LABELS                  : L A B E L S ;
 LEVEL                   : L E V E L ;
