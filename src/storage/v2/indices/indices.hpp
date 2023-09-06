@@ -19,7 +19,7 @@
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(Constraints *constraints, const Config &config, StorageMode storage_mode);
+  Indices(const Config &config, StorageMode storage_mode);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
