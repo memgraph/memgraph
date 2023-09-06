@@ -101,5 +101,5 @@ def access_deleted(ctx: mgp.ProcCtx, event: mgp.Any) -> mgp.Record(status=bool):
             process_obj(e.from_vertex)
             process_obj(e.to_vertex)
     except Exception as e:
-        return mgp.Record(status=False)
+        raise e
     return mgp.Record(status=True)
