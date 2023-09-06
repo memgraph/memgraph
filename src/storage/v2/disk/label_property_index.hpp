@@ -9,18 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
 namespace memgraph::storage {
 
 /// TODO: andi. Too many copies, extract at one place
-using ParalellizedIndexCreationInfo =
+using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config);
+  DiskLabelPropertyIndex(Indices *indices, const Config &config);
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
@@ -60,6 +62,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadIndexInfo(const std::vector<std::string> &keys);
+
+  std::set<std::pair<LabelId, PropertyId>> GetInfo() const;
 
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>

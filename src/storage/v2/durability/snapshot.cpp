@@ -1429,7 +1429,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       bool is_visible = true;
       Delta *delta = nullptr;
       {
-        std::lock_guard<utils::SpinLock> guard(edge.lock);
+        auto guard = std::shared_lock{edge.lock};
         is_visible = !edge.deleted;
         delta = edge.delta;
       }

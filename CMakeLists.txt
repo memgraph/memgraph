@@ -42,6 +42,10 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
+# NOTE: once in a while this needs to be toggled to check headers are
+#       correct and PCH isn't masking any include issues
+set(CMAKE_DISABLE_PRECOMPILE_HEADERS OFF)
+
 #TODO: upgrade to cmake 3.24 + CheckIPOSupported
 #cmake_policy(SET CMP0138 NEW)
 #include(CheckIPOSupported)
@@ -211,8 +215,8 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# Use gold linker to speedup build
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
+# Use lld linker to speedup build
+add_link_options(-fuse-ld=lld) # TODO: use mold linker
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
