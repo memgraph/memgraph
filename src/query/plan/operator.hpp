@@ -129,6 +129,7 @@ class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
 class Apply;
+class HashJoin;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -136,7 +137,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, HashJoin>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2097,6 +2098,36 @@ class Cartesian : public memgraph::query::plan::LogicalOperator {
     object->left_symbols_ = left_symbols_;
     object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
     object->right_symbols_ = right_symbols_;
+    return object;
+  }
+};
+
+/// Operator for producing a hash join product from 2 input branches
+class HashJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  HashJoin() {}
+  /** Construct the operator with left input branch and right input branch. */
+  HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op)
+      : left_op_(left_op), right_op_(right_op) {}
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> left_op_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<Cartesian>();
+    object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
+    object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
     return object;
   }
 };
