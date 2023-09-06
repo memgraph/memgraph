@@ -12,6 +12,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <utility>
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -23,6 +26,9 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -442,12 +448,14 @@ class InMemoryStorage final : public Storage {
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
+
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
+  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
+  // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
+  utils::Synchronized<std::list<std::pair<uint64_t, BondPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
