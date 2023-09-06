@@ -178,6 +178,9 @@ InMemoryStorage::~InMemoryStorage() {
       }
     }
   }
+  if (!committed_transactions_->empty()) {
+    committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
+  }
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level,
@@ -248,7 +251,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  auto guard = std::unique_lock{vertex_ptr->lock};
 
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -286,7 +289,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+    auto guard = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -326,7 +329,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
     }
   }
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+  auto guard = std::unique_lock{vertex_ptr->lock};
 
   // We need to check again for serialization errors because we unlocked the
   // vertex. Some other transaction could have modified the vertex in the
@@ -366,8 +369,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
   if (from_vertex->gid < to_vertex->gid) {
     guard_from.lock();
     guard_to.lock();
@@ -432,8 +435,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
   if (from_vertex->gid < to_vertex->gid) {
     guard_from.lock();
     guard_to.lock();
@@ -500,10 +503,10 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   auto edge_ref = edge->edge_;
   auto edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::SpinLock> guard;
+  std::unique_lock<utils::RWSpinLock> guard;
   if (config_.properties_on_edges) {
     auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
+    guard = std::unique_lock{edge_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -514,8 +517,8 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   auto *to_vertex = edge->to_vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
   if (from_vertex->gid < to_vertex->gid) {
     guard_from.lock();
     guard_to.lock();
@@ -597,14 +600,14 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  if (transaction_.deltas.empty()) {
+  if (transaction_.deltas.use().empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Validate that existence constraints are satisfied for all modified
     // vertices.
-    for (const auto &delta : transaction_.deltas) {
+    for (const auto &delta : transaction_.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) {
@@ -636,7 +639,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
       // to be validated/committed.
-      for (const auto &delta : transaction_.deltas) {
+      for (const auto &delta : transaction_.deltas.use()) {
         auto prev = delta.prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::VERTEX) {
@@ -647,7 +650,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
       // Validate that unique constraints are satisfied for all modified
       // vertices.
-      for (const auto &delta : transaction_.deltas) {
+      for (const auto &delta : transaction_.deltas.use()) {
         auto prev = delta.prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::VERTEX) {
@@ -726,15 +729,15 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   std::list<Gid> my_deleted_vertices;
   std::list<Gid> my_deleted_edges;
 
-  for (const auto &delta : transaction_.deltas) {
+  for (const auto &delta : transaction_.deltas.use()) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
-        std::lock_guard<utils::SpinLock> guard(vertex->lock);
+        auto guard = std::unique_lock{vertex->lock};
         Delta *current = vertex->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
+        while (current != nullptr &&
+               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -819,10 +822,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       case PreviousPtr::Type::EDGE: {
         auto *edge = prev.edge;
-        std::lock_guard<utils::SpinLock> guard(edge->lock);
+        auto guard = std::lock_guard{edge->lock};
         Delta *current = edge->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
-                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
+        while (current != nullptr &&
+               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -874,6 +877,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // Release engine lock because we don't have to hold it anymore and
       // emplace back could take a long time.
       engine_guard.unlock();
+
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
     mem_storage->deleted_vertices_.WithLock(
@@ -1083,14 +1087,14 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_));
+  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_, &storage_->constraints_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, &transaction_));
+  return VerticesIterable(mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view,
+                                                             &transaction_, &storage_->constraints_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
@@ -1098,7 +1102,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
-                                                             utils::MakeBoundInclusive(value), view, &transaction_));
+                                                             utils::MakeBoundInclusive(value), view, &transaction_,
+                                                             &storage_->constraints_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
@@ -1106,8 +1111,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
+  return VerticesIterable(mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view,
+                                                             &transaction_, &storage_->constraints_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -1131,7 +1136,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
 }
 
 template <bool force>
@@ -1190,7 +1195,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::pair<uint64_t, std::list<Delta>>> unlinked_undo_buffers;
+  std::list<std::pair<uint64_t, BondPmrLd>> unlinked_undo_buffers;
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1258,13 +1263,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    for (Delta &delta : transaction->deltas) {
+    for (Delta &delta : transaction->deltas.use()) {
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
-            std::lock_guard<utils::SpinLock> vertex_guard(vertex->lock);
+            auto vertex_guard = std::unique_lock{vertex->lock};
             if (vertex->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
@@ -1278,7 +1283,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
           }
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
-            std::lock_guard<utils::SpinLock> edge_guard(edge->lock);
+            auto edge_guard = std::unique_lock{edge->lock};
             if (edge->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
@@ -1297,7 +1302,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
               // part of the suffix later.
               break;
             }
-            std::unique_lock<utils::SpinLock> guard;
+            std::unique_lock<utils::RWSpinLock> guard;
             {
               // We need to find the parent object in order to be able to use
               // its lock.
@@ -1307,10 +1312,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
               }
               switch (parent.type) {
                 case PreviousPtr::Type::VERTEX:
-                  guard = std::unique_lock<utils::SpinLock>(parent.vertex->lock);
+                  guard = std::unique_lock{parent.vertex->lock};
                   break;
                 case PreviousPtr::Type::EDGE:
-                  guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
+                  guard = std::unique_lock{parent.edge->lock};
                   break;
                 case PreviousPtr::Type::DELTA:
                 case PreviousPtr::Type::NULLPTR:
@@ -1364,10 +1369,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
       // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
       // transactions from aborting until we're done marking, maybe we should
       // add them one-by-one or something
-      for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
+      for (auto &[timestamp, transaction_deltas] : unlinked_undo_buffers) {
         timestamp = mark_timestamp;
       }
-      garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
+      garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
     });
     for (auto vertex : current_deleted_vertices) {
       garbage_vertices_.emplace_back(mark_timestamp, vertex);
@@ -1378,9 +1383,17 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     // if force is set to true we can simply delete all the leftover undos because
     // no transaction is active
     if constexpr (force) {
+      for (auto &[timestamp, transaction_deltas] : undo_buffers) {
+        transaction_deltas.~Bond<PmrListDelta>();
+      }
       undo_buffers.clear();
+
     } else {
       while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
+        auto &[timestamp, transaction_deltas] = undo_buffers.front();
+        transaction_deltas.~Bond<PmrListDelta>();
+        // this will trigger destory of object
+        // but since we release pointer, it will just destory other stuff
         undo_buffers.pop_front();
       }
     }
@@ -1526,7 +1539,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -1549,7 +1562,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -1571,7 +1584,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
@@ -1593,7 +1606,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 4. Process all Vertex deltas and store all operations that delete edges.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -1615,7 +1628,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
       });
     }
     // 5. Process all Vertex deltas and store all operations that delete vertices.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.deltas.use()) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
