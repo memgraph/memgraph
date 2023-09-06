@@ -63,7 +63,7 @@ class VerticesIterable final {
 
     ~Iterator();
 
-    VertexAccessor operator*() const;
+    VertexAccessor const &operator*() const;
 
     Iterator &operator++();
 

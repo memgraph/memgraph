@@ -17,11 +17,11 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
-    if (!*vertex) {
+    if (not VertexAccessor::IsVisible(&*it, tx, view)) {
       ++it;
       continue;
     }
+    *vertex = VertexAccessor{&*it, tx, indices, constraints, config};
     break;
   }
   return it;
@@ -32,7 +32,7 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
 
-VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
+VertexAccessor const &AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;

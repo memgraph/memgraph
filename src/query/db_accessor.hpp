@@ -331,17 +331,17 @@ class VerticesIterable final {
         it_;
 
    public:
-    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
     VertexAccessor operator*() const {
-      return std::visit([](auto it_) { return VertexAccessor(*it_); }, it_);
+      return std::visit([](auto &it_) { return VertexAccessor(*it_); }, it_);
     }
 
     Iterator &operator++() {
-      std::visit([this](auto it_) { this->it_ = ++it_; }, it_);
+      std::visit([](auto &it_) { ++it_; }, it_);
       return *this;
     }
 
