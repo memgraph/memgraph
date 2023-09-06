@@ -54,6 +54,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -63,6 +64,7 @@
 #include "utils/skip_list.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::storage {
 
@@ -335,6 +337,8 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
+
+  transaction_.deltas.~Bond<PmrListDelta>();
 }
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
@@ -1638,9 +1642,9 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (transaction_.deltas.empty() ||
+  if (transaction_.deltas.use().empty() ||
       (!edge_import_mode_active &&
-       std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+       std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(),
                    [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; }))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
@@ -1758,9 +1762,9 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 
 void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  uint64_t transaction_id = transaction_.transaction_id.load(std::memory_order_acquire);
+  uint64_t transaction_id = transaction_.transaction_id;
 
-  for (const auto &delta : transaction_.deltas) {
+  for (const auto &delta : transaction_.deltas.use()) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {

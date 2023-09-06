@@ -390,6 +390,7 @@ class DiskStorage final : public Storage {
  private:
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
+
   std::atomic<uint64_t> vertex_count_{0};
 };
 
