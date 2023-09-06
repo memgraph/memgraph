@@ -1,4 +1,6 @@
 {
     "dbms.components": "mgps.components",
-    "apoc.util.validate": "mgps.validate"
+    "apoc.util.validate": "mgps.validate",
+    "db.schema.nodeTypeProperties":"schema.node_type_properties",
+    "db.schema.relTypeProperties":"schema.rel_type_properties",
 }
