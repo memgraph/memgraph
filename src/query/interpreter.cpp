@@ -2873,19 +2873,21 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
       handler = [interpreter_context] {
+        const std::string_view label_index_mark{"label"};
+        const std::string_view label_property_index_mark{"label+property"};
         auto *db = interpreter_context->db.get();
         auto info = db->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
-          results.push_back({TypedValue("label"), TypedValue(db->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue(label_index_mark), TypedValue(db->LabelToName(item)), TypedValue()});
         }
         for (const auto &item : info.label_property) {
-          results.push_back({TypedValue("label+property"), TypedValue(db->LabelToName(item.first)),
+          results.push_back({TypedValue(label_property_index_mark), TypedValue(db->LabelToName(item.first)),
                              TypedValue(db->PropertyToName(item.second))});
         }
 
-        std::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
+        std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
 
@@ -2895,7 +2897,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
           const auto label_1 = record_1[1].ValueString();
           const auto label_2 = record_2[1].ValueString();
-          if (type_1 == "label" || label_1 != label_2) {
+          if (type_1 == label_index_mark || label_1 != label_2) {
             return label_1 < label_2;
           }
 
