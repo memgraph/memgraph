@@ -554,6 +554,9 @@ class List {
   /// @exception std::runtime_error List contains value of unknown type.
   bool operator!=(const List &other) const;
 
+  /// @brief returns the string representation
+  const std::string ToString() const;
+
  private:
   mgp_list *ptr_;
 };
@@ -669,6 +672,9 @@ class Map {
   /// @exception std::runtime_error Map contains value of unknown type.
   bool operator!=(const Map &other) const;
 
+  /// @brief returns the string representation
+  const std::string ToString() const;
+
  private:
   mgp_map *ptr_;
 };
@@ -709,10 +715,13 @@ class Node {
   bool HasLabel(std::string_view label) const;
 
   /// @brief Returns an std::map of the node’s properties.
-  std::map<std::string, Value> Properties() const;
+  std::unordered_map<std::string, Value> Properties() const;
 
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
+
+  /// @brief Sets the chosen properties to the given values.
+  void SetProperties(std::unordered_map<std::string_view, Value> properties);
 
   /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
@@ -739,6 +748,9 @@ class Node {
 
   /// @exception std::runtime_error Node properties contain value(s) of unknown type.
   bool operator!=(const Node &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_vertex *ptr_;
@@ -775,10 +787,13 @@ class Relationship {
   std::string_view Type() const;
 
   /// @brief Returns an std::map of the relationship’s properties.
-  std::map<std::string, Value> Properties() const;
+  std::unordered_map<std::string, Value> Properties() const;
 
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
+
+  /// @brief Sets the chosen properties to the given values.
+  void SetProperties(std::unordered_map<std::string_view, Value> properties);
 
   /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
@@ -797,6 +812,9 @@ class Relationship {
   bool operator==(const Relationship &other) const;
   /// @exception std::runtime_error Relationship properties contain value(s) of unknown type.
   bool operator!=(const Relationship &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_edge *ptr_;
@@ -845,6 +863,9 @@ class Path {
   bool operator==(const Path &other) const;
   /// @exception std::runtime_error Path contains element(s) with unknown value.
   bool operator!=(const Path &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_path *ptr_;
@@ -902,6 +923,9 @@ class Date {
   Duration operator-(const Date &other) const;
 
   bool operator<(const Date &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_date *ptr_;
@@ -961,6 +985,9 @@ class LocalTime {
   Duration operator-(const LocalTime &other) const;
 
   bool operator<(const LocalTime &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_local_time *ptr_;
@@ -1027,6 +1054,9 @@ class LocalDateTime {
 
   bool operator<(const LocalDateTime &other) const;
 
+  /// @brief returns the string representation
+  const std::string ToString() const;
+
  private:
   mgp_local_date_time *ptr_;
 };
@@ -1077,6 +1107,9 @@ class Duration {
   Duration operator-() const;
 
   bool operator<(const Duration &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_duration *ptr_;
@@ -1287,6 +1320,9 @@ class Value {
   bool operator<(const Value &other) const;
 
   friend std::ostream &operator<<(std::ostream &os, const mgp::Value &value);
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
 
  private:
   mgp_value *ptr_;
@@ -2400,6 +2436,22 @@ inline bool List::operator==(const List &other) const { return util::ListsEqual(
 
 inline bool List::operator!=(const List &other) const { return !(*this == other); }
 
+inline const std::string List::ToString() const {
+  const size_t size = Size();
+  if (size == 0) {
+    return "[]";
+  }
+  std::string return_str{"["};
+  size_t i = 0;
+  const mgp::List &list = (*this);
+  while (i < size - 1) {
+    return_str.append(list[i].ToString() + ", ");
+    i++;
+  }
+  return_str.append(list[i].ToString() + "]");
+  return return_str;
+}
+
 // MapItem:
 
 inline bool MapItem::operator==(MapItem &other) const { return key == other.key && value == other.value; }
@@ -2569,6 +2621,24 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
 
+inline const std::string Map::ToString() const {
+  const size_t map_size = Size();
+  if (map_size == 0) {
+    return "{}";
+  }
+  std::string return_string{"{"};
+  size_t i = 0;
+  for (const auto &[key, value] : *this) {
+    if (i == map_size - 1) {
+      return_string.append(std::string(key) + ": " + value.ToString() + "}");
+      break;
+    }
+    return_string.append(std::string(key) + ": " + value.ToString() + ", ");
+    ++i;
+  }
+  return return_string;
+}
+
 /* #endregion */
 
 /* #region Graph elements (Node, Relationship & Path) */
@@ -2646,9 +2716,9 @@ inline void Node::RemoveLabel(const std::string_view label) {
   mgp::vertex_remove_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
-inline std::map<std::string, Value> Node::Properties() const {
+inline std::unordered_map<std::string, Value> Node::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::MemHandlerCallback(vertex_iter_properties, ptr_);
-  std::map<std::string, Value> property_map;
+  std::unordered_map<std::string, Value> property_map;
   for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
     property_map.emplace(std::string(property->name), Value(property->value));
@@ -2659,6 +2729,17 @@ inline std::map<std::string, Value> Node::Properties() const {
 
 inline void Node::SetProperty(std::string property, Value value) {
   mgp::vertex_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline void Node::SetProperties(std::unordered_map<std::string_view, Value> properties) {
+  mgp_map *map = mgp::MemHandlerCallback(map_make_empty);
+
+  for (auto const &[k, v] : properties) {
+    mgp::map_insert(map, k.data(), v.ptr());
+  }
+
+  mgp::vertex_set_properties(ptr_, map);
+  mgp::map_destroy(map);
 }
 
 inline void Node::RemoveProperty(std::string property) { SetProperty(property, Value()); }
@@ -2673,6 +2754,41 @@ inline bool Node::operator<(const Node &other) const { return Id() < other.Id();
 inline bool Node::operator==(const Node &other) const { return util::NodesEqual(ptr_, other.ptr_); }
 
 inline bool Node::operator!=(const Node &other) const { return !(*this == other); }
+
+// this functions is used both in relationship and node ToString
+inline std::string PropertiesToString(const std::map<std::string, Value> &property_map) {
+  std::string properties;
+  const auto map_size = property_map.size();
+  size_t i = 0;
+  for (const auto &[key, value] : property_map) {
+    if (i == map_size - 1) {
+      properties.append(std::string(key) + ": " + value.ToString());
+      break;
+    }
+    properties.append(std::string(key) + ": " + value.ToString() + ", ");
+    ++i;
+  }
+  return properties;
+}
+
+inline const std::string Node::ToString() const {
+  std::string labels{", "};
+  for (auto label : Labels()) {
+    labels.append(":" + std::string(label));
+  }
+  if (labels == ", ") {
+    labels = "";  // dont use labels if they dont exist
+  }
+  std::unordered_map<std::string, Value> properties_map{Properties()};
+  std::map<std::string, Value> properties_map_sorted{};
+
+  for (const auto &[k, v] : properties_map) {
+    properties_map_sorted.emplace(k, v);
+  }
+  std::string properties{PropertiesToString(properties_map_sorted)};
+
+  return "(id: " + std::to_string(Id().AsInt()) + labels + ", properties: {" + properties + "})";
+}
 
 // Relationship:
 
@@ -2714,9 +2830,9 @@ inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(pt
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
-inline std::map<std::string, Value> Relationship::Properties() const {
+inline std::unordered_map<std::string, Value> Relationship::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::MemHandlerCallback(edge_iter_properties, ptr_);
-  std::map<std::string, Value> property_map;
+  std::unordered_map<std::string, Value> property_map;
   for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
     property_map.emplace(property->name, Value(property->value));
@@ -2727,6 +2843,17 @@ inline std::map<std::string, Value> Relationship::Properties() const {
 
 inline void Relationship::SetProperty(std::string property, Value value) {
   mgp::edge_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline void Relationship::SetProperties(std::unordered_map<std::string_view, Value> properties) {
+  mgp_map *map = mgp::MemHandlerCallback(map_make_empty);
+
+  for (auto const &[k, v] : properties) {
+    mgp::map_insert(map, k.data(), v.ptr());
+  }
+
+  mgp::edge_set_properties(ptr_, map);
+  mgp::map_destroy(map);
 }
 
 inline void Relationship::RemoveProperty(std::string property) { SetProperty(property, Value()); }
@@ -2748,6 +2875,24 @@ inline bool Relationship::operator==(const Relationship &other) const {
 
 inline bool Relationship::operator!=(const Relationship &other) const { return !(*this == other); }
 
+inline const std::string Relationship::ToString() const {
+  const auto from = From();
+  const auto to = To();
+
+  const std::string type{Type()};
+  std::unordered_map<std::string, Value> properties_map{Properties()};
+  std::map<std::string, Value> properties_map_sorted{};
+
+  for (const auto &[k, v] : properties_map) {
+    properties_map_sorted.emplace(k, v);
+  }
+  std::string properties{PropertiesToString(properties_map_sorted)};
+
+  const std::string relationship{"[type: " + type + ", id: " + std::to_string(Id().AsInt()) + ", properties: {" +
+                                 properties + "}]"};
+
+  return from.ToString() + "-" + relationship + "->" + to.ToString();
+}
 // Path:
 
 inline Path::Path(mgp_path *ptr) : ptr_(mgp::MemHandlerCallback(path_copy, ptr)) {}
@@ -2809,6 +2954,32 @@ inline void Path::Expand(const Relationship &relationship) { mgp::path_expand(pt
 inline bool Path::operator==(const Path &other) const { return util::PathsEqual(ptr_, other.ptr_); }
 
 inline bool Path::operator!=(const Path &other) const { return !(*this == other); }
+
+inline const std::string Path::ToString() const {
+  const auto length = Length();
+  size_t i = 0;
+  std::string return_string{""};
+  for (i = 0; i < length; i++) {
+    const auto node = GetNodeAt(i);
+    return_string.append(node.ToString() + "-");
+
+    const Relationship rel = GetRelationshipAt(i);
+    std::unordered_map<std::string, Value> properties_map{rel.Properties()};
+    std::map<std::string, Value> properties_map_sorted{};
+
+    for (const auto &[k, v] : properties_map) {
+      properties_map_sorted.emplace(k, v);
+    }
+    std::string properties{PropertiesToString(properties_map_sorted)};
+
+    return_string.append("[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
+                         ", properties: {" + properties + "}]->");
+  }
+
+  const auto node = GetNodeAt(i);
+  return_string.append(node.ToString());
+  return return_string;
+}
 
 /* #endregion */
 
@@ -2905,6 +3076,10 @@ inline bool Date::operator<(const Date &other) const {
   mgp::duration_destroy(difference);
 
   return is_less;
+}
+
+inline const std::string Date::ToString() const {
+  return std::to_string(Year()) + "-" + std::to_string(Month()) + "-" + std::to_string(Day());
 }
 
 // LocalTime:
@@ -3004,6 +3179,11 @@ inline bool LocalTime::operator<(const LocalTime &other) const {
   mgp::duration_destroy(difference);
 
   return is_less;
+}
+
+inline const std::string LocalTime::ToString() const {
+  return std::to_string(Hour()) + ":" + std::to_string(Minute()) + ":" + std::to_string(Second()) + "," +
+         std::to_string(Millisecond()) + std::to_string(Microsecond());
 }
 
 // LocalDateTime:
@@ -3120,6 +3300,12 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
   return is_less;
 }
 
+inline const std::string LocalDateTime::ToString() const {
+  return std::to_string(Year()) + "-" + std::to_string(Month()) + "-" + std::to_string(Day()) + "T" +
+         std::to_string(Hour()) + ":" + std::to_string(Minute()) + ":" + std::to_string(Second()) + "," +
+         std::to_string(Millisecond()) + std::to_string(Microsecond());
+}
+
 // Duration:
 
 inline Duration::Duration(mgp_duration *ptr) : ptr_(mgp::MemHandlerCallback(duration_copy, ptr)) {}
@@ -3208,6 +3394,8 @@ inline bool Duration::operator<(const Duration &other) const {
 
   return is_less;
 }
+
+inline const std::string Duration::ToString() const { return std::to_string(Microseconds()) + "ms"; }
 
 /* #endregion */
 
@@ -3670,6 +3858,42 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       return os << "duration";
     default:
       throw ValueException("Unknown type");
+  }
+}
+
+inline const std::string Value::ToString() const {
+  const mgp::Type &type = Type();
+  switch (type) {
+    case Type::Null:
+      return "";
+    case Type::Bool:
+      return ValueBool() ? "true" : "false";
+    case Type::Int:
+      return std::to_string(ValueInt());
+    case Type::Double:
+      return std::to_string(ValueDouble());
+    case Type::String:
+      return std::string(ValueString());
+    case Type::Node:
+      return ValueNode().ToString();
+    case Type::Relationship:
+      return ValueRelationship().ToString();
+    case Type::Date:
+      return ValueDate().ToString();
+    case Type::LocalTime:
+      return ValueLocalTime().ToString();
+    case Type::LocalDateTime:
+      return ValueLocalDateTime().ToString();
+    case Type::Duration:
+      return ValueDuration().ToString();
+    case Type::List:
+      return ValueList().ToString();
+    case Type::Map:
+      return ValueMap().ToString();
+    case Type::Path:
+      return ValuePath().ToString();
+    default:
+      throw ValueException("Undefined behaviour");
   }
 }
 

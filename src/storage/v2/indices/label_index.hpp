@@ -19,8 +19,7 @@ namespace memgraph::storage {
 
 class LabelIndex {
  public:
-  LabelIndex(Indices *indices, Constraints *constraints, const Config &config)
-      : indices_(indices), constraints_(constraints), config_(config) {}
+  LabelIndex(Indices *indices, const Config &config) : indices_(indices), config_(config) {}
 
   LabelIndex(const LabelIndex &) = delete;
   LabelIndex(LabelIndex &&) = delete;
@@ -44,7 +43,6 @@ class LabelIndex {
  protected:
   /// TODO: andi maybe no need for have those in abstract class if disk storage isn't using it
   Indices *indices_;
-  Constraints *constraints_;
   Config config_;
 };
 

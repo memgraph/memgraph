@@ -269,6 +269,17 @@ antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::Replicati
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeImportModeQueryContext *ctx) {
+  auto *edge_import_mode_query = storage_->Create<EdgeImportModeQuery>();
+  if (ctx->ACTIVE()) {
+    edge_import_mode_query->status_ = EdgeImportModeQuery::Status::ACTIVE;
+  } else {
+    edge_import_mode_query->status_ = EdgeImportModeQuery::Status::INACTIVE;
+  }
+  query_ = edge_import_mode_query;
+  return edge_import_mode_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;

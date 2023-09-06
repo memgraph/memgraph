@@ -5,6 +5,7 @@ find_package(Threads REQUIRED)
 add_library(mg-storage-v2 STATIC
         commit_log.cpp
         constraints/existence_constraints.cpp
+        constraints/constraints.cpp
         temporal.cpp
         durability/durability.cpp
         durability/serialization.cpp
@@ -24,6 +25,7 @@ add_library(mg-storage-v2 STATIC
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/unique_constraints.cpp
+        disk/edge_import_mode_cache.cpp
         disk/storage.cpp
         disk/rocksdb_storage.cpp
         disk/label_index.cpp

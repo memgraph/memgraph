@@ -11,19 +11,17 @@
 
 #pragma once
 
-#include "storage/v2/inmemory/label_index.hpp"
-#include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/storage.hpp"
+#include "kvstore/kvstore.hpp"
+#include "storage/v2/durability/storage_global_operation.hpp"
+#include "utils/result.hpp"
 
 /// REPLICATION ///
-#include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-
-#include "storage/v2/replication/global.hpp"
 
 // TODO use replication namespace
 namespace memgraph::storage {
@@ -56,8 +54,8 @@ struct ReplicationState {
   void RestoreReplicationRole(Storage *storage);
 
   // MAIN actually doing the replication
-  bool AppendToWalDataDefinition(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
-                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+  bool AppendOperation(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
+                       const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
   void InitializeTransaction(uint64_t seq_num);
   void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
