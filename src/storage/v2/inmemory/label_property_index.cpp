@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 
 namespace memgraph::storage {
@@ -32,12 +33,13 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
-    : LabelPropertyIndex(indices, constraints, config) {}
+InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, const Config &config)
+    : LabelPropertyIndex(indices, config) {}
 
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
                                              const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+  spdlog::trace("Vertices size when creating index: {}", vertices.size());
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -426,11 +428,12 @@ void InMemoryLabelPropertyIndex::RunGC() {
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction) {
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
+    Constraints *constraints) {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), label,    property,     lower_bound, upper_bound, view,
-          transaction,         indices_, constraints_, config_};
+  return {it->second.access(), label,    property,    lower_bound, upper_bound, view,
+          transaction,         indices_, constraints, config_};
 }
 
 }  // namespace memgraph::storage
