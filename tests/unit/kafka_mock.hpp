@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include <librdkafka/rdkafka_mock.h>
 #include <librdkafka/rdkafkacpp.h>
 
-// Based on https://github.com/edenhill/librdkafka/issues/2693
+// Based on https://github.com/confluentinc/librdkafka/issues/2693
 namespace details {
 struct RdKafkaDeleter {
   void operator()(rd_kafka_t *rd);
