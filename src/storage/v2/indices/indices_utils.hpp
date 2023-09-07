@@ -51,7 +51,7 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   bool deleted{false};
   const Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    auto guard = std::shared_lock{vertex.lock};
     has_label = utils::Contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
@@ -105,7 +105,7 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
   bool deleted{false};
   const Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    auto guard = std::shared_lock{vertex.lock};
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
     deleted = vertex.deleted;
@@ -168,7 +168,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
   bool current_value_equal_to_value = value.IsNull();
   const Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
@@ -202,7 +202,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
       // clang-format on
     });
 
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threashold) {
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction->manyDeltasCache;
       cache.StoreExists(view, &vertex, exists);
       cache.StoreDeleted(view, &vertex, deleted);

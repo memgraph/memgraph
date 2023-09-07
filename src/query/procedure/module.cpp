@@ -1268,7 +1268,7 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
 ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
   std::shared_lock<utils::RWLock> guard(lock_);
   auto found_it = modules_.find(name);
-  if (found_it == modules_.end()) return nullptr;
+  if (found_it == modules_.end()) return ModulePtr{nullptr};
   return ModulePtr(found_it->second.get(), std::move(guard));
 }
 

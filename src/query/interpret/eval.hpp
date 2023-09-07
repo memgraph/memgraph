@@ -99,12 +99,79 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
 
+#undef UNSUCCESSFUL_VISIT
+
  private:
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
 };
 
+class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
+ public:
+  explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx) : ctx_(&ctx) {}
+  using ExpressionVisitor<TypedValue>::Visit;
+  TypedValue Visit(PrimitiveLiteral &literal) override {
+    // TODO: no need to evaluate constants, we can write it to frame in one
+    // of the previous phases.
+    return TypedValue(literal.value_, ctx_->memory);
+  }
+  TypedValue Visit(ParameterLookup &param_lookup) override {
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+  }
+
+#define INVALID_VISIT(expr_name)                                                             \
+  TypedValue Visit(expr_name & /*expr*/) override {                                          \
+    DLOG_FATAL("Invalid expression type visited with PrimitiveLiteralExpressionEvaluator."); \
+    return {};                                                                               \
+  }
+
+  INVALID_VISIT(NamedExpression)
+  INVALID_VISIT(OrOperator)
+  INVALID_VISIT(XorOperator)
+  INVALID_VISIT(AndOperator)
+  INVALID_VISIT(NotOperator)
+  INVALID_VISIT(AdditionOperator)
+  INVALID_VISIT(SubtractionOperator)
+  INVALID_VISIT(MultiplicationOperator)
+  INVALID_VISIT(DivisionOperator)
+  INVALID_VISIT(ModOperator)
+  INVALID_VISIT(NotEqualOperator)
+  INVALID_VISIT(EqualOperator)
+  INVALID_VISIT(LessOperator)
+  INVALID_VISIT(GreaterOperator)
+  INVALID_VISIT(LessEqualOperator)
+  INVALID_VISIT(GreaterEqualOperator)
+  INVALID_VISIT(InListOperator)
+  INVALID_VISIT(SubscriptOperator)
+  INVALID_VISIT(ListSlicingOperator)
+  INVALID_VISIT(IfOperator)
+  INVALID_VISIT(UnaryPlusOperator)
+  INVALID_VISIT(UnaryMinusOperator)
+  INVALID_VISIT(IsNullOperator)
+  INVALID_VISIT(ListLiteral)
+  INVALID_VISIT(MapLiteral)
+  INVALID_VISIT(MapProjectionLiteral)
+  INVALID_VISIT(PropertyLookup)
+  INVALID_VISIT(AllPropertiesLookup)
+  INVALID_VISIT(LabelsTest)
+  INVALID_VISIT(Aggregation)
+  INVALID_VISIT(Function)
+  INVALID_VISIT(Reduce)
+  INVALID_VISIT(Coalesce)
+  INVALID_VISIT(Extract)
+  INVALID_VISIT(All)
+  INVALID_VISIT(Single)
+  INVALID_VISIT(Any)
+  INVALID_VISIT(None)
+  INVALID_VISIT(Identifier)
+  INVALID_VISIT(RegexMatch)
+  INVALID_VISIT(Exists)
+
+#undef INVALID_VISIT
+ private:
+  EvaluationContext const *ctx_;
+};
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
@@ -1106,6 +1173,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
 int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
 
-std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale);
+std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
+                                          size_t memory_scale);
 
 }  // namespace memgraph::query

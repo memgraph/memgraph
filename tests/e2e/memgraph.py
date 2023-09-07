@@ -70,8 +70,12 @@ class MemgraphInstanceRunner:
         conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
         conn.autocommit = True
         cursor = conn.cursor()
-        for query in setup_queries:
-            cursor.execute(query)
+        for query_coll in setup_queries:
+            if isinstance(query_coll, str):
+                cursor.execute(query_coll)
+            elif isinstance(query_coll, list):
+                for query in query_coll:
+                    cursor.execute(query)
         cursor.close()
         conn.close()
 
