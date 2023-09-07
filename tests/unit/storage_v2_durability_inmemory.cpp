@@ -70,24 +70,24 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   void TearDown() override { Clear(); }
 
   void CreateBaseDataset(memgraph::storage::Storage *store, bool properties_on_edges) {
-    auto label_indexed = store->NameToLabel("base_indexed");
-    auto label_unindexed = store->NameToLabel("base_unindexed");
+    auto label_property_index = store->NameToLabel("base_indexed");
+    auto label_index = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
     auto property_extra = store->NameToProperty("extra");
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
     // Create label index.
-    ASSERT_FALSE(store->CreateIndex(label_unindexed).HasError());
+    ASSERT_FALSE(store->CreateIndex(label_index).HasError());
 
     // Create label+property index.
-    ASSERT_FALSE(store->CreateIndex(label_indexed, property_id).HasError());
+    ASSERT_FALSE(store->CreateIndex(label_property_index, property_id).HasError());
 
     // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id, {}).HasError());
+    ASSERT_FALSE(store->CreateExistenceConstraint(label_index, property_id, {}).HasError());
 
     // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}, {}).HasError());
+    ASSERT_FALSE(store->CreateUniqueConstraint(label_index, {property_id, property_extra}, {}).HasError());
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
@@ -95,10 +95,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto vertex = acc->CreateVertex();
       base_vertex_gids_[i] = vertex.Gid();
       if (i < kNumBaseVertices / 2) {
-        ASSERT_TRUE(vertex.AddLabel(label_indexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_property_index).HasValue());
       } else {
-        ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_index).HasValue());
       }
+      // [0...332] U [500...999]
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
         ASSERT_TRUE(
             vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
@@ -109,6 +110,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Create edges.
     for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
       auto acc = store->Access();
+
+      // 0...1000 0*5, 1*5, ....
       auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex1);
       auto vertex2 = acc->FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], memgraph::storage::View::OLD);
@@ -308,15 +311,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify edges.
       for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-        auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
-          for (auto &edge : edges) {
+        auto find_edge = [&](const auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
+          for (const auto &edge : edges) {
             if (edge.Gid() == base_edge_gids_[i]) {
               return edge;
             }
           }
-          return {};
+          return std::nullopt;
         };
-
+        // const std::vector<memgraph::storage::EdgeTypeId> edge_types{};
         {
           auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex1);
@@ -743,15 +746,20 @@ TEST_P(DurabilityTest, SnapshotFallback) {
          .durability = {.storage_directory = storage_directory,
                         .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::milliseconds(3000)}}));
+
     CreateBaseDataset(store.get(), GetParam());
+
     std::this_thread::sleep_for(std::chrono::milliseconds(3500));
     current_number_of_snapshots = GetSnapshotsList().size();
     ASSERT_GE(current_number_of_snapshots, 1);
+
     CreateExtendedDataset(store.get());
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(3200));
   }
 
   auto prev_number_of_snapshots = current_number_of_snapshots;
+  // get snapshots which are sorted from last to first, basewithextended, base
   auto snapshots = GetSnapshotsList();
   current_number_of_snapshots = snapshots.size();
   ASSERT_GE(current_number_of_snapshots, prev_number_of_snapshots + 1);
@@ -769,10 +777,11 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     }
   }
 
-  // Recover snapshot.
+  // Recover snapshot, only base should be there
   std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
       {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+       .durability = {
+           .storage_directory = storage_directory, .recover_on_startup = true, .recovery_thread_count = 1}}));
   VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
