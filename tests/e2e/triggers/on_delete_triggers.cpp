@@ -86,7 +86,7 @@ void CreateOnDeleteTriggers(mg::Client &client, bool is_before,
         fmt::format("CREATE TRIGGER {} ON DELETE "
                     "{} COMMIT "
                     "EXECUTE "
-                    "CALL  write.access_deleted(deletedObjects) YIELD status RETURN status;",
+                    "CALL write.access_deleted(deletedObjects) YIELD status RETURN status;",
                     kTriggerNameOnObjectDeleteTriggerProc, before_or_after));
     client.DiscardAll();
   };
