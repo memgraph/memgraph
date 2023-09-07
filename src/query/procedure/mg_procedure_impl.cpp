@@ -1605,6 +1605,48 @@ mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
       result);
 }
 
+mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
+  return WrapExceptions(
+      [v]() -> size_t {
+        auto maybe_in_degree = std::visit([v](const auto &impl) { return impl.InDegree(v->graph->view); }, v->impl);
+        if (maybe_in_degree.HasError()) {
+          switch (maybe_in_degree.GetError()) {
+            case memgraph::storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex degree!");
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              LOG_FATAL("Unexpected error when getting vertex degree.");
+          }
+        }
+        return *maybe_in_degree;
+      },
+      result);
+}
+
+mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
+  return WrapExceptions(
+      [v]() -> size_t {
+        auto maybe_out_degree = std::visit([v](const auto &impl) { return impl.OutDegree(v->graph->view); }, v->impl);
+        if (maybe_out_degree.HasError()) {
+          switch (maybe_out_degree.GetError()) {
+            case memgraph::storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex degree!");
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              LOG_FATAL("Unexpected error when getting vertex degree.");
+          }
+        }
+        return *maybe_out_degree;
+      },
+      result);
+}
+
 mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
   return mgp_graph_is_mutable(v->graph, result);
 }
