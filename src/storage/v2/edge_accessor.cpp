@@ -105,12 +105,12 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
-VertexAccessor EdgeAccessor::FromVertexWithDeleted() const {
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
   return VertexAccessor{from_vertex_, transaction_, indices_,
                         constraints_, config_,      for_deleted_ && from_vertex_->deleted};
 }
 
-VertexAccessor EdgeAccessor::ToVertexWithDeleted() const {
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_, for_deleted_ && to_vertex_->deleted};
 }
 

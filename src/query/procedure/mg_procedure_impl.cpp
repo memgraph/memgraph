@@ -487,14 +487,15 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       edge_v = std::visit(
           memgraph::utils::Overloaded{
               [&tv, graph, &allocator](memgraph::query::DbAccessor *) {
-                return allocator.new_object<mgp_edge>(tv.ValueEdge(), tv.ValueEdge().FromWithDeleted(),
-                                                      tv.ValueEdge().ToWithDeleted(), graph);
+                return allocator.new_object<mgp_edge>(tv.ValueEdge(), tv.ValueEdge().DeletedEdgeFromVertex(),
+                                                      tv.ValueEdge().DeletedEdgeToVertex(), graph);
               },
               [&tv, graph, &allocator](memgraph::query::SubgraphDbAccessor *db_impl) {
                 return allocator.new_object<mgp_edge>(
                     tv.ValueEdge(),
-                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().FromWithDeleted(), db_impl->getGraph()),
-                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().ToWithDeleted(), db_impl->getGraph()),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().DeletedEdgeFromVertex(),
+                                                            db_impl->getGraph()),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().DeletedEdgeToVertex(), db_impl->getGraph()),
                     graph);
               }},
           graph->impl);
@@ -850,19 +851,20 @@ mgp_value::mgp_value(mgp_value &&other, memgraph::utils::MemoryResource *m) : ty
 mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 
 mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
-  return std::visit(memgraph::utils::Overloaded{
-                        [&](memgraph::query::DbAccessor *) {
-                          return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.impl.FromWithDeleted(),
-                                                           edge.impl.ToWithDeleted(), edge.from.graph);
-                        },
-                        [&](memgraph::query::SubgraphDbAccessor *db_impl) {
-                          return NewRawMgpObject<mgp_edge>(
-                              &memory, edge.impl,
-                              memgraph::query::SubgraphVertexAccessor(edge.impl.FromWithDeleted(), db_impl->getGraph()),
-                              memgraph::query::SubgraphVertexAccessor(edge.impl.ToWithDeleted(), db_impl->getGraph()),
-                              edge.to.graph);
-                        }},
-                    edge.to.graph->impl);
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [&](memgraph::query::DbAccessor *) {
+            return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.impl.DeletedEdgeFromVertex(),
+                                             edge.impl.DeletedEdgeToVertex(), edge.from.graph);
+          },
+          [&](memgraph::query::SubgraphDbAccessor *db_impl) {
+            return NewRawMgpObject<mgp_edge>(
+                &memory, edge.impl,
+                memgraph::query::SubgraphVertexAccessor(edge.impl.DeletedEdgeFromVertex(), db_impl->getGraph()),
+                memgraph::query::SubgraphVertexAccessor(edge.impl.DeletedEdgeToVertex(), db_impl->getGraph()),
+                edge.to.graph);
+          }},
+      edge.to.graph->impl);
 }
 
 mgp_error mgp_value_copy(mgp_value *val, mgp_memory *memory, mgp_value **result) {

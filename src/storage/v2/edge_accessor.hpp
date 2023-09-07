@@ -52,9 +52,13 @@ class EdgeAccessor final {
 
   VertexAccessor ToVertex() const;
 
-  VertexAccessor FromVertexWithDeleted() const;
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeFromVertex() const;
 
-  VertexAccessor ToVertexWithDeleted() const;
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeToVertex() const;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 

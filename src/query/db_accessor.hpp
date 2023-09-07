@@ -94,9 +94,13 @@ class EdgeAccessor final {
 
   VertexAccessor From() const;
 
-  VertexAccessor ToWithDeleted() const;
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeToVertex() const;
 
-  VertexAccessor FromWithDeleted() const;
+  /// When edge is deleted and you are accessing From vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeFromVertex() const;
 
   bool IsCycle() const;
 
@@ -210,9 +214,11 @@ inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToV
 
 inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
 
-inline VertexAccessor EdgeAccessor::ToWithDeleted() const { return VertexAccessor(impl_.ToVertexWithDeleted()); }
+inline VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
 
-inline VertexAccessor EdgeAccessor::FromWithDeleted() const { return VertexAccessor(impl_.FromVertexWithDeleted()); }
+inline VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor(impl_.DeletedEdgeFromVertex());
+}
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
