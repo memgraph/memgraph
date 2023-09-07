@@ -13,8 +13,6 @@
 
 #include <span>
 
-#include "absl/container/flat_hash_set.h"
-
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
@@ -71,10 +69,10 @@ struct StorageInfo {
 };
 
 struct EdgeInfoForDeletion {
-  absl::flat_hash_set<Gid> partial_src_edge_ids{};
-  absl::flat_hash_set<Gid> partial_dest_edge_ids{};
-  absl::flat_hash_set<Vertex *> partial_src_vertices{};
-  absl::flat_hash_set<Vertex *> partial_dest_vertices{};
+  std::unordered_set<Gid> partial_src_edge_ids{};
+  std::unordered_set<Gid> partial_dest_edge_ids{};
+  std::unordered_set<Vertex *> partial_src_vertices{};
+  std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
 class Storage {
@@ -211,15 +209,15 @@ class Storage {
     bool is_transaction_active_;
 
     // Detach delete private methods
-    Result<std::optional<absl::flat_hash_set<Vertex *>>> PrepareDeletableNodes(
+    Result<std::optional<std::unordered_set<Vertex *>>> PrepareDeletableNodes(
         const std::vector<VertexAccessor *> &vertices);
-    EdgeInfoForDeletion PrepareDeletableEdges(const absl::flat_hash_set<Vertex *> &vertices,
+    EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                               const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
-    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const absl::flat_hash_set<Vertex *> &vertices,
-                                                                          absl::flat_hash_set<Gid> &deleted_edge_ids);
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
+                                                                          std::unordered_set<Gid> &deleted_edge_ids);
     Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
-        EdgeInfoForDeletion info, absl::flat_hash_set<Gid> &partially_detached_edge_ids);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const absl::flat_hash_set<Vertex *> &vertices);
+        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
     void MarkEdgeAsDeleted(Edge *edge);
 
    private:
