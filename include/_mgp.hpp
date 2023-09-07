@@ -377,6 +377,10 @@ inline mgp_map_item *map_items_iterator_next(mgp_map_items_iterator *it) {
 
 inline mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_vertex_get_id, v); }
 
+inline size_t vertex_get_in_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_in_degree, v); }
+
+inline size_t vertex_get_out_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_out_degree, v); }
+
 inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_vertex_copy, v, memory);
 }

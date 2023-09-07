@@ -733,3 +733,25 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   ASSERT_EQ(relationship.To().Id(), node_3.Id());
 }
+
+TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Relationship1");
+  auto relationship2 = graph.CreateRelationship(node_1, node_2, "Relationship2");
+  auto relationship3 = graph.CreateRelationship(node_1, node_2, "Relationship3");
+  auto relationship4 = graph.CreateRelationship(node_1, node_2, "Relationship4");
+  auto relationship5 = graph.CreateRelationship(node_1, node_3, "Relationship5");
+  auto relationship6 = graph.CreateRelationship(node_1, node_3, "Relationship6");
+
+  ASSERT_EQ(node_1.OutDegree(), 6);
+  ASSERT_EQ(node_2.InDegree(), 4);
+  ASSERT_EQ(node_3.InDegree(), 2);
+
+  ASSERT_EQ(node_1.InDegree(), 0);
+  ASSERT_EQ(node_2.OutDegree(), 0);
+  ASSERT_EQ(node_3.OutDegree(), 0);
+}
