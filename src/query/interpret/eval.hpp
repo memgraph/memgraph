@@ -785,7 +785,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     ctx_->property_lookups_cache.clear();
-    // TODO don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
+    // TODO Don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
     // from the same variable (symbol & value)
 
     return TypedValue(result, ctx_->memory);
