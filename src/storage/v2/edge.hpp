@@ -17,7 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -34,7 +34,7 @@ struct Edge {
 
   PropertyStore properties;
 
-  mutable utils::SpinLock lock;
+  mutable utils::RWSpinLock lock;
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;

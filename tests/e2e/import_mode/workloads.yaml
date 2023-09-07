@@ -1,0 +1,13 @@
+import_mode_cluster: &import_mode_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
+      log_file: "transaction_queue.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Import mode"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["import_mode/test_command.py"]
+    <<: *import_mode_cluster
