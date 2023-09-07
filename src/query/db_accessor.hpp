@@ -243,6 +243,10 @@ class SubgraphVertexAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
+  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
+
+  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
