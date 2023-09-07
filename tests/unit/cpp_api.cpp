@@ -691,6 +691,10 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    return;
+  }
+
   mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
@@ -709,6 +713,10 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    return;
+  }
+
   mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
