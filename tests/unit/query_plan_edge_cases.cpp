@@ -39,21 +39,21 @@ class QueryExecution : public testing::Test {
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
-  void SetUp() {
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
-        [&]() {
-          memgraph::storage::Config config{};
-          config.durability.storage_directory = data_directory;
-          config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-          if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-            config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-            config.force_on_disk = true;
-          }
-          return config;
-        }()  // iile
-    };
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
 
-    auto [db, ok] = db_gk.Access();
+  void SetUp() {
+    auto [db, ok] = db_gk->Access();
     MG_ASSERT(ok, "Failed to access db");
     MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
                                            ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
@@ -66,10 +66,10 @@ class QueryExecution : public testing::Test {
   }
 
   void TearDown() {
-    db_.reset();
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
-
+    db_.reset();
+    db_gk.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }

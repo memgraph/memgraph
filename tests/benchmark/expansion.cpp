@@ -25,11 +25,11 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{memgraph::storage::Config{
+      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
 
   void SetUp(const benchmark::State &state) override {
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(memgraph::storage::Config{
-        .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
-    auto [db, ok] = db_gk.Access();
+    auto [db, ok] = db_gk->Access();
     MG_ASSERT(ok, "Failed to access db");
     interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
 
@@ -52,12 +52,13 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(!db->storage()->CreateIndex(label).HasError());
 
-    interpreter.emplace(&*interpreter_context, db);
+    interpreter.emplace(&*interpreter_context, std::move(db));
   }
 
   void TearDown(const benchmark::State &) override {
     interpreter = std::nullopt;
     interpreter_context = std::nullopt;
+    db_gk.reset();
     std::filesystem::remove_all(data_directory);
   }
 };
