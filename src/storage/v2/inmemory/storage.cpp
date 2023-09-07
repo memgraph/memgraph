@@ -496,7 +496,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                       &storage_->constraints_, config_);
 }
 
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
   MG_ASSERT(edge->transaction_ == new_from->transaction_,
             "EdgeAccessor must be from the same transaction as the new from vertex "
             "accessor when deleting an edge!");
@@ -598,7 +598,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeFrom(EdgeAcces
                       &storage_->constraints_, config_);
 }
 
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeTo(EdgeAccessor *edge, VertexAccessor *new_to) {
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
   MG_ASSERT(edge->transaction_ == new_to->transaction_,
             "EdgeAccessor must be from the same transaction as the new to vertex "
             "accessor when deleting an edge!");
@@ -612,8 +612,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::ChangeEdgeTo(EdgeAccesso
 
   if (old_to_vertex->gid == new_to_vertex->gid) return *edge;
 
-  auto edge_ref = edge->edge_;
-  auto edge_type = edge->edge_type_;
+  auto &edge_ref = edge->edge_;
+  auto &edge_type = edge->edge_type_;
 
   std::unique_lock<utils::RWSpinLock> guard;
   if (config_.properties_on_edges) {
@@ -704,8 +704,8 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   MG_ASSERT(edge->transaction_ == &transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
             "accessor when deleting an edge!");
-  auto edge_ref = edge->edge_;
-  auto edge_type = edge->edge_type_;
+  auto &edge_ref = edge->edge_;
+  auto &edge_type = edge->edge_type_;
 
   std::unique_lock<utils::RWSpinLock> guard;
   if (config_.properties_on_edges) {

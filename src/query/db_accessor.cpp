@@ -76,21 +76,21 @@ SubgraphDbAccessor::DetachRemoveVertex(  // NOLINT(readability-convert-member-fu
       "Vertex holds only partial information about edges. Cannot detach delete safely while using projected graph."};
 }
 
-storage::Result<EdgeAccessor> SubgraphDbAccessor::ChangeEdgeFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from) {
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from) {
   VertexAccessor *new_from_impl = &new_from->impl_;
   if (!this->graph_->ContainsVertex(*new_from_impl)) {
-    throw std::logic_error{"Projected graph must contain the new from vertex!"};
+    throw std::logic_error{"Projected graph must contain the new `from` vertex!"};
   }
-  auto result = db_accessor_.ChangeEdgeFrom(edge, new_from_impl);
+  auto result = db_accessor_.EdgeSetFrom(edge, new_from_impl);
   return result;
 }
 
-storage::Result<EdgeAccessor> SubgraphDbAccessor::ChangeEdgeTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to) {
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to) {
   VertexAccessor *new_to_impl = &new_to->impl_;
   if (!this->graph_->ContainsVertex(*new_to_impl)) {
-    throw std::logic_error{"Projected graph must contain the new to vertex!"};
+    throw std::logic_error{"Projected graph must contain the new `to` vertex!"};
   }
-  auto result = db_accessor_.ChangeEdgeFrom(edge, new_to_impl);
+  auto result = db_accessor_.EdgeSetTo(edge, new_to_impl);
   return result;
 }
 

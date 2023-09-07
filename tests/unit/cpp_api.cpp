@@ -701,7 +701,7 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
   auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
 
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
-  graph.ChangeRelationshipFrom(relationship, node_3);
+  graph.SetFrom(relationship, node_3);
 
   ASSERT_EQ(std::string(relationship.Type()), "Edge");
   ASSERT_EQ(relationship.From().Id(), node_3.Id());
@@ -719,7 +719,7 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
   auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
 
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
-  graph.ChangeRelationshipTo(relationship, node_3);
+  graph.SetTo(relationship, node_3);
 
   ASSERT_EQ(std::string(relationship.Type()), "Edge");
   ASSERT_EQ(relationship.From().Id(), node_1.Id());

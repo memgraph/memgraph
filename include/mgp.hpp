@@ -251,9 +251,9 @@ class Graph {
   /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
   /// @brief Changes a relationship from node.
-  void ChangeRelationshipFrom(Relationship &relationship, const Node &new_from);
+  void SetFrom(Relationship &relationship, const Node &new_from);
   /// @brief Changes a relationship to node.
-  void ChangeRelationshipTo(Relationship &relationship, const Node &new_to);
+  void SetTo(Relationship &relationship, const Node &new_to);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
@@ -1989,14 +1989,14 @@ inline Relationship Graph::CreateRelationship(const Node &from, const Node &to, 
   return relationship;
 }
 
-inline void Graph::ChangeRelationshipFrom(Relationship &relationship, const Node &new_from) {
-  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_change_edge_from, graph_, relationship.ptr_, new_from.ptr_);
+inline void Graph::SetFrom(Relationship &relationship, const Node &new_from) {
+  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_edge_set_from, graph_, relationship.ptr_, new_from.ptr_);
   relationship = Relationship(edge);
   mgp::edge_destroy(edge);
 }
 
-inline void Graph::ChangeRelationshipTo(Relationship &relationship, const Node &new_to) {
-  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_change_edge_to, graph_, relationship.ptr_, new_to.ptr_);
+inline void Graph::SetTo(Relationship &relationship, const Node &new_to) {
+  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_edge_set_to, graph_, relationship.ptr_, new_to.ptr_);
   relationship = Relationship(edge);
   mgp::edge_destroy(edge);
 }

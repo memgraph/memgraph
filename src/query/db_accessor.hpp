@@ -19,7 +19,6 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -377,16 +376,14 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
-  storage::Result<EdgeAccessor> ChangeEdgeFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
-    auto changed_edge = static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->ChangeEdgeFrom(
-        &edge->impl_, &new_from->impl_);
+  storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+    auto changed_edge = accessor_->EdgeSetFrom(&edge->impl_, &new_from->impl_);
     if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
     return EdgeAccessor(*changed_edge);
   }
 
-  storage::Result<EdgeAccessor> ChangeEdgeTo(EdgeAccessor *edge, VertexAccessor *new_to) {
-    auto changed_edge = static_cast<storage::InMemoryStorage::InMemoryAccessor *>(accessor_)->ChangeEdgeTo(
-        &edge->impl_, &new_to->impl_);
+  storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
+    auto changed_edge = accessor_->EdgeSetTo(&edge->impl_, &new_to->impl_);
     if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
     return EdgeAccessor(*changed_edge);
   }
@@ -560,9 +557,9 @@ class SubgraphDbAccessor final {
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type);
 
-  storage::Result<EdgeAccessor> ChangeEdgeFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
+  storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
 
-  storage::Result<EdgeAccessor> ChangeEdgeTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to);
+  storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);
