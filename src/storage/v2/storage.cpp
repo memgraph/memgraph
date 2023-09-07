@@ -488,7 +488,7 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   if (!edge->deleted) {
     CreateAndLinkDelta(&transaction_, edge, Delta::RecreateObjectTag());
     edge->deleted = true;
-    storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+    storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
 }
 

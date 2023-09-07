@@ -1118,9 +1118,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
-
-    disk_storage->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
-
     transaction_.RemoveModifiedEdge(edge.Gid());
   }
 
