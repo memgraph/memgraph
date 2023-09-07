@@ -785,6 +785,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     ctx_->property_lookups_cache.clear();
+    // TODO don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
+    // from the same variable (symbol & value)
 
     return TypedValue(result, ctx_->memory);
   }
@@ -1173,6 +1175,5 @@ int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std:
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
-// std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale);
 
 }  // namespace memgraph::query
