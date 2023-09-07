@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "rocksdb_storage.hpp"
+
 #include <string_view>
 #include "utils/rocksdb_serialization.hpp"
 
@@ -80,15 +81,6 @@ int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const r
   return 0;
 }
 
-DiskEdgeKey::DiskEdgeKey(storage::EdgeAccessor *edge_acc) {
-  auto from_gid = utils::SerializeIdType(edge_acc->FromVertex().Gid());
-  auto to_gid = utils::SerializeIdType(edge_acc->ToVertex().Gid());
-  auto edge_type = utils::SerializeIdType(edge_acc->EdgeType());
-  auto edge_gid = utils::SerializeIdType(edge_acc->Gid());
-
-  key = fmt::format("{}|{}|{}|{}|{}", from_gid, to_gid, utils::outEdgeDirection, edge_type, edge_gid);
-}
-
 DiskEdgeKey::DiskEdgeKey(storage::Gid src_vertex_gid, storage::Gid dest_vertex_gid, storage::EdgeTypeId edge_type_id,
                          const storage::EdgeRef edge_ref, bool properties_on_edges) {
   auto from_gid = utils::SerializeIdType(src_vertex_gid);
@@ -104,6 +96,10 @@ DiskEdgeKey::DiskEdgeKey(storage::Gid src_vertex_gid, storage::Gid dest_vertex_g
 
   key = fmt::format("{}|{}|{}|{}|{}", from_gid, to_gid, utils::outEdgeDirection, edge_type, edge_gid);
 }
+
+DiskEdgeKey::DiskEdgeKey(const ModifiedEdgeInfo &edge_info, bool properties_on_edges)
+    : DiskEdgeKey(edge_info.src_vertex_gid, edge_info.dest_vertex_gid, edge_info.edge_type_id, edge_info.edge_ref,
+                  properties_on_edges) {}
 
 std::string DiskEdgeKey::GetVertexOutGid() const { return key.substr(0, key.find('|')); }
 

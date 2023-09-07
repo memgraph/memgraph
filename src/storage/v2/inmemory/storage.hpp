@@ -12,19 +12,23 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <utility>
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-
-#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -36,7 +40,6 @@ namespace memgraph::storage {
 class InMemoryStorage final : public Storage {
   friend class InMemoryReplicationServer;
   friend class InMemoryReplicationClient;
-  friend class ReplicationClient;
 
  public:
   enum class CreateSnapshotError : uint8_t {
@@ -363,33 +366,6 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
-  }
-
-  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  auto RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       const replication::ReplicationMode replication_mode,
-                       const replication::RegistrationMode registration_mode,
-                       const replication::ReplicationClientConfig &config) {
-    return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
-                                              config, this);
-  }
-
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
-
-  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
-
-  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
-
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
-    return replication_state_.GetReplicaState(name);
-  }
-
   void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -435,10 +411,6 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
-
-  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
-
   void EstablishNewEpoch() override;
 
   // Main object storage
@@ -472,12 +444,14 @@ class InMemoryStorage final : public Storage {
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
+
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
+  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
+  // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
+  utils::Synchronized<std::list<std::pair<uint64_t, BondPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
@@ -494,8 +468,6 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
-
-  ReplicationState replication_state_;
 };
 
 }  // namespace memgraph::storage

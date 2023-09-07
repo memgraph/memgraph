@@ -242,9 +242,19 @@ class SubgraphVertexAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
+  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
+
+  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
+
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
+  }
+
   VertexAccessor GetVertexAccessor() const;
 };
 }  // namespace memgraph::query

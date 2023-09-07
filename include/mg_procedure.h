@@ -647,6 +647,12 @@ struct mgp_vertex_id {
 /// Get the ID of given vertex.
 enum mgp_error mgp_vertex_get_id(struct mgp_vertex *v, struct mgp_vertex_id *result);
 
+/// Get the in degree of given vertex.
+enum mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result);
+
+/// Get the out degree of given vertex.
+enum mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result);
+
 /// Result is non-zero if the vertex can be modified.
 /// The mutability of the vertex is the same as the graph which it is part of. If a vertex is immutable, then edges
 /// cannot be created or deleted, properties and labels cannot be set or removed and all of the returned edges will be
@@ -663,6 +669,15 @@ enum mgp_error mgp_vertex_underlying_graph_is_mutable(struct mgp_vertex *v, int 
 /// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
 enum mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name,
                                        struct mgp_value *property_value);
+
+/// Set the value of properties on a vertex.
+/// When the value is `null`, then the property is removed from the vertex.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the property.
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
+/// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
+enum mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *properties);
 
 /// Add the label to the vertex.
 /// If the vertex already has the label, this function does nothing.
@@ -813,6 +828,15 @@ enum mgp_error mgp_edge_get_property(struct mgp_edge *e, const char *property_na
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `e` has been modified by another transaction.
 /// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
 enum mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, struct mgp_value *property_value);
+
+/// Set the value of properties on a vertex.
+/// When the value is `null`, then the property is removed from the vertex.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the property.
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
+/// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
+enum mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties);
 
 /// Start iterating over properties stored in the given edge.
 /// The properties of the edge are copied when the iterator is created, therefore later changes won't affect them.

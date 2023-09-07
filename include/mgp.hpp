@@ -721,10 +721,13 @@ class Node {
   bool HasLabel(std::string_view label) const;
 
   /// @brief Returns an std::map of the node’s properties.
-  std::map<std::string, Value> Properties() const;
+  std::unordered_map<std::string, Value> Properties() const;
 
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
+
+  /// @brief Sets the chosen properties to the given values.
+  void SetProperties(std::unordered_map<std::string_view, Value> properties);
 
   /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
@@ -754,6 +757,12 @@ class Node {
 
   /// @brief returns the string representation
   const std::string ToString() const;
+
+  /// @brief returns the in degree of a node
+  inline size_t InDegree() const;
+
+  /// @brief returns the out degree of a node
+  inline size_t OutDegree() const;
 
  private:
   mgp_vertex *ptr_;
@@ -790,10 +799,13 @@ class Relationship {
   std::string_view Type() const;
 
   /// @brief Returns an std::map of the relationship’s properties.
-  std::map<std::string, Value> Properties() const;
+  std::unordered_map<std::string, Value> Properties() const;
 
   /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
+
+  /// @brief Sets the chosen properties to the given values.
+  void SetProperties(std::unordered_map<std::string_view, Value> properties);
 
   /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
@@ -2716,9 +2728,9 @@ inline void Node::RemoveLabel(const std::string_view label) {
   mgp::vertex_remove_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
-inline std::map<std::string, Value> Node::Properties() const {
+inline std::unordered_map<std::string, Value> Node::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::MemHandlerCallback(vertex_iter_properties, ptr_);
-  std::map<std::string, Value> property_map;
+  std::unordered_map<std::string, Value> property_map;
   for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
     property_map.emplace(std::string(property->name), Value(property->value));
@@ -2729,6 +2741,17 @@ inline std::map<std::string, Value> Node::Properties() const {
 
 inline void Node::SetProperty(std::string property, Value value) {
   mgp::vertex_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline void Node::SetProperties(std::unordered_map<std::string_view, Value> properties) {
+  mgp_map *map = mgp::MemHandlerCallback(map_make_empty);
+
+  for (auto const &[k, v] : properties) {
+    mgp::map_insert(map, k.data(), v.ptr());
+  }
+
+  mgp::vertex_set_properties(ptr_, map);
+  mgp::map_destroy(map);
 }
 
 inline void Node::RemoveProperty(std::string property) { SetProperty(property, Value()); }
@@ -2746,7 +2769,7 @@ inline bool Node::operator!=(const Node &other) const { return !(*this == other)
 
 // this functions is used both in relationship and node ToString
 inline std::string PropertiesToString(const std::map<std::string, Value> &property_map) {
-  std::string properties{""};
+  std::string properties;
   const auto map_size = property_map.size();
   size_t i = 0;
   for (const auto &[key, value] : property_map) {
@@ -2768,10 +2791,20 @@ inline const std::string Node::ToString() const {
   if (labels == ", ") {
     labels = "";  // dont use labels if they dont exist
   }
-  std::map<std::string, Value> properties_map{Properties()};
-  std::string properties{PropertiesToString(properties_map)};
+  std::unordered_map<std::string, Value> properties_map{Properties()};
+  std::map<std::string, Value> properties_map_sorted{};
+
+  for (const auto &[k, v] : properties_map) {
+    properties_map_sorted.emplace(k, v);
+  }
+  std::string properties{PropertiesToString(properties_map_sorted)};
+
   return "(id: " + std::to_string(Id().AsInt()) + labels + ", properties: {" + properties + "})";
 }
+
+inline size_t Node::InDegree() const { return mgp::vertex_get_in_degree(ptr_); }
+
+inline size_t Node::OutDegree() const { return mgp::vertex_get_out_degree(ptr_); }
 
 // Relationship:
 
@@ -2813,9 +2846,9 @@ inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(pt
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
-inline std::map<std::string, Value> Relationship::Properties() const {
+inline std::unordered_map<std::string, Value> Relationship::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::MemHandlerCallback(edge_iter_properties, ptr_);
-  std::map<std::string, Value> property_map;
+  std::unordered_map<std::string, Value> property_map;
   for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
     property_map.emplace(property->name, Value(property->value));
@@ -2826,6 +2859,17 @@ inline std::map<std::string, Value> Relationship::Properties() const {
 
 inline void Relationship::SetProperty(std::string property, Value value) {
   mgp::edge_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline void Relationship::SetProperties(std::unordered_map<std::string_view, Value> properties) {
+  mgp_map *map = mgp::MemHandlerCallback(map_make_empty);
+
+  for (auto const &[k, v] : properties) {
+    mgp::map_insert(map, k.data(), v.ptr());
+  }
+
+  mgp::edge_set_properties(ptr_, map);
+  mgp::map_destroy(map);
 }
 
 inline void Relationship::RemoveProperty(std::string property) { SetProperty(property, Value()); }
@@ -2852,8 +2896,14 @@ inline const std::string Relationship::ToString() const {
   const auto to = To();
 
   const std::string type{Type()};
-  std::map<std::string, Value> properties_map{Properties()};
-  std::string properties{PropertiesToString(properties_map)};
+  std::unordered_map<std::string, Value> properties_map{Properties()};
+  std::map<std::string, Value> properties_map_sorted{};
+
+  for (const auto &[k, v] : properties_map) {
+    properties_map_sorted.emplace(k, v);
+  }
+  std::string properties{PropertiesToString(properties_map_sorted)};
+
   const std::string relationship{"[type: " + type + ", id: " + std::to_string(Id().AsInt()) + ", properties: {" +
                                  properties + "}]"};
 
@@ -2930,8 +2980,14 @@ inline const std::string Path::ToString() const {
     return_string.append(node.ToString() + "-");
 
     const Relationship rel = GetRelationshipAt(i);
-    std::map<std::string, Value> properties_map{rel.Properties()};
-    std::string properties = PropertiesToString(properties_map);
+    std::unordered_map<std::string, Value> properties_map{rel.Properties()};
+    std::map<std::string, Value> properties_map_sorted{};
+
+    for (const auto &[k, v] : properties_map) {
+      properties_map_sorted.emplace(k, v);
+    }
+    std::string properties{PropertiesToString(properties_map_sorted)};
+
     return_string.append("[type: " + std::string(rel.Type()) + ", id: " + std::to_string(rel.Id().AsInt()) +
                          ", properties: {" + properties + "}]->");
   }
