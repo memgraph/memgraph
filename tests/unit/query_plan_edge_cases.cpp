@@ -33,28 +33,33 @@ template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
   const std::string testSuite = "query_plan_edge_cases";
-  std::shared_ptr<memgraph::dbms::Database> db_;
+  memgraph::dbms::DatabaseAccess db_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
-    db_ = [&]() {
-      memgraph::storage::Config config{};
-      config.durability.storage_directory = data_directory;
-      config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-      if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-        config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-        config.force_on_disk = true;
-      }
-      auto db = std::make_shared<memgraph::dbms::Database>(config);
-      MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                             ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                             : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
-                "Wrong storage mode!");
-      return db;
-    }();  // iile
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+        [&]() {
+          memgraph::storage::Config config{};
+          config.durability.storage_directory = data_directory;
+          config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+          if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+            config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+            config.force_on_disk = true;
+          }
+          return config;
+        }()  // iile
+    };
+
+    auto [db, ok] = db_gk.Access();
+    MG_ASSERT(ok, "Failed to access db");
+    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    db_ = std::move(db);
 
     interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
     interpreter_.emplace(&*interpreter_context_, db_);

@@ -34,6 +34,7 @@
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/global.hpp"
+#include "dbms/new_session_handler.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -577,7 +578,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
-          std::shared_ptr<memgraph::dbms::Database> db{};  // Hold pointer to database to protect it until query is done
+          memgraph::dbms::DatabaseAccess db{};  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
@@ -597,7 +598,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
-          std::shared_ptr<memgraph::dbms::Database> db{};  // Hold pointer to database to protect it until query is done
+          memgraph::dbms::DatabaseAccess db{};  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
@@ -797,7 +798,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evalu
 }
 
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
-                                                  std::shared_ptr<dbms::Database> db,
+                                                  memgraph::dbms::DatabaseAccess db,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
   static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
@@ -849,7 +850,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 }
 
 Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
-                                                   std::shared_ptr<dbms::Database> db,
+                                                   memgraph::dbms::DatabaseAccess db,
                                                    InterpreterContext *interpreter_context,
                                                    const std::string *username) {
   auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
@@ -874,7 +875,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   };
 }
 
-Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters, std::shared_ptr<dbms::Database> db,
+Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters, memgraph::dbms::DatabaseAccess db,
                            InterpreterContext *interpreter_context, const std::string *username,
                            std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1365,7 +1366,7 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, mem
                                        query::AuthQueryHandler *ah, query::AuthChecker *ac)
     : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
 
-Interpreter::Interpreter(InterpreterContext *interpreter_context, std::shared_ptr<dbms::Database> db)
+Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
     : db_(std::move(db)), interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
@@ -2404,7 +2405,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                 std::vector<Notification> *notifications, std::shared_ptr<dbms::Database> db,
+                                 std::vector<Notification> *notifications, memgraph::dbms::DatabaseAccess db,
                                  InterpreterContext *interpreter_context, const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
@@ -2507,12 +2508,10 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
-                            storage::Storage *storage, InterpreterContext *interpreter_context) {
+                            memgraph::dbms::DatabaseAccess &db, InterpreterContext *interpreter_context) {
   Callback callback;
-  callback.fn = [current_mode, requested_mode, storage, interpreter_context]() mutable {
+  callback.fn = [current_mode, requested_mode, &db, interpreter_context]() mutable {
 #ifdef MG_ENTERPRISE
-    auto *db_handler = interpreter_context->db_handler;
-    const auto &db_name = storage->id();
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -2523,8 +2522,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      // TODO
-      // db_handler->SwitchMemoryDevice(db_name);
+      auto *db_handler = interpreter_context->db_handler;
+      db_handler->SwitchMemoryDevice(db->id());
     }
     return std::vector<std::vector<TypedValue>>();
 #else
@@ -2579,7 +2578,7 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
 }
 
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                      storage::Storage *storage, InterpreterContext *interpreter_context) {
+                                      memgraph::dbms::DatabaseAccess &db, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw StorageModeModificationInMulticommandTxException();
   }
@@ -2587,13 +2586,13 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
   const auto requested_mode = ToStorageMode(storage_mode_query->storage_mode_);
-  auto current_mode = storage->GetStorageMode();
+  auto current_mode = db->GetStorageMode();
 
   std::function<void()> callback;
 
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    callback = SwitchMemoryDevice(current_mode, requested_mode, storage, interpreter_context).fn;
+    callback = SwitchMemoryDevice(current_mode, requested_mode, db, interpreter_context).fn;
   } else {
     if (ActiveTransactionsExist(interpreter_context)) {
       spdlog::info(
@@ -2601,7 +2600,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
           "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
     }
 
-    callback = [requested_mode, storage]() -> std::function<void()> {
+    callback = [requested_mode, storage = db->storage()]() -> std::function<void()> {
       // SetStorageMode will probably be handled at the Database level
       return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();
@@ -3282,12 +3281,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                              std::string res;
 
                              try {
-                               const auto tmp = db_handler->Get(db_name);
-                               if (tmp == interpreter.db_) {
+                               if (db_name == interpreter.db_->id()) {
                                  res = "Already using " + db_name;
                                } else {
+                                 auto tmp = db_handler->Get(db_name);
                                  if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
-                                 interpreter.SetCurrentDB(tmp);
+                                 interpreter.SetCurrentDB(std::move(tmp));
                                  res = "Using " + db_name;
                                }
                              } catch (const utils::BasicException &e) {
@@ -3470,7 +3469,7 @@ void Interpreter::RollbackTransaction() {
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name) { db_ = interpreter_context_->db_handler->Get(db_name); }
-void Interpreter::SetCurrentDB(std::shared_ptr<dbms::Database> new_db) { db_ = new_db; }
+void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess new_db) { db_ = std::move(new_db); }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
@@ -3660,8 +3659,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
-      prepared_query = PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, db_->storage(),
-                                               interpreter_context_);
+      prepared_query =
+          PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, db_, interpreter_context_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_);

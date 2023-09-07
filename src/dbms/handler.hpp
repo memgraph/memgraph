@@ -18,21 +18,21 @@
 #include <unordered_map>
 
 #include "global.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/gatekeeper.hpp"
 #include "utils/result.hpp"
-#include "utils/sync_ptr.hpp"
 
 namespace memgraph::dbms {
 
 /**
  * @brief Generic multi-database content handler.
  *
- * @tparam TContext
- * @tparam TConfig
+ * @tparam T
  */
-template <typename TContext, typename TConfig>
+template <typename T>
 class Handler {
  public:
-  using NewResult = utils::BasicResult<NewError, std::shared_ptr<TContext>>;
+  using NewResult = utils::BasicResult<NewError, typename utils::Gatekeeper<T>::access>;
 
   /**
    * @brief Empty Handler constructor.
@@ -50,51 +50,51 @@ class Handler {
    * @param args2 Arguments passed (as a tuple) to the config constructor
    * @return NewResult
    */
-  template <typename... T1, typename... T2>
-  NewResult New(std::string name, std::tuple<T1...> args1, std::tuple<T2...> args2) {
-    return New_(name, args1, args2, std::make_index_sequence<sizeof...(T1)>{},
-                std::make_index_sequence<sizeof...(T2)>{});
+  template <typename... Args>
+  NewResult New(std::piecewise_construct_t /* marker */, std::string name, Args... args) {
+    // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
+    if (!Has(name)) {
+      auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                     std::forward_as_tuple(std::forward<Args>(args)...));
+      auto [item, ok] = itr->second.Access();
+      if (ok) return std::move(item);
+      return NewError::DEFUNCT;
+    }
+    spdlog::info("Item with name \"{}\" already exists.", name);
+    return NewError::EXISTS;
   }
 
   /**
    * @brief Get pointer to context.
    *
    * @param name Name associated with the wanted context
-   * @return std::optional<std::shared_ptr<TContext>>
+   * @return std::optional<std::shared_ptr<T>>
    */
-  std::optional<std::shared_ptr<TContext>> Get(std::string_view name) {
+  std::optional<typename utils::Gatekeeper<T>::access> Get(std::string_view name) {
     if (auto search = items_.find(name.data()); search != items_.end()) {
-      return search->second.get();
+      auto [item, ok] = search->second.Access();
+      if (ok) return item;
     }
-    return {};
+    return std::nullopt;
   }
 
   /**
-   * @brief Get the config.
+   * @brief Delete the context associated with the name.
    *
-   * @param name Name associated with the wanted config
-   * @return std::optional<TConfig>
-   */
-  std::optional<TConfig> GetConfig(const std::string &name) const {
-    if (auto search = items_.find(name); search != items_.end()) {
-      return search->second.config();
-    }
-    return {};
-  }
-
-  /**
-   * @brief Delete the context/config pair associated with the name.
-   *
-   * @param name Name associated with the context/config pair to delete
+   * @param name Name associated with the context to delete
    * @return true on success
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
-      itr->second.DestroyAndSync();
-      items_.erase(itr);
-      return true;
+      auto [item, ok] = itr->second.Access();
+      if (ok && item.try_delete()) {
+        item.reset();
+        items_.erase(itr);
+        return true;
+      }
+      return false;
     }
-    return false;
+    throw utils::BasicException("Unknown item \"{}\".", name);
   }
 
   /**
@@ -113,30 +113,7 @@ class Handler {
   auto cend() const { return items_.cend(); }
 
  private:
-  /**
-   * @brief Lower level handler that hides some ugly code.
-   *
-   * @tparam T1 Variadic template of context constructor arguments
-   * @tparam T2 Variadic template of config constructor arguments
-   * @tparam I1 List of indexes associated with the first tuple
-   * @tparam I2 List of indexes associated with the second tuple
-   */
-  template <typename... T1, typename... T2, std::size_t... I1, std::size_t... I2>
-  NewResult New_(std::string name, std::tuple<T1...> &args1, std::tuple<T2...> &args2,
-                 std::integer_sequence<std::size_t, I1...> /*not-used*/,
-                 std::integer_sequence<std::size_t, I2...> /*not-used*/) {
-    // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
-    if (!Has(name)) {
-      auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                     std::forward_as_tuple(TConfig{std::forward<T1>(std::get<I1>(args1))...},
-                                                           std::forward<T2>(std::get<I2>(args2))...));
-      return itr->second.get();
-    }
-    spdlog::info("Item with name \"{}\" already exists.", name);
-    return NewError::EXISTS;
-  }
-
-  std::unordered_map<std::string, utils::SyncPtr<TContext, TConfig>> items_;  //!< map to all active items
+  std::unordered_map<std::string, utils::Gatekeeper<T>> items_;  //!< map to all active items
 };
 
 }  // namespace memgraph::dbms

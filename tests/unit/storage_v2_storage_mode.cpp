@@ -73,8 +73,18 @@ class StorageModeMultiTxTest : public ::testing::Test {
     std::filesystem::remove_all(tmp);
     return tmp;
   }();  // iile
-  std::shared_ptr<memgraph::dbms::Database> db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{
-      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{memgraph::storage::Config{
+      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
+
+  memgraph::dbms::DatabaseAccess db{
+      [&]() {
+        auto [db, ok] = db_gk.Access();
+        MG_ASSERT(ok, "Failed to access db");
+        return db;
+      }()  // iile
+  };
+
   memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };

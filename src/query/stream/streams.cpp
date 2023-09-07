@@ -18,6 +18,7 @@
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
 
+#include "dbms/database.hpp"
 #include "dbms/new_session_handler.hpp"
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
@@ -446,11 +447,12 @@ void Streams::RegisterPulsarProcedures() {
   }
 }
 
-template <Stream TStream>
+template <Stream TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
-                     std::optional<std::string> owner, std::shared_ptr<dbms::Database> db, InterpreterContext *ic) {
+                     std::optional<std::string> owner, TDbAccess db, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
-  auto it = CreateConsumer<TStream>(*locked_streams, stream_name, std::move(info), std::move(owner), std::move(db), ic);
+  auto it = CreateConsumer<TStream, TDbAccess>(*locked_streams, stream_name, std::move(info), std::move(owner),
+                                               std::move(db), ic);
 
   try {
     std::visit(
@@ -465,18 +467,19 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
   }
 }
 
-template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
-                                           std::optional<std::string> owner, std::shared_ptr<dbms::Database> db,
-                                           InterpreterContext *ic);
-template void Streams::Create<PulsarStream>(const std::string &stream_name, PulsarStream::StreamInfo info,
-                                            std::optional<std::string> owner, std::shared_ptr<dbms::Database> db,
-                                            InterpreterContext *ic);
+template void Streams::Create<KafkaStream, dbms::DatabaseAccess>(const std::string &stream_name,
+                                                                 KafkaStream::StreamInfo info,
+                                                                 std::optional<std::string> owner,
+                                                                 dbms::DatabaseAccess db, InterpreterContext *ic);
+template void Streams::Create<PulsarStream, dbms::DatabaseAccess>(const std::string &stream_name,
+                                                                  PulsarStream::StreamInfo info,
+                                                                  std::optional<std::string> owner,
+                                                                  dbms::DatabaseAccess db, InterpreterContext *ic);
 
-template <Stream TStream>
+template <Stream TStream, typename TDbAccess>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
-                                                      std::optional<std::string> owner,
-                                                      std::shared_ptr<dbms::Database> db,
+                                                      std::optional<std::string> owner, TDbAccess db,
                                                       InterpreterContext *interpreter_context) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
@@ -555,8 +558,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   return insert_result.first;
 }
 
-// TODO: Update to new Database access thing
-void Streams::RestoreStreams(std::shared_ptr<dbms::Database> db, InterpreterContext *ic) {
+template <typename TDbAccess>
+void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
   spdlog::info("Loading streams...");
   auto locked_streams_map = streams_.Lock();
   MG_ASSERT(locked_streams_map->empty(), "Cannot restore streams when some streams already exist!");
@@ -582,7 +585,7 @@ void Streams::RestoreStreams(std::shared_ptr<dbms::Database> db, InterpreterCont
 
       try {
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner),
-                                    db, ic);
+                                    std::move(db), ic);
         if (status.is_running) {
           std::visit(
               [&](const auto &stream_data) {
@@ -617,6 +620,8 @@ void Streams::RestoreStreams(std::shared_ptr<dbms::Database> db, InterpreterCont
     }
   }
 }
+
+template void Streams::RestoreStreams<dbms::DatabaseAccess>(dbms::DatabaseAccess db, InterpreterContext *ic);
 
 void Streams::Drop(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
@@ -727,7 +732,8 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
   return result;
 }
 
-TransformationResult Streams::Check(const std::string &stream_name, std::shared_ptr<dbms::Database> db,
+template <typename TDbAccess>
+TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db,
                                     std::optional<std::chrono::milliseconds> timeout,
                                     std::optional<uint64_t> batch_limit) const {
   std::optional locked_streams{streams_.ReadLock()};
@@ -779,5 +785,10 @@ TransformationResult Streams::Check(const std::string &stream_name, std::shared_
       },
       it->second);
 }
+
+template TransformationResult Streams::Check<dbms::DatabaseAccess>(const std::string &stream_name,
+                                                                   dbms::DatabaseAccess db,
+                                                                   std::optional<std::chrono::milliseconds> timeout,
+                                                                   std::optional<uint64_t> batch_limit) const;
 
 }  // namespace memgraph::query::stream

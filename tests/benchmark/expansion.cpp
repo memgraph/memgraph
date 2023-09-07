@@ -18,6 +18,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "utils/logging.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
@@ -26,8 +27,10 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
   void SetUp(const benchmark::State &state) override {
-    std::shared_ptr<memgraph::dbms::Database> db = std::make_shared<memgraph::dbms::Database>(memgraph::storage::Config{
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(memgraph::storage::Config{
         .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
+    auto [db, ok] = db_gk.Access();
+    MG_ASSERT(ok, "Failed to access db");
     interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
 
     auto label = db->storage()->NameToLabel("Starting");

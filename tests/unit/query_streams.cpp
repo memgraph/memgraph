@@ -74,21 +74,30 @@ class StreamsTestFixture : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  std::shared_ptr<memgraph::dbms::Database> db_ = [&]() {
-    memgraph::storage::Config config{};
-    config.durability.storage_directory = data_directory_;
-    config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-      config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-      config.force_on_disk = true;
-    }
-    auto db = std::make_shared<memgraph::dbms::Database>(config);
-    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
-              "Wrong storage mode!");
-    return db;
-  }();  // iile
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory_;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
+  memgraph::dbms::DatabaseAccess db_{
+      [&]() {
+        auto [db, ok] = db_gk.Access();
+        MG_ASSERT(ok, "Failed to access db");
+        MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+                  "Wrong storage mode!");
+        return db;
+      }()  // iile
+  };
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;

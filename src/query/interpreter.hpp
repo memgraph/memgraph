@@ -15,8 +15,7 @@
 
 #include <gflags/gflags.h>
 
-// #include "dbms/new_session_handler.hpp"
-#include "dbms/database_handler.hpp"
+#include "dbms/database.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -276,7 +275,7 @@ inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.st
 
 class Interpreter final {
  public:
-  explicit Interpreter(InterpreterContext *interpreter_context, std::shared_ptr<dbms::Database> db = nullptr);
+  explicit Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db = {});
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
@@ -297,11 +296,11 @@ class Interpreter final {
   std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
-  std::shared_ptr<dbms::Database> db_;  // Current db (TODO: expand to support multiple)
+  memgraph::dbms::DatabaseAccess db_;  // Current db (TODO: expand to support multiple)
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name);
-  void SetCurrentDB(std::shared_ptr<dbms::Database> new_db);
+  void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db);
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #endif
 

@@ -49,30 +49,41 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
 // TODO: This is not a unit test, but tests/integration dir is chaotic at the
 // moment. After tests refactoring is done, move/rename this.
 
+constexpr auto kNoHandler = nullptr;
+
 template <typename StorageType>
 class InterpreterTest : public ::testing::Test {
  public:
   const std::string testSuite = "interpreter";
   const std::string testSuiteCsv = "interpreter_csv";
+  std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() : interpreter_context({.execution_timeout_sec = 600}, nullptr) {}
+  InterpreterTest() : interpreter_context({.execution_timeout_sec = 600}, kNoHandler) {}
 
-  std::shared_ptr<memgraph::dbms::Database> db = [&]() {
-    auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
-    memgraph::storage::Config config{};
-    config.durability.storage_directory = data_directory;
-    config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-      config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-      config.force_on_disk = true;
-    }
-    auto db = std::make_shared<memgraph::dbms::Database>(config);
-    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
-              "Wrong storage mode!");
-    return db;
-  }();  // iile
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
+
+  memgraph::dbms::DatabaseAccess db{
+      [&]() {
+        auto [db, ok] = db_gk.Access();
+        MG_ASSERT(ok, "Failed to access db");
+        MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+                  "Wrong storage mode!");
+        return db;
+      }()  // iile
+  };
 
   memgraph::query::InterpreterContext interpreter_context;
 
@@ -1116,7 +1127,14 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
       config2.disk = disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv).disk;
       config2.force_on_disk = true;
     }
-    auto db = std::make_shared<memgraph::dbms::Database>(config2);
+
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
+    auto [db, ok] = db_gk2.Access();
+    ASSERT_TRUE(ok) << "Failed to access db2";
+    ASSERT_TRUE(db->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
+                                             ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                             : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+        << "Wrong storage mode!";
 
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}}, nullptr};
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db};
