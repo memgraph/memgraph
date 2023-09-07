@@ -570,8 +570,8 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
       return fmt::format("Failed to load stream '{}', because: {} caused by {}", stream_name, message, nested_message);
     };
 
-    const auto create_consumer = [&, &stream_name = stream_name, this]<typename T>(StreamStatus<T> status,
-                                                                                   auto &&stream_json_data) {
+    const auto create_consumer = [&, &stream_name = stream_name]<typename T>(StreamStatus<T> status,
+                                                                             auto &&stream_json_data) {
       try {
         stream_json_data.get_to(status);
       } catch (const nlohmann::json::type_error &exception) {

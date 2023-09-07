@@ -32,7 +32,7 @@ class Database {
  public:
   explicit Database(const storage::Config &config);
 
-  storage::Storage *storage() { return storage_.get(); }  // This is kinda hot
+  storage::Storage *storage() { return storage_.get(); }  // TODO Remove
   std::unique_ptr<storage::Storage::Accessor> Access(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
     return storage_->Access(override_isolation_level);
@@ -40,6 +40,7 @@ class Database {
   const std::string &id() const { return storage_->id(); }
   storage::StorageMode GetStorageMode() const { return storage_->GetStorageMode(); }
   storage::StorageInfo GetInfo() const { return storage_->GetInfo(); }
+  void SwitchToOnDisk();
 
   query::TriggerStore *trigger_store() { return &trigger_store_; }
 
@@ -48,7 +49,7 @@ class Database {
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
   void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(new_task); }
 
-  const storage::Config &config() const { return config_; }
+  const storage::Config &config() const { return storage_->config_; }
 
   utils::SkipList<query::PlanCacheEntry> *plan_cache() { return &plan_cache_; }
 
@@ -57,7 +58,6 @@ class Database {
   query::TriggerStore trigger_store_;
   utils::ThreadPool after_commit_trigger_pool_{1};
   query::stream::Streams streams_;
-  storage::Config config_;
 
   // TODO: Move to a better place
   utils::SkipList<query::PlanCacheEntry> plan_cache_;

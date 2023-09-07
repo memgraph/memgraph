@@ -41,13 +41,6 @@
 
 #include "auth/auth.hpp"
 
-#ifdef MG_ENTERPRISE
-#else
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/storage.hpp"
-#endif
-
 namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
@@ -250,26 +243,6 @@ class NewSessionHandler {
       if (!ok) continue;
       spdlog::debug("Restoring streams for database \"{}\"", item->id());
       item->streams()->RestoreStreams(item, ic);
-    }
-  }
-
-  void SwitchMemoryDevice(std::string_view db_name) {
-    std::unique_lock<LockT> wr(lock_);
-    try {
-      // Check if db exists
-      auto db = Get_(db_name);
-      if (!db.try_exclusively([](auto &db) { /*db.SwitchMemoryDevice();*/ })) {
-        throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-            "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
-            "multiple sessions to run queries in parallel, "
-            "it is currently impossible to switch to the on-disk storage mode within Lab. "
-            "Close it, connect to the instance with mgconsole "
-            "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
-            "and continue to use the instance as usual.");
-      }
-    } catch (UnknownDatabaseException &) {
-      throw utils::BasicException("Tried to switch modes of an unknown database \"{}\"", db_name);
     }
   }
 

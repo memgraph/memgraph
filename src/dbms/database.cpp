@@ -18,13 +18,16 @@ namespace memgraph::dbms {
 
 Database::Database(const storage::Config &config)
     : trigger_store_(config.durability.storage_directory / "triggers"),
-      streams_{config.durability.storage_directory / "streams"},
-      config_{config} {
+      streams_{config.durability.storage_directory / "streams"} {
   if (config.force_on_disk || utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(config);
   } else {
     storage_ = std::make_unique<storage::InMemoryStorage>(config);
   }
+}
+
+void Database::SwitchToOnDisk() {
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_));
 }
 
 }  // namespace memgraph::dbms

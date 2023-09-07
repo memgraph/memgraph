@@ -2509,9 +2509,9 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
-                            memgraph::dbms::DatabaseAccess &db, InterpreterContext *interpreter_context) {
+                            memgraph::dbms::DatabaseAccess &db) {
   Callback callback;
-  callback.fn = [current_mode, requested_mode, &db, interpreter_context]() mutable {
+  callback.fn = [current_mode, requested_mode, &db]() mutable {
 #ifdef MG_ENTERPRISE
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
@@ -2523,8 +2523,38 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      auto *db_handler = interpreter_context->db_handler;
-      db_handler->SwitchMemoryDevice(db->id());
+      if (!db.try_exclusively([](auto &in) {
+            if (!in.streams()->GetStreamInfo().empty()) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+                  "associated streams. Drop all streams and retry.");
+            }
+
+            if (!in.trigger_store()->GetTriggerInfo().empty()) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+                  "associated triggers. Drop all triggers and retry.");
+            }
+
+            std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
+            if (auto vertex_cnt_approx = in.storage()->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+                  "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
+                  "query. ");
+            }
+            main_guard.unlock();
+            in.SwitchToOnDisk();
+          })) {  // Try exclusively failed
+        throw utils::BasicException(
+            "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+            "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
+            "multiple sessions to run queries in parallel, "
+            "it is currently impossible to switch to the on-disk storage mode within Lab. "
+            "Close it, connect to the instance with mgconsole "
+            "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
+            "and continue to use the instance as usual.");
+      }
     }
     return std::vector<std::vector<TypedValue>>();
 #else
@@ -2593,7 +2623,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    callback = SwitchMemoryDevice(current_mode, requested_mode, db, interpreter_context).fn;
+    callback = SwitchMemoryDevice(current_mode, requested_mode, db).fn;
   } else {
     if (ActiveTransactionsExist(interpreter_context)) {
       spdlog::info(
