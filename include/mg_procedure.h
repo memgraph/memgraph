@@ -647,6 +647,12 @@ struct mgp_vertex_id {
 /// Get the ID of given vertex.
 enum mgp_error mgp_vertex_get_id(struct mgp_vertex *v, struct mgp_vertex_id *result);
 
+/// Get the in degree of given vertex.
+enum mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result);
+
+/// Get the out degree of given vertex.
+enum mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result);
+
 /// Result is non-zero if the vertex can be modified.
 /// The mutability of the vertex is the same as the graph which it is part of. If a vertex is immutable, then edges
 /// cannot be created or deleted, properties and labels cannot be set or removed and all of the returned edges will be
