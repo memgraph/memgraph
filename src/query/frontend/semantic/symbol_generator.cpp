@@ -401,8 +401,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 }
 
 bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
-  std::unordered_set<int32_t> property_lookups{};
-  std::unordered_set<int32_t> cacheable_property_lookups{};
+  std::unordered_map<int32_t, PropertyLookup *> property_lookups{};
 
   for (const auto &pair : map_literal.elements_) {
     if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
@@ -410,23 +409,17 @@ bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
     if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
 
     auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
-    if (property_lookups.contains(symbol_pos)) {
-      cacheable_property_lookups.insert(symbol_pos);
-      continue;
-    }
-    property_lookups.insert(symbol_pos);
-  }
-
-  for (const auto &pair : map_literal.elements_) {
-    if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
-    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
-    if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
-
-    auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
-    if (cacheable_property_lookups.contains(symbol_pos)) {
+    try {
+      auto *existing_property_lookup = property_lookups.at(symbol_pos);
+      // If already there (no exception), update the original and current PropertyLookups
+      existing_property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
       property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+    } catch (const std::out_of_range &) {
+      // Otherwise, add the PropertyLookup to the map
+      property_lookups.emplace(symbol_pos, property_lookup);
     }
   }
+
   return true;
 }
 

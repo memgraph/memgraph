@@ -553,11 +553,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (!ctx_->property_lookups_cache.at(symbol_pos).contains(property_id)) {
-            return TypedValue(ctx_->memory);
+          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
+            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
           }
-
-          return TypedValue(ctx_->property_lookups_cache.at(symbol_pos).at(property_id), ctx_->memory);
+          return TypedValue(ctx_->memory);
         } else {
           return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
         }
@@ -569,11 +568,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (!ctx_->property_lookups_cache.at(symbol_pos).contains(property_id)) {
-            return TypedValue(ctx_->memory);
+          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
+            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
           }
-
-          return TypedValue(ctx_->property_lookups_cache.at(symbol_pos).at(property_id), ctx_->memory);
+          return TypedValue(ctx_->memory);
         } else {
           return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
         }
@@ -1175,5 +1173,6 @@ int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std:
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
+// std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale);
 
 }  // namespace memgraph::query
