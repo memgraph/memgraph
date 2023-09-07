@@ -15,11 +15,21 @@
 import argparse
 import os
 import sys
-from behave.__main__ import main as behave_main
-from behave import configuration
 
+import mgclient
+from behave import configuration
+from behave.__main__ import main as behave_main
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
+
+def execute_setup_queries(host, port, username, password, setup_queries):
+    conn = mgclient.connect(host=host, port=int(port), username=username, password=password)
+    conn.autocommit = True
+    cursor = conn.cursor()
+    for query in setup_queries:
+        cursor.execute(query)
+    conn.close()
 
 
 def add_config(option, **kwargs):
@@ -55,23 +65,16 @@ def main():
     add_config("--test-directory")
 
     # Arguments that should be passed on to Behave
-    add_argument("--db-host", default="127.0.0.1",
-                 help="server host (default is 127.0.0.1)")
-    add_argument("--db-port", default="7687",
-                 help="server port (default is 7687)")
-    add_argument("--db-user", default="memgraph",
-                 help="server user (default is memgraph)")
-    add_argument("--db-pass", default="memgraph",
-                 help="server pass (default is memgraph)")
-    add_argument("--stop", action="store_true",
-                 help="stop testing after first fail")
-    add_argument("--single-fail", action="store_true",
-                 help="pause after failed scenario")
-    add_argument("--single-scenario", action="store_true",
-                 help="pause after every scenario")
-    add_argument("--single-feature", action="store_true",
-                 help="pause after every feature")
+    add_argument("--db-host", default="127.0.0.1", help="server host (default is 127.0.0.1)")
+    add_argument("--db-port", default="7687", help="server port (default is 7687)")
+    add_argument("--db-user", default="memgraph", help="server user (default is memgraph)")
+    add_argument("--db-pass", default="memgraph", help="server pass (default is memgraph)")
+    add_argument("--stop", action="store_true", help="stop testing after first fail")
+    add_argument("--single-fail", action="store_true", help="pause after failed scenario")
+    add_argument("--single-scenario", action="store_true", help="pause after every scenario")
+    add_argument("--single-feature", action="store_true", help="pause after every feature")
     add_argument("--stats-file", default="", help="statistics output file")
+    add_argument("--storage-mode", default="in_memory", help="Memgraph storage mode")
 
     # Parse arguments
     parsed_args = argp.parse_args()
@@ -92,9 +95,27 @@ def main():
     behave_args.extend(["--test-suite", parsed_args.test_suite])
     behave_args.extend(["--test-directory", test_directory])
 
+    # Setup database
+    if parsed_args.storage_mode == "in_memory":
+        execute_setup_queries(
+            parsed_args.db_host,
+            parsed_args.db_port,
+            parsed_args.db_user,
+            parsed_args.db_pass,
+            ["STORAGE MODE IN_MEMORY_TRANSACTIONAL"],
+        )
+    elif parsed_args.storage_mode == "on_disk":
+        execute_setup_queries(
+            parsed_args.db_host,
+            parsed_args.db_port,
+            parsed_args.db_user,
+            parsed_args.db_pass,
+            ["STORAGE MODE ON_DISK_TRANSACTIONAL"],
+        )
+
     # Run Behave tests
     return behave_main(behave_args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
