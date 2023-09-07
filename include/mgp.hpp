@@ -758,6 +758,12 @@ class Node {
   /// @brief returns the string representation
   const std::string ToString() const;
 
+  /// @brief returns the in degree of a node
+  inline size_t InDegree() const;
+
+  /// @brief returns the out degree of a node
+  inline size_t OutDegree() const;
+
  private:
   mgp_vertex *ptr_;
 };
@@ -2795,6 +2801,10 @@ inline const std::string Node::ToString() const {
 
   return "(id: " + std::to_string(Id().AsInt()) + labels + ", properties: {" + properties + "})";
 }
+
+inline size_t Node::InDegree() const { return mgp::vertex_get_in_degree(ptr_); }
+
+inline size_t Node::OutDegree() const { return mgp::vertex_get_out_degree(ptr_); }
 
 // Relationship:
 
