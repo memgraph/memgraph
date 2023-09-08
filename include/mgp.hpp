@@ -439,6 +439,12 @@ class Labels {
     friend class Labels;
 
    public:
+    using value_type = Labels;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const Labels *;
+    using reference = const Labels &;
+    using iterator_category = std::forward_iterator_tag;
+
     bool operator==(const Iterator &other) const;
 
     bool operator!=(const Iterator &other) const;
@@ -522,6 +528,12 @@ class List {
     friend class List;
 
    public:
+    using value_type = List;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const List *;
+    using reference = const List &;
+    using iterator_category = std::forward_iterator_tag;
+
     bool operator==(const Iterator &other) const;
 
     bool operator!=(const Iterator &other) const;
