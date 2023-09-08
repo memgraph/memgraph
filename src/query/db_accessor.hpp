@@ -113,6 +113,11 @@ class EdgeAccessor final {
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 };
 
+struct EdgeVertexAccessorResult {
+  std::vector<EdgeAccessor> edges;
+  int64_t expanded_count;
+};
+
 class VertexAccessor final {
  public:
   storage::VertexAccessor impl_;
@@ -161,37 +166,62 @@ class VertexAccessor final {
     return impl_.ClearProperties();
   }
 
-  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types);
-    if (maybe_edges.HasError()) return maybe_edges.GetError();
-    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
+  storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
+                                                    const std::vector<storage::EdgeTypeId> &edge_types) const {
+    auto maybe_result = impl_.InEdges(view, edge_types);
+    if (maybe_result.HasError()) return maybe_result.GetError();
+
+    std::vector<EdgeAccessor> edges;
+    edges.reserve((*maybe_result).edges.size());
+    std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
+                           [](auto const &edge) { return EdgeAccessor(edge); });
+
+    return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
   }
 
-  auto InEdges(storage::View view) const { return InEdges(view, {}); }
+  storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view) const { return InEdges(view, {}); }
 
-  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types, const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
-    if (maybe_edges.HasError()) return maybe_edges.GetError();
-    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
+  storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
+                                                    const std::vector<storage::EdgeTypeId> &edge_types,
+                                                    const VertexAccessor &dest) const {
+    auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_);
+    if (maybe_result.HasError()) return maybe_result.GetError();
+
+    std::vector<EdgeAccessor> edges;
+    edges.reserve((*maybe_result).edges.size());
+    std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
+                           [](auto const &edge) { return EdgeAccessor(edge); });
+
+    return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
   }
 
-  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types);
-    if (maybe_edges.HasError()) return maybe_edges.GetError();
-    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
+  storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
+                                                     const std::vector<storage::EdgeTypeId> &edge_types) const {
+    auto maybe_result = impl_.OutEdges(view, edge_types);
+    if (maybe_result.HasError()) return maybe_result.GetError();
+
+    std::vector<EdgeAccessor> edges;
+    edges.reserve((*maybe_result).edges.size());
+    std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
+                           [](auto const &edge) { return EdgeAccessor(edge); });
+
+    return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
   }
 
-  auto OutEdges(storage::View view) const { return OutEdges(view, {}); }
+  storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view) const { return OutEdges(view, {}); }
 
-  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
-                const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
-    if (maybe_edges.HasError()) return maybe_edges.GetError();
-    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
+  storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
+                                                     const std::vector<storage::EdgeTypeId> &edge_types,
+                                                     const VertexAccessor &dest) const {
+    auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_);
+    if (maybe_result.HasError()) return maybe_result.GetError();
+
+    std::vector<EdgeAccessor> edges;
+    edges.reserve((*maybe_result).edges.size());
+    std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
+                           [](auto const &edge) { return EdgeAccessor(edge); });
+
+    return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
   }
 
   storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
@@ -274,7 +304,6 @@ class SubgraphVertexAccessor final {
 }  // namespace memgraph::query
 
 namespace std {
-
 template <>
 struct hash<memgraph::query::VertexAccessor> {
   size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }

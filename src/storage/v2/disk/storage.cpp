@@ -1178,10 +1178,10 @@ bool DiskStorage::DiskAccessor::PrefetchEdgeFilter(const std::string_view disk_e
   }
 
   MG_ASSERT(edges_res.HasValue());
-  auto edges = edges_res.GetValue();
-  bool isEdgeAlreadyInMemory = std::any_of(edges.begin(), edges.end(), [edge_gid](const auto &edge_acc) {
-    return utils::SerializeIdType(edge_acc.Gid()) == edge_gid;
-  });
+  auto edges_result = edges_res.GetValue();
+  bool isEdgeAlreadyInMemory =
+      std::any_of(edges_result.edges.begin(), edges_result.edges.end(),
+                  [edge_gid](const auto &edge_acc) { return utils::SerializeIdType(edge_acc.Gid()) == edge_gid; });
 
   return !isEdgeAlreadyInMemory;
 }
