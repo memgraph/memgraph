@@ -47,7 +47,7 @@ class Database {
   query::stream::Streams *streams() { return &streams_; }
 
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
-  void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(new_task); }
+  void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
 
   const storage::Config &config() const { return storage_->config_; }
 

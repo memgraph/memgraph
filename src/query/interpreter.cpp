@@ -33,6 +33,7 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
+#include "dbms/database.hpp"
 #include "dbms/global.hpp"
 #include "dbms/new_session_handler.hpp"
 #include "glue/communication.hpp"
@@ -3809,16 +3810,16 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers,
-                             std::unique_ptr<storage::Storage::Accessor> storage_acc,
-                             InterpreterContext *interpreter_context, TriggerContext original_trigger_context,
-                             std::atomic<TransactionStatus> *transaction_status) {
+void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
+                            TriggerContext original_trigger_context,
+                            std::atomic<TransactionStatus> *transaction_status) {
   // Run the triggers
-  for (const auto &trigger : triggers.access()) {
+  for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
-    DbAccessor db_accessor{storage_acc.get()};
+    auto tx_acc = db_acc->Access();
+    DbAccessor db_accessor{tx_acc.get()};
 
     // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
     // So we need to adapt TriggerContext based on user transaction which is still alive.
@@ -4003,8 +4004,7 @@ void Interpreter::Commit() {
     db_->AddTask([this, trigger_context = std::move(*trigger_context),
                   user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
       // TODO: Should this take the db_ and not Access()?
-      RunTriggersIndividually(this->db_->trigger_store()->AfterCommitTriggers(), db_->Access(),
-                              this->interpreter_context_, std::move(trigger_context), &this->transaction_status_);
+      RunTriggersAfterCommit(db_, interpreter_context_, std::move(trigger_context), &this->transaction_status_);
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });
