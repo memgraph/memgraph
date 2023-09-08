@@ -1161,9 +1161,10 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    private:
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
+    DeleteBuffer buffer_;
     bool delete_executed_{false};
 
-    DeleteBuffer ConstructDeleteBuffer(Frame &, ExecutionContext &);
+    void UpdateDeleteBuffer(Frame &, ExecutionContext &);
   };
 };
 

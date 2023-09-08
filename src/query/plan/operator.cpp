@@ -2470,65 +2470,57 @@ std::vector<Symbol> Delete::ModifiedSymbols(const SymbolTable &table) const { re
 Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-DeleteBuffer Delete::DeleteCursor::ConstructDeleteBuffer(Frame &frame, ExecutionContext &context) {
-  DeleteBuffer buffer;
+void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &context) {
+  // Delete should get the latest information, this way it is also possible
+  // to delete newly added nodes and edges.
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
 
-  while (input_cursor_->Pull(frame, context)) {
-    // Delete should get the latest information, this way it is also possible
-    // to delete newly added nodes and edges.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::NEW);
-
-    auto *pull_memory = context.evaluation_context.memory;
-    // collect expressions results so edges can get deleted before vertices
-    // this is necessary because an edge that gets deleted could block vertex
-    // deletion
-    utils::pmr::vector<TypedValue> expression_results(pull_memory);
-    expression_results.reserve(self_.expressions_.size());
-    for (Expression *expression : self_.expressions_) {
-      expression_results.emplace_back(expression->Accept(evaluator));
-    }
-
-    for (TypedValue &expression_result : expression_results) {
-      AbortCheck(context);
-      switch (expression_result.type()) {
-        case TypedValue::Type::Vertex: {
-          auto va = expression_result.ValueVertex();
-#ifdef MG_ENTERPRISE
-          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-              !context.auth_checker->Has(va, storage::View::NEW,
-                                         query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-            throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
-          }
-#endif
-          buffer.nodes.push_back(va);
-          break;
-        }
-        case TypedValue::Type::Edge: {
-          auto ea = expression_result.ValueEdge();
-#ifdef MG_ENTERPRISE
-          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-              !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-                context.auth_checker->Has(ea.To(), storage::View::NEW,
-                                          query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-                context.auth_checker->Has(ea.From(), storage::View::NEW,
-                                          query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-            throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
-          }
-#endif
-          buffer.edges.push_back(ea);
-          break;
-        }
-        case TypedValue::Type::Null:
-          break;
-        // check we're not trying to delete anything except vertices and edges
-        default:
-          throw QueryRuntimeException("Only edges and vertices can be deleted.");
-      }
-    }
+  auto *pull_memory = context.evaluation_context.memory;
+  // collect expressions results so edges can get deleted before vertices
+  // this is necessary because an edge that gets deleted could block vertex
+  // deletion
+  utils::pmr::vector<TypedValue> expression_results(pull_memory);
+  expression_results.reserve(self_.expressions_.size());
+  for (Expression *expression : self_.expressions_) {
+    expression_results.emplace_back(expression->Accept(evaluator));
   }
 
-  return buffer;
+  for (TypedValue &expression_result : expression_results) {
+    AbortCheck(context);
+    switch (expression_result.type()) {
+      case TypedValue::Type::Vertex: {
+        auto va = expression_result.ValueVertex();
+#ifdef MG_ENTERPRISE
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
+        }
+#endif
+        buffer_.nodes.push_back(va);
+        break;
+      }
+      case TypedValue::Type::Edge: {
+        auto ea = expression_result.ValueEdge();
+#ifdef MG_ENTERPRISE
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+              context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+              context.auth_checker->Has(ea.From(), storage::View::NEW,
+                                        query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+          throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
+        }
+#endif
+        buffer_.edges.push_back(ea);
+        break;
+      }
+      case TypedValue::Type::Null:
+        break;
+      // check we're not trying to delete anything except vertices and edges
+      default:
+        throw QueryRuntimeException("Only edges and vertices can be deleted.");
+    }
+  }
 }
 
 bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
@@ -2538,10 +2530,13 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     return false;
   }
 
-  auto delete_buffer = ConstructDeleteBuffer(frame, context);
+  if (input_cursor_->Pull(frame, context)) {
+    UpdateDeleteBuffer(frame, context);
+    return true;
+  }
 
   auto &dba = *context.db_accessor;
-  auto res = dba.DetachDelete(std::move(delete_buffer.nodes), std::move(delete_buffer.edges), self_.detach_);
+  auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
   if (res.HasError()) {
     switch (res.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
@@ -2554,8 +2549,6 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
         throw QueryRuntimeException("Unexpected error when deleting a node.");
     }
   }
-
-  delete_executed_ = true;
 
   if (*res) {
     context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
@@ -2575,7 +2568,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
-  return true;
+  delete_executed_ = true;
+
+  return false;
 }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
