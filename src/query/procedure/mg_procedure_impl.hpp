@@ -687,12 +687,14 @@ struct mgp_edges_iterator {
   memgraph::utils::MemoryResource *memory;
   mgp_vertex source_vertex;
 
-  std::optional<std::remove_reference_t<
-      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).InEdges(source_vertex.graph->view))>>
+  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
+                                                     .InEdges(source_vertex.graph->view)
+                                                     ->edges)>>
       in;
   std::optional<decltype(in->begin())> in_it;
-  std::optional<std::remove_reference_t<
-      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).OutEdges(source_vertex.graph->view))>>
+  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
+                                                     .OutEdges(source_vertex.graph->view)
+                                                     ->edges)>>
       out;
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;

@@ -2120,7 +2120,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
               LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
           }
         }
-        it->in.emplace(std::move(*maybe_edges));
+        it->in.emplace(std::move(maybe_edges->edges));
         it->in_it.emplace(it->in->begin());
 #ifdef MG_ENTERPRISE
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -2180,7 +2180,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
           }
         }
 
-        it->out.emplace(std::move(*maybe_edges));
+        it->out.emplace(std::move(maybe_edges->edges));
         it->out_it.emplace(it->out->begin());
 
 #ifdef MG_ENTERPRISE
