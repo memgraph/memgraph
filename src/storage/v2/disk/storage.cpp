@@ -36,6 +36,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -1262,6 +1263,16 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
+  MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
+  MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
 }
 
 /// TODO: at which storage naming

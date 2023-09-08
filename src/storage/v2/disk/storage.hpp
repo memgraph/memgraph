@@ -181,6 +181,10 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
+
+    Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
+
     bool LabelIndexExists(LabelId label) const override {
       auto *disk_storage = static_cast<DiskStorage *>(storage_);
       return disk_storage->indices_.label_index_->IndexExists(label);
