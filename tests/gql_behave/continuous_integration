@@ -152,10 +152,15 @@ def main():
     mandatory_fails = []
 
     # Run suites
+    old_storage_mode = ""
     for suite in suites:
         print("Starting suite '{}' scenarios.".format(suite["name"]))
 
-        memgraph.start()
+        suite_storage_mode = suite["storage_mode"]
+        if old_storage_mode != suite_storage_mode:
+            memgraph.stop()
+            memgraph.start()
+            old_storage_mode = suite_storage_mode
 
         suite["stats_file"] = os.path.join(output_dir.name, suite["name"] + ".json")
         cmd = [
@@ -165,7 +170,7 @@ def main():
             "--stats-file",
             suite["stats_file"],
             "--storage-mode",
-            suite["storage_mode"],
+            suite_storage_mode,
             suite["test_suite"],
         ]
 
