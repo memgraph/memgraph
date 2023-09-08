@@ -2278,8 +2278,8 @@ TYPED_TEST(StorageV2Test, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_EQ(*vertex.HasLabel(label, memgraph::storage::View::NEW), false);
   ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
   ASSERT_EQ(*vertex.GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue());
-  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::NEW)->edges.size(), 0);
+  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
   ASSERT_EQ(*vertex.InDegree(memgraph::storage::View::NEW), 0);
   ASSERT_EQ(*vertex.OutDegree(memgraph::storage::View::NEW), 0);
 
@@ -2305,8 +2305,8 @@ TYPED_TEST(StorageV2Test, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_EQ(*vertex.HasLabel(label, memgraph::storage::View::NEW), true);
   ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 1);
   ASSERT_EQ(*vertex.GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
-  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::NEW)->size(), 1);
-  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::NEW)->size(), 1);
+  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::NEW)->edges.size(), 1);
+  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::NEW)->edges.size(), 1);
   ASSERT_EQ(*vertex.InDegree(memgraph::storage::View::NEW), 1);
   ASSERT_EQ(*vertex.OutDegree(memgraph::storage::View::NEW), 1);
 

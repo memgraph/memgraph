@@ -322,7 +322,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
-          auto edge1 = find_edge(*out_edges);
+          auto edge1 = find_edge(out_edges->edges);
           ASSERT_TRUE(edge1);
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge1->EdgeType(), et1);
@@ -344,7 +344,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
-          auto edge2 = find_edge(*in_edges);
+          auto edge2 = find_edge(in_edges->edges);
           ASSERT_TRUE(edge2);
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge2->EdgeType(), et1);
@@ -457,7 +457,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
-          auto edge1 = find_edge(*out_edges);
+          auto edge1 = find_edge(out_edges->edges);
           ASSERT_TRUE(edge1);
           if (i < kNumExtendedEdges / 4) {
             ASSERT_EQ(edge1->EdgeType(), et3);
@@ -475,7 +475,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
-          auto edge2 = find_edge(*in_edges);
+          auto edge2 = find_edge(in_edges->edges);
           ASSERT_TRUE(edge2);
           if (i < kNumExtendedEdges / 4) {
             ASSERT_EQ(edge2->EdgeType(), et3);
@@ -736,34 +736,49 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotFallback) {
   // Create snapshot.
-  std::size_t current_number_of_snapshots = 0;
+  std::size_t number_to_save;
   {
+    // DEVNOTE_1: assumes that snapshot disk write takes less than this
+    auto const expected_write_time = std::chrono::milliseconds(750);
+    auto const snapshot_interval = std::chrono::milliseconds(3000);
+
     std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
         {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                        .snapshot_interval = std::chrono::milliseconds(3000)}}));
-    CreateBaseDataset(store.get(), GetParam());
-    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
-    current_number_of_snapshots = GetSnapshotsList().size();
-    ASSERT_GE(current_number_of_snapshots, 1);
-    CreateExtendedDataset(store.get());
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+         .durability = {
+             .storage_directory = storage_directory,
+             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+             .snapshot_interval = snapshot_interval,
+             .snapshot_retention_count = 10,  // We don't anticipate that we make this many
+         }}));
+
+    auto const ensure_snapshot_is_written = [&](auto &&func) {
+      auto const pre_count = GetSnapshotsList().size();
+      func();
+      // wait long enough to ensure at least one CreateSnapshot has been invoked
+      // DEVNOTE_2: no guarantee that it completed, see DEVNOTE_1
+      std::this_thread::sleep_for(snapshot_interval + expected_write_time);
+      auto const post_count = GetSnapshotsList().size();
+      // validate at least one snapshot has happened...hence must have written the writes from func
+      ASSERT_GT(post_count, pre_count) << "No snapshot exists to capture the last transaction";
+      // TODO: maybe double check by looking at InMemoryStorage's commit log,
+      // its oldest active should be newer than the transaction used when running `func`
+    };
+
+    ensure_snapshot_is_written([&]() { CreateBaseDataset(store.get(), GetParam()); });
+    number_to_save = GetSnapshotsList().size();
+    ensure_snapshot_is_written([&]() { CreateExtendedDataset(store.get()); });
   }
 
-  auto prev_number_of_snapshots = current_number_of_snapshots;
-  auto snapshots = GetSnapshotsList();
-  current_number_of_snapshots = snapshots.size();
-  ASSERT_GE(current_number_of_snapshots, prev_number_of_snapshots + 1);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Destroy snapshots.
   {
-    // protect the last, destroy the rest
+    auto snapshots = GetSnapshotsList();
+    // snapshots order newest first, destroy the newest, preserve number_to_save so that we ONLY_BASE
     auto it = snapshots.begin();
-    auto const e = snapshots.end() - 1;
+    auto const e = snapshots.end() - number_to_save;
     for (; it != e; ++it) {
       CorruptSnapshot(*it);
     }
@@ -1113,7 +1128,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.HasValue());
-        for (auto &edge : *in_edges) {
+        for (auto &edge : in_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
@@ -1123,7 +1138,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
         }
         auto out_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
-        for (auto &edge : *out_edges) {
+        for (auto &edge : out_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
@@ -1362,11 +1377,11 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_EQ(props->size(), 0);
       auto in_edges = v1->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
-      ASSERT_EQ(in_edges->size(), 0);
+      ASSERT_EQ(in_edges->edges.size(), 0);
       auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
-      ASSERT_EQ(out_edges->size(), 1);
-      const auto &edge = (*out_edges)[0];
+      ASSERT_EQ(out_edges->edges.size(), 1);
+      const auto &edge = out_edges->edges[0];
       ASSERT_EQ(edge.Gid(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
@@ -1389,8 +1404,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
                                                               memgraph::storage::PropertyValue("world"))));
       auto in_edges = v2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
-      ASSERT_EQ(in_edges->size(), 1);
-      const auto &edge = (*in_edges)[0];
+      ASSERT_EQ(in_edges->edges.size(), 1);
+      const auto &edge = in_edges->edges[0];
       ASSERT_EQ(edge.Gid(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
@@ -1402,7 +1417,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       }
       auto out_edges = v2->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
-      ASSERT_EQ(out_edges->size(), 0);
+      ASSERT_EQ(out_edges->edges.size(), 0);
     }
     {
       auto v3 = acc->FindVertex(gid_v3, memgraph::storage::View::OLD);
@@ -1416,10 +1431,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
                               std::make_pair(store->NameToProperty("v3"), memgraph::storage::PropertyValue(42))));
       auto in_edges = v3->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
-      ASSERT_EQ(in_edges->size(), 0);
+      ASSERT_EQ(in_edges->edges.size(), 0);
       auto out_edges = v3->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
-      ASSERT_EQ(out_edges->size(), 0);
+      ASSERT_EQ(out_edges->edges.size(), 0);
     }
   }
 

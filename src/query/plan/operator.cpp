@@ -686,8 +686,8 @@ bool CheckExistingNode(const VertexAccessor &new_node, const Symbol &existing_no
   return existing_node.ValueVertex() == new_node;
 }
 
-template <class TEdges>
-auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
+template <class TEdgesResult>
+auto UnwrapEdgesResult(storage::Result<TEdgesResult> &&result) {
   if (result.HasError()) {
     switch (result.GetError()) {
       case storage::Error::DELETED_OBJECT:
@@ -730,6 +730,13 @@ std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
 
 Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+
+Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int64_t existing_node_degree,
+                                   utils::MemoryResource *mem)
+    : self_(self),
+      input_cursor_(self.input_->MakeCursor(mem)),
+      prev_input_degree_(input_degree),
+      prev_existing_degree_(existing_node_degree) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Expand");
@@ -806,56 +813,129 @@ void Expand::ExpandCursor::Reset() {
   out_edges_it_ = std::nullopt;
 }
 
+ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+
+  if (vertex_value.IsNull()) {
+    return ExpansionInfo{};
+  }
+
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+  auto &vertex = vertex_value.ValueVertex();
+
+  auto direction = self_.common_.direction;
+  if (!self_.common_.existing_node) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction};
+  }
+
+  TypedValue &existing_node = frame[self_.common_.node_symbol];
+
+  if (existing_node.IsNull()) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction};
+  }
+
+  ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+
+  auto &existing_vertex = existing_node.ValueVertex();
+
+  // -1 and -1 -> normal expansion
+  // -1 and expanded -> can't happen
+  // expanded and -1 -> reverse
+  // expanded and expanded -> see if can reverse
+  if ((prev_input_degree_ == -1 && prev_existing_degree_ == -1) || prev_input_degree_ < prev_existing_degree_) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction, .existing_node = existing_vertex};
+  }
+
+  auto new_direction = direction;
+  switch (new_direction) {
+    case EdgeAtom::Direction::IN:
+      new_direction = EdgeAtom::Direction::OUT;
+      break;
+    case EdgeAtom::Direction::OUT:
+      new_direction = EdgeAtom::Direction::IN;
+      break;
+    default:
+      new_direction = EdgeAtom::Direction::BOTH;
+      break;
+  }
+
+  return ExpansionInfo{
+      .input_node = existing_vertex, .direction = new_direction, .existing_node = vertex, .reversed = true};
+}
+
 bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
-    TypedValue &vertex_value = frame[self_.input_symbol_];
 
-    // Null check due to possible failed optional match.
-    if (vertex_value.IsNull()) continue;
+    expansion_info_ = GetExpansionInfo(frame);
 
-    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-    auto &vertex = vertex_value.ValueVertex();
+    if (!expansion_info_.input_node) {
+      continue;
+    }
 
-    auto direction = self_.common_.direction;
+    auto vertex = *expansion_info_.input_node;
+    auto direction = expansion_info_.direction;
+
+    int64_t num_expanded_first = -1;
     if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
       if (self_.common_.existing_node) {
-        TypedValue &existing_node = frame[self_.common_.node_symbol];
-        // old_node_value may be Null when using optional matching
-        if (!existing_node.IsNull()) {
-          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
           context.db_accessor->PrefetchInEdges(vertex);
-          in_edges_.emplace(
-              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+
+          auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
+          in_edges_.emplace(edges_result.edges);
+          num_expanded_first = edges_result.expanded_count;
         }
       } else {
         context.db_accessor->PrefetchInEdges(vertex);
-        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
+
+        auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
+        in_edges_.emplace(edges_result.edges);
+        num_expanded_first = edges_result.expanded_count;
       }
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
       }
     }
 
+    int64_t num_expanded_second = -1;
     if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
       if (self_.common_.existing_node) {
-        TypedValue &existing_node = frame[self_.common_.node_symbol];
-        // old_node_value may be Null when using optional matching
-        if (!existing_node.IsNull()) {
-          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
           context.db_accessor->PrefetchOutEdges(vertex);
-          out_edges_.emplace(
-              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+
+          auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
+          out_edges_.emplace(edges_result.edges);
+          num_expanded_second = edges_result.expanded_count;
         }
       } else {
         context.db_accessor->PrefetchOutEdges(vertex);
-        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
+
+        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+        out_edges_.emplace(edges_result.edges);
+        num_expanded_second = edges_result.expanded_count;
       }
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
       }
+    }
+
+    if (!expansion_info_.existing_node) {
+      return true;
+    }
+
+    num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
+    num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
+    int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
+
+    if (!expansion_info_.reversed) {
+      prev_input_degree_ = total_expanded_edges;
+    } else {
+      prev_existing_degree_ = total_expanded_edges;
     }
 
     return true;
@@ -917,11 +997,12 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   };
 
   storage::View view = storage::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, *vertex.InEdges(view, edge_types)))> chain_elements(memory);
+  utils::pmr::vector<decltype(wrapper(direction, vertex.InEdges(view, edge_types).GetValue().edges))> chain_elements(
+      memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
     db_accessor->PrefetchInEdges(vertex);
-    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
+    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types)).edges;
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
@@ -929,7 +1010,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::IN) {
     db_accessor->PrefetchOutEdges(vertex);
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
+    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types)).edges;
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -1289,7 +1370,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           context.db_accessor->PrefetchOutEdges(vertex);
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1316,7 +1397,7 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           dba.PrefetchInEdges(vertex);
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1357,7 +1438,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           context.db_accessor->PrefetchOutEdges(vertex);
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1383,7 +1464,7 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           dba.PrefetchInEdges(vertex);
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1475,12 +1556,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         context.db_accessor->PrefetchOutEdges(vertex);
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) expand_pair(edge, edge.To());
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         context.db_accessor->PrefetchInEdges(vertex);
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) expand_pair(edge, edge.From());
       }
     };
@@ -1678,14 +1759,14 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                                              int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         context.db_accessor->PrefetchOutEdges(vertex);
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         context.db_accessor->PrefetchInEdges(vertex);
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
           expand_pair(edge, edge.From(), weight, depth);
         }
@@ -1944,7 +2025,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                                                int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         context.db_accessor->PrefetchOutEdges(vertex);
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1959,7 +2040,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         context.db_accessor->PrefetchInEdges(vertex);
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
