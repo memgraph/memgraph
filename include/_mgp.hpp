@@ -255,6 +255,16 @@ inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_verte
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
+inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                     mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_from, graph, e, new_from, memory);
+}
+
+inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                   mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
+}
+
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
