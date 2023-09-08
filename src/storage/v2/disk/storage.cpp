@@ -36,6 +36,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -1177,10 +1178,10 @@ bool DiskStorage::DiskAccessor::PrefetchEdgeFilter(const std::string_view disk_e
   }
 
   MG_ASSERT(edges_res.HasValue());
-  auto edges = edges_res.GetValue();
-  bool isEdgeAlreadyInMemory = std::any_of(edges.begin(), edges.end(), [edge_gid](const auto &edge_acc) {
-    return utils::SerializeIdType(edge_acc.Gid()) == edge_gid;
-  });
+  auto edges_result = edges_res.GetValue();
+  bool isEdgeAlreadyInMemory =
+      std::any_of(edges_result.edges.begin(), edges_result.edges.end(),
+                  [edge_gid](const auto &edge_acc) { return utils::SerializeIdType(edge_acc.Gid()) == edge_gid; });
 
   return !isEdgeAlreadyInMemory;
 }
@@ -1364,6 +1365,16 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
                                           &storage_->indices_, &storage_->constraints_, config_, true);
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
+  MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
+  MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
 }
 
 /// TODO: at which storage naming
