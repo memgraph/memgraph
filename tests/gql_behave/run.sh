@@ -1,5 +1,6 @@
 #!/bin/bash
-# TODO(gitbuda): Setup mgclient and pymgclient properly.
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
 
+source ve3/bin/activate
+pip install pymgclient
+deactivate
 ./continuous_integration
