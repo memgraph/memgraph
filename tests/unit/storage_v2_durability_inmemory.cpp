@@ -322,7 +322,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
-          auto edge1 = find_edge(*out_edges);
+          auto edge1 = find_edge(out_edges->edges);
           ASSERT_TRUE(edge1);
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge1->EdgeType(), et1);
@@ -344,7 +344,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
-          auto edge2 = find_edge(*in_edges);
+          auto edge2 = find_edge(in_edges->edges);
           ASSERT_TRUE(edge2);
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge2->EdgeType(), et1);
@@ -457,7 +457,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
-          auto edge1 = find_edge(*out_edges);
+          auto edge1 = find_edge(out_edges->edges);
           ASSERT_TRUE(edge1);
           if (i < kNumExtendedEdges / 4) {
             ASSERT_EQ(edge1->EdgeType(), et3);
@@ -475,7 +475,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
-          auto edge2 = find_edge(*in_edges);
+          auto edge2 = find_edge(in_edges->edges);
           ASSERT_TRUE(edge2);
           if (i < kNumExtendedEdges / 4) {
             ASSERT_EQ(edge2->EdgeType(), et3);
@@ -1128,7 +1128,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.HasValue());
-        for (auto &edge : *in_edges) {
+        for (auto &edge : in_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
@@ -1138,7 +1138,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
         }
         auto out_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
-        for (auto &edge : *out_edges) {
+        for (auto &edge : out_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
@@ -1377,11 +1377,11 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_EQ(props->size(), 0);
       auto in_edges = v1->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
-      ASSERT_EQ(in_edges->size(), 0);
+      ASSERT_EQ(in_edges->edges.size(), 0);
       auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
-      ASSERT_EQ(out_edges->size(), 1);
-      const auto &edge = (*out_edges)[0];
+      ASSERT_EQ(out_edges->edges.size(), 1);
+      const auto &edge = out_edges->edges[0];
       ASSERT_EQ(edge.Gid(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
@@ -1404,8 +1404,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
                                                               memgraph::storage::PropertyValue("world"))));
       auto in_edges = v2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
-      ASSERT_EQ(in_edges->size(), 1);
-      const auto &edge = (*in_edges)[0];
+      ASSERT_EQ(in_edges->edges.size(), 1);
+      const auto &edge = in_edges->edges[0];
       ASSERT_EQ(edge.Gid(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
@@ -1417,7 +1417,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       }
       auto out_edges = v2->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
-      ASSERT_EQ(out_edges->size(), 0);
+      ASSERT_EQ(out_edges->edges.size(), 0);
     }
     {
       auto v3 = acc->FindVertex(gid_v3, memgraph::storage::View::OLD);
@@ -1431,10 +1431,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
                               std::make_pair(store->NameToProperty("v3"), memgraph::storage::PropertyValue(42))));
       auto in_edges = v3->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
-      ASSERT_EQ(in_edges->size(), 0);
+      ASSERT_EQ(in_edges->edges.size(), 0);
       auto out_edges = v3->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
-      ASSERT_EQ(out_edges->size(), 0);
+      ASSERT_EQ(out_edges->edges.size(), 0);
     }
   }
 
