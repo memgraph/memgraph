@@ -170,8 +170,6 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
 #ifdef MG_ENTERPRISE
                  session_context->audit_log
-#else
-                 session_context->db_acc
 #endif
         },
         session_context_{session_context},
@@ -368,8 +366,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
 #ifdef MG_ENTERPRISE
                  session_context->audit_log
-#else
-                 session_context->db_acc
 #endif
         },
         session_context_{session_context},

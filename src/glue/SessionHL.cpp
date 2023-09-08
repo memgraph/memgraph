@@ -249,29 +249,24 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
                      const memgraph::communication::v2::ServerEndpoint &endpoint,
                      memgraph::communication::v2::InputStream *input_stream,
                      memgraph::communication::v2::OutputStream *output_stream,
-                     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+                     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
 #ifdef MG_ENTERPRISE
+                     ,
                      memgraph::audit::Log *audit_log
-#else
-                     memgraph::dbms::DatabaseAccess db_acc
 #endif
                      )
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
       interpreter_context_(interpreter_context),
-#ifdef MG_ENTERPRISE
       interpreter_(interpreter_context_),
+#ifdef MG_ENTERPRISE
       audit_log_(audit_log),
-#else
-      interpreter_(interpreter_context_, db_acc),
 #endif
       auth_(auth),
       endpoint_(endpoint),
       implicit_db_(dbms::kDefaultDB) {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
-  interpreter_.SetCurrentDB(dbms::kDefaultDB);  // Connect to the default db NOTE: User can never access this, since it
-                                                // gets updated on Authentication
   interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_, db_name); });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });

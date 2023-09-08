@@ -1357,15 +1357,25 @@ storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) 
 
 }  // namespace
 
+#ifdef MG_ENTERPRISE
 InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::NewSessionHandler *handler,
                                        query::AuthQueryHandler *ah, query::AuthChecker *ac)
     : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
+#else
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config,
+                                       memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
+                                       query::AuthQueryHandler *ah, query::AuthChecker *ac)
+    : db_gatekeeper(db_gatekeeper), config(interpreter_config), auth(ah), auth_checker(ac) {}
+#endif
 
-#ifdef MG_ENTERPRISE
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
-}
+#ifndef MG_ENTERPRISE
+  auto [db, _] = interpreter_context_->db_gatekeeper->Access();
+  MG_ASSERT(db, "Database accessor needs to be valid");
+  db_ = std::move(db);
 #endif
+}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
     : db_(std::move(db)), interpreter_context_(interpreter_context) {

@@ -250,10 +250,20 @@ class Interpreter;
 /// TODO: andi decouple in a separate file why here?
 
 struct InterpreterContext {
+#ifdef MG_ENTERPRISE
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::NewSessionHandler *db_handler,
                      query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
+#else
+  InterpreterContext(InterpreterConfig interpreter_config,
+                     memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
+                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
+#endif
 
+#ifdef MG_ENTERPRISE
   memgraph::dbms::NewSessionHandler *db_handler;
+#else
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper;
+#endif
 
   // Internal
   const InterpreterConfig config;
@@ -275,9 +285,7 @@ inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.st
 
 class Interpreter final {
  public:
-#ifdef MG_ENTERPRISE
   Interpreter(InterpreterContext *interpreter_context);
-#endif
   Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db);
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;

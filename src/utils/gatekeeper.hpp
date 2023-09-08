@@ -172,6 +172,7 @@ struct Gatekeeper {
     }
 
     explicit operator bool() const { return owner_ != nullptr; }
+
     void reset() {
       if (owner_) {
         {
@@ -180,6 +181,7 @@ struct Gatekeeper {
         }
         owner_->cv_.notify_all();
       }
+      owner_ = nullptr;
     }
 
    private:

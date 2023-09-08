@@ -24,8 +24,6 @@ struct Context {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 #if MG_ENTERPRISE
   memgraph::audit::Log *audit_log;
-#else
-  memgraph::dbms::DatabaseAccess db_acc;
 #endif
 };
 

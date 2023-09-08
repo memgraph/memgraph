@@ -330,16 +330,16 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   memgraph::dbms::NewSessionHandler new_handler(db_config, &auth_, FLAGS_data_recovery_on_startup,
                                                 FLAGS_storage_delete_on_drop);
-  auto db = new_handler.Get(memgraph::dbms::kDefaultDB);
+  auto db_acc = new_handler.Get(memgraph::dbms::kDefaultDB);
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &new_handler, auth_handler.get(),
                                                            auth_checker.get());
 #else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{db_config};
-  auto [db, _] = db_gk.Access();
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
+  auto [db_acc, _] = db_gatekeeper.Access();
   memgraph::query::InterpreterContext interpreter_context_(interp_config, nullptr, auth_handler.get(),
                                                            auth_checker.get());
 #endif
-  MG_ASSERT(db, "Failed to access the main database");
+  MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);
@@ -351,12 +351,12 @@ int main(int argc, char **argv) {
     spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context_, db, FLAGS_init_file, &audit_log);
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file, &audit_log);
     } else {
-      InitFromCypherlFile(interpreter_context_, db, FLAGS_init_file);
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
     }
 #else
-    InitFromCypherlFile(interpreter_context_, db, FLAGS_init_file);
+    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
 #endif
   }
 
@@ -367,14 +367,14 @@ int main(int argc, char **argv) {
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
-    auto storage_accessor = db->Access();
+    auto storage_accessor = db_acc->Access();
     auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-    db->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
-                                         interpreter_context_.auth_checker);
+    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
+                                             interpreter_context_.auth_checker);
   }
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  db->streams()->RestoreStreams(db, &interpreter_context_);
+  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
 #endif
 
   ServerContext context;
@@ -392,7 +392,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   Context session_context{&interpreter_context_, &auth_, &audit_log};
 #else
-  Context session_context{&interpreter_context_, &auth_, db};
+  Context session_context{&interpreter_context_, &auth_};
 #endif
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
                                  service_name, FLAGS_bolt_num_workers);
@@ -411,7 +411,9 @@ int main(int argc, char **argv) {
       return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
     });
 #else
-    telemetry->AddCollector("storage", [db = db]() -> nlohmann::json {
+    telemetry->AddCollector("storage", [gk = &db_gatekeeper]() -> nlohmann::json {
+      auto [db, _] = gk->Access();
+      MG_ASSERT(db, "Failed to get access to the default database");
       auto info = db->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
@@ -438,7 +440,7 @@ int main(int argc, char **argv) {
 
   // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db->storage(), &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -485,6 +487,10 @@ int main(int argc, char **argv) {
   InitSignalHandlers(shutdown);
 #endif
 
+  // Release the temporary database access
+  db_acc.reset();
+
+  // Startup the main server
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
 
@@ -497,13 +503,15 @@ int main(int argc, char **argv) {
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
 #ifdef MG_ENTERPRISE
+    auto db_acc = new_handler.Get(memgraph::dbms::kDefaultDB);
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context_, db, FLAGS_init_data_file, &audit_log);
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
     } else {
-      InitFromCypherlFile(interpreter_context_, db, FLAGS_init_data_file);
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
     }
 #else
-    InitFromCypherlFile(interpreter_context_, db, FLAGS_init_data_file);
+    auto [db_acc, _] = db_gatekeeper.Access();
+    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
   }
 

@@ -26,11 +26,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
             const memgraph::communication::v2::ServerEndpoint &endpoint,
             memgraph::communication::v2::InputStream *input_stream,
             memgraph::communication::v2::OutputStream *output_stream,
-            memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+            memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
 #ifdef MG_ENTERPRISE
+            ,
             memgraph::audit::Log *audit_log
-#else
-            memgraph::dbms::DatabaseAccess db_acc
 #endif
   );
 
