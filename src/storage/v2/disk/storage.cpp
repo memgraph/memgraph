@@ -1367,12 +1367,12 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
                                           &storage_->indices_, &storage_->constraints_, config_, true);
 }
 
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
   MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
   return Error::NONEXISTENT_OBJECT;
 }
 
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
   MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
   return Error::NONEXISTENT_OBJECT;
 }

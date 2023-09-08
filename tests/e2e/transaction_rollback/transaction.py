@@ -24,7 +24,7 @@ def test_change_from_rollback(connection):
 
     execute_and_fetch_all(
         cursor,
-        "MATCH (n:Node1)-[r:Relationship]->(m:Node2) MATCH (k:Node3) CALL transaction_rollback.change_from(r, k);",
+        "MATCH (n:Node1)-[r:Relationship]->(m:Node2) MATCH (k:Node3) CALL transaction_rollback.set_from(r, k);",
     )
     connection.rollback()
 
@@ -43,7 +43,7 @@ def test_change_to_rollback(connection):
     connection.commit()
 
     execute_and_fetch_all(
-        cursor, "MATCH (n:Node1)-[r:Relationship]->(m:Node2) MATCH (k:Node3) CALL transaction_rollback.change_to(r, k);"
+        cursor, "MATCH (n:Node1)-[r:Relationship]->(m:Node2) MATCH (k:Node3) CALL transaction_rollback.set_to(r, k);"
     )
     connection.rollback()
 

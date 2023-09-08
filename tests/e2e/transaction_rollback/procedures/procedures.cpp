@@ -15,30 +15,30 @@
 
 namespace {
 
-constexpr std::string_view ProcedureFrom = "change_from";
-constexpr std::string_view ProcedureTo = "change_to";
+constexpr std::string_view ProcedureFrom = "set_from";
+constexpr std::string_view ProcedureTo = "set_to";
 
-void ChangeFrom(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void SetFrom(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   try {
     auto rel = arguments[0].ValueRelationship();
     auto new_from = arguments[0].ValueNode();
     mgp::Graph graph{memgraph_graph};
-    graph.ChangeRelationshipFrom(rel, new_from);
+    graph.SetFrom(rel, new_from);
   } catch (const std::exception &e) {
     return;
   }
 }
 
-void ChangeTo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void SetTo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   try {
     auto rel = arguments[0].ValueRelationship();
     auto new_to = arguments[0].ValueNode();
     mgp::Graph graph{memgraph_graph};
-    graph.ChangeRelationshipTo(rel, new_to);
+    graph.SetTo(rel, new_to);
   } catch (const std::exception &e) {
     return;
   }
@@ -54,11 +54,11 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       mgp::MemoryDispatcherGuard guard(memory);
 
       mgp::AddProcedure(
-          ChangeFrom, ProcedureFrom, mgp::ProcedureType::Write,
+          SetFrom, ProcedureFrom, mgp::ProcedureType::Write,
           {mgp::Parameter("relationship", mgp::Type::Relationship), mgp::Parameter("node_from", mgp::Type::Node)}, {},
           module, memory);
       mgp::AddProcedure(
-          ChangeTo, ProcedureTo, mgp::ProcedureType::Write,
+          SetTo, ProcedureTo, mgp::ProcedureType::Write,
           {mgp::Parameter("relationship", mgp::Type::Relationship), mgp::Parameter("node_to", mgp::Type::Node)}, {},
           module, memory);
 
