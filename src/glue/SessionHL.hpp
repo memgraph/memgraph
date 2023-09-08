@@ -14,6 +14,7 @@
 #include "auth/auth.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
+#include "dbms/database.hpp"
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
@@ -26,7 +27,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
             memgraph::communication::v2::InputStream *input_stream,
             memgraph::communication::v2::OutputStream *output_stream,
             memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-            memgraph::audit::Log *audit_log);
+#ifdef MG_ENTERPRISE
+            memgraph::audit::Log *audit_log
+#else
+            memgraph::dbms::DatabaseAccess db_acc
+#endif
+  );
 
   ~SessionHL() override;
 
@@ -81,12 +87,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
   bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
 #endif
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;  // TODO connect

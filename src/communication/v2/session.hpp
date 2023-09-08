@@ -110,11 +110,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     return std::shared_ptr<WebsocketSession>(new WebsocketSession(std::forward<Args>(args)...));
   }
 
-  // #ifdef MG_ENTERPRISE
-  //   ~WebsocketSession() { session_context_->Delete(session_); }
-  // #else
   ~WebsocketSession() = default;
-  // #endif
 
   WebsocketSession(const WebsocketSession &) = delete;
   WebsocketSession &operator=(const WebsocketSession &) = delete;
@@ -172,11 +168,17 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         strand_{boost::asio::make_strand(ws_.get_executor())},
         output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
         session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
-                 session_context->audit_log},
+#ifdef MG_ENTERPRISE
+                 session_context->audit_log
+#else
+                 session_context->db_acc
+#endif
+        },
         session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
-        service_name_{service_name} {}
+        service_name_{service_name} {
+  }
 
   void OnAccept(boost::beast::error_code ec) {
     if (ec) {
@@ -364,7 +366,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
-                 session_context->audit_log},
+#ifdef MG_ENTERPRISE
+                 session_context->audit_log
+#else
+                 session_context->db_acc
+#endif
+        },
         session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},

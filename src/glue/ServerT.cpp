@@ -11,8 +11,4 @@
 #include "glue/ServerT.hpp"
 #include "query/interpreter.hpp"
 
-#ifdef MG_ENTERPRISE
 template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;
-#else
-template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContext>;
-#endif

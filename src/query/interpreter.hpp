@@ -275,7 +275,10 @@ inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.st
 
 class Interpreter final {
  public:
-  explicit Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db = {});
+#ifdef MG_ENTERPRISE
+  Interpreter(InterpreterContext *interpreter_context);
+#endif
+  Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db);
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;

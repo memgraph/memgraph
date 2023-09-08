@@ -1361,8 +1361,15 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, mem
                                        query::AuthQueryHandler *ah, query::AuthChecker *ac)
     : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
 
+#ifdef MG_ENTERPRISE
+Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+  MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
+}
+#endif
+
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
     : db_(std::move(db)), interpreter_context_(interpreter_context) {
+  MG_ASSERT(db_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
@@ -2112,26 +2119,26 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters);
 
-  return PreparedQuery{
-      std::move(callback.header), std::move(parsed_query.required_privileges),
-      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr), interpreter_context](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          // Run the specific query
-          auto results = handler();
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr),
+                        interpreter_context](  // NOLINT
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           // Run the specific query
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
 #ifdef MG_ENTERPRISE
-          // Invalidate auth cache after every type of AuthQuery
-          interpreter_context->auth_checker->ClearCache();
+                           // Invalidate auth cache after every type of AuthQuery
+                           interpreter_context->auth_checker->ClearCache();
 #endif
-        }
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::COMMIT;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE};
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -2513,7 +2520,6 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
                             memgraph::dbms::DatabaseAccess &db) {
   Callback callback;
   callback.fn = [current_mode, requested_mode, &db]() mutable {
-#ifdef MG_ENTERPRISE
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -2558,44 +2564,6 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       }
     }
     return std::vector<std::vector<TypedValue>>();
-#else
-    if (current_mode == requested_mode) {
-      return std::vector<std::vector<TypedValue>>();
-    }
-    if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
-      throw utils::BasicException(
-          "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
-          "automatically start in the default in-memory transactional storage mode.");
-    }
-    if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      std::unique_lock main_guard{storage->main_lock_};
-
-      if (auto vertex_cnt_approx = storage->GetInfo().vertex_count; vertex_cnt_approx > 0) {
-        throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
-            "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
-            "query. ");
-      }
-
-      interpreter_context->interpreters.WithLock([&](const auto &interpreters_) {
-        if (interpreters_.size() > 1) {
-          throw utils::BasicException(
-              "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-              "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
-              "multiple sessions to run queries in parallel, "
-              "it is currently impossible to switch to the on-disk storage mode within Lab. "
-              "Close it, connect to the instance with mgconsole "
-              "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
-              "and continue to use the instance as usual.");
-        }
-        main_guard.unlock();
-        // interpreter_context->db =
-        //     std::make_unique<memgraph::storage::DiskStorage>(std::move(interpreter_context->db->config_));
-      });
-    }
-    return std::vector<std::vector<TypedValue>>();
-#endif
   };
   return callback;
 }
@@ -3529,10 +3497,12 @@ void Interpreter::RollbackTransaction() {
   transaction_queries_->clear();
 }
 
+#if MG_ENTERPRISE
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name) { db_ = interpreter_context_->db_handler->Get(db_name); }
 void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess new_db) { db_ = std::move(new_db); }
+#endif
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,

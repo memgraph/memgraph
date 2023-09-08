@@ -494,7 +494,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
+#ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
+#endif
     auto accessor = interpreter->db_->Access();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
@@ -585,7 +587,7 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
 
       try {
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner),
-                                    std::move(db), ic);
+                                    db, ic);
         if (status.is_running) {
           std::visit(
               [&](const auto &stream_data) {

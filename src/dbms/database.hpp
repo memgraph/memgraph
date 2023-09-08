@@ -23,8 +23,7 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
-
-#include "handler.hpp"
+#include "utils/gatekeeper.hpp"
 
 namespace memgraph::dbms {
 

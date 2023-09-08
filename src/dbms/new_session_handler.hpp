@@ -385,34 +385,6 @@ class NewSessionHandler {
   std::set<std::string> defunct_dbs_;              //!< Databases that are in an unknown state due to various failures
   bool delete_on_drop_;                            //!< Flag defining if dropping storage also deletes its directory
 };
-
-#else
-/**
- * @brief Initialize the handler.
- *
- * @param auth pointer to the authenticator
- * @param configs storage and interpreter configurations
- */
-static inline SessionContext Init(storage::Config &storage_config, query::InterpreterConfig &interp_config,
-                                  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth,
-                                  query::AuthQueryHandler *auth_handler, query::AuthChecker *auth_checker) {
-  MG_ASSERT(auth, "Passed a nullptr auth");
-  MG_ASSERT(auth_handler, "Passed a nullptr auth_handler");
-  MG_ASSERT(auth_checker, "Passed a nullptr auth_checker");
-
-  storage_config.name = kDefaultDB;
-  std::shared_ptr<storage::Storage> db;
-  if (storage_config.force_on_disk || utils::DirExists(storage_config.disk.main_storage_directory)) {
-    std::make_shared<storage::DiskStorage>(storage_config);
-  } else {
-    std::make_unique<storage::InMemoryStorage>(storage_config);
-  }
-  auto interp_context = std::make_shared<query::InterpreterContext>(
-      db.get(), interp_config, storage_config.durability.storage_directory, auth_handler, auth_checker);
-  MG_ASSERT(interp_context, "Failed to construct main interpret context.");
-
-  return SessionContext{db, interp_context, utils::GenerateUUID(), auth};
-}
 #endif
 
 }  // namespace memgraph::dbms
