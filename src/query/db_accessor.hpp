@@ -95,6 +95,14 @@ class EdgeAccessor final {
 
   VertexAccessor From() const;
 
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeToVertex() const;
+
+  /// When edge is deleted and you are accessing From vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeFromVertex() const;
+
   bool IsCycle() const;
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
@@ -237,6 +245,12 @@ inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToV
 
 inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
 
+inline VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
+
+inline VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor(impl_.DeletedEdgeFromVertex());
+}
+
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
 class SubgraphVertexAccessor final {
@@ -318,17 +332,17 @@ class VerticesIterable final {
         it_;
 
    public:
-    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
     VertexAccessor operator*() const {
-      return std::visit([](auto it_) { return VertexAccessor(*it_); }, it_);
+      return std::visit([](auto &it_) { return VertexAccessor(*it_); }, it_);
     }
 
     Iterator &operator++() {
-      std::visit([this](auto it_) { this->it_ = ++it_; }, it_);
+      std::visit([](auto &it_) { ++it_; }, it_);
       return *this;
     }
 

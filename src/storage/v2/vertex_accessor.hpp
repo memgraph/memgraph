@@ -45,6 +45,8 @@ class VertexAccessor final {
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
 
+  static bool IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
+
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 

@@ -141,11 +141,25 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     deleted = vertex.deleted;
     delta = vertex.delta;
 
-    size_t i = 0;
-    for (const auto &property : properties) {
-      current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, values[i]);
-      property_array.values[i] = property;
-      i++;
+    // Avoid IsPropertyEqual if already not possible
+    if (delta == nullptr && (deleted || !has_label)) return false;
+
+    if (delta) {
+      // If delta we need to fetch for later processing
+      size_t i = 0;
+      for (const auto &property : properties) {
+        current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, values[i]);
+        property_array.values[i] = property;
+        i++;
+      }
+    } else {
+      // otherwise do a short-circuiting check (we already know !deleted && has_label)
+      size_t i = 0;
+      for (const auto &property : properties) {
+        if (!vertex.properties.IsPropertyEqual(property, values[i])) return false;
+        i++;
+      }
+      return true;
     }
   }
 

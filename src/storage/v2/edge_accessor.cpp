@@ -105,6 +105,15 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor{from_vertex_, transaction_, indices_,
+                        constraints_, config_,      for_deleted_ && from_vertex_->deleted};
+}
+
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_, for_deleted_ && to_vertex_->deleted};
+}
+
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;

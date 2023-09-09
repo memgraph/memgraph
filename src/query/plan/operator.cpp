@@ -69,12 +69,18 @@
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
-#define ACCEPT_WITH_INPUT(class_name)                                    \
-  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
-    if (visitor.PreVisit(*this)) {                                       \
-      input_->Accept(visitor);                                           \
-    }                                                                    \
-    return visitor.PostVisit(*this);                                     \
+// NOLINTNEXTLINE
+#define ACCEPT_WITH_INPUT(class_name)                                                            \
+  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) {                         \
+    if (visitor.PreVisit(*this)) {                                                               \
+      if (input_ == nullptr) {                                                                   \
+        throw QueryRuntimeException(                                                             \
+            "The query couldn't be executed due to the unexpected null value in " #class_name    \
+            " operator. To learn more about operators visit https://memgr.ph/query-operators!"); \
+      }                                                                                          \
+      input_->Accept(visitor);                                                                   \
+    }                                                                                            \
+    return visitor.PostVisit(*this);                                                             \
   }
 
 #define WITHOUT_SINGLE_INPUT(class_name)                         \
@@ -438,7 +444,7 @@ class ScanAllCursor : public Cursor {
 
     AbortCheck(context);
 
-    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
@@ -449,6 +455,7 @@ class ScanAllCursor : public Cursor {
       // vertices _ = get_vertices_(frame, context);
       vertices_.emplace(std::move(next_vertices.value()));
       vertices_it_.emplace(vertices_.value().begin());
+      vertices_end_it_.emplace(vertices_.value().end());
     }
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
@@ -463,7 +470,7 @@ class ScanAllCursor : public Cursor {
 
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
-    while (vertices_it_.value() != vertices_.value().end()) {
+    while (vertices_it_.value() != vertices_end_it_.value()) {
       if (context.auth_checker->Has(*vertices_it_.value(), view_,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
@@ -480,6 +487,7 @@ class ScanAllCursor : public Cursor {
     input_cursor_->Reset();
     vertices_ = std::nullopt;
     vertices_it_ = std::nullopt;
+    vertices_end_it_ = std::nullopt;
   }
 
  private:
@@ -489,6 +497,7 @@ class ScanAllCursor : public Cursor {
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
 };
 
