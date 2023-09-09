@@ -1105,6 +1105,8 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
+      map_variable_->Accept(visitor);
+
       for (auto pair : elements_) {
         if (!pair.second) continue;
 
