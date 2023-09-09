@@ -69,12 +69,18 @@
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
-#define ACCEPT_WITH_INPUT(class_name)                                    \
-  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
-    if (visitor.PreVisit(*this)) {                                       \
-      input_->Accept(visitor);                                           \
-    }                                                                    \
-    return visitor.PostVisit(*this);                                     \
+// NOLINTNEXTLINE
+#define ACCEPT_WITH_INPUT(class_name)                                                            \
+  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) {                         \
+    if (visitor.PreVisit(*this)) {                                                               \
+      if (input_ == nullptr) {                                                                   \
+        throw QueryRuntimeException(                                                             \
+            "The query couldn't be executed due to the unexpected null value in " #class_name    \
+            " operator. To learn more about operators visit https://memgr.ph/query-operators!"); \
+      }                                                                                          \
+      input_->Accept(visitor);                                                                   \
+    }                                                                                            \
+    return visitor.PostVisit(*this);                                                             \
   }
 
 #define WITHOUT_SINGLE_INPUT(class_name)                         \
