@@ -19,8 +19,7 @@ namespace memgraph::storage {
 
 class LabelPropertyIndex {
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
-      : indices_(indices), constraints_(constraints), config_(config) {}
+  LabelPropertyIndex(Indices *indices, const Config &config) : indices_(indices), config_(config) {}
 
   LabelPropertyIndex(const LabelPropertyIndex &) = delete;
   LabelPropertyIndex(LabelPropertyIndex &&) = delete;
@@ -52,7 +51,6 @@ class LabelPropertyIndex {
 
  protected:
   Indices *indices_;
-  Constraints *constraints_;
   Config config_;
 };
 

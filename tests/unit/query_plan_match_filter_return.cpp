@@ -1231,9 +1231,9 @@ TYPED_TEST(QueryPlanExpandVariable, NamedPath) {
   for (const auto &v : this->dba.Vertices(memgraph::storage::View::OLD)) {
     if (!*v.HasLabel(memgraph::storage::View::OLD, this->labels[0])) continue;
     auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
-    for (const auto &e1 : *maybe_edges1) {
+    for (const auto &e1 : maybe_edges1->edges) {
       auto maybe_edges2 = e1.To().OutEdges(memgraph::storage::View::OLD);
-      for (const auto &e2 : *maybe_edges2) {
+      for (const auto &e2 : maybe_edges2->edges) {
         expected_paths.emplace_back(v, e1, e1.To(), e2, e2.To());
       }
     }
@@ -1341,7 +1341,7 @@ TYPED_TEST(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
       if (!*v.HasLabel(memgraph::storage::View::OLD, this->labels[0])) continue;
       expected_paths.emplace_back(v);
       auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
-      for (const auto &e1 : *maybe_edges1) {
+      for (const auto &e1 : maybe_edges1->edges) {
         expected_paths.emplace_back(v, e1, e1.To());
       }
     }
@@ -1378,7 +1378,7 @@ TYPED_TEST(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
       if (!*v.HasLabel(memgraph::storage::View::OLD, this->labels[0])) continue;
       expected_paths.emplace_back(v);
       auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
-      for (const auto &e1 : *maybe_edges1) {
+      for (const auto &e1 : maybe_edges1->edges) {
         expected_paths.emplace_back(v, e1, e1.To());
       }
     }

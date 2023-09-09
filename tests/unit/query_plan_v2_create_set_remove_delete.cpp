@@ -66,8 +66,8 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
     EXPECT_EQ(v.GetProperty(memgraph::storage::View::NEW, property)->ValueInt(), 42);
     dba->PrefetchInEdges(v.impl_);
     dba->PrefetchOutEdges(v.impl_);
-    EXPECT_EQ(CountIterable(*v.InEdges(memgraph::storage::View::NEW)), 0);
-    EXPECT_EQ(CountIterable(*v.OutEdges(memgraph::storage::View::NEW)), 0);
+    EXPECT_EQ(CountIterable(v.InEdges(memgraph::storage::View::NEW)->edges), 0);
+    EXPECT_EQ(CountIterable(v.OutEdges(memgraph::storage::View::NEW)->edges), 0);
     // Invokes LOG(FATAL) instead of erroring out.
     // EXPECT_TRUE(v.HasLabel(label, memgraph::storage::View::OLD).IsError());
   }

@@ -105,6 +105,15 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor{from_vertex_, transaction_, indices_,
+                        constraints_, config_,      for_deleted_ && from_vertex_->deleted};
+}
+
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_, for_deleted_ && to_vertex_->deleted};
+}
+
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
@@ -125,6 +134,11 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
   CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
+
+  if (transaction_->IsDiskStorage()) {
+    ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
+    transaction_->AddModifiedEdge(Gid(), modified_edge);
+  }
 
   return std::move(current_value);
 }

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
 
@@ -37,7 +38,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   };
 
  public:
-  InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config);
+  InMemoryLabelIndex(Indices *indices, Config config);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
@@ -66,7 +67,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      VertexAccessor operator*() const { return current_vertex_accessor_; }
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -99,7 +100,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, View view, Transaction *transaction);
+  Iterable Vertices(LabelId label, View view, Transaction *transaction, Constraints *constraints);
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
 

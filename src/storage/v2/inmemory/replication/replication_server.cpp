@@ -139,10 +139,9 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
 
   storage_->constraints_.existence_constraints_ = std::make_unique<ExistenceConstraints>();
   storage_->constraints_.unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
-  storage_->indices_.label_index_ =
-      std::make_unique<InMemoryLabelIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
+  storage_->indices_.label_index_ = std::make_unique<InMemoryLabelIndex>(&storage_->indices_, storage_->config_);
   storage_->indices_.label_property_index_ =
-      std::make_unique<InMemoryLabelPropertyIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
+      std::make_unique<InMemoryLabelPropertyIndex>(&storage_->indices_, storage_->config_);
   try {
     spdlog::debug("Loading snapshot");
     auto &epoch =
@@ -389,8 +388,8 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         auto edges = from_vertex->OutEdges(View::NEW, {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)},
                                            &*to_vertex);
         if (edges.HasError()) throw utils::BasicException("Invalid transaction!");
-        if (edges->size() != 1) throw utils::BasicException("Invalid transaction!");
-        auto &edge = (*edges)[0];
+        if (edges->edges.size() != 1) throw utils::BasicException("Invalid transaction!");
+        auto &edge = (*edges).edges[0];
         auto ret = transaction->DeleteEdge(&edge);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         break;
