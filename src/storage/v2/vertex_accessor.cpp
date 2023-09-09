@@ -84,6 +84,11 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction
   return VertexAccessor{vertex, transaction, indices, constraints, config};
 }
 
+bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transaction, View view) {
+  const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view);
+  return exists && !deleted;
+}
+
 bool VertexAccessor::IsVisible(View view) const {
   const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
   return exists && (for_deleted_ || !deleted);
