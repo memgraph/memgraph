@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,11 +22,12 @@ inline constexpr std::string_view kTriggerDeletedVertexLabel{"DELETED_VERTEX"};
 inline constexpr std::string_view kTriggerDeletedEdgeLabel{"DELETED_EDGE"};
 inline constexpr std::string_view kTriggerDeletedObjectLabel{"DELETED_OBJECT"};
 
-enum class AllowedTriggerType : uint8_t {
-  VERTEX,
-  EDGE,
-  OBJECT,
-};
+inline constexpr std::string_view kTriggerNameOnVertexDeleteTrigger{"DeletedVerticesTrigger"};
+inline constexpr std::string_view kTriggerNameOnEdgeDeleteTrigger{"DeletedEdgesTrigger"};
+inline constexpr std::string_view kTriggerNameOnObjectDeleteTrigger{"DeletedObjectsTrigger"};
+inline constexpr std::string_view kTriggerNameOnObjectDeleteTriggerProc{"DeletedObjectsTriggerProc"};
+
+enum class AllowedTriggerType : uint8_t { VERTEX, EDGE, OBJECT, OBJECT_PROC };
 
 void DetachDeleteVertex(mg::Client &client, int vertex_id) {
   mg::Map parameters{{"id", mg::Value{vertex_id}}};
@@ -47,36 +48,46 @@ void CreateOnDeleteTriggers(mg::Client &client, bool is_before,
 
   const auto create_on_vertex_delete_trigger = [&, before_or_after] {
     client.Execute(
-        fmt::format("CREATE TRIGGER DeletedVerticesTrigger ON () DELETE "
+        fmt::format("CREATE TRIGGER {} ON () DELETE "
                     "{} COMMIT "
                     "EXECUTE "
                     "UNWIND deletedVertices as deletedVertex "
                     "CREATE (n: {} {{ id: deletedVertex.id }})",
-                    before_or_after, kTriggerDeletedVertexLabel));
+                    kTriggerNameOnVertexDeleteTrigger, before_or_after, kTriggerDeletedVertexLabel));
     client.DiscardAll();
   };
 
   const auto create_on_edge_delete_trigger = [&, before_or_after] {
     client.Execute(
-        fmt::format("CREATE TRIGGER DeletedEdgesTrigger ON --> DELETE "
+        fmt::format("CREATE TRIGGER {} ON --> DELETE "
                     "{} COMMIT "
                     "EXECUTE "
                     "UNWIND deletedEdges as deletedEdge "
                     "CREATE (n: {} {{ id: deletedEdge.id }})",
-                    before_or_after, kTriggerDeletedEdgeLabel));
+                    kTriggerNameOnEdgeDeleteTrigger, before_or_after, kTriggerDeletedEdgeLabel));
     client.DiscardAll();
   };
 
   const auto create_on_object_delete_trigger = [&, before_or_after] {
     client.Execute(
-        fmt::format("CREATE TRIGGER DeletedObjectsTrigger ON DELETE "
+        fmt::format("CREATE TRIGGER {} ON DELETE "
                     "{} COMMIT "
                     "EXECUTE "
                     "UNWIND deletedObjects as deletedObjectEvent "
                     "WITH CASE deletedObjectEvent.event_type WHEN \"deleted_vertex\" THEN deletedObjectEvent.vertex.id "
                     "ELSE deletedObjectEvent.edge.id END as id "
                     "CREATE (n: {} {{ id: id }})",
-                    before_or_after, kTriggerDeletedObjectLabel));
+                    kTriggerNameOnObjectDeleteTrigger, before_or_after, kTriggerDeletedObjectLabel));
+    client.DiscardAll();
+  };
+
+  const auto create_on_object_delete_trigger_proc = [&, before_or_after] {
+    client.Execute(
+        fmt::format("CREATE TRIGGER {} ON DELETE "
+                    "{} COMMIT "
+                    "EXECUTE "
+                    "CALL write.access_deleted(deletedObjects) YIELD status RETURN status;",
+                    kTriggerNameOnObjectDeleteTriggerProc, before_or_after));
     client.DiscardAll();
   };
 
@@ -91,6 +102,8 @@ void CreateOnDeleteTriggers(mg::Client &client, bool is_before,
       case AllowedTriggerType::OBJECT:
         create_on_object_delete_trigger();
         break;
+      case AllowedTriggerType::OBJECT_PROC:
+        create_on_object_delete_trigger_proc();
     }
   }
 }
@@ -99,17 +112,22 @@ void DropOnDeleteTriggers(mg::Client &client, const std::unordered_set<AllowedTr
   for (const auto allowed_trigger_type : allowed_trigger_types) {
     switch (allowed_trigger_type) {
       case AllowedTriggerType::VERTEX: {
-        client.Execute("DROP TRIGGER DeletedVerticesTrigger");
+        client.Execute(fmt::format("DROP TRIGGER {}", kTriggerNameOnVertexDeleteTrigger));
         client.DiscardAll();
         break;
       }
       case AllowedTriggerType::EDGE: {
-        client.Execute("DROP TRIGGER DeletedEdgesTrigger");
+        client.Execute(fmt::format("DROP TRIGGER {}", kTriggerNameOnEdgeDeleteTrigger));
         client.DiscardAll();
         break;
       }
       case AllowedTriggerType::OBJECT: {
-        client.Execute("DROP TRIGGER DeletedObjectsTrigger");
+        client.Execute(fmt::format("DROP TRIGGER {}", kTriggerNameOnObjectDeleteTrigger));
+        client.DiscardAll();
+        break;
+      }
+      case AllowedTriggerType::OBJECT_PROC: {
+        client.Execute(fmt::format("DROP TRIGGER {}", kTriggerNameOnObjectDeleteTriggerProc));
         client.DiscardAll();
         break;
       }
@@ -173,6 +191,8 @@ int main(int argc, char **argv) {
           case AllowedTriggerType::OBJECT:
             number_of_expected_vertices += 3;
             break;
+          case AllowedTriggerType::OBJECT_PROC:
+            break;
         }
       }
 
@@ -224,6 +244,9 @@ int main(int argc, char **argv) {
             case AllowedTriggerType::OBJECT:
               number_of_expected_vertices += 2;
               break;
+            case AllowedTriggerType::OBJECT_PROC:
+              break;
+              break;
           }
         }
 
@@ -267,6 +290,8 @@ int main(int argc, char **argv) {
             case AllowedTriggerType::OBJECT:
               number_of_expected_vertices += 2;
               break;
+            case AllowedTriggerType::OBJECT_PROC:
+              break;
           }
         }
 
@@ -308,6 +333,21 @@ int main(int argc, char **argv) {
   static constexpr bool kAfterCommit = false;
   run_for_trigger_combinations(kBeforeCommit);
   run_for_trigger_combinations(kAfterCommit);
+
+  const auto run_delete_trigger_access_deleted_object_in_proc = [&client]() {
+    ExecuteCreateVertex(*client, 2);
+    ExecuteCreateVertex(*client, 3);
+
+    client->Execute("MATCH (n {id:2}), (m {id:3}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
+    client->DiscardAll();
+
+    CreateOnDeleteTriggers(*client, false, {AllowedTriggerType::OBJECT_PROC});
+    client->Execute("MATCH (n) DETACH DELETE n;");
+
+    DropOnDeleteTriggers(*client, {AllowedTriggerType::OBJECT_PROC});
+  };
+
+  run_delete_trigger_access_deleted_object_in_proc();
 
   return 0;
 }

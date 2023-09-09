@@ -1105,6 +1105,8 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
+      map_variable_->Accept(visitor);
+
       for (auto pair : elements_) {
         if (!pair.second) continue;
 
@@ -2996,6 +2998,29 @@ class ReplicationQuery : public memgraph::query::Query {
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EdgeImportModeQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Status { ACTIVE, INACTIVE };
+
+  EdgeImportModeQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::EdgeImportModeQuery::Status status_;
+
+  EdgeImportModeQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EdgeImportModeQuery>();
+    object->status_ = status_;
     return object;
   }
 

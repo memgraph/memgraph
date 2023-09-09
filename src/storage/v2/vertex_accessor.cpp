@@ -15,6 +15,7 @@
 #include <tuple>
 #include <utility>
 
+#include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -35,7 +36,7 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
+    auto guard = std::shared_lock{vertex->lock};
     deleted = vertex->deleted;
     delta = vertex->delta;
   }
@@ -83,14 +84,22 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction
   return VertexAccessor{vertex, transaction, indices, constraints, config};
 }
 
+bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transaction, View view) {
+  const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view);
+  return exists && !deleted;
+}
+
 bool VertexAccessor::IsVisible(View view) const {
   const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
   return exists && (for_deleted_ || !deleted);
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+  auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
@@ -109,7 +118,10 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
 /// TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+  auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
@@ -135,7 +147,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool has_label = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
     delta = vertex_->delta;
@@ -182,7 +194,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   std::vector<LabelId> labels;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     labels = vertex_->labels;
     delta = vertex_->delta;
@@ -224,8 +236,12 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
 }
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+  auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
@@ -249,8 +265,12 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+  auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
@@ -268,8 +288,12 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+  auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
@@ -287,7 +311,10 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+  auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
@@ -311,7 +338,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   PropertyValue value;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     value = vertex_->properties.GetProperty(property);
     delta = vertex_->delta;
@@ -359,7 +386,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     properties = vertex_->properties.Properties();
     delta = vertex_->delta;
@@ -401,7 +428,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
@@ -423,9 +450,11 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   bool deleted = false;
   auto in_edges = edge_store{};
   Delta *delta = nullptr;
+  int64_t expanded_count = 0;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
+    expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
     // TODO: a better filter copy
     if (edge_types.empty() && !destination) {
       in_edges = vertex_->in_edges;
@@ -450,7 +479,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
       if (auto resInEdges = cache.GetInEdges(view, vertex_, destination_vertex, edge_types); resInEdges)
-        return {build_result(*resInEdges)};
+        return EdgesVertexAccessorResult{.edges = build_result(*resInEdges), .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -475,10 +504,11 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
-  return build_result(in_edges);
+
+  return EdgesVertexAccessorResult{.edges = build_result(in_edges), .expanded_count = expanded_count};
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
@@ -499,9 +529,11 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   bool deleted = false;
   auto out_edges = edge_store{};
   Delta *delta = nullptr;
+  int64_t expanded_count = 0;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
+    expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
     if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
     } else {
@@ -525,7 +557,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
       if (auto resOutEdges = cache.GetOutEdges(view, vertex_, dst_vertex, edge_types); resOutEdges)
-        return {build_result(*resOutEdges)};
+        return EdgesVertexAccessorResult{.edges = build_result(*resOutEdges), .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -549,7 +581,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
 
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
-  return build_result(out_edges);
+
+  return EdgesVertexAccessorResult{.edges = build_result(out_edges), .expanded_count = expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
@@ -558,7 +591,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     degree = vertex_->in_edges.size();
     delta = vertex_->delta;
@@ -606,7 +639,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     degree = vertex_->out_edges.size();
     delta = vertex_->delta;

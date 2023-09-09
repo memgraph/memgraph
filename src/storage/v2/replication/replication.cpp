@@ -13,22 +13,9 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/edge_direction.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/storage_mode.hpp"
-#include "storage/v2/vertex_accessor.hpp"
-#include "utils/stat.hpp"
-
-/// REPLICATION ///
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/storage_error.hpp"
-
-#include "storage/v2/inmemory/replication/replication_client.hpp"
-#include "storage/v2/inmemory/replication/replication_server.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -97,10 +84,9 @@ bool storage::ReplicationState::SetMainReplicationRole(storage::Storage *storage
   return true;
 }
 
-bool storage::ReplicationState::AppendToWalDataDefinition(const uint64_t seq_num,
-                                                          durability::StorageGlobalOperation operation, LabelId label,
-                                                          const std::set<PropertyId> &properties,
-                                                          uint64_t final_commit_timestamp) {
+bool storage::ReplicationState::AppendOperation(const uint64_t seq_num, durability::StorageGlobalOperation operation,
+                                                LabelId label, const std::set<PropertyId> &properties,
+                                                uint64_t final_commit_timestamp) {
   bool finalized_on_all_replicas = true;
   // TODO Should we return true if not MAIN?
   if (GetRole() == replication::ReplicationRole::MAIN) {
@@ -199,7 +185,7 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
     }
   }
 
-  auto client = storage->CreateReplicationClient(std::move(name), endpoint, replication_mode, config);
+  auto client = storage->CreateReplicationClient(std::move(name), std::move(endpoint), replication_mode, config);
   client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {

@@ -255,6 +255,16 @@ inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_verte
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
+inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                     mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_from, graph, e, new_from, memory);
+}
+
+inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                   mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
+}
+
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
@@ -367,6 +377,10 @@ inline mgp_map_item *map_items_iterator_next(mgp_map_items_iterator *it) {
 
 inline mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_vertex_get_id, v); }
 
+inline size_t vertex_get_in_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_in_degree, v); }
+
+inline size_t vertex_get_out_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_out_degree, v); }
+
 inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_vertex_copy, v, memory);
 }
@@ -399,6 +413,10 @@ inline mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, 
 
 inline void vertex_set_property(mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   MgInvokeVoid(mgp_vertex_set_property, v, property_name, property_value);
+}
+
+inline void vertex_set_properties(mgp_vertex *v, struct mgp_map *properties) {
+  MgInvokeVoid(mgp_vertex_set_properties, v, properties);
 }
 
 inline mgp_properties_iterator *vertex_iter_properties(mgp_vertex *v, mgp_memory *memory) {
@@ -435,6 +453,10 @@ inline mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_
 
 inline void edge_set_property(mgp_edge *e, const char *property_name, mgp_value *property_value) {
   MgInvokeVoid(mgp_edge_set_property, e, property_name, property_value);
+}
+
+inline void edge_set_properties(mgp_edge *e, struct mgp_map *properties) {
+  MgInvokeVoid(mgp_edge_set_properties, e, properties);
 }
 
 inline mgp_properties_iterator *edge_iter_properties(mgp_edge *e, mgp_memory *memory) {

@@ -218,7 +218,7 @@ const trie::Trie kKeywords = {"union",
                               "data",
                               "directory",
                               "lock",
-                              "unlock"
+                              "unlock",
                               "build"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
