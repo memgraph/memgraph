@@ -76,7 +76,7 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
-# Generate the configuration file.
+# Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
         ${CMAKE_BINARY_DIR}/memgraph
@@ -85,6 +85,11 @@ add_custom_command(TARGET memgraph POST_BUILD
         ${CMAKE_SOURCE_DIR}/config/flags.yaml
         BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
         COMMENT "Generating memgraph configuration file")
+# Copy the mappings file to the build directory.
+add_custom_command(TARGET memgraph POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_SOURCE_DIR}/config/mappings.json
+        ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json)
 
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
@@ -120,7 +125,6 @@ install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.hpp
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
-
 # Install the mappings file (must use absolute path).
 install(FILES ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json
         DESTINATION /etc/memgraph RENAME apoc_compatibility_mappings.json)
