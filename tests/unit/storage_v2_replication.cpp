@@ -180,7 +180,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v);
     const auto out_edges = v->OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(out_edges.HasValue());
-    const auto edge = find_edge(*out_edges, *edge_gid);
+    const auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_EQ(edge->EdgeType(), replica_store->NameToEdgeType(edge_type));
     const auto properties = edge->Properties(memgraph::storage::View::OLD);
     ASSERT_TRUE(properties.HasValue());
@@ -197,7 +197,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v);
     auto out_edges = v->OutEdges(memgraph::storage::View::OLD);
-    auto edge = find_edge(*out_edges, *edge_gid);
+    auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_TRUE(edge);
     ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
@@ -209,7 +209,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v);
     const auto out_edges = v->OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(out_edges.HasValue());
-    ASSERT_FALSE(find_edge(*out_edges, *edge_gid));
+    ASSERT_FALSE(find_edge(out_edges->edges, *edge_gid));
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -752,7 +752,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
                                     memgraph::storage::replication::ReplicationMode::ASYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::NAME_EXISTS);
+                  .GetError() == memgraph::storage::ReplicationState::RegisterReplicaError::NAME_EXISTS);
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
@@ -784,10 +784,10 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                                     memgraph::storage::replication::ReplicationMode::ASYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS);
+                  .GetError() == memgraph::storage::ReplicationState::RegisterReplicaError::END_POINT_EXISTS);
 }
 
-TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
+TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   auto main_config = configuration;
   main_config.durability.restore_replication_state_on_startup = true;
   std::unique_ptr<memgraph::storage::Storage> main_store{new memgraph::storage::InMemoryStorage(main_config)};
@@ -907,5 +907,5 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
                                     memgraph::storage::replication::ReplicationMode::SYNC,
                                     memgraph::storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     memgraph::storage::replication::ReplicationClientConfig{})
-                  .GetError() == memgraph::storage::InMemoryStorage::RegisterReplicaError::CONNECTION_FAILED);
+                  .GetError() == memgraph::storage::ReplicationState::RegisterReplicaError::CONNECTION_FAILED);
 }

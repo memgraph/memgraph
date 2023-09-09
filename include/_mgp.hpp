@@ -135,6 +135,13 @@ inline int64_t value_get_int(mgp_value *val) { return MgInvoke<int64_t>(mgp_valu
 
 inline double value_get_double(mgp_value *val) { return MgInvoke<double>(mgp_value_get_double, val); }
 
+inline double value_get_numeric(mgp_value *val) {
+  if (MgInvoke<int>(mgp_value_is_int, val)) {
+    return static_cast<double>(value_get_int(val));
+  }
+  return value_get_double(val);
+}
+
 inline const char *value_get_string(mgp_value *val) { return MgInvoke<const char *>(mgp_value_get_string, val); }
 
 inline mgp_list *value_get_list(mgp_value *val) { return MgInvoke<mgp_list *>(mgp_value_get_list, val); }
@@ -170,6 +177,8 @@ inline bool value_is_bool(mgp_value *val) { return MgInvoke<int>(mgp_value_is_bo
 inline bool value_is_int(mgp_value *val) { return MgInvoke<int>(mgp_value_is_int, val); }
 
 inline bool value_is_double(mgp_value *val) { return MgInvoke<int>(mgp_value_is_double, val); }
+
+inline bool value_is_numeric(mgp_value *val) { return value_is_int(val) || value_is_double(val); }
 
 inline bool value_is_string(mgp_value *val) { return MgInvoke<int>(mgp_value_is_string, val); }
 
@@ -244,6 +253,16 @@ inline void graph_detach_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) {
 inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
                                    mgp_memory *memory) {
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
+}
+
+inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                     mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_from, graph, e, new_from, memory);
+}
+
+inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                   mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
 }
 
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
@@ -326,6 +345,12 @@ inline void map_insert(mgp_map *map, const char *key, mgp_value *value) {
   MgInvokeVoid(mgp_map_insert, map, key, value);
 }
 
+inline void map_update(mgp_map *map, const char *key, mgp_value *value) {
+  MgInvokeVoid(mgp_map_update, map, key, value);
+}
+
+inline void map_erase(mgp_map *map, const char *key) { MgInvokeVoid(mgp_map_erase, map, key); }
+
 inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
@@ -352,6 +377,10 @@ inline mgp_map_item *map_items_iterator_next(mgp_map_items_iterator *it) {
 
 inline mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_vertex_get_id, v); }
 
+inline size_t vertex_get_in_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_in_degree, v); }
+
+inline size_t vertex_get_out_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_out_degree, v); }
+
 inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_vertex_copy, v, memory);
 }
@@ -374,12 +403,20 @@ inline bool vertex_has_label_named(mgp_vertex *v, const char *label_name) {
 
 inline void vertex_add_label(mgp_vertex *vertex, mgp_label label) { MgInvokeVoid(mgp_vertex_add_label, vertex, label); }
 
+inline void vertex_remove_label(mgp_vertex *vertex, mgp_label label) {
+  MgInvokeVoid(mgp_vertex_remove_label, vertex, label);
+}
+
 inline mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_vertex_get_property, v, property_name, memory);
 }
 
 inline void vertex_set_property(mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   MgInvokeVoid(mgp_vertex_set_property, v, property_name, property_value);
+}
+
+inline void vertex_set_properties(mgp_vertex *v, struct mgp_map *properties) {
+  MgInvokeVoid(mgp_vertex_set_properties, v, properties);
 }
 
 inline mgp_properties_iterator *vertex_iter_properties(mgp_vertex *v, mgp_memory *memory) {
@@ -416,6 +453,10 @@ inline mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_
 
 inline void edge_set_property(mgp_edge *e, const char *property_name, mgp_value *property_value) {
   MgInvokeVoid(mgp_edge_set_property, e, property_name, property_value);
+}
+
+inline void edge_set_properties(mgp_edge *e, struct mgp_map *properties) {
+  MgInvokeVoid(mgp_edge_set_properties, e, properties);
 }
 
 inline mgp_properties_iterator *edge_iter_properties(mgp_edge *e, mgp_memory *memory) {
@@ -703,7 +744,7 @@ inline void proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_typ
   MgInvokeVoid(mgp_proc_add_deprecated_result, proc, name, type);
 }
 
-inline bool must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
+inline int must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
 
 // mgp_result
 

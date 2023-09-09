@@ -949,7 +949,7 @@ TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
   CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
+TYPED_TEST(TestPlanner, AggregationWithListWithAggregationAndGroupBy) {
   // Test RETURN sum(2), [sum(3), 42]
   auto sum2 = SUM(LITERAL(2), false);
   auto sum3 = SUM(LITERAL(3), false);
@@ -1280,19 +1280,6 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpandBfs(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
-  // Test MATCH (n) -[r]- (m :label) RETURN r
-  FakeDbAccessor dba;
-  auto label = "label";
-  dba.SetIndexCount(dba.Label(label), 0);
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r")));
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  // We expect 2x ScanAll and then Expand, since we are guessing that is
-  // faster (due to low label index vertex count).
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectScanAllByLabel(), ExpectExpand(), ExpectProduce());
-}
-
 TYPED_TEST(TestPlanner, MatchScanToExpand) {
   // Test MATCH (n) -[r]- (m :label {property: 1}) RETURN r
   FakeDbAccessor dba;
@@ -1502,13 +1489,6 @@ TYPED_TEST(TestPlanner, ScanAllById) {
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(FN("id", IDENT("n")), LITERAL(42))), RETURN("n")));
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAllById(), ExpectProduce());
-}
-
-TYPED_TEST(TestPlanner, ScanAllByIdExpandToExisting) {
-  // Test MATCH (n)-[r]-(m) WHERE id(m) = 42 RETURN r
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))), RETURN("r")));
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectScanAllById(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BfsToExisting) {

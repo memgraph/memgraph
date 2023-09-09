@@ -279,4 +279,14 @@ constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exist
 
 constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
                                                      &query::Clause::kType};
+
+constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MULTI_DATABASE_QUERY,
+                                                           "MultiDatabaseQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
+                                                           &query::Query::kType};
+
+constexpr utils::TypeInfo query::EdgeImportModeQuery::kType{utils::TypeId::AST_EDGE_IMPORT_MODE_QUERY,
+                                                            "EdgeImportModeQuery", &query::Query::kType};
+
 }  // namespace memgraph

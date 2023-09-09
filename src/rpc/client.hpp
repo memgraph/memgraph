@@ -30,7 +30,7 @@ namespace memgraph::rpc {
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  Client(const io::network::Endpoint &endpoint, communication::ClientContext *context);
+  Client(io::network::Endpoint endpoint, communication::ClientContext *context);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -194,7 +194,7 @@ class Client {
   /// Call this function from another thread to abort a pending RPC call.
   void Abort();
 
-  const auto &Endpoint() const { return endpoint_; }
+  auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
  private:
   io::network::Endpoint endpoint_;

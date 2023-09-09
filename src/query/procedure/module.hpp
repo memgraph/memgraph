@@ -60,7 +60,7 @@ class ModulePtr final {
 
  public:
   ModulePtr() = default;
-  ModulePtr(std::nullptr_t) {}
+  explicit ModulePtr(std::nullptr_t) {}
   ModulePtr(const Module *module, std::shared_lock<utils::RWLock> lock) : module_(module), lock_(std::move(lock)) {}
 
   explicit operator bool() const { return static_cast<bool>(module_); }
@@ -176,6 +176,7 @@ class ModuleRegistry final {
 };
 
 /// Single, global module registry.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern ModuleRegistry gModuleRegistry;
 
 /// Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
@@ -231,7 +232,7 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
   for (size_t i = 0; i < n_args; ++i) {
     auto arg = args[i];
     std::string_view name;
-    const query::procedure::CypherType *type;
+    const query::procedure::CypherType *type = nullptr;
     if (is_not_optional_arg(i)) {
       name = callable.args[i].first;
       type = callable.args[i].second;

@@ -18,7 +18,10 @@
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "storage/v2/edge_direction.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
 
@@ -48,18 +51,6 @@ struct RocksDBStorage {
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
-
-  uint64_t ApproximateVertexCount() const {
-    uint64_t estimate_num_keys = 0;
-    db_->GetIntProperty(vertex_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
-    return estimate_num_keys;
-  }
-
-  uint64_t ApproximateEdgeCount() const {
-    uint64_t estimate_num_keys = 0;
-    db_->GetIntProperty(edge_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
-    return estimate_num_keys;
-  }
 };
 
 /// RocksDB comparator that compares keys with timestamps.
@@ -84,6 +75,29 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
 
  private:
   const Comparator *cmp_without_ts_{nullptr};
+};
+
+struct DiskEdgeKey {
+  DiskEdgeKey(const std::string_view keyView) : key(keyView) {}
+
+  /// @tparam src_vertex_gid, dest_vertex_gid: Gid of the source and destination vertices
+  /// @tparam edge_type_id: EdgeTypeId of the edge
+  /// @tparam edge_ref: Edge to be serialized
+  DiskEdgeKey(Gid src_vertex_gid, storage::Gid dest_vertex_gid, storage::EdgeTypeId edge_type_id,
+              const EdgeRef edge_ref, bool properties_on_edges);
+
+  DiskEdgeKey(const ModifiedEdgeInfo &edge_info, bool properties_on_edges);
+
+  std::string GetSerializedKey() const { return key; }
+
+  std::string GetVertexOutGid() const;
+  std::string GetVertexInGid() const;
+  std::string GetEdgeGid() const;
+
+ private:
+  // vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
+  // Currently direction is only out.
+  std::string key;
 };
 
 }  // namespace memgraph::storage

@@ -15,6 +15,8 @@
 #include <gtest/internal/gtest-type-util.h>
 
 #include "disk_test_utils.hpp"
+#include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -263,7 +265,6 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = this->CreateVertex(acc.get());
-    spdlog::debug("Created vertex with gid: {}", memgraph::utils::SerializeIdType(vertex.Gid()));
     ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
   }
 

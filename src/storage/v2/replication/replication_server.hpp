@@ -13,39 +13,28 @@
 
 #include "rpc/server.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/global.hpp"
 
 namespace memgraph::storage {
 
-class InMemoryStorage::ReplicationServer {
+class ReplicationServer {
  public:
-  explicit ReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
-                             const replication::ReplicationServerConfig &config);
+  explicit ReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config);
   ReplicationServer(const ReplicationServer &) = delete;
   ReplicationServer(ReplicationServer &&) = delete;
   ReplicationServer &operator=(const ReplicationServer &) = delete;
   ReplicationServer &operator=(ReplicationServer &&) = delete;
 
-  ~ReplicationServer();
+  virtual ~ReplicationServer();
 
- private:
-  // RPC handlers
-  void HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  bool Start();
+
+ protected:
   static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-  void AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-  void SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-  void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-  void CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-  void TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
-  void LoadWal(replication::Decoder *decoder);
-  uint64_t ReadAndApplyDelta(durability::BaseDecoder *decoder);
-
-  std::optional<communication::ServerContext> rpc_server_context_;
-  std::optional<rpc::Server> rpc_server_;
-
-  InMemoryStorage *storage_;
+  communication::ServerContext rpc_server_context_;
+  rpc::Server rpc_server_;
 };
 
 }  // namespace memgraph::storage

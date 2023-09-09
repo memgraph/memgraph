@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,8 +86,8 @@ struct ConsumerInfo {
   std::string bootstrap_servers;
   std::chrono::milliseconds batch_interval;
   int64_t batch_size;
-  std::unordered_map<std::string, std::string> public_configs;
-  std::unordered_map<std::string, std::string> private_configs;
+  std::unordered_map<std::string, std::string> public_configs{};
+  std::unordered_map<std::string, std::string> private_configs{};
 };
 
 /// Memgraphs Kafka consumer wrapper.

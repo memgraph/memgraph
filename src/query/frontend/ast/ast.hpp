@@ -2253,6 +2253,7 @@ class CallProcedure : public memgraph::query::Clause {
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  bool void_procedure_{false};
 
   CallProcedure *Clone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
@@ -2269,6 +2270,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->void_procedure_ = void_procedure_;
     return object;
   }
 
@@ -2776,7 +2778,11 @@ class AuthQuery : public memgraph::query::Query {
     REVOKE_PRIVILEGE,
     SHOW_PRIVILEGES,
     SHOW_ROLE_FOR_USER,
-    SHOW_USERS_FOR_ROLE
+    SHOW_USERS_FOR_ROLE,
+    GRANT_DATABASE_TO_USER,
+    REVOKE_DATABASE_FROM_USER,
+    SHOW_DATABASE_PRIVILEGES,
+    SET_MAIN_DATABASE,
   };
 
   enum class Privilege {
@@ -2802,7 +2808,9 @@ class AuthQuery : public memgraph::query::Query {
     MODULE_WRITE,
     WEBSOCKET,
     STORAGE_MODE,
-    TRANSACTION_MANAGEMENT
+    TRANSACTION_MANAGEMENT,
+    MULTI_DATABASE_EDIT,
+    MULTI_DATABASE_USE,
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -2816,6 +2824,7 @@ class AuthQuery : public memgraph::query::Query {
   std::string role_;
   std::string user_or_role_;
   memgraph::query::Expression *password_{nullptr};
+  std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
@@ -2829,6 +2838,7 @@ class AuthQuery : public memgraph::query::Query {
     object->role_ = role_;
     object->user_or_role_ = user_or_role_;
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
+    object->database_ = database_;
     object->privileges_ = privileges_;
     object->label_privileges_ = label_privileges_;
     object->edge_type_privileges_ = edge_type_privileges_;
@@ -2837,7 +2847,7 @@ class AuthQuery : public memgraph::query::Query {
 
  protected:
   AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, Expression *password,
-            std::vector<Privilege> privileges,
+            std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges)
       : action_(action),
@@ -2845,6 +2855,7 @@ class AuthQuery : public memgraph::query::Query {
         role_(role),
         user_or_role_(user_or_role),
         password_(password),
+        database_(database),
         privileges_(privileges),
         label_privileges_(label_privileges),
         edge_type_privileges_(edge_type_privileges) {}
@@ -2854,19 +2865,31 @@ class AuthQuery : public memgraph::query::Query {
 };
 
 /// Constant that holds all available privileges.
-const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
-    AuthQuery::Privilege::CREATE,      AuthQuery::Privilege::DELETE,
-    AuthQuery::Privilege::MATCH,       AuthQuery::Privilege::MERGE,
-    AuthQuery::Privilege::SET,         AuthQuery::Privilege::REMOVE,
-    AuthQuery::Privilege::INDEX,       AuthQuery::Privilege::STATS,
-    AuthQuery::Privilege::AUTH,        AuthQuery::Privilege::CONSTRAINT,
-    AuthQuery::Privilege::DUMP,        AuthQuery::Privilege::REPLICATION,
-    AuthQuery::Privilege::READ_FILE,   AuthQuery::Privilege::DURABILITY,
-    AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
-    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
-    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
-    AuthQuery::Privilege::STORAGE_MODE};
+const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::CREATE,
+                                                          AuthQuery::Privilege::DELETE,
+                                                          AuthQuery::Privilege::MATCH,
+                                                          AuthQuery::Privilege::MERGE,
+                                                          AuthQuery::Privilege::SET,
+                                                          AuthQuery::Privilege::REMOVE,
+                                                          AuthQuery::Privilege::INDEX,
+                                                          AuthQuery::Privilege::STATS,
+                                                          AuthQuery::Privilege::AUTH,
+                                                          AuthQuery::Privilege::CONSTRAINT,
+                                                          AuthQuery::Privilege::DUMP,
+                                                          AuthQuery::Privilege::REPLICATION,
+                                                          AuthQuery::Privilege::READ_FILE,
+                                                          AuthQuery::Privilege::DURABILITY,
+                                                          AuthQuery::Privilege::FREE_MEMORY,
+                                                          AuthQuery::Privilege::TRIGGER,
+                                                          AuthQuery::Privilege::CONFIG,
+                                                          AuthQuery::Privilege::STREAM,
+                                                          AuthQuery::Privilege::MODULE_READ,
+                                                          AuthQuery::Privilege::MODULE_WRITE,
+                                                          AuthQuery::Privilege::WEBSOCKET,
+                                                          AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
+                                                          AuthQuery::Privilege::STORAGE_MODE,
+                                                          AuthQuery::Privilege::MULTI_DATABASE_EDIT,
+                                                          AuthQuery::Privilege::MULTI_DATABASE_USE};
 
 class InfoQuery : public memgraph::query::Query {
  public:
@@ -2973,6 +2996,29 @@ class ReplicationQuery : public memgraph::query::Query {
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EdgeImportModeQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Status { ACTIVE, INACTIVE };
+
+  EdgeImportModeQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::EdgeImportModeQuery::Status status_;
+
+  EdgeImportModeQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EdgeImportModeQuery>();
+    object->status_ = status_;
     return object;
   }
 
@@ -3442,6 +3488,39 @@ class CallSubquery : public memgraph::query::Clause {
 
  private:
   friend class AstStorage;
+};
+
+class MultiDatabaseQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  enum class Action { CREATE, USE, DROP };
+
+  memgraph::query::MultiDatabaseQuery::Action action_;
+  std::string db_name_;
+
+  MultiDatabaseQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<MultiDatabaseQuery>();
+    object->action_ = action_;
+    object->db_name_ = db_name_;
+    return object;
+  }
+};
+
+class ShowDatabasesQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowDatabasesQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowDatabasesQuery>();
+    return object;
+  }
 };
 
 }  // namespace query

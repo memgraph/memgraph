@@ -254,6 +254,9 @@ target_link_libraries(${test_prefix}utils_signals mg-utils)
 add_unit_test(utils_string.cpp)
 target_link_libraries(${test_prefix}utils_string mg-utils)
 
+add_unit_test(utils_sync_ptr.cpp)
+target_link_libraries(${test_prefix}utils_sync_ptr)
+
 add_unit_test(utils_synchronized.cpp)
 target_link_libraries(${test_prefix}utils_synchronized mg-utils)
 
@@ -286,6 +289,9 @@ target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 
 add_unit_test(utils_temporal utils_temporal.cpp)
 target_link_libraries(${test_prefix}utils_temporal mg-utils)
+
+add_unit_test(utils_java_string_formatter.cpp)
+target_link_libraries(${test_prefix}utils_java_string_formatter mg-utils)
 
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
@@ -342,6 +348,9 @@ target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
+add_unit_test(storage_v2_show_storage_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_show_storage_info mg-storage-v2)
+
 add_unit_test(storage_v2_storage_mode.cpp)
 target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
 
@@ -389,3 +398,20 @@ find_package(Boost REQUIRED)
 
 add_unit_test(monitoring.cpp)
 target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
+
+# Test multi-database
+if(MG_ENTERPRISE)
+  # add_unit_test(dbms_storage.cpp)
+  # target_link_libraries(${test_prefix}dbms_storage mg-storage-v2 mg-query mg-glue)
+
+  add_unit_test(dbms_interp.cpp)
+  target_link_libraries(${test_prefix}dbms_interp mg-query)
+endif()
+
+# add_unit_test(dbms_auth.cpp)
+# target_link_libraries(${test_prefix}dbms_auth mg-glue)
+
+if(MG_ENTERPRISE)
+  add_unit_test_with_custom_main(dbms_sc_handler.cpp)
+  target_link_libraries(${test_prefix}dbms_sc_handler mg-query mg-audit mg-glue)
+endif()

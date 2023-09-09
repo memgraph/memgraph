@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "query/frontend/ast/ast.hpp"
 #include "utils/visitor.hpp"
 
 namespace memgraph::query {
@@ -102,6 +103,9 @@ class CallSubquery;
 class AnalyzeGraphQuery;
 class TransactionQueueQuery;
 class Exists;
+class MultiDatabaseQuery;
+class ShowDatabasesQuery;
+class EdgeImportModeQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -139,6 +143,7 @@ class QueryVisitor
     : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
                             ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
                             IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery,
-                            ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery> {};
+                            ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
+                            MultiDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery> {};
 
 }  // namespace memgraph::query

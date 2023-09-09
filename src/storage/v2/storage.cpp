@@ -49,8 +49,11 @@ Storage::Storage(Config config, StorageMode storage_mode)
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(&constraints_, config, storage_mode),
-      constraints_(config, storage_mode) {}
+      indices_(config, storage_mode),
+      constraints_(config, storage_mode),
+      id_(config.name),
+      replication_state_(config_.durability.restore_replication_state_on_startup,
+                         config_.durability.storage_directory) {}
 
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),
@@ -96,9 +99,9 @@ void Storage::SetStorageMode(StorageMode storage_mode) {
   }
 }
 
-IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
-
 StorageMode Storage::GetStorageMode() const { return storage_mode_; }
+
+IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
@@ -114,11 +117,14 @@ StorageMode Storage::Accessor::GetCreationStorageMode() const { return creation_
 
 std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   if (is_transaction_active_) {
-    return transaction_.transaction_id.load(std::memory_order_acquire);
+    return transaction_.transaction_id;
   }
   return {};
 }
 
-void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
+void Storage::Accessor::AdvanceCommand() {
+  transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
+  ++transaction_.command_id;
+}
 
 }  // namespace memgraph::storage

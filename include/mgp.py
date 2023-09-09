@@ -479,6 +479,12 @@ class Properties:
         except KeyError:
             return False
 
+    def set_properties(self, properties: dict) -> None:
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+
+        self._vertex_or_edge.set_properties(properties)
+
 
 class EdgeType:
     """Type of an Edge."""

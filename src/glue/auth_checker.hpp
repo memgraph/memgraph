@@ -16,6 +16,7 @@
 #include "query/auth_checker.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace memgraph::glue {
 
@@ -25,18 +26,23 @@ class AuthChecker : public query::AuthChecker {
       memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth);
 
   bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<query::AuthQuery::Privilege> &privileges) const override;
+                        const std::vector<query::AuthQuery::Privilege> &privileges,
+                        const std::string &db_name) const override;
 
 #ifdef MG_ENTERPRISE
   std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username, const memgraph::query::DbAccessor *dba) const override;
 
+  void ClearCache() const override;
+
 #endif
   [[nodiscard]] static bool IsUserAuthorized(const memgraph::auth::User &user,
-                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges);
+                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                             const std::string &db_name = "");
 
  private:
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
+  mutable memgraph::utils::Synchronized<auth::User, memgraph::utils::SpinLock> user_;  // cached user
 };
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {

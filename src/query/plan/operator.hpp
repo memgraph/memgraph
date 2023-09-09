@@ -764,6 +764,13 @@ struct ExpandCommon {
   bool existing_node;
 };
 
+struct ExpansionInfo {
+  std::optional<VertexAccessor> input_node;
+  EdgeAtom::Direction direction;
+  std::optional<VertexAccessor> existing_node;
+  bool reversed{false};
+};
+
 /// Expansion operator. For a node existing in the frame it
 /// expands one edge and one node and places them on the frame.
 ///
@@ -806,14 +813,16 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   class ExpandCursor : public Cursor {
    public:
     ExpandCursor(const Expand &, utils::MemoryResource *);
+    ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
+    ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
-    using InEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().InEdges(storage::View::OLD))>;
+    using InEdgeT = std::vector<EdgeAccessor>;
     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
-    using OutEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().OutEdges(storage::View::OLD))>;
+    using OutEdgeT = std::vector<EdgeAccessor>;
     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
     const Expand &self_;
@@ -826,6 +835,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     std::optional<InEdgeIteratorT> in_edges_it_;
     std::optional<OutEdgeT> out_edges_;
     std::optional<OutEdgeIteratorT> out_edges_it_;
+    ExpansionInfo expansion_info_;
+    int64_t prev_input_degree_{-1};
+    int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
   };
@@ -1263,6 +1275,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
    private:
     const SetProperties &self_;
     const UniqueCursorPtr input_cursor_;
+    std::unordered_map<std::string, storage::PropertyId> cached_name_id_{};
   };
 };
 
@@ -2178,7 +2191,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write);
+                size_t memory_scale, bool is_write, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2200,6 +2213,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  bool void_procedure_;
   mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
   utils::MemoryResource *memory_resource = &monotonic_memory;
 
@@ -2216,6 +2230,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->void_procedure_ = void_procedure_;
     return object;
   }
 
