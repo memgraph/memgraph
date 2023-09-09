@@ -184,6 +184,10 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
+
+    Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
+
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     bool LabelIndexExists(LabelId label) const override {
@@ -390,6 +394,7 @@ class DiskStorage final : public Storage {
  private:
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
+
   std::atomic<uint64_t> vertex_count_{0};
 };
 

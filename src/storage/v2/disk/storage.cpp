@@ -36,6 +36,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -54,6 +55,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -63,6 +65,7 @@
 #include "utils/skip_list.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::storage {
 
@@ -335,6 +338,8 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
+
+  transaction_.deltas.~Bond<PmrListDelta>();
 }
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
@@ -1173,10 +1178,10 @@ bool DiskStorage::DiskAccessor::PrefetchEdgeFilter(const std::string_view disk_e
   }
 
   MG_ASSERT(edges_res.HasValue());
-  auto edges = edges_res.GetValue();
-  bool isEdgeAlreadyInMemory = std::any_of(edges.begin(), edges.end(), [edge_gid](const auto &edge_acc) {
-    return utils::SerializeIdType(edge_acc.Gid()) == edge_gid;
-  });
+  auto edges_result = edges_res.GetValue();
+  bool isEdgeAlreadyInMemory =
+      std::any_of(edges_result.edges.begin(), edges_result.edges.end(),
+                  [edge_gid](const auto &edge_acc) { return utils::SerializeIdType(edge_acc.Gid()) == edge_gid; });
 
   return !isEdgeAlreadyInMemory;
 }
@@ -1360,6 +1365,16 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
                                           &storage_->indices_, &storage_->constraints_, config_, true);
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
+  MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
+  MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
 }
 
 /// TODO: at which storage naming
@@ -1638,9 +1653,9 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (transaction_.deltas.empty() ||
+  if (transaction_.deltas.use().empty() ||
       (!edge_import_mode_active &&
-       std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+       std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(),
                    [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; }))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
@@ -1758,9 +1773,9 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 
 void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  uint64_t transaction_id = transaction_.transaction_id.load(std::memory_order_acquire);
+  uint64_t transaction_id = transaction_.transaction_id;
 
-  for (const auto &delta : transaction_.deltas) {
+  for (const auto &delta : transaction_.deltas.use()) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
