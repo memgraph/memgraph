@@ -67,7 +67,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      VertexAccessor operator*() const { return current_vertex_accessor_; }
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
