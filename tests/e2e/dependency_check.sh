@@ -12,6 +12,5 @@ check_port_in_use() {
 }
 
 
-check_port_in_use 7687 "Memgraph"
-# check_port_in_use(9092, "Kafka bootstrap server")
-# check_port_in_use(6650, "Pulsar service url")
+check_port_in_use 9092 "Kafka bootstrap server"
+check_port_in_use 6650 "Pulsar service url"
