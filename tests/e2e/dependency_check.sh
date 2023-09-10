@@ -1,16 +1,14 @@
 #!/bin/bash
+set -euo pipefail
 
 check_service_in_use() {
-    docker ps --format "{{.Names}}" | grep $1
-    if [ $? -eq 0 ]
-    then
-        echo "Service $2 is successfully working"
-    else
-        echo "Service $2 needs to be restarted"
-        exit 1
-    fi
+  if docker ps --format "{{.Names}}" | grep -q "$1"; then
+    echo "$2 is successfully working"
+  else
+    echo "$2 needs to be available"
+    exit 1
+  fi
 }
-
 
 check_service_in_use "kafka" "Kafka service"
 check_service_in_use "pulsar" "Pulsar service"
