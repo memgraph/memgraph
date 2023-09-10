@@ -217,22 +217,20 @@ def argument_driver(args):
 
 
 def get_memgraph(args) -> Memgraph:
-    connection_params = {}
     host_port = args.endpoint.split(":")
-    connection_params["host"] = host_port[0]
-    connection_params["port"] = int(host_port[1])
-    connection_params["username"] = args.username
-    connection_params["password"] = args.password
+
+    connection_params = {
+        "host": host_port[0],
+        "port": int(host_port[1]),
+        "username": args.username,
+        "password": args.password,
+        "encrypted": False,
+    }
+
     if args.use_ssl:
         connection_params["encrypted"] = True
 
-    return Memgraph(
-        host=connection_params["host"],
-        port=connection_params["port"],
-        username=connection_params["username"],
-        password=connection_params["password"],
-        encrypted=connection_params["encrypted"],
-    )
+    return Memgraph(**connection_params)
 
 
 # This class is used to create and cache sessions. Session is cached by args
