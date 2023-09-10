@@ -12,5 +12,5 @@ check_service_in_use() {
 }
 
 
-check_port_in_use "kafka" "Kafka service"
-check_port_in_use "pulsar" "Pulsar service"
+check_service_in_use "kafka" "Kafka service"
+check_service_in_use "pulsar" "Pulsar service"
