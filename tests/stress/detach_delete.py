@@ -35,6 +35,18 @@ NUMBER_NODES_IN_CHAIN = 4
 CREATE_FUNCTION = "CREATE"
 DELETE_FUNCTION = "DELETE"
 
+CONNECTION_PARAMS = {"host": "127.0.0.1", "port": 7687, "username": "", "password": "", "encrypted": False}
+
+
+def get_memgraph() -> Memgraph:
+    return Memgraph(
+        host=CONNECTION_PARAMS["host"],
+        port=CONNECTION_PARAMS["port"],
+        username=CONNECTION_PARAMS["username"],
+        password=CONNECTION_PARAMS["password"],
+        encrypted=CONNECTION_PARAMS["encrypted"],
+    )
+
 
 @dataclass
 class Worker:
@@ -77,6 +89,8 @@ def timed_function(name) -> Callable:
 
 
 def parse_args() -> Args:
+    global CONNECTION_PARAMS
+
     """
     Parses user arguments
 
@@ -90,19 +104,36 @@ def parse_args() -> Args:
     parser.add_argument("--repetition-count", type=int, default=1000, help="Number of times to perform the action")
     parser.add_argument("--isolation-level", type=str, required=True, help="Database isolation level.")
     parser.add_argument("--storage-mode", type=str, required=True, help="Database storage mode.")
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    host_port = args.endpoint.split(":")
+    CONNECTION_PARAMS["host"] = host_port[0]
+    CONNECTION_PARAMS["port"] = int(host_port[1])
+    CONNECTION_PARAMS["username"] = args.username
+    CONNECTION_PARAMS["password"] = args.password
+    if args.use_ssl:
+        CONNECTION_PARAMS["encrypted"] = True
+
+    return args
 
 
 @timed_function("cleanup_time")
 def clean_database() -> None:
-    memgraph = Memgraph()
+    memgraph = get_memgraph()
     memgraph.execute("MATCH (n) DETACH DELETE n")
 
 
 def create_indices() -> None:
-    memgraph = Memgraph()
+    memgraph = get_memgraph()
     memgraph.execute("CREATE INDEX ON :Node")
     memgraph.execute("CREATE INDEX ON :Node(id)")
+
+
+def setup_database_mode(args: Args) -> None:
+    memgraph = get_memgraph()
+    memgraph.execute(f"STORAGE MODE {args.storage_mode}")
+    memgraph.execute(f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
 
 
 def execute_function(worker: Worker) -> Worker:
@@ -126,7 +157,7 @@ def run_writer(total_workers_cnt: int, repetition_count: int, sleep_sec: float, 
     a valid graph. A graph is valid if the number of nodes is preserved, and the chain is either
     not present or present completely.
     """
-    memgraph = Memgraph()
+    memgraph = get_memgraph()
 
     def create():
         try:
@@ -174,7 +205,7 @@ def run_deleter(total_workers_cnt: int, repetition_count: int, sleep_sec: float)
     """
     Periodic deletion of an arbitrary chain in the graph
     """
-    memgraph = Memgraph()
+    memgraph = get_memgraph()
 
     def delete_part_of_graph(id: int):
         try:
@@ -196,6 +227,8 @@ def run_deleter(total_workers_cnt: int, repetition_count: int, sleep_sec: float)
 def execution_handler(args: Args) -> None:
     clean_database()
     log.info("Database is clean.")
+
+    setup_database_mode(args)
 
     create_indices()
 

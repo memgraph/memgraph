@@ -133,8 +133,6 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
 
     binary = _find_test_binary(args, test)
 
-    _test_run_setup_database(mode)
-
     # start test
     cmd = (
         binary
@@ -158,13 +156,6 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
     print("    Done after {:.3f} seconds".format(runtime))
 
     return runtime
-
-
-def _test_run_setup_database(mode: DatabaseMode) -> None:
-    memgraph = Memgraph()
-
-    execute_till_success_gqlalchemy(memgraph, f"STORAGE MODE {mode.storage_mode}")
-    execute_till_success_gqlalchemy(memgraph, f"SET GLOBAL TRANSACTION ISOLATION LEVEL {mode.isolation_level}")
 
 
 def _find_test_binary(args: Args, test: str) -> List[str]:

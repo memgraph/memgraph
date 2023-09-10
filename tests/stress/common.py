@@ -174,7 +174,7 @@ def connection_argument_parser():
         help="DBMS instance endpoint. " "Bolt protocol is the only option.",
     )
     parser.add_argument("--username", type=str, default="neo4j", help="DBMS instance username.")
-    parser.add_argument("--password", type=int, default="1234", help="DBMS instance password.")
+    parser.add_argument("--password", type=str, default="1234", help="DBMS instance password.")
     parser.add_argument("--use-ssl", action="store_true", help="Is SSL enabled?")
     return parser
 
@@ -203,13 +203,13 @@ def argument_session(args):
     """
     :return: Bolt session context manager based on program arguments
     """
-    return bolt_session("bolt://" + args.endpoint, (args.username, str(args.password)), args.use_ssl)
+    return bolt_session("bolt://" + args.endpoint, (args.username, args.password), args.use_ssl)
 
 
 def argument_driver(args):
     return GraphDatabase.driver(
         "bolt://" + args.endpoint,
-        auth=(args.username, str(args.password)),
+        auth=(args.username, args.password),
         encrypted=args.use_ssl,
         trust=TRUST_ALL_CERTIFICATES,
     )
