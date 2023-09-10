@@ -25,8 +25,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Tuple
 
-from common import OutputData, connection_argument_parser
-from gqlalchemy import Memgraph
+from common import OutputData, connection_argument_parser, get_memgraph
 
 log = logging.getLogger(__name__)
 output_data = OutputData()
@@ -35,17 +34,26 @@ NUMBER_NODES_IN_CHAIN = 4
 CREATE_FUNCTION = "CREATE"
 DELETE_FUNCTION = "DELETE"
 
-CONNECTION_PARAMS = {"host": "127.0.0.1", "port": 7687, "username": "", "password": "", "encrypted": False}
 
+def parse_args() -> Args:
+    """
+    Parses user arguments
 
-def get_memgraph() -> Memgraph:
-    return Memgraph(
-        host=CONNECTION_PARAMS["host"],
-        port=CONNECTION_PARAMS["port"],
-        username=CONNECTION_PARAMS["username"],
-        password=CONNECTION_PARAMS["password"],
-        encrypted=CONNECTION_PARAMS["encrypted"],
+    :return: parsed arguments
+    """
+    parser = connection_argument_parser()
+    parser.add_argument("--worker-count", type=int, default=4, help="Number of concurrent workers.")
+    parser.add_argument(
+        "--logging", default="INFO", choices=["INFO", "DEBUG", "WARNING", "ERROR"], help="Logging level"
     )
+    parser.add_argument("--repetition-count", type=int, default=1000, help="Number of times to perform the action")
+    parser.add_argument("--isolation-level", type=str, required=True, help="Database isolation level.")
+    parser.add_argument("--storage-mode", type=str, required=True, help="Database storage mode.")
+
+    return parser.parse_args()
+
+
+args = parse_args()
 
 
 @dataclass
@@ -88,50 +96,20 @@ def timed_function(name) -> Callable:
     return actual_decorator
 
 
-def parse_args() -> Args:
-    global CONNECTION_PARAMS
-
-    """
-    Parses user arguments
-
-    :return: parsed arguments
-    """
-    parser = connection_argument_parser()
-    parser.add_argument("--worker-count", type=int, default=4, help="Number of concurrent workers.")
-    parser.add_argument(
-        "--logging", default="INFO", choices=["INFO", "DEBUG", "WARNING", "ERROR"], help="Logging level"
-    )
-    parser.add_argument("--repetition-count", type=int, default=1000, help="Number of times to perform the action")
-    parser.add_argument("--isolation-level", type=str, required=True, help="Database isolation level.")
-    parser.add_argument("--storage-mode", type=str, required=True, help="Database storage mode.")
-
-    args = parser.parse_args()
-
-    host_port = args.endpoint.split(":")
-    CONNECTION_PARAMS["host"] = host_port[0]
-    CONNECTION_PARAMS["port"] = int(host_port[1])
-    CONNECTION_PARAMS["username"] = args.username
-    CONNECTION_PARAMS["password"] = args.password
-    if args.use_ssl:
-        CONNECTION_PARAMS["encrypted"] = True
-
-    return args
-
-
 @timed_function("cleanup_time")
 def clean_database() -> None:
-    memgraph = get_memgraph()
+    memgraph = get_memgraph(args)
     memgraph.execute("MATCH (n) DETACH DELETE n")
 
 
 def create_indices() -> None:
-    memgraph = get_memgraph()
+    memgraph = get_memgraph(args)
     memgraph.execute("CREATE INDEX ON :Node")
     memgraph.execute("CREATE INDEX ON :Node(id)")
 
 
-def setup_database_mode(args: Args) -> None:
-    memgraph = get_memgraph()
+def setup_database_mode() -> None:
+    memgraph = get_memgraph(args)
     memgraph.execute(f"STORAGE MODE {args.storage_mode}")
     memgraph.execute(f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
 
@@ -157,7 +135,7 @@ def run_writer(total_workers_cnt: int, repetition_count: int, sleep_sec: float, 
     a valid graph. A graph is valid if the number of nodes is preserved, and the chain is either
     not present or present completely.
     """
-    memgraph = get_memgraph()
+    memgraph = get_memgraph(args)
 
     def create():
         try:
@@ -205,7 +183,7 @@ def run_deleter(total_workers_cnt: int, repetition_count: int, sleep_sec: float)
     """
     Periodic deletion of an arbitrary chain in the graph
     """
-    memgraph = get_memgraph()
+    memgraph = get_memgraph(args)
 
     def delete_part_of_graph(id: int):
         try:
@@ -224,11 +202,11 @@ def run_deleter(total_workers_cnt: int, repetition_count: int, sleep_sec: float)
 
 
 @timed_function("total_execution_time")
-def execution_handler(args: Args) -> None:
+def execution_handler() -> None:
     clean_database()
     log.info("Database is clean.")
 
-    setup_database_mode(args)
+    setup_database_mode()
 
     create_indices()
 
@@ -244,9 +222,7 @@ def execution_handler(args: Args) -> None:
 
 
 if __name__ == "__main__":
-    args = parse_args()
-
     logging.basicConfig(level=args.logging)
-    execution_handler(args)
+    execution_handler()
     if args.logging in ["DEBUG", "INFO"]:
         output_data.dump()

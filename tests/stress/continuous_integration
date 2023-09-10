@@ -10,8 +10,6 @@ from argparse import Namespace as Args
 from subprocess import Popen
 from typing import Dict, List
 
-from common import execute_till_success_gqlalchemy
-from gqlalchemy import Memgraph
 from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
 
 # paths
