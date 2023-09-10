@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,24 @@
 #include <span>
 #include <string>
 #include <vector>
+
+///////////////////////////////////////////////////////////
+// Our communication layer and query engine don't mix
+// very well on Centos because OpenSSL version available
+// on Centos 7 include libkrb5 which has brilliant macros
+// called TRUE and FALSE. For more detailed explanation go
+// to memgraph.cpp.
+//
+// Somehow these macros started to be defined here.
+// This cannot be avoided by simple include orderings so we
+// simply undefine those macros as we're sure that libkrb5
+// won't and can't be used anywhere in the query engine.
+// TODO: CHECK -> This is actually it's own compilation unit
+// so the undefs should be local.
+// TODO: Figure out the original reason for this to happen.
+#undef FALSE
+#undef TRUE
+///////////////////////////////////////////////////////////
 
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
