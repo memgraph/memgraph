@@ -1,7 +1,7 @@
 #!/bin/bash
 
-check_port_in_use() {
-    lsof -i:$1
+check_service_in_use() {
+    docker ps --format "{{.Names}}" | grep $1
     if [ $? -eq 0 ]
     then
         echo "Service $2 is successfully working"
@@ -12,5 +12,5 @@ check_port_in_use() {
 }
 
 
-check_port_in_use 9092 "Kafka bootstrap server"
-check_port_in_use 6650 "Pulsar service url"
+check_port_in_use "kafka" "Kafka service"
+check_port_in_use "pulsar" "Pulsar service"
