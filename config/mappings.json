@@ -21,5 +21,7 @@
     "apoc.refactor.invert": "refactor.invert",
     "apoc.refactor.cloneNode": "refactor.clone_node",
     "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",
-    "apoc.refactor.cloneSubgraphFromPath": "refactor.clone_subgraph_from_path"
+    "apoc.refactor.cloneSubgraphFromPath": "refactor.clone_subgraph_from_path",
+    "apoc.label.exists": "label.exists"
+
 }
