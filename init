@@ -87,7 +87,12 @@ fi
 setup_virtualenv tests/gql_behave
 
 # setup stress dependencies
-setup_virtualenv tests/stress
+# don't install stress tests deps on the following systems because:
+#   * GQLAlchemy can't be installed there
+#   * the stress tests are not run at all on all these systems
+if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
+  setup_virtualenv tests/stress
+fi
 
 # setup integration/ldap dependencies
 setup_virtualenv tests/integration/ldap
