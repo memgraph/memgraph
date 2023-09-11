@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,34 @@
 
 #pragma once
 
+#include <cstddef>
+#include "utils/logging.hpp"
 namespace memgraph::memory {
+
+template <typename T, bool ErrOK>
+int mallctlHelper(const char *cmd, T *out, T *in) {
+  size_t out_len = sizeof(T);
+  int err = mallctl(cmd, out, out ? &out_len : nullptr, in, in ? sizeof(T) : 0);
+  MG_ASSERT(err != 0 || out_len == sizeof(T));
+
+  return err;
+}
+
+template <typename T, bool ErrOK = false>
+int mallctlReadWrite(const char *cmd, T *out, T in) {
+  return mallctlHelper<T, ErrOK>(cmd, out, &in);
+}
+
+template <typename T, bool ErrOK = false>
+int mallctlRead(const char *cmd, T *out) {
+  return mallctlHelper<T, ErrOK>(cmd, out, static_cast<T *>(nullptr));
+}
+
+template <typename T, bool ErrOK = false>
+int mallctlWrite(const char *cmd, T in) {
+  return mallctlHelper<T, ErrOK>(cmd, static_cast<T *>(nullptr), &in);
+}
+
 void PurgeUnusedMemory();
+void PrintStats();
 }  // namespace memgraph::memory
