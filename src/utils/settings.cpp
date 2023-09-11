@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,18 +29,25 @@ void Settings::Finalize() {
   on_change_callbacks_.clear();
 }
 
-void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback) {
+void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback,
+                               Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
   MG_ASSERT(storage_);
+  MG_ASSERT(validation(default_value), "\"{}\"'s default value does not satisfy the validation condition.", name);
 
   if (const auto maybe_value = storage_->Get(name); maybe_value) {
     SPDLOG_INFO("The setting with name {} already exists!", name);
   } else {
     MG_ASSERT(storage_->Put(name, default_value), "Failed to register a setting");
   }
-
-  const auto [it, inserted] = on_change_callbacks_.emplace(std::move(name), callback);
-  MG_ASSERT(inserted, "Settings storage is out of sync");
+  {
+    const auto [_, inserted] = on_change_callbacks_.emplace(name, callback);
+    MG_ASSERT(inserted, "Settings storage is out of sync");
+  }
+  {
+    const auto [_, inserted] = validations_.emplace(std::move(name), validation);
+    MG_ASSERT(inserted, "Settings storage is out of sync");
+  }
 }
 
 std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {
@@ -57,6 +64,12 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
     if (const auto maybe_value = storage_->Get(setting_name); !maybe_value) {
       return std::nullopt;
+    }
+
+    const auto val = validations_.find(setting_name);
+    MG_ASSERT(val != validations_.end(), "Settings storage is out of sync");
+    if (!val->second(new_value)) {
+      throw utils::BasicException("'{}' not valid for '{}'", new_value, setting_name);
     }
 
     MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to modify the setting");

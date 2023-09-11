@@ -775,6 +775,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
   }
 
   // detach delete a single vertex
+  // delete will not happen as we are deleting in bulk
   {
     auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
@@ -783,8 +784,8 @@ TYPED_TEST(QueryPlanTest, Delete) {
     auto context = MakeContext(this->storage, symbol_table, &dba);
     delete_op->MakeCursor(memgraph::utils::NewDeleteResource())->Pull(frame, context);
     dba.AdvanceCommand();
-    EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-    EXPECT_EQ(3, CountEdges(&dba, memgraph::storage::View::OLD));
+    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
   }
 
   // delete all remaining edges
@@ -797,7 +798,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
     auto context = MakeContext(this->storage, symbol_table, &dba);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
-    EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(0, CountEdges(&dba, memgraph::storage::View::OLD));
   }
 
@@ -1012,10 +1013,11 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
 }
 
 TYPED_TEST(QueryPlanTest, DeleteReturn) {
+  // MATCH (n) DETACH DELETE n RETURN n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
-  // make a fully-connected (one-direction, no cycles) with 4 nodes
+  // graph with 4 vertices
   auto prop = PROPERTY_PAIR(dba, "property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba.InsertVertex();
@@ -1033,10 +1035,12 @@ TYPED_TEST(QueryPlanTest, DeleteReturn) {
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
 
+  auto accumulate_op = std::make_shared<plan::Accumulate>(delete_op, delete_op->ModifiedSymbols(symbol_table), true);
+
   auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
   auto n_p =
       this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
-  auto produce = MakeProduce(delete_op, n_p);
+  auto produce = MakeProduce(accumulate_op, n_p);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
@@ -1649,6 +1653,21 @@ TYPED_TEST(QueryPlanTest, MergeNoInput) {
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
+TYPED_TEST(QueryPlanTest, SetPropertyWithCaching) {
+  // SET (Null).prop = 42
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+  auto prop = PROPERTY_PAIR(dba, "property");
+  auto null = LITERAL(TypedValue());
+  auto literal = LITERAL(42);
+  auto n_prop = PROPERTY_LOOKUP(dba, null, prop);
+  auto once = std::make_shared<Once>();
+  auto set_op = std::make_shared<plan::SetProperty>(once, prop.second, n_prop, literal);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  EXPECT_EQ(1, PullAll(*set_op, &context));
+}
+
 TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
   // SET (Null).prop = 42
   auto storage_dba = this->db->Access();
@@ -1713,6 +1732,46 @@ TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
   EXPECT_EQ(*new_properties, expected_properties);
 }
 
+TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  // Add a single vertex. ({prop1: 43, prop2: 44})
+  auto vertex_accessor = dba.InsertVertex();
+  auto old_value = vertex_accessor.SetProperty(dba.NameToProperty("prop1"), memgraph::storage::PropertyValue{43});
+  old_value = vertex_accessor.SetProperty(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue{44});
+  EXPECT_EQ(old_value.HasError(), false);
+  EXPECT_EQ(*old_value, memgraph::storage::PropertyValue());
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+
+  SymbolTable symbol_table;
+  // MATCH (n) SET n += {new_prop1: n.prop1, new_prop2: n.prop2};
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto prop_new_prop1 = PROPERTY_PAIR(dba, "new_prop1");
+  auto prop_new_prop2 = PROPERTY_PAIR(dba, "new_prop2");
+  std::unordered_map<PropertyIx, Expression *> prop_map;
+  prop_map.emplace(this->storage.GetPropertyIx(prop_new_prop1.first), LITERAL(43));
+  prop_map.emplace(this->storage.GetPropertyIx(prop_new_prop2.first), LITERAL(44));
+  auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
+
+  auto op_type{plan::SetProperties::Op::UPDATE};
+  auto set_op = std::make_shared<plan::SetProperties>(n.op_, n.sym_, rhs, op_type);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  PullAll(*set_op, &context);
+  dba.AdvanceCommand();
+
+  auto new_properties = vertex_accessor.Properties(memgraph::storage::View::OLD);
+  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> expected_properties;
+  expected_properties.emplace(dba.NameToProperty("prop1"), memgraph::storage::PropertyValue(43));
+  expected_properties.emplace(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue(44));
+  expected_properties.emplace(dba.NameToProperty("new_prop1"), memgraph::storage::PropertyValue(43));
+  expected_properties.emplace(dba.NameToProperty("new_prop2"), memgraph::storage::PropertyValue(44));
+  EXPECT_EQ(context.evaluation_context.property_lookups_cache.size(), 0);
+  EXPECT_EQ(new_properties.HasError(), false);
+  EXPECT_EQ(*new_properties, expected_properties);
+}
+
 TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
   auto storage_dba = this->db->Access();
@@ -1757,6 +1816,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
 }
 
 TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
+  // MATCH (n) DELETE n SET n.property = 42 RETURN n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
@@ -1764,18 +1824,25 @@ TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   SymbolTable symbol_table;
-  // MATCH (n) DELETE n SET n.property = 42
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   auto prop = PROPERTY_PAIR(dba, "property");
   auto n_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
   auto set_op = std::make_shared<plan::SetProperty>(delete_op, prop.second, n_prop, LITERAL(42));
+  auto accumulate_op = std::make_shared<plan::Accumulate>(set_op, set_op->ModifiedSymbols(symbol_table), true);
+
+  auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+  auto n_p =
+      this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
+  auto produce = MakeProduce(accumulate_op, n_p);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
+  ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
 }
 
 TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
+  // MATCH (n) DELETE n SET n = {property: 42} return n
+  // MATCH (n) DELETE n SET n += {property: 42} return n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
@@ -1783,7 +1850,6 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   SymbolTable symbol_table;
-  // MATCH (n) DELETE n SET n = {property: 42}
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
@@ -1793,12 +1859,18 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
   auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
   for (auto op_type : {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op = std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
+    auto accumulate_op = std::make_shared<plan::Accumulate>(set_op, set_op->ModifiedSymbols(symbol_table), false);
+    auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+    auto n_p =
+        this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
+    auto produce = MakeProduce(accumulate_op, n_p);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
+    ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
 
 TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
+  // MATCH (n) DELETE n SET n = n RETURN n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
@@ -1809,19 +1881,25 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   SymbolTable symbol_table;
-  // MATCH (n) DELETE n SET n = n
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   auto *rhs = IDENT("n")->MapTo(n.sym_);
+  auto prop = PROPERTY_PAIR(dba, "property");
   for (auto op_type : {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op = std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
+    auto accumulate_op = std::make_shared<plan::Accumulate>(set_op, set_op->ModifiedSymbols(symbol_table), false);
+    auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+    auto n_p =
+        this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
+    auto produce = MakeProduce(accumulate_op, n_p);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
+    ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
 
 TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
+  // MATCH (n) DELETE n REMOVE n :label return n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
@@ -1829,17 +1907,24 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   SymbolTable symbol_table;
-  // MATCH (n) DELETE n REMOVE n :label
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   std::vector<memgraph::storage::LabelId> labels{dba.NameToLabel("label")};
   auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
+  auto accumulate_op = std::make_shared<plan::Accumulate>(rem_op, rem_op->ModifiedSymbols(symbol_table), true);
+
+  auto prop = PROPERTY_PAIR(dba, "property");
+  auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+  auto n_p =
+      this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
+  auto produce = MakeProduce(accumulate_op, n_p);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
+  ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
 }
 
 TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
+  // MATCH (n) DELETE n REMOVE n.property RETURN n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
@@ -1847,15 +1932,20 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   SymbolTable symbol_table;
-  // MATCH (n) DELETE n REMOVE n.property
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   auto prop = PROPERTY_PAIR(dba, "property");
   auto n_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
   auto rem_op = std::make_shared<plan::RemoveProperty>(delete_op, prop.second, n_prop);
+  auto accumulate_op = std::make_shared<plan::Accumulate>(rem_op, rem_op->ModifiedSymbols(symbol_table), true);
+
+  auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+  auto n_p =
+      this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
+  auto produce = MakeProduce(accumulate_op, n_p);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
+  ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
 }
 
 //////////////////////////////////////////////
