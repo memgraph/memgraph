@@ -1,0 +1,27 @@
+{
+    "dbms.components": "mgps.components",
+    "apoc.util.validate": "mgps.validate",
+    "db.schema.nodeTypeProperties":"schema.node_type_properties",
+    "db.schema.relTypeProperties":"schema.rel_type_properties",
+    "apoc.coll.contains": "collections.contains",
+    "apoc.coll.partition": "collections.partition",
+    "apoc.coll.toSet": "collections.to_set",
+    "apoc.coll.unionAll": "collections.unionAll",
+    "apoc.coll.removeAll": "collections.remove_all",
+    "apoc.coll.union": "collections.union",
+    "apoc.coll.sum": "collections.sum",
+    "apoc.coll.pairs": "collections.pairs",
+    "apoc.map.fromLists": "map.from_lists",
+    "apoc.map.removeKeys": "map.remove_keys",
+    "apoc.map.merge": "map.merge",
+    "apoc.create.nodes": "create.nodes",
+    "apoc.create.removeProperties": "create.remove_properties",
+    "apoc.create.node": "create.node",
+    "apoc.create.removeLabel": "create.remove_label",
+    "apoc.refactor.invert": "refactor.invert",
+    "apoc.refactor.cloneNode": "refactor.clone_node",
+    "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",
+    "apoc.refactor.cloneSubgraphFromPath": "refactor.clone_subgraph_from_path",
+    "apoc.label.exists": "label.exists"
+
+}
