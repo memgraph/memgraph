@@ -8,12 +8,9 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/bolt.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/run_time_configurable.hpp"
+namespace memgraph::glue {
+inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
+}  // namespace memgraph::glue

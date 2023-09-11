@@ -35,6 +35,7 @@
 #include "csv/parsing.hpp"
 #include "dbms/global.hpp"
 #include "dbms/session_context_handler.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -1377,7 +1378,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{config.execution_timeout_sec};
+  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -3798,7 +3799,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -3905,7 +3906,7 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
+        trigger.Execute(&*execution_db_accessor_, &execution_memory, flags::run_time::execution_timeout_sec_,
                         &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
                         interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
