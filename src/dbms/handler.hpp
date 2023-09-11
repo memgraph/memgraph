@@ -56,8 +56,8 @@ class Handler {
     if (!Has(name)) {
       auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
                                      std::forward_as_tuple(std::forward<Args>(args)...));
-      auto [item, ok] = itr->second.Access();
-      if (ok) return std::move(item);
+      auto db_acc = itr->second.Access();
+      if (db_acc) return std::move(*db_acc);
       return NewError::DEFUNCT;
     }
     spdlog::info("Item with name \"{}\" already exists.", name);
@@ -72,8 +72,7 @@ class Handler {
    */
   std::optional<typename utils::Gatekeeper<T>::access> Get(std::string_view name) {
     if (auto search = items_.find(name.data()); search != items_.end()) {
-      auto [item, ok] = search->second.Access();
-      if (ok) return item;
+      return search->second.Access();
     }
     return std::nullopt;
   }
@@ -86,9 +85,9 @@ class Handler {
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
-      auto [item, ok] = itr->second.Access();
-      if (ok && item.try_delete()) {
-        item.reset();
+      auto db_acc = itr->second.Access();
+      if (db_acc && db_acc->try_delete()) {
+        db_acc->reset();
         items_.erase(itr);
         return true;
       }

@@ -50,7 +50,7 @@ using DeleteResult = utils::BasicResult<DeleteError>;
 /**
  * @brief Multi-database session contexts handler.
  */
-class NewSessionHandler {
+class DbmsHandler {
  public:
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
@@ -68,7 +68,7 @@ class NewSessionHandler {
    * @param configs storage and interpreter configurations
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  NewSessionHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
+  DbmsHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
       : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)}, delete_on_drop_(delete_on_drop) {
     // Update
     const auto &root = default_config_->durability.storage_directory;
@@ -137,7 +137,7 @@ class NewSessionHandler {
    * @return SessionContext
    * @throw UnknownDatabaseException if getting unknown database
    */
-  auto Get(std::string_view name) {
+  DatabaseAccess Get(std::string_view name) {
     std::shared_lock<LockT> rd(lock_);
     return Get_(name);
   }
@@ -182,6 +182,9 @@ class NewSessionHandler {
       }
     }
 
+    // Delete from defunct_dbs_ (in case a second delete call was successful)
+    defunct_dbs_.erase(db_name);
+
     return {};  // Success
   }
 
@@ -206,10 +209,11 @@ class NewSessionHandler {
     uint64_t ne = 0;
     std::shared_lock<LockT> rd(lock_);
     const uint64_t ndb = std::distance(db_handler_.cbegin(), db_handler_.cend());
-    for (auto &[_, db] : db_handler_) {
-      auto [item, ok] = db.Access();
-      if (!ok) continue;
-      const auto &info = item->GetInfo();
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc_opt = db_gk.Access();
+      if (!db_acc_opt) continue;
+      auto &db_acc = *db_acc_opt;
+      const auto &info = db_acc->GetInfo();
       nv += info.vertex_count;
       ne += info.edge_count;
     }
@@ -222,13 +226,14 @@ class NewSessionHandler {
    */
   void RestoreTriggers(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
-    for (auto &[_, db] : db_handler_) {
-      auto [item, ok] = db.Access();
-      if (!ok) continue;
-      spdlog::debug("Restoring trigger for database \"{}\"", item->id());
-      auto storage_accessor = item->Access();
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc_opt = db_gk.Access();
+      if (!db_acc_opt) continue;
+      auto &db_acc = *db_acc_opt;
+      spdlog::debug("Restoring trigger for database \"{}\"", db_acc->id());
+      auto storage_accessor = db_acc->Access();
       auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-      item->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+      db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
     }
   }
 
@@ -238,11 +243,12 @@ class NewSessionHandler {
    */
   void RestoreStreams(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
-    for (auto &[_, db] : db_handler_) {
-      auto [item, ok] = db.Access();
-      if (!ok) continue;
-      spdlog::debug("Restoring streams for database \"{}\"", item->id());
-      item->streams()->RestoreStreams(item, ic);
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc = db_gk.Access();
+      if (!db_acc) continue;
+      auto *db = db_acc->get();
+      spdlog::debug("Restoring streams for database \"{}\"", db->id());
+      db->streams()->RestoreStreams(*db_acc, ic);
     }
   }
 
@@ -290,6 +296,12 @@ class NewSessionHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT New_(const std::string &name, storage::Config &storage_config) {
+    if (defunct_dbs_.contains(name)) {
+      spdlog::warn("Failed to generate database due to the unknown state of the previously defunct database \"{}\".",
+                   name);
+      return NewError::DEFUNCT;
+    }
+
     auto new_db = db_handler_.New(name, storage_config);
     if (new_db.HasValue()) {
       // Success

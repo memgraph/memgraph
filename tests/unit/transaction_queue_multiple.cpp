@@ -53,13 +53,14 @@ class TransactionQueueMultipleTest : public ::testing::Test {
 
   memgraph::dbms::DatabaseAccess db{
       [&]() {
-        auto [db, ok] = db_gk.Access();
-        MG_ASSERT(ok, "Failed to access db");
-        MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        auto db_acc_opt = db_gk.Access();
+        MG_ASSERT(db_acc_opt, "Failed to access db");
+        auto &db_acc = *db_acc_opt;
+        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
-        return db;
+        return db_acc;
       }()  // iile
   };
 

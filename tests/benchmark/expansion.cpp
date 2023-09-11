@@ -29,14 +29,15 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
 
   void SetUp(const benchmark::State &state) override {
-    auto [db, ok] = db_gk->Access();
-    MG_ASSERT(ok, "Failed to access db");
+    auto db_acc_opt = db_gk->Access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
     interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
 
-    auto label = db->storage()->NameToLabel("Starting");
+    auto label = db_acc->storage()->NameToLabel("Starting");
 
     {
-      auto dba = db->Access();
+      auto dba = db_acc->Access();
       for (int i = 0; i < state.range(0); i++) dba->CreateVertex();
 
       // the fixed part is one vertex expanding to 1000 others
@@ -50,9 +51,9 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       MG_ASSERT(!dba->Commit().HasError());
     }
 
-    MG_ASSERT(!db->storage()->CreateIndex(label).HasError());
+    MG_ASSERT(!db_acc->storage()->CreateIndex(label).HasError());
 
-    interpreter.emplace(&*interpreter_context, std::move(db));
+    interpreter.emplace(&*interpreter_context, std::move(db_acc));
   }
 
   void TearDown(const benchmark::State &) override {
@@ -67,7 +68,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(interpreter->db_->storage());
+    ResultStreamFaker results(interpreter->db_acc_->get()->storage());
     interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }
@@ -82,7 +83,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(interpreter->db_->storage());
+    ResultStreamFaker results(interpreter->db_acc_->get()->storage());
     interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }

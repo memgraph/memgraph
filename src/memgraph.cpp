@@ -34,13 +34,13 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
-#include "dbms/new_session_handler.hpp"
+#include "dbms/dbms_handler.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 
-void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess db_acc,
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
                          std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx, db_acc);
   std::ifstream file(cypherl_file_path);
@@ -328,14 +328,16 @@ int main(int argc, char **argv) {
   auth_glue(&auth_, auth_handler, auth_checker);
 
 #ifdef MG_ENTERPRISE
-  memgraph::dbms::NewSessionHandler new_handler(db_config, &auth_, FLAGS_data_recovery_on_startup,
-                                                FLAGS_storage_delete_on_drop);
+  memgraph::dbms::DbmsHandler new_handler(db_config, &auth_, FLAGS_data_recovery_on_startup,
+                                          FLAGS_storage_delete_on_drop);
   auto db_acc = new_handler.Get(memgraph::dbms::kDefaultDB);
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &new_handler, auth_handler.get(),
                                                            auth_checker.get());
 #else
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
-  auto [db_acc, _] = db_gatekeeper.Access();
+  auto db_acc_opt = db_gatekeeper.Access();
+  MG_ASSERT(db_acc_opt, "Failed to access the main database");
+  auto &db_acc = *db_acc_opt;
   memgraph::query::InterpreterContext interpreter_context_(interp_config, nullptr, auth_handler.get(),
                                                            auth_checker.get());
 #endif
@@ -412,9 +414,9 @@ int main(int argc, char **argv) {
     });
 #else
     telemetry->AddCollector("storage", [gk = &db_gatekeeper]() -> nlohmann::json {
-      auto [db, _] = gk->Access();
-      MG_ASSERT(db, "Failed to get access to the default database");
-      auto info = db->GetInfo();
+      auto db_acc = gk->Access();
+      MG_ASSERT(db_acc, "Failed to get access to the default database");
+      auto info = db_acc->get()->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
 #endif
@@ -510,8 +512,9 @@ int main(int argc, char **argv) {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
     }
 #else
-    auto [db_acc, _] = db_gatekeeper.Access();
-    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
+    auto db_acc_2 = db_gatekeeper.Access();
+    MG_ASSERT(db_acc_2, "Failed to gain access to the main database");
+    InitFromCypherlFile(interpreter_context_, *db_acc_2, FLAGS_init_data_file);
 #endif
   }
 

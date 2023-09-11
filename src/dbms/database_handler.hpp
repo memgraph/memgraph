@@ -67,8 +67,8 @@ class DatabaseHandler : public Handler<Database> {
   HandlerT::NewResult New(std::string_view name, storage::Config config) {
     // Control that no one is using the same data directory
     if (std::any_of(begin(), end(), [&](auto &elem) {
-          auto [item, ok] = elem.second.Access();
-          return !ok || item->config().durability.storage_directory == config.durability.storage_directory;
+          auto db_acc = elem.second.Access();
+          return !db_acc || db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
         })) {
       spdlog::info("Tried to generate new storage using a claimed directory.");
       return NewError::EXISTS;

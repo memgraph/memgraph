@@ -75,13 +75,14 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::dbms::DatabaseAccess db{
       [&]() {
-        auto [db, ok] = db_gk.Access();
-        MG_ASSERT(ok, "Failed to access db");
-        MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        auto db_acc_opt = db_gk.Access();
+        MG_ASSERT(db_acc_opt, "Failed to access db");
+        auto &db_acc = *db_acc_opt;
+        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
-        return db;
+        return db_acc;
       }()  // iile
   };
 
@@ -1129,15 +1130,16 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
     }
 
     memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
-    auto [db, ok] = db_gk2.Access();
-    ASSERT_TRUE(ok) << "Failed to access db2";
-    ASSERT_TRUE(db->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                             ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                             : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+    auto db_acc_opt = db_gk2.Access();
+    ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
+    auto &db_acc = *db_acc_opt;
+    ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
+                                                 ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                 : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
         << "Wrong storage mode!";
 
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}}, nullptr};
-    InterpreterFaker interpreter_faker{&csv_interpreter_context, db};
+    InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};
     for (const auto &query : queries) {
       if (allow_load_csv) {
         SCOPED_TRACE(fmt::format("'{}' should not throw because LOAD CSV is allowed", query));

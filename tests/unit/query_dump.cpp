@@ -294,13 +294,14 @@ class DumpTest : public ::testing::Test {
 
   memgraph::dbms::DatabaseAccess db{
       [&]() {
-        auto [db, ok] = db_gk.Access();
-        MG_ASSERT(ok, "Failed to access db");
-        MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        auto db_acc_opt = db_gk.Access();
+        MG_ASSERT(db_acc_opt, "Failed to access db");
+        auto &db_acc = *db_acc_opt;
+        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
-        return db;
+        return db_acc;
       }()  // iile
   };
 
@@ -683,11 +684,12 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   }
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
-  auto [db, ok] = db_gk.Access();
-  ASSERT_TRUE(ok) << "Failed to access db";
-  ASSERT_TRUE(db->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+  auto db_acc_opt = db_gk.Access();
+  ASSERT_TRUE(db_acc_opt) << "Failed to access db";
+  auto &db_acc = *db_acc_opt;
+  ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
@@ -705,7 +707,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     for (const auto &item : results) {
       ASSERT_EQ(item.size(), 1);
       ASSERT_TRUE(item[0].IsString());
-      Execute(&interpreter_context, db, item[0].ValueString());
+      Execute(&interpreter_context, db_acc, item[0].ValueString());
     }
   }
 }
@@ -782,11 +784,12 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   }
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
-  auto [db, ok] = db_gk.Access();
-  ASSERT_TRUE(ok) << "Failed to access db";
-  ASSERT_TRUE(db->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+  auto db_acc_opt = db_gk.Access();
+  ASSERT_TRUE(db_acc_opt) << "Failed to access db";
+  auto &db_acc = *db_acc_opt;
+  ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
@@ -807,7 +810,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       ASSERT_EQ(item.size(), 1);
       ASSERT_TRUE(item[0].IsString());
       spdlog::debug("Query: {}", item[0].ValueString());
-      Execute(&interpreter_context, db, item[0].ValueString());
+      Execute(&interpreter_context, db_acc, item[0].ValueString());
       ++i;
     }
   }
@@ -846,7 +849,7 @@ class StatefulInterpreter {
       : context_(context), interpreter_(context_, db) {}
 
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(interpreter_.db_->storage());
+    ResultStreamFaker stream(interpreter_.db_acc_->get()->storage());
 
     auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, nullptr);
     stream.Header(header);

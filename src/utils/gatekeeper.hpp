@@ -95,7 +95,6 @@ struct Gatekeeper {
     explicit access(Gatekeeper *owner) : owner_{owner} { ++owner_->count_; }
 
    public:
-    access() {}  // nullptr like
     access(access const &other) : owner_{other.owner_} {
       if (owner_) {
         auto guard = std::unique_lock{owner_->mutex_};
@@ -188,12 +187,12 @@ struct Gatekeeper {
     Gatekeeper *owner_ = nullptr;
   };
 
-  std::tuple<access, bool> Access() {
+  std::optional<access> Access() {
     auto guard = std::unique_lock{mutex_};
     if (value_) {
-      return {access{this}, true};
+      return access{this};
     }
-    return {access{}, false};
+    return std::nullopt;
   }
 
   ~Gatekeeper() {

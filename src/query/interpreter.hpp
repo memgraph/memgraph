@@ -49,7 +49,7 @@
 #include "utils/tsc.hpp"
 
 namespace memgraph::dbms {
-class NewSessionHandler;
+class DbmsHandler;
 }  // namespace memgraph::dbms
 namespace memgraph::metrics {
 extern const Event FailedQuery;
@@ -251,7 +251,7 @@ class Interpreter;
 
 struct InterpreterContext {
 #ifdef MG_ENTERPRISE
-  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::NewSessionHandler *db_handler,
+  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *db_handler,
                      query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
 #else
   InterpreterContext(InterpreterConfig interpreter_config,
@@ -260,7 +260,7 @@ struct InterpreterContext {
 #endif
 
 #ifdef MG_ENTERPRISE
-  memgraph::dbms::NewSessionHandler *db_handler;
+  memgraph::dbms::DbmsHandler *db_handler;
 #else
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper;
 #endif
@@ -307,7 +307,7 @@ class Interpreter final {
   std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
-  memgraph::dbms::DatabaseAccess db_;  // Current db (TODO: expand to support multiple)
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name);

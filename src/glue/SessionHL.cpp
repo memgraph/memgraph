@@ -116,7 +116,11 @@ std::string SessionHL::GetDefaultDB() {
 }
 #endif
 
-std::string SessionHL::GetDatabaseName() const { return interpreter_.db_->id(); }
+std::string SessionHL::GetDatabaseName() const {
+  if (!interpreter_.db_acc_) return "";
+  const auto *db = interpreter_.db_acc_->get();
+  return db->id();
+}
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
@@ -156,8 +160,10 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(s
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(SessionHL::TEncoder *encoder,
                                                                             std::optional<int> n,
                                                                             std::optional<int> qid) {
+  // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
+  auto *db = interpreter_.db_acc_->get();
   try {
-    TypedValueResultStream<TEncoder> stream(encoder, interpreter_.db_->storage());
+    TypedValueResultStream<TEncoder> stream(encoder, db->storage());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     // Wrap QueryException into ClientError, because we want to allow the
@@ -165,6 +171,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
+
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
     const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
     const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
@@ -178,9 +185,11 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   }
 
 #ifdef MG_ENTERPRISE
+  // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
+  auto *db = interpreter_.db_acc_->get();
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                       memgraph::storage::PropertyValue(params_pv), interpreter_.db_->id());
+                       memgraph::storage::PropertyValue(params_pv), db->id());
   }
 #endif
   try {
@@ -279,9 +288,11 @@ SessionHL::~SessionHL() {
 
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
     const std::map<std::string, memgraph::query::TypedValue> &summary) {
+  // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
+  auto *db = interpreter_.db_acc_->get();
   std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = ToBoltValue(kv.second, *interpreter_.db_->storage(), memgraph::storage::View::NEW);
+    auto maybe_value = ToBoltValue(kv.second, *db->storage(), memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:

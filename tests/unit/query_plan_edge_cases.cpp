@@ -33,7 +33,7 @@ template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
   const std::string testSuite = "query_plan_edge_cases";
-  memgraph::dbms::DatabaseAccess db_;
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
@@ -53,22 +53,23 @@ class QueryExecution : public testing::Test {
   };
 
   void SetUp() {
-    auto [db, ok] = db_gk->Access();
-    MG_ASSERT(ok, "Failed to access db");
-    MG_ASSERT(db->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                           ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                           : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+    auto db_acc_opt = db_gk->Access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
+    MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
-    db_ = std::move(db);
+    db_acc_ = std::move(db_acc);
 
     interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
-    interpreter_.emplace(&*interpreter_context_, db_);
+    interpreter_.emplace(&*interpreter_context_, *db_acc_);
   }
 
   void TearDown() {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
-    db_.reset();
+    db_acc_.reset();
     db_gk.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
@@ -82,7 +83,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(this->db_->storage());
+    ResultStreamFaker stream(this->db_acc_->get()->storage());
 
     auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
     stream.Header(header);

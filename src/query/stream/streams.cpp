@@ -19,7 +19,7 @@
 #include <json/json.hpp>
 
 #include "dbms/database.hpp"
-#include "dbms/new_session_handler.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
@@ -449,10 +449,10 @@ void Streams::RegisterPulsarProcedures() {
 
 template <Stream TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
-                     std::optional<std::string> owner, TDbAccess db, InterpreterContext *ic) {
+                     std::optional<std::string> owner, TDbAccess db_acc, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
   auto it = CreateConsumer<TStream, TDbAccess>(*locked_streams, stream_name, std::move(info), std::move(owner),
-                                               std::move(db), ic);
+                                               std::move(db_acc), ic);
 
   try {
     std::visit(
@@ -479,7 +479,7 @@ template void Streams::Create<PulsarStream, dbms::DatabaseAccess>(const std::str
 template <Stream TStream, typename TDbAccess>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
-                                                      std::optional<std::string> owner, TDbAccess db,
+                                                      std::optional<std::string> owner, TDbAccess db_acc,
                                                       InterpreterContext *interpreter_context) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
@@ -489,7 +489,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto consumer_function = [interpreter_context, memory_resource, stream_name,
                             transformation_name = stream_info.common_info.transformation_name, owner = owner,
-                            interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db)),
+                            interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
                             result = mgp_result{nullptr, memory_resource},
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
@@ -497,7 +497,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
-    auto accessor = interpreter->db_->Access();
+    auto accessor = interpreter->db_acc_->get()->Access();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
     utils::OnScopeExit interpreter_cleanup{
@@ -735,7 +735,7 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
 }
 
 template <typename TDbAccess>
-TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db,
+TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db_acc,
                                     std::optional<std::chrono::milliseconds> timeout,
                                     std::optional<uint64_t> batch_limit) const {
   std::optional locked_streams{streams_.ReadLock()};
@@ -753,10 +753,9 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
         mgp_result result{nullptr, memory_resource};
         TransformationResult test_result;
 
-        auto consumer_function = [db = std::move(db), memory_resource, &stream_name,
-                                  &transformation_name = transformation_name, &result,
-                                  &test_result]<typename T>(const std::vector<T> &messages) mutable {
-          auto accessor = db->Access();
+        auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
+                                  &result, &test_result]<typename T>(const std::vector<T> &messages) mutable {
+          auto accessor = db_acc->Access();
           CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();
@@ -789,7 +788,7 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
 }
 
 template TransformationResult Streams::Check<dbms::DatabaseAccess>(const std::string &stream_name,
-                                                                   dbms::DatabaseAccess db,
+                                                                   dbms::DatabaseAccess db_acc,
                                                                    std::optional<std::chrono::milliseconds> timeout,
                                                                    std::optional<uint64_t> batch_limit) const;
 

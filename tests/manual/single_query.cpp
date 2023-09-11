@@ -33,12 +33,13 @@ int main(int argc, char *argv[]) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(memgraph::storage::Config{
       .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
-  auto [db, ok] = db_gk.Access();
-  MG_ASSERT(ok, "Failed to access db");
+  auto db_acc_opt = db_gk.Access();
+  MG_ASSERT(db_acc_opt, "Failed to access db");
+  auto &db_acc = *db_acc_opt;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
-  memgraph::query::Interpreter interpreter{&interpreter_context, db};
+  memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};
 
-  ResultStreamFaker stream(db->storage());
+  ResultStreamFaker stream(db_acc->storage());
   auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
