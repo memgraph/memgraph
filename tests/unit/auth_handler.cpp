@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"

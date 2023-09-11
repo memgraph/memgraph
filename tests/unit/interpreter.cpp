@@ -17,6 +17,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -56,8 +57,10 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterTest()
       : data_directory(std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"),
-        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-                            {.execution_timeout_sec = 600}, data_directory) {}
+        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {},
+                            data_directory) {
+    memgraph::flags::run_time::execution_timeout_sec_ = 600.0;
+  }
 
   std::filesystem::path data_directory;
   memgraph::query::InterpreterContext interpreter_context;
@@ -740,7 +743,7 @@ TYPED_TEST(InterpreterTest, ProfileQuery) {
   auto stream = this->Interpret("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
-  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* ScanAll (n)", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -764,7 +767,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
 
-  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* ScanAll (n)", "* Once"};
   auto expected_it = expected_rows.begin();
 
   this->Pull(&stream, 1);
@@ -806,7 +809,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
       this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
-  std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* Filter", "* ScanAll (n)", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {

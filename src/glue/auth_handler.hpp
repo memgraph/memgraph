@@ -14,14 +14,13 @@
 #include <regex>
 
 #include "auth/auth.hpp"
+#include "auth_global.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/interpreter.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
-
-inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
