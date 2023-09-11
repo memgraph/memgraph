@@ -22,6 +22,10 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
+// Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
+#undef TRUE
+#undef FALSE
+
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
