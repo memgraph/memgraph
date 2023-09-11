@@ -98,6 +98,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     auto it = has_aggregation_.end();
     auto elements_it = literal.elements_.begin();
     std::advance(it, -literal.elements_.size());
+    if (literal.GetTypeInfo() == MapProjectionLiteral::kType) {
+      // Erase the map variable. Grammar-wise, it’s a variable and thus never has aggregations.
+      std::advance(it, -1);
+      it = has_aggregation_.erase(it);
+    }
     while (it != has_aggregation_.end()) {
       if (*it) {
         has_aggr = true;
@@ -446,9 +451,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::vector<Expression *> group_by_;
   std::unordered_set<Symbol> group_by_used_symbols_;
   // Flag stack indicating whether an expression contains an aggregation. A
-  // stack is needed so that we differentiate the case where a child
-  // sub-expression has an aggregation, while the other child doesn't. For
-  // example AST, (+ (sum x) y)
+  // stack is needed to address the case where one child sub-expression has
+  // an aggregation, while the other child does not.
+  // For example, the AST (+ (sum x) y) is as follows:
   //   * (sum x) -- Has an aggregation.
   //   * y -- Doesn't, we need to group by this.
   //   * (+ (sum x) y) -- The whole expression has an aggregation, so we don't
