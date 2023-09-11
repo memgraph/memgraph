@@ -93,8 +93,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
-  // NOTE: run_id should be const but that complicates code a lot.
-  std::optional<std::string> run_id_;  // TODO connect
   std::optional<std::string> implicit_db_;
 };
 

@@ -9,20 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "glue/SessionHL.hpp"
 #include <optional>
+#include "gflags/gflags.h"
 
 #include "audit/log.hpp"
 #include "dbms/constants.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
+#include "glue/run_id.hpp"
 #include "license/license.hpp"
 #include "query/discard_value_stream.hpp"
-#include "utils/spin_lock.hpp"
-
-#include "gflags/gflags.h"
 #include "query/interpreter.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
@@ -308,9 +308,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSum
   // This is sent with every query, instead of only on bolt init inside
   // communication/bolt/v1/states/init.hpp because neo4jdriver does not
   // read the init message.
-  if (auto run_id = run_id_; run_id) {
-    decoded_summary.emplace("run_id", *run_id);
-  }
+  decoded_summary.emplace("run_id", memgraph::glue::run_id_);
 
   return decoded_summary;
 }

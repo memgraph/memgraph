@@ -19,6 +19,7 @@
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
+#include "glue/run_id.hpp"
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "query/config.hpp"
@@ -401,13 +402,13 @@ int main(int argc, char **argv) {
                                  service_name, FLAGS_bolt_num_workers);
 
   const auto machine_id = memgraph::utils::GetMachineId();
-  const auto run_id = memgraph::utils::GenerateUUID();
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
+    telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
+                      std::chrono::minutes(10));
 #ifdef MG_ENTERPRISE
     telemetry->AddCollector("storage", [&new_handler]() -> nlohmann::json {
       const auto &info = new_handler.Info();
@@ -433,7 +434,8 @@ int main(int argc, char **argv) {
       return memgraph::query::plan::CallProcedure::GetAndResetCounters();
     });
   }
-  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
+                                                           memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
