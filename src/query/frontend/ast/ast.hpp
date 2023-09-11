@@ -1186,6 +1186,8 @@ class PropertyLookup : public memgraph::query::Expression {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
+
   PropertyLookup() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
@@ -1200,11 +1202,13 @@ class PropertyLookup : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   memgraph::query::PropertyIx property_;
+  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->evaluation_mode_ = evaluation_mode_;
     return object;
   }
 
