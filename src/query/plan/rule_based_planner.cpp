@@ -21,7 +21,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-DEFINE_bool(cartesian_expansion, false, "Set to true to enable cartesian operator.");
+DEFINE_bool(cartesian_expansion_enabled, false, "Set to true to enable cartesian operator.");
 
 namespace memgraph::query::plan {
 

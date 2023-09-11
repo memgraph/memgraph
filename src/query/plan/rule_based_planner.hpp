@@ -24,7 +24,7 @@
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
-DECLARE_bool(cartesian_expansion);
+DECLARE_bool(cartesian_expansion_enabled);
 
 namespace memgraph::query::plan {
 
@@ -438,7 +438,7 @@ class RuleBasedPlanner {
     // regular match.
     auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
 
-    if (FLAGS_cartesian_expansion) {
+    if (FLAGS_cartesian_expansion_enabled) {
       last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
                                          match_context.new_symbols, named_paths, filters, match_context.view);
     } else {
@@ -850,7 +850,7 @@ class RuleBasedPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    if (FLAGS_cartesian_expansion) {
+    if (FLAGS_cartesian_expansion_enabled) {
       last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, expand_symbols,
                                          new_symbols, named_paths, filters, storage::View::OLD);
     } else {
