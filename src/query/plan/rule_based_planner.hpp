@@ -24,6 +24,8 @@
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
+DECLARE_bool(cartesian_expansion);
+
 namespace memgraph::query::plan {
 
 /// @brief Context which contains variables commonly used during planning.
@@ -436,8 +438,13 @@ class RuleBasedPlanner {
     // regular match.
     auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
 
-    last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                       match_context.new_symbols, named_paths, filters, match_context.view);
+    if (FLAGS_cartesian_expansion) {
+      last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                         match_context.new_symbols, named_paths, filters, match_context.view);
+    } else {
+      last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                match_context.new_symbols, named_paths, filters, match_context.view);
+    }
 
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
@@ -843,8 +850,13 @@ class RuleBasedPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
-                                       named_paths, filters, storage::View::OLD);
+    if (FLAGS_cartesian_expansion) {
+      last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, expand_symbols,
+                                         new_symbols, named_paths, filters, storage::View::OLD);
+    } else {
+      last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
+                                named_paths, filters, storage::View::OLD);
+    }
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 
