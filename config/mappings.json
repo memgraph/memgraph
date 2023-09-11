@@ -13,5 +13,13 @@
     "apoc.coll.pairs": "collections.pairs",
     "apoc.map.fromLists": "map.from_lists",
     "apoc.map.removeKeys": "map.remove_keys",
-    "apoc.map.merge": "map.merge"
+    "apoc.map.merge": "map.merge",
+    "apoc.create.nodes": "create.nodes",
+    "apoc.create.removeProperties": "create.remove_properties",
+    "apoc.create.node": "create.node",
+    "apoc.create.removeLabel": "create.remove_label",
+    "apoc.refactor.invert": "refactor.invert",
+    "apoc.refactor.cloneNode": "refactor.clone_node",
+    "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",
+    "apoc.refactor.cloneSubgraphFromPath": "refactor.clone_subgraph_from_path"
 }
