@@ -68,6 +68,13 @@ struct StorageInfo {
   uint64_t disk_usage;
 };
 
+struct EdgeInfoForDeletion {
+  std::unordered_set<Gid> partial_src_edge_ids{};
+  std::unordered_set<Gid> partial_dest_edge_ids{};
+  std::unordered_set<Vertex *> partial_src_vertices{};
+  std::unordered_set<Vertex *> partial_dest_vertices{};
+};
+
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationClient;
@@ -111,6 +118,14 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+
+    virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex);
+
+    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
+
     virtual uint64_t ApproximateVertexCount() const = 0;
 
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
@@ -142,18 +157,17 @@ class Storage {
 
     virtual std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> labels) = 0;
 
-    virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) = 0;
-
-    virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex) = 0;
-
     virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
 
     virtual void PrefetchOutEdges(const VertexAccessor &vertex_acc) = 0;
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
-    virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
+    virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
+
+    virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
+
+    virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
@@ -197,6 +211,18 @@ class Storage {
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
+
+    // Detach delete private methods
+    Result<std::optional<std::unordered_set<Vertex *>>> PrepareDeletableNodes(
+        const std::vector<VertexAccessor *> &vertices);
+    EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
+                                              const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
+                                                                          std::unordered_set<Gid> &deleted_edge_ids);
+    Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
+        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
+    void MarkEdgeAsDeleted(Edge *edge);
 
    private:
     StorageMode creation_storage_mode_;

@@ -803,6 +803,13 @@ struct ExpandCommon {
   bool existing_node;
 };
 
+struct ExpansionInfo {
+  std::optional<VertexAccessor> input_node;
+  EdgeAtom::Direction direction;
+  std::optional<VertexAccessor> existing_node;
+  bool reversed{false};
+};
+
 /// Expansion operator. For a node existing in the frame it
 /// expands one edge and one node and places them on the frame.
 ///
@@ -845,14 +852,16 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   class ExpandCursor : public Cursor {
    public:
     ExpandCursor(const Expand &, utils::MemoryResource *);
+    ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
+    ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
-    using InEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().InEdges(storage::View::OLD))>;
+    using InEdgeT = std::vector<EdgeAccessor>;
     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
-    using OutEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().OutEdges(storage::View::OLD))>;
+    using OutEdgeT = std::vector<EdgeAccessor>;
     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
     const Expand &self_;
@@ -865,6 +874,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     std::optional<InEdgeIteratorT> in_edges_it_;
     std::optional<OutEdgeT> out_edges_;
     std::optional<OutEdgeIteratorT> out_edges_it_;
+    ExpansionInfo expansion_info_;
+    int64_t prev_input_degree_{-1};
+    int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
   };
@@ -1193,6 +1205,11 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   };
 };
 
+struct DeleteBuffer {
+  std::vector<VertexAccessor> nodes{};
+  std::vector<EdgeAccessor> edges{};
+};
+
 /// Operator for deleting vertices and edges.
 ///
 /// Has a flag for using DETACH DELETE when deleting vertices.
@@ -1240,6 +1257,10 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    private:
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
+    DeleteBuffer buffer_;
+    bool delete_executed_{false};
+
+    void UpdateDeleteBuffer(Frame &, ExecutionContext &);
   };
 };
 

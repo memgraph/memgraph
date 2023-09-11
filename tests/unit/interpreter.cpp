@@ -1183,6 +1183,31 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
     AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
   }
   {
+    auto [stream, qid] = this->Prepare("CREATE (n)-[:TO]->(m);");
+    this->Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-created"].ValueInt(), 1);
+    AssertAllValuesAreZero(stats, {"nodes-created", "relationships-created"});
+  }
+  {
+    auto [stream, qid] = this->Prepare("MATCH (n)-[r]->(m) DELETE r;");
+    this->Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["relationships-deleted"].ValueInt(), 1);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
+  }
+  {
+    auto [stream, qid] = this->Prepare("MATCH (n) DELETE n;");
+    this->Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 2);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", ""});
+  }
+  {
     auto [stream, qid] = this->Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L2);");
     this->Pull(&stream);
 

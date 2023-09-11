@@ -106,10 +106,12 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-    deleted = vertex.deleted;
     delta = vertex.delta;
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
+    // Avoid IsPropertyEqual if already not possible
+    if (delta == nullptr && (deleted || !has_label)) return false;
+    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
   }
 
   if (!deleted && has_label && current_value_equal_to_value) {
