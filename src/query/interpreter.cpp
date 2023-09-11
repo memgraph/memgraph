@@ -36,6 +36,7 @@
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -1388,7 +1389,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{config.execution_timeout_sec};
+  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -2932,16 +2933,36 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
       handler = [storage] {
+        const std::string_view label_index_mark{"label"};
+        const std::string_view label_property_index_mark{"label+property"};
         auto info = storage->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
-          results.push_back({TypedValue("label"), TypedValue(storage->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue()});
         }
         for (const auto &item : info.label_property) {
-          results.push_back({TypedValue("label+property"), TypedValue(storage->LabelToName(item.first)),
+          results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
                              TypedValue(storage->PropertyToName(item.second))});
         }
+
+        std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
+          const auto type_1 = record_1[0].ValueString();
+          const auto type_2 = record_2[0].ValueString();
+
+          if (type_1 != type_2) {
+            return type_1 < type_2;
+          }
+
+          const auto label_1 = record_1[1].ValueString();
+          const auto label_2 = record_2[1].ValueString();
+          if (type_1 == label_index_mark || label_1 != label_2) {
+            return label_1 < label_2;
+          }
+
+          return record_1[2].ValueString() < record_2[2].ValueString();
+        });
+
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
@@ -3817,7 +3838,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -3928,7 +3949,7 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
+        trigger.Execute(&*execution_db_accessor_, &execution_memory, flags::run_time::execution_timeout_sec_,
                         &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
                         interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {

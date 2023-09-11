@@ -410,6 +410,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
+      // TODO Check if client disconnected
+      session_.HandleError();
       return OnError(ec);
     }
     input_buffer_.write_end()->Written(bytes_transferred);

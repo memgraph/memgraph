@@ -12,6 +12,7 @@
 #pragma once
 
 #include <optional>
+#include <ranges>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -21,31 +22,13 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/storage_mode.hpp"
-#include "utils/pmr/unordered_set.hpp"
-#include "utils/variant_helpers.hpp"
-
-///////////////////////////////////////////////////////////
-// Our communication layer and query engine don't mix
-// very well on Centos because OpenSSL version available
-// on Centos 7 include  libkrb5 which has brilliant macros
-// called TRUE and FALSE. For more detailed explanation go
-// to memgraph.cpp.
-//
-// Because of the replication storage now uses some form of
-// communication so we have some unwanted macros.
-// This cannot be avoided by simple include orderings so we
-// simply undefine those macros as we're sure that libkrb5
-// won't and can't be used anywhere in the query engine.
 #include "storage/v2/storage.hpp"
-
-#undef FALSE
-#undef TRUE
-///////////////////////////////////////////////////////////
-
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/pmr/unordered_set.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 
@@ -93,6 +76,14 @@ class EdgeAccessor final {
   VertexAccessor To() const;
 
   VertexAccessor From() const;
+
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeToVertex() const;
+
+  /// When edge is deleted and you are accessing From vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeFromVertex() const;
 
   bool IsCycle() const;
 
@@ -236,6 +227,12 @@ inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToV
 
 inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
 
+inline VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
+
+inline VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor(impl_.DeletedEdgeFromVertex());
+}
+
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
 class SubgraphVertexAccessor final {
@@ -317,17 +314,17 @@ class VerticesIterable final {
         it_;
 
    public:
-    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
     VertexAccessor operator*() const {
-      return std::visit([](auto it_) { return VertexAccessor(*it_); }, it_);
+      return std::visit([](auto &it_) { return VertexAccessor(*it_); }, it_);
     }
 
     Iterator &operator++() {
-      std::visit([this](auto it_) { this->it_ = ++it_; }, it_);
+      std::visit([](auto &it_) { ++it_; }, it_);
       return *this;
     }
 
@@ -455,8 +452,8 @@ class DbAccessor final {
 
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
-    std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
-                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    std::ranges::transform(edges, std::back_inserter(deleted_edges),
+                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
@@ -473,6 +470,53 @@ class DbAccessor final {
     }
 
     return std::make_optional<VertexAccessor>(*value);
+  }
+
+  storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+      std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
+    using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+
+    std::vector<storage::VertexAccessor *> nodes_impl;
+    std::vector<storage::EdgeAccessor *> edges_impl;
+
+    nodes_impl.reserve(nodes.size());
+    edges_impl.reserve(edges.size());
+
+    for (auto &vertex_accessor : nodes) {
+      accessor_->PrefetchOutEdges(vertex_accessor.impl_);
+      accessor_->PrefetchInEdges(vertex_accessor.impl_);
+
+      nodes_impl.push_back(&vertex_accessor.impl_);
+    }
+
+    for (auto &edge_accessor : edges) {
+      edges_impl.push_back(&edge_accessor.impl_);
+    }
+
+    auto res = accessor_->DetachDelete(std::move(nodes_impl), std::move(edges_impl), detach);
+    if (res.HasError()) {
+      return res.GetError();
+    }
+
+    const auto &value = res.GetValue();
+    if (!value) {
+      return std::optional<ReturnType>{};
+    }
+
+    const auto &[val_vertices, val_edges] = *value;
+
+    std::vector<VertexAccessor> deleted_vertices;
+    std::vector<EdgeAccessor> deleted_edges;
+
+    deleted_vertices.reserve(val_vertices.size());
+    deleted_edges.reserve(val_edges.size());
+
+    std::ranges::transform(val_vertices, std::back_inserter(deleted_vertices),
+                           [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
+    std::ranges::transform(val_edges, std::back_inserter(deleted_edges),
+                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+
+    return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
   }
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }

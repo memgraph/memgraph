@@ -33,7 +33,7 @@ class AllVerticesIterable final {
    public:
     Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
 
-    VertexAccessor operator*() const;
+    VertexAccessor const &operator*() const;
 
     Iterator &operator++();
 

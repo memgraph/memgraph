@@ -10,13 +10,16 @@
 // licenses/APL.txt.
 
 #include "glue/SessionHL.hpp"
+#include <optional>
 
 #include "audit/log.hpp"
 #include "dbms/constants.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "query/discard_value_stream.hpp"
+#include "utils/spin_lock.hpp"
 
 #include "gflags/gflags.h"
 #include "query/interpreter.hpp"
@@ -24,11 +27,6 @@
 namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_server_name_for_init, "",
-              "Server name which the database should send to the client in the "
-              "Bolt INIT message.");
 
 auto ToQueryExtras(const memgraph::communication::bolt::Value &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
@@ -123,8 +121,8 @@ std::string SessionHL::GetDatabaseName() const {
 }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
-  if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
-  return FLAGS_bolt_server_name_for_init;
+  auto locked_name = flags::run_time::bolt_server_name_.Lock();
+  return locked_name->empty() ? std::nullopt : std::make_optional(*locked_name);
 }
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
@@ -274,6 +272,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
       auth_(auth),
       endpoint_(endpoint),
       implicit_db_(dbms::kDefaultDB) {
+  // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_, db_name); });

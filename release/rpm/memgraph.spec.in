@@ -132,6 +132,7 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 # Override CPACK_RPM_ABSOLUTE_INSTALL_FILES with our %config(noreplace), cpack
 # uses plain %config.
 %config(noreplace) "/etc/memgraph/memgraph.conf"
+%config(noreplace) "/etc/memgraph/apoc_compatibility_mappings.json"
 %config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
 %config(noreplace) "/etc/logrotate.d/memgraph"
 

@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <filesystem>
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::storage {

@@ -17,6 +17,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -58,7 +59,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() : interpreter_context({.execution_timeout_sec = 600}, kNoHandler) {}
+  InterpreterTest() : interpreter_context({}, kNoHandler) { memgraph::flags::run_time::execution_timeout_sec_ = 600.0; }
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
       [&]() {
@@ -766,7 +767,7 @@ TYPED_TEST(InterpreterTest, ProfileQuery) {
   auto stream = this->Interpret("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
-  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* ScanAll (n)", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -790,7 +791,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
 
-  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* ScanAll (n)", "* Once"};
   auto expected_it = expected_rows.begin();
 
   this->Pull(&stream, 1);
@@ -832,7 +833,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
       this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
-  std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* Filter", "* ScanAll (n)", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -1221,6 +1222,31 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
     ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 2);
     ASSERT_EQ(stats["relationships-deleted"].ValueInt(), 3);
     AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
+  }
+  {
+    auto [stream, qid] = this->Prepare("CREATE (n)-[:TO]->(m);");
+    this->Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-created"].ValueInt(), 1);
+    AssertAllValuesAreZero(stats, {"nodes-created", "relationships-created"});
+  }
+  {
+    auto [stream, qid] = this->Prepare("MATCH (n)-[r]->(m) DELETE r;");
+    this->Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["relationships-deleted"].ValueInt(), 1);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
+  }
+  {
+    auto [stream, qid] = this->Prepare("MATCH (n) DELETE n;");
+    this->Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 2);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", ""});
   }
   {
     auto [stream, qid] = this->Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L2);");
