@@ -11,8 +11,19 @@
 #pragma once
 
 #include <spdlog/sinks/sink.h>
+#include <optional>
+#include "gflags/gflags.h"
+
+DECLARE_string(log_level);
+DECLARE_bool(also_log_to_stderr);
 
 namespace memgraph::flags {
+
+bool ValidLogLevel(std::string_view value);
+std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value);
+
 void InitializeLogger();
 void AddLoggerSink(spdlog::sink_ptr new_sink);
+void LogToStderr(spdlog::level::level_enum log_level);
+
 }  // namespace memgraph::flags

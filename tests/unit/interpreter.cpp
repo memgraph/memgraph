@@ -17,6 +17,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -56,8 +57,10 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterTest()
       : data_directory(std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"),
-        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-                            {.execution_timeout_sec = 600}, data_directory) {}
+        interpreter_context(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {},
+                            data_directory) {
+    memgraph::flags::run_time::execution_timeout_sec_ = 600.0;
+  }
 
   std::filesystem::path data_directory;
   memgraph::query::InterpreterContext interpreter_context;
