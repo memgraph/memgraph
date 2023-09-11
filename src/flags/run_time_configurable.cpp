@@ -23,7 +23,7 @@
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
-constexpr auto kDefaultServerName = "Neo4j/v5.11.0 compatible graph database server - memgraph";
+constexpr auto kDefaultServerName = "Neo4j/v5.11.0 compatible graph database server - Memgraph";
 // Query timeout
 constexpr auto kQueryTxSettingKey = "query.timeout";
 constexpr auto kDefaultQueryTx = "600";  // seconds

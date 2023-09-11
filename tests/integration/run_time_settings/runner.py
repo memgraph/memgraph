@@ -164,7 +164,7 @@ def execute_test(memgraph_binary: str, tester_binary: str, flag_tester_binary: s
 
     print("\033[1;34m~~ server.name and query.timeout ~~\033[0m")
     # Check default flags
-    run_test(flag_tester_binary, memgraph_args, "Neo4j/v5.11.0 compatible graph database server - memgraph", "600")
+    run_test(flag_tester_binary, memgraph_args, "Neo4j/v5.11.0 compatible graph database server - Memgraph", "600")
 
     # Check changing flags via command-line arguments
     run_test(
