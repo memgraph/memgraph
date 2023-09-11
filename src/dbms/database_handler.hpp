@@ -74,7 +74,7 @@ class DatabaseHandler : public Handler<Database> {
       return NewError::EXISTS;
     }
     config.name = name;  // Set storage id via config
-    return HandlerT::New(std::piecewise_construct, name.data(), config);
+    return HandlerT::New(std::piecewise_construct, name, config);
   }
 
   /**

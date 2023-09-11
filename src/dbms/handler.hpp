@@ -51,7 +51,7 @@ class Handler {
    * @return NewResult
    */
   template <typename... Args>
-  NewResult New(std::piecewise_construct_t /* marker */, std::string name, Args... args) {
+  NewResult New(std::piecewise_construct_t /* marker */, std::string_view name, Args... args) {
     // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
     if (!Has(name)) {
       auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
@@ -71,7 +71,7 @@ class Handler {
    * @return std::optional<std::shared_ptr<T>>
    */
   std::optional<typename utils::Gatekeeper<T>::access> Get(std::string_view name) {
-    if (auto search = items_.find(name.data()); search != items_.end()) {
+    if (auto search = items_.find(std::string(name)); search != items_.end()) {
       return search->second.Access();
     }
     return std::nullopt;
@@ -102,7 +102,7 @@ class Handler {
    * @param name Name to check
    * @return true if a context/config pair is already associated with the name
    */
-  bool Has(const std::string &name) const { return items_.find(name) != items_.end(); }
+  bool Has(std::string_view name) const { return items_.find(std::string(name)) != items_.end(); }
 
   auto begin() { return items_.begin(); }
   auto end() { return items_.end(); }

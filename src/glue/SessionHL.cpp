@@ -101,7 +101,7 @@ namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
 inline static void MultiDatabaseAuth(const std::optional<auth::User> &user, std::string_view db) {
-  if (user && !AuthChecker::IsUserAuthorized(*user, {}, db.data())) {
+  if (user && !AuthChecker::IsUserAuthorized(*user, {}, std::string(db))) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
