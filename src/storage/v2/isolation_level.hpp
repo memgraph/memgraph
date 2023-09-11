@@ -19,7 +19,22 @@ namespace memgraph::storage {
 
 enum class IsolationLevel : std::uint8_t { SNAPSHOT_ISOLATION, READ_COMMITTED, READ_UNCOMMITTED };
 
-std::string_view IsolationLevelToString(IsolationLevel isolation_level);
-std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level);
+static inline std::string_view IsolationLevelToString(IsolationLevel isolation_level) {
+  switch (isolation_level) {
+    case IsolationLevel::READ_COMMITTED:
+      return "READ_COMMITTED";
+    case IsolationLevel::READ_UNCOMMITTED:
+      return "READ_UNCOMMITTED";
+    case IsolationLevel::SNAPSHOT_ISOLATION:
+      return "SNAPSHOT_ISOLATION";
+  }
+}
+
+static inline std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level) {
+  if (isolation_level) {
+    return IsolationLevelToString(*isolation_level);
+  }
+  return "";
+}
 
 }  // namespace memgraph::storage

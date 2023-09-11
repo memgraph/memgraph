@@ -10,20 +10,17 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "gflags/gflags.h"
+#include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 
-// Bolt server flags.
+namespace memgraph::flags::run_time {
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(bolt_address);
+extern utils::Synchronized<std::string, utils::SpinLock> bolt_server_name_;
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(bolt_port);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(bolt_num_workers);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(bolt_session_inactivity_timeout);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(bolt_cert_file);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(bolt_key_file);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(bolt_server_name_for_init);
+extern std::atomic<double> execution_timeout_sec_;
+
+void Initialize();
+
+}  // namespace memgraph::flags::run_time

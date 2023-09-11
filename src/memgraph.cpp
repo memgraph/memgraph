@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "flags/run_time_configurable.hpp"
 #ifndef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
 #endif
@@ -209,6 +210,7 @@ int main(int argc, char **argv) {
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
                                              memgraph::utils::global_settings);
+  memgraph::flags::run_time::Initialize();
 
   memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
@@ -291,7 +293,6 @@ int main(int argc, char **argv) {
   // Default interpreter configuration
   memgraph::query::InterpreterConfig interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
-      .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
