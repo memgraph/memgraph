@@ -11,11 +11,9 @@
 
 #pragma once
 
-#include <istream>
-#include <sstream>
+#include <ostream>
 #include <string>
 
-#include <curl/curl.h>
 #include <json/json.hpp>
 
 namespace memgraph::requests {
