@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,43 @@ namespace memgraph::query::plan {
  */
 class ScopedProfile {
  public:
+  ScopedProfile(uint64_t key, const query::plan::NamedLogicalOperator &op, query::ExecutionContext *context) noexcept
+      : context_(context) {
+    if (UNLIKELY(context_->is_profile_query)) {
+      root_ = context_->stats_root;
+
+      // Are we the root logical operator?
+      if (!root_) {
+        stats_ = &context_->stats;
+        stats_->key = key;
+        op.dba_ = context->db_accessor;
+        stats_->name = op.ToString();
+        op.dba_ = nullptr;
+      } else {
+        stats_ = nullptr;
+
+        // Was this logical operator already hit on one of the previous pulls?
+        auto it = std::find_if(root_->children.begin(), root_->children.end(),
+                               [key](auto &stats) { return stats.key == key; });
+
+        if (it == root_->children.end()) {
+          root_->children.emplace_back();
+          stats_ = &root_->children.back();
+          stats_->key = key;
+          op.dba_ = context->db_accessor;
+          stats_->name = op.ToString();
+          op.dba_ = nullptr;
+        } else {
+          stats_ = &(*it);
+        }
+      }
+
+      context_->stats_root = stats_;
+      stats_->actual_hits++;
+      start_time_ = utils::ReadTSC();
+    }
+  }
+
   ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept : context_(context) {
     if (UNLIKELY(context_->is_profile_query)) {
       root_ = context_->stats_root;
