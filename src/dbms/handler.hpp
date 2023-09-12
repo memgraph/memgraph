@@ -71,7 +71,7 @@ class Handler {
    * @return std::optional<std::shared_ptr<T>>
    */
   std::optional<typename utils::Gatekeeper<T>::access> Get(std::string_view name) {
-    if (auto search = items_.find(std::string(name)); search != items_.end()) {
+    if (auto search = items_.find(name); search != items_.end()) {
       return search->second.Access();
     }
     return std::nullopt;
@@ -102,7 +102,7 @@ class Handler {
    * @param name Name to check
    * @return true if a context/config pair is already associated with the name
    */
-  bool Has(std::string_view name) const { return items_.find(std::string(name)) != items_.end(); }
+  bool Has(std::string_view name) const { return items_.find(name) != items_.end(); }
 
   auto begin() { return items_.begin(); }
   auto end() { return items_.end(); }
@@ -111,8 +111,16 @@ class Handler {
   auto cbegin() const { return items_.cbegin(); }
   auto cend() const { return items_.cend(); }
 
+  struct string_hash {
+    using is_transparent = void;
+    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+  };
+
  private:
-  std::unordered_map<std::string, utils::Gatekeeper<T>> items_;  //!< map to all active items
+  std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>
+      items_;  //!< map to all active items
 };
 
 }  // namespace memgraph::dbms
