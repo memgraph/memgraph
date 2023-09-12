@@ -229,6 +229,11 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Check e2e service dependencies
+        run: |
+          cd tests/e2e
+          ./dependency_check.sh
+
       - name: Build release binaries
         run: |
           # Activate toolchain.
