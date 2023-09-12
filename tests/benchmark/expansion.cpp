@@ -15,6 +15,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"

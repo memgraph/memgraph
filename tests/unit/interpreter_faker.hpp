@@ -11,6 +11,7 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 
 struct InterpreterFaker {
   InterpreterFaker(memgraph::query::InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
