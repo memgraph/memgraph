@@ -25,11 +25,6 @@ int mallctlHelper(const char *cmd, T *out, T *in) {
 }
 
 template <typename T, bool ErrOK = false>
-int mallctlReadWrite(const char *cmd, T *out, T in) {
-  return mallctlHelper<T, ErrOK>(cmd, out, &in);
-}
-
-template <typename T, bool ErrOK = false>
 int mallctlRead(const char *cmd, T *out) {
   return mallctlHelper<T, ErrOK>(cmd, out, static_cast<T *>(nullptr));
 }

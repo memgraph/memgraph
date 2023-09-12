@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "memory/memory_control.hpp"
 #ifndef MG_ENTERPRISE
 #include "dbms/session_context_handler.hpp"
 #endif
@@ -112,7 +113,7 @@ int main(int argc, char **argv) {
     gflags::ShowUsageWithFlags(argv[0]);
     exit(1);
   }
-
+  // memgraph::memory::PrintStats();
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
