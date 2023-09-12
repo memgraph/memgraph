@@ -24,7 +24,6 @@ import time
 from argparse import ArgumentParser
 from threading import Thread
 
-from gqlalchemy import Memgraph
 from neo4j import TRUST_ALL_CERTIFICATES, GraphDatabase
 
 
@@ -95,19 +94,6 @@ def execute_till_success(session, query, max_retries=1000):
             data = result.data()
             summary = result.consume()
             return data, no_failures, summary
-        except Exception:
-            no_failures += 1
-            if no_failures >= max_retries:
-                raise Exception("Query '%s' failed %d times, aborting" % (query, max_retries))
-
-
-def execute_till_success_gqlalchemy(memgraph: Memgraph, query: str, max_retries=1000):
-    """Same method as execute_till_success, but for gqlalchemy."""
-    no_failures = 0
-    while True:
-        try:
-            result = memgraph.execute(query)
-            return result, no_failures
         except Exception:
             no_failures += 1
             if no_failures >= max_retries:
@@ -214,23 +200,6 @@ def argument_driver(args):
         encrypted=args.use_ssl,
         trust=TRUST_ALL_CERTIFICATES,
     )
-
-
-def get_memgraph(args) -> Memgraph:
-    host_port = args.endpoint.split(":")
-
-    connection_params = {
-        "host": host_port[0],
-        "port": int(host_port[1]),
-        "username": args.username,
-        "password": args.password,
-        "encrypted": False,
-    }
-
-    if args.use_ssl:
-        connection_params["encrypted"] = True
-
-    return Memgraph(**connection_params)
 
 
 # This class is used to create and cache sessions. Session is cached by args

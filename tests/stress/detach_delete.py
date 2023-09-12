@@ -16,6 +16,7 @@
 Large bipartite graph stress test.
 """
 
+import atexit
 import logging
 import multiprocessing
 import random
@@ -25,7 +26,12 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Tuple
 
-from common import OutputData, connection_argument_parser, get_memgraph
+from common import (
+    OutputData,
+    SessionCache,
+    connection_argument_parser,
+    execute_till_success,
+)
 
 log = logging.getLogger(__name__)
 output_data = OutputData()
@@ -33,6 +39,9 @@ output_data = OutputData()
 NUMBER_NODES_IN_CHAIN = 4
 CREATE_FUNCTION = "CREATE"
 DELETE_FUNCTION = "DELETE"
+
+
+atexit.register(SessionCache.cleanup)
 
 
 def parse_args() -> Args:
@@ -98,20 +107,20 @@ def timed_function(name) -> Callable:
 
 @timed_function("cleanup_time")
 def clean_database() -> None:
-    memgraph = get_memgraph(args)
-    memgraph.execute("MATCH (n) DETACH DELETE n")
+    session = SessionCache.argument_session(args)
+    execute_till_success(session, "MATCH (n) DETACH DELETE n")
 
 
 def create_indices() -> None:
-    memgraph = get_memgraph(args)
-    memgraph.execute("CREATE INDEX ON :Node")
-    memgraph.execute("CREATE INDEX ON :Node(id)")
+    session = SessionCache.argument_session(args)
+    execute_till_success(session, "CREATE INDEX ON :Node")
+    execute_till_success(session, "CREATE INDEX ON :Node(id)")
 
 
 def setup_database_mode() -> None:
-    memgraph = get_memgraph(args)
-    memgraph.execute(f"STORAGE MODE {args.storage_mode}")
-    memgraph.execute(f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
+    session = SessionCache.argument_session(args)
+    execute_till_success(session, f"STORAGE MODE {args.storage_mode}")
+    execute_till_success(session, f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
 
 
 def execute_function(worker: Worker) -> Worker:
@@ -135,26 +144,28 @@ def run_writer(total_workers_cnt: int, repetition_count: int, sleep_sec: float, 
     a valid graph. A graph is valid if the number of nodes is preserved, and the chain is either
     not present or present completely.
     """
-    memgraph = get_memgraph(args)
+    session = SessionCache.argument_session(args)
 
     def create():
         try:
-            memgraph.execute(
-                f"MERGE (:Node{worker_id} {{id: 1}})-[:REL]-(:Node{worker_id} {{id: 2}})-[:REL]-(:Node{worker_id} {{id: 3}})-[:REL]-(:Node{worker_id} {{id: 4}})"
+            execute_till_success(
+                session,
+                f"MERGE (:Node{worker_id} {{id: 1}})-[:REL]-(:Node{worker_id} {{id: 2}})-[:REL]-(:Node{worker_id} {{id: 3}})-[:REL]-(:Node{worker_id} {{id: 4}})",
             )
         except Exception as ex:
             pass
 
     def verify() -> Tuple[bool, int]:
         # We always create X nodes and therefore the number of nodes needs to be always a fraction of X
-        count = list(memgraph.execute_and_fetch(f"MATCH (n) RETURN COUNT(n) AS cnt"))[0]["cnt"]
+        count = list(execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt"))[0]["cnt"]
         log.info(f"Worker {worker_id} verified graph count {count} in repetition {curr_repetition}")
 
         assert count <= total_workers_cnt * NUMBER_NODES_IN_CHAIN and count % NUMBER_NODES_IN_CHAIN == 0
 
         ids = list(
-            memgraph.execute_and_fetch(
-                f"MATCH (n:Node{worker_id} {{id: 1}})-->(m)-->(o)-->(p) RETURN n.id AS id1, m.id AS id2, o.id AS id3, p.id AS id4"
+            execute_till_success(
+                session,
+                f"MATCH (n:Node{worker_id} {{id: 1}})-->(m)-->(o)-->(p) RETURN n.id AS id1, m.id AS id2, o.id AS id3, p.id AS id4",
             )
         )
 
@@ -183,11 +194,11 @@ def run_deleter(total_workers_cnt: int, repetition_count: int, sleep_sec: float)
     """
     Periodic deletion of an arbitrary chain in the graph
     """
-    memgraph = get_memgraph(args)
+    session = SessionCache.argument_session(args)
 
     def delete_part_of_graph(id: int):
         try:
-            memgraph.execute(f"MATCH (n:Node{id}) DETACH DELETE n")
+            execute_till_success(session, f"MATCH (n:Node{id}) DETACH DELETE n")
             log.info(f"Worker deleted chain with nodes of id {id}")
         except Exception as ex:
             log.info(f"Worker failed to delete the chain with id {id}")
