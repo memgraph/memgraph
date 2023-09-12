@@ -21,7 +21,7 @@
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
 #include "query/discard_value_stream.hpp"
-#include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::metrics {

@@ -37,7 +37,8 @@ set(mg_query_sources
     typed_value.cpp
     graph.cpp
     db_accessor.cpp
-    auth_query_handler.cpp)
+    auth_query_handler.cpp
+        interpreter_context.cpp)
 
 add_library(mg-query STATIC ${mg_query_sources})
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)

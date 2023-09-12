@@ -19,6 +19,7 @@
 
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
+#include "query/interpreter_context.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 /*

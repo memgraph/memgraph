@@ -9,6 +9,5 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 #include "glue/ServerT.hpp"
-#include "query/interpreter.hpp"
 
 template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;

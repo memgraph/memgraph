@@ -23,11 +23,12 @@
 #include <system_error>
 #include <unordered_map>
 
+#include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database_handler.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
-#include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -38,8 +39,6 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
-
-#include "auth/auth.hpp"
 
 namespace memgraph::dbms {
 

@@ -22,6 +22,7 @@
 #include "query/config.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"

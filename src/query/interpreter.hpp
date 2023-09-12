@@ -49,14 +49,13 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
-namespace memgraph::dbms {
-class DbmsHandler;
-}  // namespace memgraph::dbms
 namespace memgraph::metrics {
 extern const Event FailedQuery;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query {
+
+struct InterpreterContext;
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
@@ -138,54 +137,6 @@ struct PreparedQuery {
 struct QueryExtras {
   std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
   std::optional<int64_t> tx_timeout;
-};
-
-class Interpreter;
-
-/**
- * Holds data shared between multiple `Interpreter` instances (which might be
- * running concurrently).
- *
- */
-/// TODO: andi decouple in a separate file why here?
-
-struct InterpreterContext {
-#ifdef MG_ENTERPRISE
-  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *db_handler,
-                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
-#else
-  InterpreterContext(InterpreterConfig interpreter_config,
-                     memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
-                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
-#endif
-
-#ifdef MG_ENTERPRISE
-  memgraph::dbms::DbmsHandler *db_handler;
-#else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper;
-#endif
-
-  // Internal
-  const InterpreterConfig config;
-  std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
-  utils::SkipList<QueryCacheEntry> ast_cache;
-
-  // GLOBAL
-  AuthQueryHandler *auth;
-  AuthChecker *auth_checker;
-
-  // Used to check active transactions
-  // TODO: Have a way to read the current database
-  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
-
-  /// Function that is used to tell all active interpreters that they should stop
-  /// their ongoing execution.
-  void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
-
-  std::vector<std::vector<TypedValue>> KillTransactions(std::vector<std::string> maybe_kill_transaction_ids,
-                                                        const std::optional<std::string> &username,
-                                                        bool hasTransactionManagementPrivilege,
-                                                        std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc);
 };
 
 class Interpreter final {

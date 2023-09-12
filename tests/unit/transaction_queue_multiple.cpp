@@ -22,6 +22,7 @@
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
+#include "query/interpreter_context.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"

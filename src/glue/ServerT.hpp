@@ -10,14 +10,26 @@
 // licenses/APL.txt.
 #pragma once
 
-#if MG_ENTERPRISE
-#include "audit/log.hpp"
-#else
-#include "dbms/database.hpp"
-#endif
 #include "communication/v2/server.hpp"
 #include "glue/SessionHL.hpp"
-#include "query/interpreter.hpp"
+#include "utils/synchronized.hpp"
+
+namespace memgraph::query {
+struct InterpreterContext;
+}
+
+#if MG_ENTERPRISE
+namespace memgraph::audit {
+class Log;
+}
+#endif
+
+namespace memgraph::auth {
+class Auth;
+}
+namespace memgraph::utils {
+class WritePrioritizedRWLock;
+}
 
 struct Context {
   memgraph::query::InterpreterContext *ic;

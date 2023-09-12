@@ -38,11 +38,13 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "query/auth_query_handler.hpp"
+#include "query/interpreter_context.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 
+// TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
                          std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx, db_acc);

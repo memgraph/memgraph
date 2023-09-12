@@ -26,6 +26,7 @@
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
