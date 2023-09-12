@@ -157,17 +157,15 @@ def run_writer(total_workers_cnt: int, repetition_count: int, sleep_sec: float, 
 
     def verify() -> Tuple[bool, int]:
         # We always create X nodes and therefore the number of nodes needs to be always a fraction of X
-        count = list(execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt"))[0]["cnt"]
+        count = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
         log.info(f"Worker {worker_id} verified graph count {count} in repetition {curr_repetition}")
 
         assert count <= total_workers_cnt * NUMBER_NODES_IN_CHAIN and count % NUMBER_NODES_IN_CHAIN == 0
 
-        ids = list(
-            execute_till_success(
-                session,
-                f"MATCH (n:Node{worker_id} {{id: 1}})-->(m)-->(o)-->(p) RETURN n.id AS id1, m.id AS id2, o.id AS id3, p.id AS id4",
-            )
-        )
+        ids = execute_till_success(
+            session,
+            f"MATCH (n:Node{worker_id} {{id: 1}})-->(m)-->(o)-->(p) RETURN n.id AS id1, m.id AS id2, o.id AS id3, p.id AS id4",
+        )[0]
 
         if len(ids):
             result = ids[0]
