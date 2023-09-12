@@ -17,6 +17,7 @@
 
 #include "dbms/database.hpp"
 #include "query/auth_checker.hpp"
+#include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -59,107 +60,6 @@ namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
-
-class AuthQueryHandler {
- public:
-  AuthQueryHandler() = default;
-  virtual ~AuthQueryHandler() = default;
-
-  AuthQueryHandler(const AuthQueryHandler &) = delete;
-  AuthQueryHandler(AuthQueryHandler &&) = delete;
-  AuthQueryHandler &operator=(const AuthQueryHandler &) = delete;
-  AuthQueryHandler &operator=(AuthQueryHandler &&) = delete;
-
-  /// Return false if the user already exists.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateUser(const std::string &username, const std::optional<std::string> &password) = 0;
-
-  /// Return false if the user does not exist.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropUser(const std::string &username) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetPassword(const std::string &username, const std::optional<std::string> &password) = 0;
-
-#ifdef MG_ENTERPRISE
-  /// Return true if access revoked successfully
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool RevokeDatabaseFromUser(const std::string &db, const std::string &username) = 0;
-
-  /// Return true if access granted successfully
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool GrantDatabaseToUser(const std::string &db, const std::string &username) = 0;
-
-  /// Returns database access rights for the user
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) = 0;
-
-  /// Return true if main database set successfully
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool SetMainDatabase(const std::string &db, const std::string &username) = 0;
-
-  /// Delete database from all users
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DeleteDatabase(std::string_view db) = 0;
-#endif
-
-  /// Return false if the role already exists.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateRole(const std::string &rolename) = 0;
-
-  /// Return false if the role does not exist.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropRole(const std::string &rolename) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetUsernames() = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetRolenames() = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetRolenameForUser(const std::string &username) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username, const std::string &rolename) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRole(const std::string &username) = 0;
-
-  virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantPrivilege(
-      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges
-#ifdef MG_ENTERPRISE
-      ,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
-
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges
-#endif
-      ) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokePrivilege(
-      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges
-#ifdef MG_ENTERPRISE
-      ,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
-
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges
-#endif
-      ) = 0;
-};
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 

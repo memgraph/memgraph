@@ -37,6 +37,7 @@
 #include "version.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "query/auth_query_handler.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";

@@ -95,6 +95,7 @@
 #include "utils/variant_helpers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "query/auth_query_handler.hpp"
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -118,6 +119,7 @@ constexpr auto kAlwaysFalse = false;
 
 namespace {
 template <typename T, typename K>
+
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
 }
