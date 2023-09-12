@@ -446,53 +446,32 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
+#ifdef MG_ENTERPRISE
   // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+#endif
 
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    // Handler for regular termination signals
-    auto shutdown = [&metrics_server, &websocket_server, &server] {
-      // Server needs to be shutdown first and then the database. This prevents
-      // a race condition when a transaction is accepted during server shutdown.
-      server.Shutdown();
-      websocket_server.Shutdown();
-      metrics_server.Shutdown();
-    };
-
-    InitSignalHandlers(shutdown);
-  } else {
-    // Handler for regular termination signals
-    auto shutdown = [&websocket_server, &server, &interpreter_context_] {
-      // Server needs to be shutdown first and then the database. This prevents
-      // a race condition when a transaction is accepted during server shutdown.
-      server.Shutdown();
-      // After the server is notified to stop accepting and processing
-      // connections we tell the execution engine to stop processing all pending
-      // queries.
-      interpreter_context_.Shutdown();
-      websocket_server.Shutdown();
-    };
-
-    InitSignalHandlers(shutdown);
-  }
-#else
   // Handler for regular termination signals
-  auto shutdown = [&websocket_server, &server, &interpreter_context_] {
+  auto shutdown = [
+#ifdef MG_ENTERPRISE
+                      &metrics_server,
+#endif
+                      &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
-    memgraph::query::Shutdown(&interpreter_context_);
-
+    interpreter_context_.Shutdown();
     websocket_server.Shutdown();
+#ifdef MG_ENTERPRISE
+    metrics_server.Shutdown();
+#endif
   };
 
   InitSignalHandlers(shutdown);
-#endif
 
   // Release the temporary database access
   db_acc.reset();
