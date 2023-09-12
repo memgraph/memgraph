@@ -469,8 +469,7 @@ int main(int argc, char **argv) {
       // After the server is notified to stop accepting and processing
       // connections we tell the execution engine to stop processing all pending
       // queries.
-      memgraph::query::Shutdown(&interpreter_context_);
-
+      interpreter_context_.Shutdown();
       websocket_server.Shutdown();
     };
 

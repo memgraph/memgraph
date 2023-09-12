@@ -177,11 +177,16 @@ struct InterpreterContext {
   // Used to check active transactions
   // TODO: Have a way to read the current database
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
-};
 
-/// Function that is used to tell all active interpreters that they should stop
-/// their ongoing execution.
-inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
+  /// Function that is used to tell all active interpreters that they should stop
+  /// their ongoing execution.
+  void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
+
+  std::vector<std::vector<TypedValue>> KillTransactions(std::vector<std::string> maybe_kill_transaction_ids,
+                                                        const std::optional<std::string> &username,
+                                                        bool hasTransactionManagementPrivilege,
+                                                        std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc);
+};
 
 class Interpreter final {
  public:
@@ -391,13 +396,9 @@ class TransactionQueueQueryHandler {
   TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
   TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
 
-  static std::vector<std::vector<TypedValue>> ShowTransactions(const std::unordered_set<Interpreter *> &interpreters,
-                                                               const std::optional<std::string> &username,
-                                                               bool hasTransactionManagementPrivilege);
-
-  static std::vector<std::vector<TypedValue>> KillTransactions(
-      InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
-      const std::optional<std::string> &username, bool hasTransactionManagementPrivilege);
+  static std::vector<std::vector<TypedValue>> ShowTransactions(
+      const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username,
+      bool hasTransactionManagementPrivilege, std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc);
 };
 
 template <typename TStream>

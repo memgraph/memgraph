@@ -2727,7 +2727,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransactions(
     const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username,
-    bool hasTransactionManagementPrivilege) {
+    bool hasTransactionManagementPrivilege, std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc) {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
@@ -2740,6 +2740,7 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
     utils::OnScopeExit clean_status([interpreter]() {
       interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
     });
+    if (interpreter->db_acc_ != filter_db_acc) continue;
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (interpreter->username_ == username || hasTransactionManagementPrivilege)) {
       const auto &typed_queries = interpreter->GetQueries();
@@ -2758,57 +2759,68 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   return results;
 }
 
-std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransactions(
-    InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
-    const std::optional<std::string> &username, bool hasTransactionManagementPrivilege) {
-  std::vector<std::vector<TypedValue>> results;
-  for (const std::string &transaction_id : maybe_kill_transaction_ids) {
-    bool killed = false;
-    bool transaction_found = false;
-    // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
-    // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-    interpreter_context->interpreters.WithLock([&transaction_id, &killed, &transaction_found, username,
-                                                hasTransactionManagementPrivilege](const auto &interpreters) {
-      for (Interpreter *interpreter : interpreters) {
-        TransactionStatus alive_status = TransactionStatus::ACTIVE;
-        // if it is just checking kill, commit and abort should wait for the end of the check
-        // The only way to start checking if the transaction will get killed is if the transaction_status is
-        // active
-        if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
-          continue;
-        }
-        utils::OnScopeExit clean_status([interpreter, &killed]() {
-          if (killed) {
-            interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
-          } else {
-            interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-          }
-        });
+std::vector<std::vector<TypedValue>> InterpreterContext::KillTransactions(
+    std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
+    bool hasTransactionManagementPrivilege, std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc) {
+  auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
-        std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-        if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {
-          transaction_found = true;
-          if (interpreter->username_ == username || hasTransactionManagementPrivilege) {
-            killed = true;
-            spdlog::warn("Transaction {} successfully killed", transaction_id);
-          } else {
-            spdlog::warn("Not enough rights to kill the transaction");
-          }
-          break;
+  // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
+  // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
+  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, username, hasTransactionManagementPrivilege,
+                         filter_db_acc = &filter_db_acc](const auto &interpreters) {
+    for (Interpreter *interpreter : interpreters) {
+      TransactionStatus alive_status = TransactionStatus::ACTIVE;
+      // if it is just checking kill, commit and abort should wait for the end of the check
+      // The only way to start checking if the transaction will get killed is if the transaction_status is
+      // active
+      if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+        continue;
+      }
+      bool killed = false;
+      utils::OnScopeExit clean_status([interpreter, &killed]() {
+        if (killed) {
+          interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
+        } else {
+          interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+        }
+      });
+      if (interpreter->db_acc_ != *filter_db_acc) continue;
+      std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
+      if (!intr_trans.has_value()) continue;
+
+      auto transaction_id = std::to_string(intr_trans.value());
+
+      auto it = std::find(maybe_kill_transaction_ids.begin(), not_found_midpoint, transaction_id);
+      if (it != not_found_midpoint) {
+        // update the maybe_kill_transaction_ids (partitioning not found + killed)
+        --not_found_midpoint;
+        std::iter_swap(it, not_found_midpoint);
+        if (interpreter->username_ == username || hasTransactionManagementPrivilege) {
+          killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
+          spdlog::warn("Transaction {} successfully killed", transaction_id);
+        } else {
+          spdlog::warn("Not enough rights to kill the transaction");
         }
       }
-    });
-    if (!transaction_found) {
-      spdlog::warn("Transaction {} not found", transaction_id);
     }
-    results.push_back({TypedValue(transaction_id), TypedValue(killed)});
+  });
+
+  std::vector<std::vector<TypedValue>> results;
+  for (auto it = maybe_kill_transaction_ids.begin(); it != not_found_midpoint; ++it) {
+    results.push_back({TypedValue(*it), TypedValue(false)});
+    spdlog::warn("Transaction {} not found", *it);
   }
+  for (auto it = not_found_midpoint; it != maybe_kill_transaction_ids.end(); ++it) {
+    results.push_back({TypedValue(*it), TypedValue(true)});
+  }
+
   return results;
 }
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      const std::optional<std::string> &username, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context) {
+                                     InterpreterContext *interpreter_context,
+                                     memgraph::query::Interpreter &interpreter) {
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
@@ -2817,17 +2829,23 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   bool hasTransactionManagementPrivilege = interpreter_context->auth_checker->IsUserAuthorized(
       username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, "");
 
+  if (!interpreter.db_acc_) {
+    // TODO: remove in future when we have cypher execution which can happen without any database transaction
+    //       ie. when we have a transaction ID not tied to storage transaction
+    throw DatabaseContextRequiredException("No current database for transaction defined.");
+  }
+
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       callback.header = {"username", "transaction_id", "query", "metadata"};
       callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, username,
-                     hasTransactionManagementPrivilege]() mutable {
+                     hasTransactionManagementPrivilege, db_acc = &interpreter.db_acc_]() mutable {
         std::vector<std::vector<TypedValue>> results;
         // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
         interpreter_context->interpreters.WithLock(
-            [&results, handler, username, hasTransactionManagementPrivilege](const auto &interpreters) {
-              results = handler.ShowTransactions(interpreters, username, hasTransactionManagementPrivilege);
+            [&results, handler, username, hasTransactionManagementPrivilege, db_acc](const auto &interpreters) {
+              results = handler.ShowTransactions(interpreters, username, hasTransactionManagementPrivilege, *db_acc);
             });
         return results;
       };
@@ -2840,10 +2858,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                        return std::string(expression->Accept(evaluator).ValueString());
                      });
       callback.header = {"transaction_id", "killed"};
-      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, maybe_kill_transaction_ids,
-                     username, hasTransactionManagementPrivilege]() mutable {
-        return handler.KillTransactions(interpreter_context, maybe_kill_transaction_ids, username,
-                                        hasTransactionManagementPrivilege);
+      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context,
+                     maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids), username,
+                     hasTransactionManagementPrivilege, db_acc = &interpreter.db_acc_]() mutable {
+        return interpreter_context->KillTransactions(std::move(maybe_kill_transaction_ids), username,
+                                                     hasTransactionManagementPrivilege, *db_acc);
       };
       break;
     }
@@ -2853,15 +2872,16 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::optional<std::string> &username,
-                                           bool in_explicit_transaction, InterpreterContext *interpreter_context) {
+                                           bool in_explicit_transaction, InterpreterContext *interpreter_context,
+                                           memgraph::query::Interpreter &interpreter) {
   if (in_explicit_transaction) {
     throw TransactionQueueInMulticommandTxException();
   }
 
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback =
-      HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters, interpreter_context);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters,
+                                              interpreter_context, interpreter);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -3542,9 +3562,13 @@ void Interpreter::RollbackTransaction() {
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name) {
   // Can throw
+  // do we lock here?
   db_acc_ = interpreter_context_->db_handler->Get(db_name);
 }
-void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess new_db) { db_acc_ = std::move(new_db); }
+void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess new_db) {
+  // do we lock here?
+  db_acc_ = std::move(new_db);
+}
 #endif
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
@@ -3740,7 +3764,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, *db_acc_, interpreter_context_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
-                                                    interpreter_context_);
+                                                    interpreter_context_, *this);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
                                                  interpreter_context_, *this, on_change_);

@@ -33,6 +33,7 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+  STARTED_DB_ACCESS_CHANGE,
 };
 
 struct EvaluationContext {

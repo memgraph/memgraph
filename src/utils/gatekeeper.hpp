@@ -183,6 +183,8 @@ struct Gatekeeper {
       owner_ = nullptr;
     }
 
+    friend bool operator==(access const &lhs, access const &rhs) { return lhs.owner_ == rhs.owner_; }
+
    private:
     Gatekeeper *owner_ = nullptr;
   };
