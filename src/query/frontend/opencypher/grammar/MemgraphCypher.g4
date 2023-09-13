@@ -37,6 +37,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CLEAR
                       | COMMIT
                       | COMMITTED
+                      | COMPACT
                       | CONFIG
                       | CONFIGS
                       | CONSUMER_GROUP
@@ -148,6 +149,7 @@ query : cypherQuery
       | multiDatabaseQuery
       | showDatabases
       | edgeImportModeQuery
+      | compactMemoryQuery
       ;
 
 authQuery : createRole
@@ -314,6 +316,7 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
+          | COMPACT_MEMORY
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -482,3 +485,5 @@ dropDatabase : DROP DATABASE databaseName ;
 showDatabases: SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
+
+compactMemoryQuery : COMPACT MEMORY ;

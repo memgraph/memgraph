@@ -361,6 +361,7 @@ class InMemoryStorage final : public Storage {
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
   void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
+  void CompactMemory(std::unique_lock<utils::RWLock> main_guard) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();

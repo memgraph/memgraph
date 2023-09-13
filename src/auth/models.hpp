@@ -47,6 +47,7 @@ enum class Permission : uint64_t {
   STORAGE_MODE = 1U << 22U,
   MULTI_DATABASE_EDIT = 1U << 23U,
   MULTI_DATABASE_USE  = 1U << 24U,
+  COMPACT_MEMORY = 1U << 25U,
 };
 // clang-format on
 

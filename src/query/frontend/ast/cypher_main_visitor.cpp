@@ -410,6 +410,12 @@ antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemory
   return free_memory_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCompactMemoryQuery(MemgraphCypher::CompactMemoryQueryContext *ctx) {
+  auto *compact_memory_query = storage_->Create<CompactMemoryQuery>();
+  query_ = compact_memory_query;
+  return compact_memory_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "TriggerQuery should have exactly one child!");
   auto *trigger_query = std::any_cast<TriggerQuery *>(ctx->children[0]->accept(this));
@@ -1576,6 +1582,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->STORAGE_MODE()) return AuthQuery::Privilege::STORAGE_MODE;
   if (ctx->MULTI_DATABASE_EDIT()) return AuthQuery::Privilege::MULTI_DATABASE_EDIT;
   if (ctx->MULTI_DATABASE_USE()) return AuthQuery::Privilege::MULTI_DATABASE_USE;
+  if (ctx->COMPACT_MEMORY()) return AuthQuery::Privilege::COMPACT_MEMORY;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

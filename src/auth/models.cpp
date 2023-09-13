@@ -61,7 +61,8 @@ const std::vector<Permission> kPermissionsAll = {Permission::MATCH,
                                                  Permission::TRANSACTION_MANAGEMENT,
                                                  Permission::STORAGE_MODE,
                                                  Permission::MULTI_DATABASE_EDIT,
-                                                 Permission::MULTI_DATABASE_USE};
+                                                 Permission::MULTI_DATABASE_USE,
+                                                 Permission::COMPACT_MEMORY};
 
 }  // namespace
 
@@ -117,6 +118,8 @@ std::string PermissionToString(Permission permission) {
       return "MULTI_DATABASE_EDIT";
     case Permission::MULTI_DATABASE_USE:
       return "MULTI_DATABASE_USE";
+    case Permission::COMPACT_MEMORY:
+      return "COMPACT_MEMORY";
   }
 }
 

@@ -2256,6 +2256,23 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_
       RWType::NONE};
 }
 
+PreparedQuery PrepareCompactMemoryQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                        InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw CompactMemoryModificationInMulticommandTxException();
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        interpreter_context->db->CompactMemory();
+        // memory::PurgeUnusedMemory();
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
 PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw ShowConfigModificationInMulticommandTxException();
@@ -3675,6 +3692,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<CompactMemoryQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareCompactMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
       prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {

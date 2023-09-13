@@ -2817,6 +2817,7 @@ class AuthQuery : public memgraph::query::Query {
     TRANSACTION_MANAGEMENT,
     MULTI_DATABASE_EDIT,
     MULTI_DATABASE_USE,
+    COMPACT_MEMORY,
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -2895,7 +2896,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::
                                                           AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
                                                           AuthQuery::Privilege::STORAGE_MODE,
                                                           AuthQuery::Privilege::MULTI_DATABASE_EDIT,
-                                                          AuthQuery::Privilege::MULTI_DATABASE_USE};
+                                                          AuthQuery::Privilege::MULTI_DATABASE_USE,
+                                                          AuthQuery::Privilege::COMPACT_MEMORY};
 
 class InfoQuery : public memgraph::query::Query {
  public:
@@ -3115,6 +3117,19 @@ class FreeMemoryQuery : public memgraph::query::Query {
 
   FreeMemoryQuery *Clone(AstStorage *storage) const override {
     FreeMemoryQuery *object = storage->Create<FreeMemoryQuery>();
+    return object;
+  }
+};
+
+class CompactMemoryQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  CompactMemoryQuery *Clone(AstStorage *storage) const override {
+    CompactMemoryQuery *object = storage->Create<CompactMemoryQuery>();
     return object;
   }
 };

@@ -255,6 +255,10 @@ class Storage {
 
   void FreeMemory() { FreeMemory({}); }
 
+  virtual void CompactMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+
+  void CompactMemory() { CompactMemory({}); }
+
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 

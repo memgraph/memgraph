@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <memory>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 
@@ -17,6 +18,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
 
@@ -1783,6 +1785,55 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::RWLock> main_guard) {
 
   static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
   static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
+}
+
+void InMemoryStorage::CompactMemory(std::unique_lock<utils::RWLock> main_guard) {
+  // Version 1
+  // 1. Create snapshot.
+  auto snap_err = CreateSnapshot(false);
+  if (snap_err.HasError()) {
+    throw utils::BasicException("Failed to create snapshot.");
+  }
+
+  // 2. Clear Storage.
+  edges_.clear();
+  vertices_.clear();
+  indices_.label_index_ = std::make_unique<InMemoryLabelIndex>(&indices_, config_);
+  indices_.label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(&indices_, config_);
+  constraints_.existence_constraints_ = std::make_unique<ExistenceConstraints>();
+  constraints_.unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+  edge_count_.store(0);
+
+  // 3. Recover
+  auto &epoch = replication_state_.GetEpoch();
+  auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id,
+                                      &replication_state_.history, &vertices_, &edges_, &edge_count_,
+                                      name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
+  if (info) {
+    vertex_id_ = info->next_vertex_id;
+    edge_id_ = info->next_edge_id;
+    timestamp_ = std::max(timestamp_, info->next_timestamp);
+    if (info->last_commit_timestamp) {
+      replication_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
+    }
+  }
+
+  // Version 2
+  // 1. Take complete control, block everything else.
+  // 2. Force-call garbage collection in both storage modes.
+  // 3. Recreate the skip lists and indices. Order may matter.
+  // 4. Delete old skiplists.
+  // 5. Force-call garbage collection again.
+  // 6. Profit.
+
+  // Version 3
+  // Same as version 1 but intsead revoery ops use rocksdb
+  // to temporarly store the data.
+
+  // MISC
+  // - How does this play together with replication?
+  // - How does this play together with the MemoryChecker?
+  // - How does this play together with multi-tenancy?
 }
 
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
