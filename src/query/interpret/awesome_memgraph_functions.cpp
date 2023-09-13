@@ -628,28 +628,58 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
-  } else if (value.IsEdge()) {
-    return get_keys(value.ValueEdge());
-  } else {
-    TypedValue::TVector keys(ctx.memory);
-    for (const auto &[string_key, value] : value.ValueMap()) {
-      keys.emplace_back(string_key);
-    }
-    return TypedValue(std::move(keys));
   }
+  if (value.IsVertex()) {
+    return get_keys(value.ValueVertex());
+  }
+  if (value.IsEdge()) {
+    return get_keys(value.ValueEdge());
+  }
+
+  // map
+  TypedValue::TVector keys(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    keys.emplace_back(string_key);
+  }
+  return TypedValue(std::move(keys));
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Map>>("keys", args, nargs);
-  auto *dba = ctx.db_accessor;
+  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+
+  auto get_values = [&](const auto &record_accessor) {
+    TypedValue::TVector values(ctx.memory);
+    auto maybe_props = record_accessor.Properties(ctx.view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get keys from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting keys.");
+      }
+    }
+    for (const auto &[key, value] : *maybe_props) {
+      values.emplace_back(std::move(value));
+    }
+    return TypedValue(std::move(values));
+  };
 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
+  if (value.IsVertex()) {
+    return get_values(value.ValueVertex());
+  }
+  if (value.IsEdge()) {
+    return get_values(value.ValueEdge());
+  }
 
+  // map
   TypedValue::TVector values(ctx.memory);
   for (const auto &[string_key, value] : value.ValueMap()) {
     values.emplace_back(value);
