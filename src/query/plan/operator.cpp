@@ -5243,6 +5243,25 @@ class HashJoinCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("HashJoin");
+
+    // TODO HashJoin: algorithm implementation pseudocode
+    // if !hash_table {
+    //    while left_cursor->Pull() {
+    //      build_hash_table()
+    //    }
+    //    hash_table = true
+
+    // while right_cursor->pull() {
+    //    if check_in_hash_table_success:
+    //      for frame in hash_table[value]:
+    //        restore_frame
+    //        return true;
+    //    else: continue
+    //
+    // }
+
+    // link to implementation: https://rosettacode.org/wiki/Hash_join#Python
+
     return true;
   }
 

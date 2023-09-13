@@ -348,6 +348,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(HashJoin &op) override {
+    // TODO HashJoin: Implement cost estimator for HashJoin, look at IndexedJoin (which may be wrong), and cartesian
+    // Cartesian is right I think, while IndexedJoin was written without too much thinking.
+    // Either way, learn about cost and cardinality and implement logic
+
+    return true;
+  }
+
   bool PostVisit(EmptyResult & /*op*/) override {
     scopes_.emplace_back();
     return true;

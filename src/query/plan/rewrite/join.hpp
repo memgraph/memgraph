@@ -46,6 +46,12 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
+
+    // TODO HashJoin: Collect filter expressions like in the index_lookup.hpp
+    // Check if we only need to collect if the child operator is Cartesian
+    // Probably yes
+    // Also see if before cartesian there could be Filter -> EdgeUniquenessFilter -> Cartesian
+    // e.g. MATCH (a)-[]->(b), (c)-[]->(d) return a, c;
     return true;
   }
 
@@ -54,6 +60,9 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
+
+    // TODO HashJoin: Remove filter expressions just like in index_lookup.hpp
+    // Remove filter if no expressions are left just like in index_lookup.hpp
     return true;
   }
 
@@ -120,6 +129,11 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
+
+    // TODO HashJoin: possibly RewriteBranch will stay to not interfere with other cartesians and filters
+    // Perform logic that will set a HashJoin operator with left_op_ and right_op_ instead of this one
+    // Similar logic is in index_lookup.hpp
+
     RewriteBranch(&op.left_op_);
     RewriteBranch(&op.right_op_);
     return false;
