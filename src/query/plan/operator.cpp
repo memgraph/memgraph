@@ -4428,12 +4428,6 @@ UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem);
 }
 
-UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
-
-  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
-}
-
 OutputTable::OutputTable(std::vector<Symbol> output_symbols, std::vector<std::vector<TypedValue>> rows)
     : output_symbols_(std::move(output_symbols)), callback_([rows](Frame *, ExecutionContext *) { return rows; }) {}
 
@@ -5245,6 +5239,7 @@ class HashJoinCursor : public Cursor {
     SCOPED_PROFILE_OP("HashJoin");
 
     // TODO HashJoin: algorithm implementation pseudocode
+    // (there is something similar in Cartesian operator for saving the frames)
     // if !hash_table {
     //    while left_cursor->Pull() {
     //      build_hash_table()
@@ -5280,7 +5275,11 @@ class HashJoinCursor : public Cursor {
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
 };
-
 }  // namespace
+
+UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
+  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
+}
 
 }  // namespace memgraph::query::plan
