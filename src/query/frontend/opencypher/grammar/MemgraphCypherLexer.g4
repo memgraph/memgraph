@@ -41,6 +41,7 @@ CHECK                   : C H E C K ;
 CLEAR                   : C L E A R ;
 COMMIT                  : C O M M I T ;
 COMMITTED               : C O M M I T T E D ;
+COMPACT                 : C O M P A C T ;
 CONFIG                  : C O N F I G ;
 CONFIGS                 : C O N F I G S;
 CONSUMER_GROUP          : C O N S U M E R UNDERSCORE G R O U P ;

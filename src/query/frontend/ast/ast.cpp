@@ -243,6 +243,9 @@ constexpr utils::TypeInfo query::LoadCsv::kType{utils::TypeId::AST_LOAD_CSV, "Lo
 constexpr utils::TypeInfo query::FreeMemoryQuery::kType{utils::TypeId::AST_FREE_MEMORY_QUERY, "FreeMemoryQuery",
                                                         &query::Query::kType};
 
+constexpr utils::TypeInfo query::CompactMemoryQuery::kType{utils::TypeId::AST_COMPACT_MEMORY_QUERY,
+                                                           "CompactMemoryQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::TriggerQuery::kType{utils::TypeId::AST_TRIGGER_QUERY, "TriggerQuery",
                                                      &query::Query::kType};
 

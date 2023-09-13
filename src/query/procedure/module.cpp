@@ -849,7 +849,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
   if (!handle_) {
     spdlog::error(
-        utils::MessageWithLink("Unable to load module {}; {}.", file_path, dlerror(), "https://memgr.ph/modules"));
+        utils::MessageWithLink("1 Unable to load module {}; {}.", file_path, dlerror(), "https://memgr.ph/modules"));
     return false;
   }
   // Get required mgp_init_module
@@ -857,7 +857,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   char *dl_errored = dlerror();
   if (!init_fn_ || dl_errored) {
     spdlog::error(
-        utils::MessageWithLink("Unable to load module {}; {}.", file_path, dl_errored, "https://memgr.ph/modules"));
+        utils::MessageWithLink("2 Unable to load module {}; {}.", file_path, dl_errored, "https://memgr.ph/modules"));
     dlclose(handle_);
     handle_ = nullptr;
     return false;

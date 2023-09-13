@@ -230,6 +230,12 @@ class FreeMemoryModificationInMulticommandTxException : public QueryException {
       : QueryException("Free memory query not allowed in multicommand transactions.") {}
 };
 
+class CompactMemoryModificationInMulticommandTxException : public QueryException {
+ public:
+  CompactMemoryModificationInMulticommandTxException()
+      : QueryException("COMPACT MEMORY is query not allowed in multicommand transactions.") {}
+};
+
 class FreeMemoryDisabledOnDiskStorage : public QueryException {
  public:
   FreeMemoryDisabledOnDiskStorage() : QueryException("Free memory does nothing when using disk storage. ") {}

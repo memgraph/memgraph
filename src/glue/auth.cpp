@@ -66,6 +66,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MULTI_DATABASE_EDIT;
     case query::AuthQuery::Privilege::MULTI_DATABASE_USE:
       return auth::Permission::MULTI_DATABASE_USE;
+    case query::AuthQuery::Privilege::COMPACT_MEMORY:
+      return auth::Permission::COMPACT_MEMORY;
   }
 }
 
