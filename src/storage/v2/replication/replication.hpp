@@ -12,7 +12,9 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/result.hpp"
 
 /// REPLICATION ///

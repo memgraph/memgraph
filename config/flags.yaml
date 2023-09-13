@@ -107,6 +107,10 @@ modifications:
     value: "false"
     override: true
 
+  - name: "query_callable_mappings_path"
+    value: "/etc/memgraph/apoc_compatibility_mappings.json"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"
