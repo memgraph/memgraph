@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Old v1 tests
+run_v1.sh
+
+# New tests
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
 
@@ -30,7 +34,6 @@ $binary_dir/memgraph \
     --query-execution-timeout-sec=5 \
     --bolt-session-inactivity-timeout=10 \
     --bolt-cert-file="" \
-    --bolt-server-name-for-init="Neo4j/1.1" \
     --log-file=$tmpdir/logs/memgarph.log \
     --also-log-to-stderr \
     --log-level ERROR &
@@ -45,7 +48,8 @@ for i in *; do
     echo "Running: $i"
     # run all versions
     for v in *; do
-        if [ ! -d $v ]; then continue; fi
+        #skip v1 (needs different server name)
+        if [[ "$v" == "v1" || ! -d "$v" ]]; then continue; fi
         pushd $v
         echo "Running version: $v"
         ./run.sh

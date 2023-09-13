@@ -69,12 +69,18 @@
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
-#define ACCEPT_WITH_INPUT(class_name)                                    \
-  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
-    if (visitor.PreVisit(*this)) {                                       \
-      input_->Accept(visitor);                                           \
-    }                                                                    \
-    return visitor.PostVisit(*this);                                     \
+// NOLINTNEXTLINE
+#define ACCEPT_WITH_INPUT(class_name)                                                            \
+  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) {                         \
+    if (visitor.PreVisit(*this)) {                                                               \
+      if (input_ == nullptr) {                                                                   \
+        throw QueryRuntimeException(                                                             \
+            "The query couldn't be executed due to the unexpected null value in " #class_name    \
+            " operator. To learn more about operators visit https://memgr.ph/query-operators!"); \
+      }                                                                                          \
+      input_->Accept(visitor);                                                                   \
+    }                                                                                            \
+    return visitor.PostVisit(*this);                                                             \
   }
 
 #define WITHOUT_SINGLE_INPUT(class_name)                         \
@@ -124,6 +130,7 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
+extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
 }  // namespace memgraph::metrics
 
@@ -167,7 +174,10 @@ inline void AbortCheck(ExecutionContext const &context) {
 
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_PROFILE_OP_BY_REF(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
@@ -347,7 +357,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
 }  // namespace
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("CreateExpand");
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -426,20 +436,21 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
+  explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
                          TVerticesFun get_vertices, const char *op_name)
-      : output_symbol_(output_symbol),
+      : self_(self),
+        output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_vertices_(std::move(get_vertices)),
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(op_name_);
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     AbortCheck(context);
 
-    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
@@ -450,6 +461,7 @@ class ScanAllCursor : public Cursor {
       // vertices _ = get_vertices_(frame, context);
       vertices_.emplace(std::move(next_vertices.value()));
       vertices_it_.emplace(vertices_.value().begin());
+      vertices_end_it_.emplace(vertices_.value().end());
     }
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
@@ -464,7 +476,7 @@ class ScanAllCursor : public Cursor {
 
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
-    while (vertices_it_.value() != vertices_.value().end()) {
+    while (vertices_it_.value() != vertices_end_it_.value()) {
       if (context.auth_checker->Has(*vertices_it_.value(), view_,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
@@ -481,15 +493,18 @@ class ScanAllCursor : public Cursor {
     input_cursor_->Reset();
     vertices_ = std::nullopt;
     vertices_it_ = std::nullopt;
+    vertices_end_it_ = std::nullopt;
   }
 
  private:
+  const ScanAll &self_;
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
 };
 
@@ -505,8 +520,8 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
-                                                                std::move(vertices), "ScanAll");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAll");
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -528,8 +543,8 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
-                                                                std::move(vertices), "ScanAllByLabel");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByLabel");
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
@@ -593,8 +608,8 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
     if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
     return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
-                                                                std::move(vertices), "ScanAllByLabelPropertyRange");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelPropertyRange");
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -625,8 +640,8 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     }
     return std::make_optional(db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
-                                                                std::move(vertices), "ScanAllByLabelPropertyValue");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelPropertyValue");
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -643,8 +658,8 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_, property_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
-                                                                std::move(vertices), "ScanAllByLabelProperty");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByLabelProperty");
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
@@ -669,8 +684,8 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_vertex) return std::nullopt;
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
-                                                                std::move(vertices), "ScanAllById");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllById");
 }
 
 namespace {
@@ -681,8 +696,8 @@ bool CheckExistingNode(const VertexAccessor &new_node, const Symbol &existing_no
   return existing_node.ValueVertex() == new_node;
 }
 
-template <class TEdges>
-auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
+template <class TEdgesResult>
+auto UnwrapEdgesResult(storage::Result<TEdgesResult> &&result) {
   if (result.HasError()) {
     switch (result.GetError()) {
       case storage::Error::DELETED_OBJECT:
@@ -726,8 +741,15 @@ std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
 Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
+Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int64_t existing_node_degree,
+                                   utils::MemoryResource *mem)
+    : self_(self),
+      input_cursor_(self.input_->MakeCursor(mem)),
+      prev_input_degree_(input_degree),
+      prev_existing_degree_(existing_node_degree) {}
+
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Expand");
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
@@ -801,56 +823,129 @@ void Expand::ExpandCursor::Reset() {
   out_edges_it_ = std::nullopt;
 }
 
+ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+
+  if (vertex_value.IsNull()) {
+    return ExpansionInfo{};
+  }
+
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+  auto &vertex = vertex_value.ValueVertex();
+
+  auto direction = self_.common_.direction;
+  if (!self_.common_.existing_node) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction};
+  }
+
+  TypedValue &existing_node = frame[self_.common_.node_symbol];
+
+  if (existing_node.IsNull()) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction};
+  }
+
+  ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+
+  auto &existing_vertex = existing_node.ValueVertex();
+
+  // -1 and -1 -> normal expansion
+  // -1 and expanded -> can't happen
+  // expanded and -1 -> reverse
+  // expanded and expanded -> see if can reverse
+  if ((prev_input_degree_ == -1 && prev_existing_degree_ == -1) || prev_input_degree_ < prev_existing_degree_) {
+    return ExpansionInfo{.input_node = vertex, .direction = direction, .existing_node = existing_vertex};
+  }
+
+  auto new_direction = direction;
+  switch (new_direction) {
+    case EdgeAtom::Direction::IN:
+      new_direction = EdgeAtom::Direction::OUT;
+      break;
+    case EdgeAtom::Direction::OUT:
+      new_direction = EdgeAtom::Direction::IN;
+      break;
+    default:
+      new_direction = EdgeAtom::Direction::BOTH;
+      break;
+  }
+
+  return ExpansionInfo{
+      .input_node = existing_vertex, .direction = new_direction, .existing_node = vertex, .reversed = true};
+}
+
 bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
-    TypedValue &vertex_value = frame[self_.input_symbol_];
 
-    // Null check due to possible failed optional match.
-    if (vertex_value.IsNull()) continue;
+    expansion_info_ = GetExpansionInfo(frame);
 
-    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-    auto &vertex = vertex_value.ValueVertex();
+    if (!expansion_info_.input_node) {
+      continue;
+    }
 
-    auto direction = self_.common_.direction;
+    auto vertex = *expansion_info_.input_node;
+    auto direction = expansion_info_.direction;
+
+    int64_t num_expanded_first = -1;
     if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
       if (self_.common_.existing_node) {
-        TypedValue &existing_node = frame[self_.common_.node_symbol];
-        // old_node_value may be Null when using optional matching
-        if (!existing_node.IsNull()) {
-          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
           context.db_accessor->PrefetchInEdges(vertex);
-          in_edges_.emplace(
-              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+
+          auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
+          in_edges_.emplace(edges_result.edges);
+          num_expanded_first = edges_result.expanded_count;
         }
       } else {
         context.db_accessor->PrefetchInEdges(vertex);
-        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
+
+        auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
+        in_edges_.emplace(edges_result.edges);
+        num_expanded_first = edges_result.expanded_count;
       }
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
       }
     }
 
+    int64_t num_expanded_second = -1;
     if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
       if (self_.common_.existing_node) {
-        TypedValue &existing_node = frame[self_.common_.node_symbol];
-        // old_node_value may be Null when using optional matching
-        if (!existing_node.IsNull()) {
-          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
           context.db_accessor->PrefetchOutEdges(vertex);
-          out_edges_.emplace(
-              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+
+          auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
+          out_edges_.emplace(edges_result.edges);
+          num_expanded_second = edges_result.expanded_count;
         }
       } else {
         context.db_accessor->PrefetchOutEdges(vertex);
-        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
+
+        auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+        out_edges_.emplace(edges_result.edges);
+        num_expanded_second = edges_result.expanded_count;
       }
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
       }
+    }
+
+    if (!expansion_info_.existing_node) {
+      return true;
+    }
+
+    num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
+    num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
+    int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
+
+    if (!expansion_info_.reversed) {
+      prev_input_degree_ = total_expanded_edges;
+    } else {
+      prev_existing_degree_ = total_expanded_edges;
     }
 
     return true;
@@ -912,11 +1007,12 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   };
 
   storage::View view = storage::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, *vertex.InEdges(view, edge_types)))> chain_elements(memory);
+  utils::pmr::vector<decltype(wrapper(direction, vertex.InEdges(view, edge_types).GetValue().edges))> chain_elements(
+      memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
     db_accessor->PrefetchInEdges(vertex);
-    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
+    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types)).edges;
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
@@ -924,7 +1020,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::IN) {
     db_accessor->PrefetchOutEdges(vertex);
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
+    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types)).edges;
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -942,7 +1038,7 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("ExpandVariable");
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -1284,7 +1380,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           context.db_accessor->PrefetchOutEdges(vertex);
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1311,7 +1407,7 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           dba.PrefetchInEdges(vertex);
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1352,7 +1448,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           context.db_accessor->PrefetchOutEdges(vertex);
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1378,7 +1474,7 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           dba.PrefetchInEdges(vertex);
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1470,12 +1566,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         context.db_accessor->PrefetchOutEdges(vertex);
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) expand_pair(edge, edge.To());
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         context.db_accessor->PrefetchInEdges(vertex);
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) expand_pair(edge, edge.From());
       }
     };
@@ -1673,14 +1769,14 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                                              int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         context.db_accessor->PrefetchOutEdges(vertex);
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         context.db_accessor->PrefetchInEdges(vertex);
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
           expand_pair(edge, edge.From(), weight, depth);
         }
@@ -1939,7 +2035,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                                                int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         context.db_accessor->PrefetchOutEdges(vertex);
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1954,7 +2050,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         context.db_accessor->PrefetchInEdges(vertex);
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -2433,7 +2529,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Produce");
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
@@ -2471,15 +2567,12 @@ std::vector<Symbol> Delete::ModifiedSymbols(const SymbolTable &table) const { re
 Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Delete");
-
-  if (!input_cursor_->Pull(frame, context)) return false;
-
+void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &context) {
   // Delete should get the latest information, this way it is also possible
   // to delete newly added nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
+
   auto *pull_memory = context.evaluation_context.memory;
   // collect expressions results so edges can get deleted before vertices
   // this is necessary because an edge that gets deleted could block vertex
@@ -2490,107 +2583,34 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     expression_results.emplace_back(expression->Accept(evaluator));
   }
 
-  auto &dba = *context.db_accessor;
-  // delete edges first
-  for (TypedValue &expression_result : expression_results) {
-    AbortCheck(context);
-    if (expression_result.type() == TypedValue::Type::Edge) {
-      auto &ea = expression_result.ValueEdge();
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-            context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-            context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-        throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
-      }
-#endif
-      auto maybe_value = dba.RemoveEdge(&ea);
-      if (maybe_value.HasError()) {
-        switch (maybe_value.GetError()) {
-          case storage::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::Error::DELETED_OBJECT:
-          case storage::Error::VERTEX_HAS_EDGES:
-          case storage::Error::PROPERTIES_DISABLED:
-          case storage::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when deleting an edge.");
-        }
-      }
-      context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += 1;
-      if (context.trigger_context_collector && maybe_value.GetValue()) {
-        context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
-      }
-    }
-  }
-
-  // delete vertices
   for (TypedValue &expression_result : expression_results) {
     AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
-        auto &va = expression_result.ValueVertex();
+        auto va = expression_result.ValueVertex();
 #ifdef MG_ENTERPRISE
         if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
 #endif
-        if (self_.detach_) {
-          auto res = dba.DetachRemoveVertex(&va);
-          if (res.HasError()) {
-            switch (res.GetError()) {
-              case storage::Error::SERIALIZATION_ERROR:
-                throw TransactionSerializationException();
-              case storage::Error::DELETED_OBJECT:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw QueryRuntimeException("Unexpected error when deleting a node.");
-            }
-          }
-
-          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-          if (*res) {
-            context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
-          }
-          std::invoke([&] {
-            if (!context.trigger_context_collector || !*res) {
-              return;
-            }
-
-            context.trigger_context_collector->RegisterDeletedObject((*res)->first);
-            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-              return;
-            }
-            for (const auto &edge : (*res)->second) {
-              context.trigger_context_collector->RegisterDeletedObject(edge);
-            }
-          });
-        } else {
-          auto res = dba.RemoveVertex(&va);
-          if (res.HasError()) {
-            switch (res.GetError()) {
-              case storage::Error::SERIALIZATION_ERROR:
-                throw TransactionSerializationException();
-              case storage::Error::VERTEX_HAS_EDGES:
-                throw RemoveAttachedVertexException();
-              case storage::Error::DELETED_OBJECT:
-              case storage::Error::PROPERTIES_DISABLED:
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw QueryRuntimeException("Unexpected error when deleting a node.");
-            }
-          }
-          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-          if (context.trigger_context_collector && res.GetValue()) {
-            context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
-          }
-        }
+        buffer_.nodes.push_back(va);
         break;
       }
-
-      // skip Edges (already deleted) and Nulls (can occur in optional
-      // match)
-      case TypedValue::Type::Edge:
+      case TypedValue::Type::Edge: {
+        auto ea = expression_result.ValueEdge();
+#ifdef MG_ENTERPRISE
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+              context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+              context.auth_checker->Has(ea.From(), storage::View::NEW,
+                                        query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+          throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
+        }
+#endif
+        buffer_.edges.push_back(ea);
+        break;
+      }
       case TypedValue::Type::Null:
         break;
       // check we're not trying to delete anything except vertices and edges
@@ -2598,13 +2618,64 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
         throw QueryRuntimeException("Only edges and vertices can be deleted.");
     }
   }
+}
 
-  return true;
+bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Delete");
+
+  if (delete_executed_) {
+    return false;
+  }
+
+  if (input_cursor_->Pull(frame, context)) {
+    UpdateDeleteBuffer(frame, context);
+    return true;
+  }
+
+  auto &dba = *context.db_accessor;
+  auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
+  if (res.HasError()) {
+    switch (res.GetError()) {
+      case storage::Error::SERIALIZATION_ERROR:
+        throw TransactionSerializationException();
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw RemoveAttachedVertexException();
+      case storage::Error::DELETED_OBJECT:
+      case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Unexpected error when deleting a node.");
+    }
+  }
+
+  if (*res) {
+    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
+    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+  }
+
+  // Update deleted objects for triggers
+  if (context.trigger_context_collector && *res) {
+    for (const auto &node : (*res)->first) {
+      context.trigger_context_collector->RegisterDeletedObject(node);
+    }
+
+    if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+      for (const auto &edge : (*res)->second) {
+        context.trigger_context_collector->RegisterDeletedObject(edge);
+      }
+    }
+  }
+
+  delete_executed_ = true;
+
+  return false;
 }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
+void Delete::DeleteCursor::Reset() {
+  input_cursor_->Reset();
+  delete_executed_ = false;
+}
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                          PropertyLookup *lhs, Expression *rhs)
@@ -2725,7 +2796,8 @@ concept AccessorWithProperties = requires(T value, storage::PropertyId property_
 ///     RecordAccessor<Edge>
 template <AccessorWithProperties TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
-                           ExecutionContext *context) {
+                           ExecutionContext *context,
+                           std::unordered_map<std::string, storage::PropertyId> &cached_name_id) {
   using PropertiesMap = std::map<storage::PropertyId, storage::PropertyValue>;
   std::optional<PropertiesMap> old_values;
   const bool should_register_change =
@@ -2809,9 +2881,15 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     }
     case TypedValue::Type::Map: {
       PropertiesMap new_properties;
-      for (const auto &[prop_id, prop_value] : rhs.ValueMap()) {
-        auto key = context->db_accessor->NameToProperty(prop_id);
-        new_properties.emplace(key, prop_value);
+      for (const auto &[string_key, value] : rhs.ValueMap()) {
+        storage::PropertyId property_id;
+        if (auto it = cached_name_id.find(std::string(string_key)); it != cached_name_id.end()) [[likely]] {
+          property_id = it->second;
+        } else {
+          property_id = context->db_accessor->NameToProperty(string_key);
+          cached_name_id.emplace(string_key, property_id);
+        }
+        new_properties.emplace(property_id, value);
       }
       update_props(new_properties);
       break;
@@ -2854,7 +2932,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -2863,7 +2941,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
         throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -3332,7 +3410,7 @@ class AggregateCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), aggregation_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("Aggregate");
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
       ProcessAll(&frame, &context);
@@ -3796,7 +3874,7 @@ class OrderByCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("OrderBy");
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -4198,7 +4276,7 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
     : self_(self), left_cursor_(self.left_op_->MakeCursor(mem)), right_cursor_(self.right_op_->MakeCursor(mem)) {}
 
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Union");
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
   if (left_cursor_->Pull(frame, context)) {
@@ -4272,7 +4350,7 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("Cartesian");
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
@@ -4349,57 +4427,6 @@ UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem) const {
 
   return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem);
 }
-
-std::vector<Symbol> HashJoin::ModifiedSymbols(const SymbolTable &table) const {
-  auto symbols = left_op_->ModifiedSymbols(table);
-  auto right = right_op_->ModifiedSymbols(table);
-  symbols.insert(symbols.end(), right.begin(), right.end());
-  return symbols;
-}
-
-bool HashJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
-  if (visitor.PreVisit(*this)) {
-    left_op_->Accept(visitor) && right_op_->Accept(visitor);
-  }
-  return visitor.PostVisit(*this);
-}
-
-WITHOUT_SINGLE_INPUT(HashJoin);
-
-namespace {
-
-class HashJoinCursor : public Cursor {
- public:
-  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
-      : self_(self),
-        left_op_cursor_(self.left_op_->MakeCursor(mem)),
-        right_op_cursor_(self_.right_op_->MakeCursor(mem)) {
-    MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
-    MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
-  }
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("HashJoin");
-    return true;
-  }
-
-  void Shutdown() override {
-    left_op_cursor_->Shutdown();
-    right_op_cursor_->Shutdown();
-  }
-
-  void Reset() override {
-    left_op_cursor_->Reset();
-    right_op_cursor_->Reset();
-  }
-
- private:
-  const HashJoin &self_;
-  const UniqueCursorPtr left_op_cursor_;
-  const UniqueCursorPtr right_op_cursor_;
-};
-
-}  // namespace
 
 UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
@@ -4618,7 +4645,7 @@ class CallProcedureCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("CallProcedure");
+    SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
 
@@ -4897,7 +4924,7 @@ class LoadCsvCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("LoadCsv");
+    SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
 
@@ -4914,7 +4941,9 @@ class LoadCsvCursor : public Cursor {
     if (input_cursor_->Pull(frame, context)) {
       if (did_pull_) {
         throw QueryRuntimeException(
-            "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV is 1");
+            "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV "
+            "is "
+            "1");
       }
       did_pull_ = true;
     }
@@ -5122,5 +5151,117 @@ void Apply::ApplyCursor::Reset() {
   subquery_->Reset();
   pull_input_ = true;
 }
+
+IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> left, const std::shared_ptr<LogicalOperator> right)
+    : left_(left ? left : std::make_shared<Once>()), right_(right) {}
+
+WITHOUT_SINGLE_INPUT(IndexedJoin);
+
+bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_->Accept(visitor) && right_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::IndexedJoinOperator);
+
+  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem);
+}
+
+IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
+    : self_(self), left_(self.left_->MakeCursor(mem)), right_(self.right_->MakeCursor(mem)) {}
+
+std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = left_->ModifiedSymbols(table);
+  auto subquery_symbols = right_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Apply");
+
+  while (true) {
+    if (pull_input_ && !left_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (right_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    right_->Reset();
+  }
+}
+
+void IndexedJoin::IndexedJoinCursor::Shutdown() {
+  left_->Shutdown();
+  right_->Shutdown();
+}
+
+void IndexedJoin::IndexedJoinCursor::Reset() {
+  left_->Reset();
+  right_->Reset();
+  pull_input_ = true;
+}
+
+std::vector<Symbol> HashJoin::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = left_op_->ModifiedSymbols(table);
+  auto right = right_op_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+}
+
+bool HashJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_op_->Accept(visitor) && right_op_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+WITHOUT_SINGLE_INPUT(HashJoin);
+
+namespace {
+
+class HashJoinCursor : public Cursor {
+ public:
+  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
+      : self_(self),
+        left_op_cursor_(self.left_op_->MakeCursor(mem)),
+        right_op_cursor_(self_.right_op_->MakeCursor(mem)) {
+    MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
+    MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("HashJoin");
+    return true;
+  }
+
+  void Shutdown() override {
+    left_op_cursor_->Shutdown();
+    right_op_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    left_op_cursor_->Reset();
+    right_op_cursor_->Reset();
+  }
+
+ private:
+  const HashJoin &self_;
+  const UniqueCursorPtr left_op_cursor_;
+  const UniqueCursorPtr right_op_cursor_;
+};
+
+}  // namespace
 
 }  // namespace memgraph::query::plan

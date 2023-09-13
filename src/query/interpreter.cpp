@@ -35,6 +35,7 @@
 #include "csv/parsing.hpp"
 #include "dbms/global.hpp"
 #include "dbms/session_context_handler.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -64,6 +65,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -1376,7 +1378,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{config.execution_timeout_sec};
+  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -2459,6 +2461,13 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
   }
 }
 
+constexpr auto ToEdgeImportMode(const EdgeImportModeQuery::Status status) noexcept {
+  if (status == EdgeImportModeQuery::Status::ACTIVE) {
+    return storage::EdgeImportMode::ACTIVE;
+  }
+  return storage::EdgeImportMode::INACTIVE;
+}
+
 bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
   return (current_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
           current_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) &&
@@ -2591,6 +2600,37 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
       return [interpreter_context, requested_mode] { interpreter_context->db->SetStorageMode(requested_mode); };
     }();
   }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                         InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw EdgeImportModeModificationInMulticommandTxException();
+  }
+
+  if (interpreter_context->db->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw EdgeImportModeQueryDisabledOnDiskStorage();
+  }
+
+  auto *edge_import_mode_query = utils::Downcast<EdgeImportModeQuery>(parsed_query.query);
+  MG_ASSERT(edge_import_mode_query);
+  const auto requested_status = ToEdgeImportMode(edge_import_mode_query->status_);
+
+  auto callback = [requested_status, interpreter_context]() -> std::function<void()> {
+    return [interpreter_context, requested_status] {
+      auto *disk_storage = static_cast<storage::DiskStorage *>(interpreter_context->db.get());
+      disk_storage->SetEdgeImportMode(requested_status);
+    };
+  }();
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -2873,17 +2913,37 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
       handler = [interpreter_context] {
+        const std::string_view label_index_mark{"label"};
+        const std::string_view label_property_index_mark{"label+property"};
         auto *db = interpreter_context->db.get();
         auto info = db->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
-          results.push_back({TypedValue("label"), TypedValue(db->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue(label_index_mark), TypedValue(db->LabelToName(item)), TypedValue()});
         }
         for (const auto &item : info.label_property) {
-          results.push_back({TypedValue("label+property"), TypedValue(db->LabelToName(item.first)),
+          results.push_back({TypedValue(label_property_index_mark), TypedValue(db->LabelToName(item.first)),
                              TypedValue(db->PropertyToName(item.second))});
         }
+
+        std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
+          const auto type_1 = record_1[0].ValueString();
+          const auto type_2 = record_2[0].ValueString();
+
+          if (type_1 != type_2) {
+            return type_1 < type_2;
+          }
+
+          const auto label_1 = record_1[1].ValueString();
+          const auto label_2 = record_2[1].ValueString();
+          if (type_1 == label_index_mark || label_1 != label_2) {
+            return label_1 < label_2;
+          }
+
+          return record_1[2].ValueString() < record_2[2].ValueString();
+        });
+
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
@@ -3645,6 +3705,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query =
           PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid, username_);
+    } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareEdgeImportModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -3736,7 +3799,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -3843,7 +3906,7 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
+        trigger.Execute(&*execution_db_accessor_, &execution_memory, flags::run_time::execution_timeout_sec_,
                         &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
                         interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {

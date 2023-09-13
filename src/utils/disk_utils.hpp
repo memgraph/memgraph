@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/delta.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::utils {
 
@@ -23,6 +24,11 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
     return head->old_disk_key;
   }
   return std::nullopt;
+}
+
+template <typename TSkipListAccessor>
+inline bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
+  return accessor.find(gid) != accessor.end();
 }
 
 inline uint64_t GetEarliestTimestamp(storage::Delta *head) {

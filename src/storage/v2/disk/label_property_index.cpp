@@ -49,8 +49,8 @@ bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit
 
 }  // namespace
 
-DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
-    : LabelPropertyIndex(indices, constraints, config) {
+DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, const Config &config)
+    : LabelPropertyIndex(indices, config) {
   utils::EnsureDirOrDie(config.disk.label_property_index_directory);
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
@@ -222,5 +222,7 @@ void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys)
 }
 
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
+
+std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
 
 }  // namespace memgraph::storage

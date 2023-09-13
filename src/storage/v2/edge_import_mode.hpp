@@ -9,26 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "isolation_level.hpp"
+#pragma once
+
+#include <cstdint>
+#include <string>
 
 namespace memgraph::storage {
 
-std::string_view IsolationLevelToString(IsolationLevel isolation_level) {
-  switch (isolation_level) {
-    case IsolationLevel::READ_COMMITTED:
-      return "READ_COMMITTED";
-    case IsolationLevel::READ_UNCOMMITTED:
-      return "READ_UNCOMMITTED";
-    case IsolationLevel::SNAPSHOT_ISOLATION:
-      return "SNAPSHOT_ISOLATION";
-  }
-}
+enum class EdgeImportMode : std::uint8_t { ACTIVE, INACTIVE };
 
-std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level) {
-  if (isolation_level) {
-    return IsolationLevelToString(*isolation_level);
+constexpr const char *EdgeImportModeToString(memgraph::storage::EdgeImportMode edge_import_mode) {
+  if (edge_import_mode == EdgeImportMode::INACTIVE) {
+    return "INACTIVE";
   }
-  return "";
+  return "ACTIVE";
 }
 
 }  // namespace memgraph::storage

@@ -12,6 +12,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <utility>
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -23,6 +26,9 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -199,14 +205,8 @@ class InMemoryStorage final : public Storage {
                                                labels);
     }
 
-    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
-    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
-
-    /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
-    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex) override;
+    Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
 
     void PrefetchInEdges(const VertexAccessor &vertex_acc) override{};
 
@@ -215,9 +215,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
-    /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
-    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
+    Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
+
+    Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
 
     bool LabelIndexExists(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);
@@ -438,12 +438,14 @@ class InMemoryStorage final : public Storage {
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
+
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
+  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
+  // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
+  utils::Synchronized<std::list<std::pair<uint64_t, BondPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.

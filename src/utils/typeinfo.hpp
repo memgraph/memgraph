@@ -65,6 +65,7 @@ enum class TypeId : uint64_t {
   LOAD_CSV,
   FOREACH,
   APPLY,
+  INDEXED_JOIN,
   HASH_JOIN,
 
   // Replication
@@ -187,6 +188,7 @@ enum class TypeId : uint64_t {
   AST_CALL_SUBQUERY,
   AST_MULTI_DATABASE_QUERY,
   AST_SHOW_DATABASES,
+  AST_EDGE_IMPORT_MODE_QUERY,
   // Symbol
   SYMBOL,
 };

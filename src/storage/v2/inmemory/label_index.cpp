@@ -10,12 +10,12 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 
 namespace memgraph::storage {
 
-InMemoryLabelIndex::InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config)
-    : LabelIndex(indices, constraints, config) {}
+InMemoryLabelIndex::InMemoryLabelIndex(Indices *indices, Config config) : LabelIndex(indices, config) {}
 
 void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
   auto it = index_.find(added_label);
@@ -151,10 +151,11 @@ void InMemoryLabelIndex::RunGC() {
   }
 }
 
-InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Transaction *transaction) {
+InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Transaction *transaction,
+                                                          Constraints *constraints) {
   const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return {it->second.access(), label, view, transaction, indices_, constraints_, config_};
+  return {it->second.access(), label, view, transaction, indices_, constraints, config_};
 }
 
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {

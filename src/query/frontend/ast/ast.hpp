@@ -1105,6 +1105,8 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
+      map_variable_->Accept(visitor);
+
       for (auto pair : elements_) {
         if (!pair.second) continue;
 
@@ -1184,6 +1186,8 @@ class PropertyLookup : public memgraph::query::Expression {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
+
   PropertyLookup() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
@@ -1198,11 +1202,13 @@ class PropertyLookup : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   memgraph::query::PropertyIx property_;
+  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->evaluation_mode_ = evaluation_mode_;
     return object;
   }
 
@@ -2996,6 +3002,29 @@ class ReplicationQuery : public memgraph::query::Query {
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EdgeImportModeQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Status { ACTIVE, INACTIVE };
+
+  EdgeImportModeQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::EdgeImportModeQuery::Status status_;
+
+  EdgeImportModeQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EdgeImportModeQuery>();
+    object->status_ = status_;
     return object;
   }
 
