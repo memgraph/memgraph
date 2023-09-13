@@ -1776,8 +1776,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   return CreateSnapshotError::ReachedMaxNumTries;
 }
 
-void CollectGarbage(std::unique_lock<utils::RWLock> main_guard) {}
-
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::RWLock> main_guard) {
   CollectGarbage<true>(std::move(main_guard));
 
