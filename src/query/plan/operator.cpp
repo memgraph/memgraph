@@ -130,6 +130,7 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
+extern const Event IndexedJoinOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -5141,6 +5142,67 @@ void Apply::ApplyCursor::Shutdown() {
 void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
+  pull_input_ = true;
+}
+
+IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> left, const std::shared_ptr<LogicalOperator> right)
+    : left_(left ? left : std::make_shared<Once>()), right_(right) {}
+
+WITHOUT_SINGLE_INPUT(IndexedJoin);
+
+bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_->Accept(visitor) && right_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::IndexedJoinOperator);
+
+  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem);
+}
+
+IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
+    : self_(self), left_(self.left_->MakeCursor(mem)), right_(self.right_->MakeCursor(mem)) {}
+
+std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = left_->ModifiedSymbols(table);
+  auto subquery_symbols = right_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Apply");
+
+  while (true) {
+    if (pull_input_ && !left_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (right_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    right_->Reset();
+  }
+}
+
+void IndexedJoin::IndexedJoinCursor::Shutdown() {
+  left_->Shutdown();
+  right_->Shutdown();
+}
+
+void IndexedJoin::IndexedJoinCursor::Reset() {
+  left_->Reset();
+  right_->Reset();
   pull_input_ = true;
 }
 

@@ -95,6 +95,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kExpand{3.0};
     static constexpr double kExpandVariable{9.0};
     static constexpr double kFilter{0.25};
+    static constexpr double kIndexedJoin{0.25};
     static constexpr double kEdgeUniquenessFilter{0.95};
   };
 
@@ -329,6 +330,20 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     auto right_cardinality =
         !utils::ApproxEqualDecimal(cost_estimation.cardinality, 0.0) ? cost_estimation.cardinality : 1;
     cardinality_ *= right_cardinality;
+
+    return false;
+  }
+
+  bool PreVisit(IndexedJoin &op) override {
+    // Get the cost of the main branch
+    op.left_->Accept(*this);
+
+    // add cost from the right branch and multiply cardinalities
+    auto cost_estimation = EstimateCostOnBranch(&op.right_);
+    cost_ += cost_estimation.cost;
+    auto right_cardinality =
+        !utils::ApproxEqualDecimal(cost_estimation.cardinality, 0.0) ? cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality * CardParam::kIndexedJoin;
 
     return false;
   }

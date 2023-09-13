@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,30 +22,45 @@ DEFINE_VALIDATED_int64(query_vertex_count_to_expand_existing, 10,
 
 namespace memgraph::query::plan::impl {
 
-Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove) {
+ExpressionRemovalResult RemoveAndExpressions(Expression *expr,
+                                             const std::unordered_set<Expression *> &exprs_to_remove) {
   auto *and_op = utils::Downcast<AndOperator>(expr);
-  if (!and_op) return expr;
+  if (!and_op) return ExpressionRemovalResult{.expression = expr};
   if (utils::Contains(exprs_to_remove, and_op)) {
-    return nullptr;
+    return ExpressionRemovalResult{.expression = nullptr, .removed = true};
   }
+
+  bool removed = false;
   if (utils::Contains(exprs_to_remove, and_op->expression1_)) {
     and_op->expression1_ = nullptr;
+    removed = true;
   }
   if (utils::Contains(exprs_to_remove, and_op->expression2_)) {
     and_op->expression2_ = nullptr;
+    removed = true;
   }
-  and_op->expression1_ = RemoveAndExpressions(and_op->expression1_, exprs_to_remove);
-  and_op->expression2_ = RemoveAndExpressions(and_op->expression2_, exprs_to_remove);
+
+  auto removal1 = RemoveAndExpressions(and_op->expression1_, exprs_to_remove);
+  and_op->expression1_ = removal1.expression;
+  removed = removed || removal1.removed;
+
+  auto removal2 = RemoveAndExpressions(and_op->expression2_, exprs_to_remove);
+  and_op->expression2_ = removal2.expression;
+  removed = removed || removal2.removed;
+
   if (!and_op->expression1_ && !and_op->expression2_) {
-    return nullptr;
+    return ExpressionRemovalResult{.expression = nullptr, .removed = removed};
   }
+
   if (and_op->expression1_ && !and_op->expression2_) {
-    return and_op->expression1_;
+    return ExpressionRemovalResult{.expression = and_op->expression1_, .removed = removed};
   }
+
   if (and_op->expression2_ && !and_op->expression1_) {
-    return and_op->expression2_;
+    return ExpressionRemovalResult{.expression = and_op->expression2_, .removed = removed};
   }
-  return and_op;
+
+  return ExpressionRemovalResult{.expression = and_op, .removed = removed};
 }
 
 }  // namespace memgraph::query::plan::impl

@@ -129,6 +129,7 @@ class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
 class Apply;
+class IndexedJoin;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -136,7 +137,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2474,6 +2475,49 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
     bool subquery_has_return_{true};
+  };
+};
+
+/// Applies symbols from both output branches.
+class IndexedJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  IndexedJoin() {}
+
+  IndexedJoin(std::shared_ptr<LogicalOperator> left, std::shared_ptr<LogicalOperator> right);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> left_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> right_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<IndexedJoin>();
+    object->left_ = left_ ? left_->Clone(storage) : nullptr;
+    object->right_ = right_ ? right_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  class IndexedJoinCursor : public Cursor {
+   public:
+    IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const IndexedJoin &self_;
+    UniqueCursorPtr left_;
+    UniqueCursorPtr right_;
+    bool pull_input_{true};
   };
 };
 
