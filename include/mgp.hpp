@@ -1587,7 +1587,7 @@ class Messages {
 
   class Iterator {
    private:
-    friend class List;
+    friend class Messages;
 
    public:
     using value_type = Messages;
@@ -1621,9 +1621,6 @@ class Messages {
   bool operator==(const Messages &other) const;
   /// @exception std::runtime_error List contains value of unknown type.
   bool operator!=(const Messages &other) const;
-
-  /// @brief returns the string representation
-  const std::string ToString() const;
 
  private:
   mgp_messages *ptr_;
@@ -4391,14 +4388,13 @@ inline bool Messages::Empty() const { return mgp::messages_size(ptr_) == 0; }
 inline const Message Messages::operator[](size_t index) const { return Message(mgp::messages_at(ptr_, index)); }
 inline Message Messages::operator[](size_t index) { return Message(mgp::messages_at(ptr_, index)); }
 
-inline Messages::Iterator Messages::begin() const {}
-inline Messages::Iterator Messages::end() const {}
-inline Messages::Iterator Messages::cbegin() const {}
-inline Messages::Iterator Messages::cend() const {}
+inline Messages::Iterator Messages::begin() const { return Messages::Iterator(this, 0); }
+inline Messages::Iterator Messages::end() const { return Messages::Iterator(this, Size()); }
+inline Messages::Iterator Messages::cbegin() const { return Messages::Iterator(this, 0); }
+inline Messages::Iterator Messages::cend() const { return Messages::Iterator(this, Size()); }
 
 inline bool Messages::operator==(const Messages &other) const {}
 inline bool Messages::operator!=(const Messages &other) const {}
-inline const std::string Messages::ToString() const {}
 
 inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const {}
 inline bool Messages::Iterator::operator!=(const Messages::Iterator &other) const {}
