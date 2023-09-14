@@ -1889,7 +1889,33 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   throw ValueException("Invalid value; does not match any Memgraph type.");
 }
 
-inline bool MessagesEqual(mgp_messages *messages1, mgp_list *messages2) { return true; }
+inline bool MessageEqual(mgp_message *message1, mgp_message *message2) {
+  if (mgp::message_source_type(message1) != mgp::message_source_type(message2)) {
+    return false;
+  }
+
+  if (mgp::message_payload_size(message1) != mgp::message_payload_size(message2)) {
+    return false;
+  }
+
+  return mgp::message_payload(message1) == mgp::message_payload(message2);
+}
+
+inline bool MessagesEqual(mgp_messages *messages1, mgp_messages *messages2) {
+  if (messages1 == messages2) {
+    return true;
+  }
+  if (mgp::messages_size(messages1) != mgp::messages_size(messages2)) {
+    return false;
+  }
+  const size_t len = mgp::messages_size(messages1);
+  for (size_t i = 0; i < len; ++i) {
+    if (!util::MessageEqual(mgp::messages_at(messages1, i), mgp::messages_at(messages2, i))) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /// @brief Converts C++ API types to their MGP API equivalents.
 inline mgp_type *ToMGPType(Type type) {
