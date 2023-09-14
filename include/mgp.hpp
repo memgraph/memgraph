@@ -4373,6 +4373,39 @@ inline int64_t Message::Offset() const { return mgp::message_offset(ptr_); }
 
 // Messages
 
+inline Messages::Messages(mgp_messages *ptr) : ptr_(ptr) {}
+inline Messages::Messages(const mgp_messages *const_ptr) : ptr_(const_cast<mgp_messages *>(const_ptr)) {}
+inline Messages::Messages(const Messages &other) noexcept : Messages(other.ptr_) {}
+inline Messages::Messages(Messages &&other) noexcept : Messages(other.ptr_) { other.ptr_ = nullptr; }
+inline Messages &Messages::operator=(const Messages &other) noexcept { return *this; }
+inline Messages &Messages::operator=(Messages &&other) noexcept {
+  if (this != &other) {
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+inline Messages::~Messages() { ptr_ = nullptr; }
+inline size_t Messages::Size() const { return mgp::messages_size(ptr_); }
+inline bool Messages::Empty() const { return mgp::messages_size(ptr_) == 0; }
+inline const Message Messages::operator[](size_t index) const { return Message(mgp::messages_at(ptr_, index)); }
+inline Message Messages::operator[](size_t index) { return Message(mgp::messages_at(ptr_, index)); }
+
+inline Messages::Iterator Messages::begin() const {}
+inline Messages::Iterator Messages::end() const {}
+inline Messages::Iterator Messages::cbegin() const {}
+inline Messages::Iterator Messages::cend() const {}
+
+inline bool Messages::operator==(const Messages &other) const {}
+inline bool Messages::operator!=(const Messages &other) const {}
+inline const std::string Messages::ToString() const {}
+
+inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const {}
+inline bool Messages::Iterator::operator!=(const Messages::Iterator &other) const {}
+inline Messages::Iterator &Messages::Iterator::operator++();
+inline const Message Messages::Iterator::operator*() const {}
+inline Messages::Iterator::Iterator(const Messages *iterable, size_t index) {}
+
 // do not enter
 namespace detail {
 inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
