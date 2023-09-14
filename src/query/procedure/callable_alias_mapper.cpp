@@ -56,7 +56,6 @@ std::optional<std::string_view> CallableAliasMapper::FindAlias(const std::string
   if (!mapping_.contains(name)) {
     return std::nullopt;
   }
-
   return mapping_.at(name);
 }
 
