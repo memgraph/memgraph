@@ -11,7 +11,10 @@
 
 #include "memory_control.hpp"
 #include <fmt/core.h>
+#include <atomic>
+#include <cstdint>
 #include "utils/logging.hpp"
+#include "utils/readable_size.hpp"
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
@@ -33,37 +36,83 @@ extent_hooks_t *old_hooks = nullptr;
 
 extent_alloc_t *old_alloc = nullptr;
 
+static std::atomic<uint64_t> allocated_memory{0};
+
 void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                unsigned arena_ind) {
+  if (*commit) {
+    std::cout << "allocating memory pages: " << size / 4096UL << ", which equals to: " << utils::GetReadableSize(size)
+              << ", of allignment: " << utils::GetReadableSize(alignment) << std::endl;
+    allocated_memory.fetch_add(size, std::memory_order_relaxed);
+    std::cout << "[TOTAL] total memory: " << utils::GetReadableSize(allocated_memory.load(std::memory_order_relaxed));
+  } else {
+    std::cout << "[VIRTUAL] allocating memory pages: " << size / 4096UL
+              << ", which equals to: " << utils::GetReadableSize(size)
+              << ", of allignment: " << utils::GetReadableSize(alignment) << std::endl;
+  }
   MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return original_hooks_vec[arena_ind]->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
 }
 
 static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
+  if (committed) {
+    std::cout << "deallocating memory pages: " << size / 4096UL << ", which equals to: " << utils::GetReadableSize(size)
+              << std::endl;
+    allocated_memory.fetch_sub(size, std::memory_order_relaxed);
+    std::cout << "[TOTAL] total memory: " << utils::GetReadableSize(allocated_memory.load(std::memory_order_relaxed));
+  } else {
+    std::cout << "[VIRTUAL] deallocating memory pages: " << size / 4096UL
+              << ", which equals to: " << utils::GetReadableSize(size) << std::endl;
+  }
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return old_hooks->dalloc(extent_hooks, addr, size, committed, arena_ind);
 }
 
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
+  if (committed) {
+    std::cout << "destroying memory pages: " << size / 4096UL << ", which equals to: " << utils::GetReadableSize(size)
+              << std::endl;
+    allocated_memory.fetch_sub(size, std::memory_order_relaxed);
+    std::cout << "[TOTAL] total memory: " << utils::GetReadableSize(allocated_memory.load(std::memory_order_relaxed));
+  } else {
+    std::cout << "[VIRTUAL] destroying memory pages: " << size / 4096UL
+              << ", which equals to: " << utils::GetReadableSize(size) << std::endl;
+  }
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
 }
 
 static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                       unsigned arena_ind) {
+  std::cout << "commiting memory pages: " << size / 4096UL << ", which equals to: " << utils::GetReadableSize(size)
+            << std::endl;
+  allocated_memory.fetch_add(size, std::memory_order_relaxed);
+  std::cout << "[TOTAL] total memory: " << utils::GetReadableSize(allocated_memory.load(std::memory_order_relaxed));
+
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return old_hooks->commit(extent_hooks, addr, size, offset, length, arena_ind);
 }
 
 static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                         unsigned arena_ind) {
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return old_hooks->decommit(extent_hooks, addr, size, offset, length, arena_ind);
 }
 
 static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                             unsigned arena_ind) {
+  std::cout << "pruge forced memory pages: " << size / 4096UL << ", which equals to: " << utils::GetReadableSize(size)
+            << std::endl;
+  allocated_memory.fetch_sub(size, std::memory_order_relaxed);
+  std::cout << "[TOTAL] total memory: " << utils::GetReadableSize(allocated_memory.load(std::memory_order_relaxed));
+
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return old_hooks->purge_forced(extent_hooks, addr, size, offset, length, arena_ind);
 }
 
 static bool my_purge_lazy(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                           unsigned arena_ind) {
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return old_hooks->purge_lazy(extent_hooks, addr, size, offset, length, arena_ind);
 }
 
@@ -75,6 +124,7 @@ static bool my_split(extent_hooks_t *extent_hooks, void *addr, size_t size, size
 
 static bool my_merge(extent_hooks_t *extent_hooks, void *addr_a, size_t size_a, void *addr_b, size_t size_b,
                      bool committed, unsigned arena_ind) {
+  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   return old_hooks->merge(extent_hooks, addr_a, size_a, addr_b, size_b, committed, arena_ind);
 }
 
@@ -110,11 +160,6 @@ void PrintStats() {
 #if USE_JEMALLOC
   uint64_t allocated{0};
   uint64_t sz{sizeof(allocated)};
-  // mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
-  // std::cout << "stats allocated:" << allocated << ", sz: " << std::endl;
-
-  // mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pactive", &allocated, &sz, nullptr, 0);
-  // std::cout << "stats allocated:" << allocated << ", sz: " << std::endl;
 
   sz = sizeof(unsigned);
   unsigned narenas{0};
@@ -132,7 +177,7 @@ void PrintStats() {
 
   // get original hooks and update alloc
   original_hooks_vec.reserve(narenas);
-  for (int i = 0; i < narenas; i++) {
+  for (int i = 0; i < 8; i++) {
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
@@ -196,3 +241,9 @@ void PurgeUnusedMemory() {
 //  	(*commit) ? "true" : "false",
 //  	arena_ind);
 //  Default behavior using original hooks
+
+// mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
+// std::cout << "stats allocated:" << allocated << ", sz: " << std::endl;
+
+// mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pactive", &allocated, &sz, nullptr, 0);
+// std::cout << "stats allocated:" << allocated << ", sz: " << std::endl;

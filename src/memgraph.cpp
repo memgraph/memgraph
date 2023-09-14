@@ -101,8 +101,10 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 }
 
 int main(int argc, char **argv) {
+  memgraph::memory::PrintStats();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
+  // memgraph::memory::PrintStats();
 
   // Load config before parsing arguments, so that flags from the command line
   // overwrite the config.
@@ -113,11 +115,13 @@ int main(int argc, char **argv) {
     gflags::ShowUsageWithFlags(argv[0]);
     exit(1);
   }
-  // memgraph::memory::PrintStats();
+
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
+
+  // memgraph::memory::PrintStats();
 
   // Initialize Python
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);
@@ -192,7 +196,7 @@ int main(int argc, char **argv) {
           "won't be available.");
     }
   }
-
+  // memgraph::memory::PrintStats();
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
