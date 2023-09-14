@@ -1889,6 +1889,8 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   throw ValueException("Invalid value; does not match any Memgraph type.");
 }
 
+inline bool MessagesEqual(mgp_messages *messages1, mgp_list *messages2) { return true; }
+
 /// @brief Converts C++ API types to their MGP API equivalents.
 inline mgp_type *ToMGPType(Type type) {
   switch (type) {
@@ -4393,14 +4395,18 @@ inline Messages::Iterator Messages::end() const { return Messages::Iterator(this
 inline Messages::Iterator Messages::cbegin() const { return Messages::Iterator(this, 0); }
 inline Messages::Iterator Messages::cend() const { return Messages::Iterator(this, Size()); }
 
-inline bool Messages::operator==(const Messages &other) const {}
-inline bool Messages::operator!=(const Messages &other) const {}
+inline bool Messages::operator==(const Messages &other) const { return util::MessagesEqual(ptr_, other.ptr_); }
 
-inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const {}
-inline bool Messages::Iterator::operator!=(const Messages::Iterator &other) const {}
-inline Messages::Iterator &Messages::Iterator::operator++();
-inline const Message Messages::Iterator::operator*() const {}
-inline Messages::Iterator::Iterator(const Messages *iterable, size_t index) {}
+inline bool Messages::operator!=(const Messages &other) const { return !(*this == other); }
+
+inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const { return *this == other; }
+inline bool Messages::Iterator::operator!=(const Messages::Iterator &other) const { return !(*this == other); }
+inline Messages::Iterator &Messages::Iterator::operator++() {
+  index_++;
+  return *this;
+}
+inline const Message Messages::Iterator::operator*() const { return (*iterable_)[index_]; }
+inline Messages::Iterator::Iterator(const Messages *iterable, size_t index) : iterable_(iterable), index_(index) {}
 
 // do not enter
 namespace detail {
