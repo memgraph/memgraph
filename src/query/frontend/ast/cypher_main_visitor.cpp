@@ -1211,7 +1211,8 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       // this is the only known such case. This should be more generic, but the most
       // generic solution would be to implement void procedures.
       call_proc->void_procedure_ = true;
-    } else {
+    }
+    if (!mg_specific_name) {
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
   }
