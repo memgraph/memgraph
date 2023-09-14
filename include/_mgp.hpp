@@ -782,4 +782,44 @@ inline void func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_me
   MgInvokeVoid(mgp_func_result_set_value, res, value, memory);
 }
 
+// Messages
+
+inline mgp_source_type message_source_type(struct mgp_message *message) {
+  return MgInvoke<mgp_source_type>(mgp_message_source_type, message);
+}
+
+inline const char *message_payload(struct mgp_message *message) {
+  return MgInvoke<const char *>(mgp_message_payload, message);
+}
+
+inline size_t message_payload_size(struct mgp_message *message) {
+  return MgInvoke<size_t>(mgp_message_payload_size, message);
+}
+
+inline const char *message_topic_name(struct mgp_message *message) {
+  return MgInvoke<const char *>(mgp_message_topic_name, message);
+}
+
+inline const char *message_key(struct mgp_message *message) { return MgInvoke<const char *>(mgp_message_key, message); }
+
+inline size_t message_key_size(struct mgp_message *message) { return MgInvoke<size_t>(mgp_message_key_size, message); }
+
+inline int64_t message_timestamp(struct mgp_message *message) {
+  return MgInvoke<int64_t>(mgp_message_timestamp, message);
+}
+
+inline int64_t message_offset(struct mgp_message *message) { return MgInvoke<int64_t>(mgp_message_offset, message); }
+
+inline size_t messages_size(struct mgp_message *message) { return MgInvoke<size_t>(mgp_messages_size, message); }
+
+inline mgp_message *messages_at(struct mgp_messages *message, size_t index) {
+  return MgInvoke<mgp_message *>(mgp_messages_at, message, index);
+}
+
+// Transformation
+
+inline void module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb) {
+  return MgInvokeVoid(mgp_module_add_transformation, module, name, cb);
+}
+
 }  // namespace mgp
