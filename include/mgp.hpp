@@ -1556,7 +1556,9 @@ class Message {
   size_t KeySize() const;
   int64_t Timestamp() const;
   int64_t Offset() const;
-  size_t Size() const;
+
+ private:
+  mgp_message *ptr_;
 };
 
 class Messages {
@@ -4336,6 +4338,40 @@ inline mgp_type *Return::GetMGPType() const {
 
   return util::ToMGPType(type_);
 }
+
+// Message
+
+inline Message::Message(mgp_message *ptr) : ptr_(ptr) {}
+inline Message::Message(const mgp_message *const_ptr) : ptr_(const_cast<mgp_message *>(const_ptr)) {}
+inline Message::Message(const Message &other) noexcept : Message(other.ptr_) {}
+inline Message::Message(Message &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
+inline Message &Message::operator=(Message &&other) noexcept {
+  if (this != &other) {
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+inline Message &Message::operator=(const Message &other) noexcept { return *this; }
+inline Message::~Message() { ptr_ = nullptr; }
+inline StreamSourceType Message::SourceType() const {
+  auto result = mgp::message_source_type(ptr_);
+  switch (result) {
+    case mgp_source_type::KAFKA:
+      return StreamSourceType::Kafka;
+    case mgp_source_type::PULSAR:
+      return StreamSourceType::Pulsar;
+  }
+}
+inline std::string Message::Payload() const { return std::string{mgp::message_payload(ptr_)}; }
+inline size_t Message::PayloadSize() const { return Payload().size(); }
+inline std::string Message::TopicName() const { return std::string{mgp::message_topic_name(ptr_)}; }
+inline std::string Message::Key() const { return std::string{mgp::message_key(ptr_)}; }
+inline size_t Message::KeySize() const { return Key().size(); }
+inline int64_t Message::Timestamp() const { return mgp::message_timestamp(ptr_); }
+inline int64_t Message::Offset() const { return mgp::message_offset(ptr_); }
+
+// Messages
 
 // do not enter
 namespace detail {
