@@ -810,7 +810,7 @@ inline int64_t message_timestamp(struct mgp_message *message) {
 
 inline int64_t message_offset(struct mgp_message *message) { return MgInvoke<int64_t>(mgp_message_offset, message); }
 
-inline size_t messages_size(struct mgp_message *message) { return MgInvoke<size_t>(mgp_messages_size, message); }
+inline size_t messages_size(struct mgp_messages *message) { return MgInvoke<size_t>(mgp_messages_size, message); }
 
 inline mgp_message *messages_at(struct mgp_messages *message, size_t index) {
   return MgInvoke<mgp_message *>(mgp_messages_at, message, index);

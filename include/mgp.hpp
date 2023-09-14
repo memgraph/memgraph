@@ -1533,6 +1533,100 @@ enum class ProcedureType : uint8_t {
   Write,
 };
 
+enum class StreamSourceType : uint8_t { Kafka, Pulsar };
+
+class Message {
+ public:
+  explicit Message(mgp_message *ptr);
+  explicit Message(const mgp_message *const_ptr);
+
+  Message(const Message &other) noexcept;
+  Message(Message &&other) noexcept;
+
+  Message &operator=(const Message &other) noexcept;
+  Message &operator=(Message &&other) noexcept;
+
+  ~Message();
+
+  StreamSourceType SourceType() const;
+  std::string Payload() const;
+  size_t PayloadSize() const;
+  std::string TopicName() const;
+  std::string Key() const;
+  size_t KeySize() const;
+  int64_t Timestamp() const;
+  int64_t Offset() const;
+  size_t Size() const;
+};
+
+class Messages {
+ public:
+  explicit Messages(mgp_messages *ptr);
+  explicit Messages(const mgp_messages *const_ptr);
+
+  Messages(const Messages &other) noexcept;
+  Messages(Messages &&other) noexcept;
+
+  Messages &operator=(const Messages &other) noexcept;
+  Messages &operator=(Messages &&other) noexcept;
+
+  ~Messages();
+
+  /// @brief Returns the size of the list.
+  size_t Size() const;
+  /// @brief Returns whether the list is empty.
+  bool Empty() const;
+
+  /// @brief Returns the value at the given `index`.
+  const Message operator[](size_t index) const;
+
+  ///@brief Same as above, but non const value
+  Message operator[](size_t index);
+
+  class Iterator {
+   private:
+    friend class List;
+
+   public:
+    using value_type = Messages;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const Messages *;
+    using reference = const Messages &;
+    using iterator_category = std::forward_iterator_tag;
+
+    bool operator==(const Iterator &other) const;
+
+    bool operator!=(const Iterator &other) const;
+
+    Iterator &operator++();
+
+    const Message operator*() const;
+
+   private:
+    Iterator(const Messages *iterable, size_t index);
+
+    const Messages *iterable_;
+    size_t index_;
+  };
+
+  Iterator begin() const;
+  Iterator end() const;
+
+  Iterator cbegin() const;
+  Iterator cend() const;
+
+  /// @exception std::runtime_error List contains value of unknown type.
+  bool operator==(const Messages &other) const;
+  /// @exception std::runtime_error List contains value of unknown type.
+  bool operator!=(const Messages &other) const;
+
+  /// @brief returns the string representation
+  const std::string ToString() const;
+
+ private:
+  mgp_messages *ptr_;
+};
+
 /// @brief Adds a procedure to the query module.
 /// @param callback - procedure callback
 /// @param name - procedure name
@@ -1567,6 +1661,8 @@ inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initial
 /// @param memory - access to memory
 inline void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters,
                         mgp_module *module, mgp_memory *memory);
+
+inline void AddTransformation(mgp_trans_cb callback, std::string_view name, mgp_module *module);
 
 /* #endregion */
 
@@ -4291,6 +4387,10 @@ void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parame
       mgp::func_add_opt_arg(func, parameter_name, parameter.GetMGPType(), parameter.default_value.ptr());
     }
   }
+}
+
+void AddTransformation(mgp_trans_cb callback, std::string_view name, mgp_module *module) {
+  mgp::module_add_transformation(module, name.data(), callback);
 }
 
 /* #endregion */
