@@ -4425,7 +4425,9 @@ inline bool Messages::operator==(const Messages &other) const { return util::Mes
 
 inline bool Messages::operator!=(const Messages &other) const { return !(*this == other); }
 
-inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const { return *this == other; }
+inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const {
+  return this->iterable_ == other.iterable_ && this->index_ == other.index_;
+}
 inline bool Messages::Iterator::operator!=(const Messages::Iterator &other) const { return !(*this == other); }
 inline Messages::Iterator &Messages::Iterator::operator++() {
   index_++;
