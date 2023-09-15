@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .bootstrap_servers = std::move(stream_info.bootstrap_servers),
       .batch_interval = stream_info.common_info.batch_interval,
       .batch_size = stream_info.common_info.batch_size,
+      .transformation_query = stream_info.common_info.transformation_query,
       .public_configs = std::move(stream_info.configs),
       .private_configs = std::move(stream_info.credentials),
   };
@@ -35,7 +36,8 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name)},
+           .transformation_name = std::move(transformation_name),
+           .transformation_query = info.transformation_query},
           .topics = info.topics,
           .consumer_group = info.consumer_group,
           .bootstrap_servers = info.bootstrap_servers,
@@ -103,7 +105,8 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name)},
+           .transformation_name = std::move(transformation_name),
+           .transformation_query = info.transformation_query},
           .topics = info.topics,
           .service_url = info.service_url};
 }
