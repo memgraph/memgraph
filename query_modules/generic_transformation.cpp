@@ -18,16 +18,38 @@ static constexpr std::string_view kQuery = "query";
 static constexpr std::string_view kParameters = "parameters";
 
 template <typename T>
-void ReplaceQueryParameters(T object, std::string key, std::string &query) {
+void ReplaceQueryParametersArray(T array, std::string key, std::string &query, mgp::Map &params) {
+  auto list = mgp::List();
+  for (size_t i = 0; i < array.size(); i++) {
+    auto array_element = array[i];
+    for (auto &element_prop : array_element) {
+      if (element_prop.is_object()) {
+        continue;
+      }
+
+      if (element_prop.is_string()) {
+        list.AppendExtend(mgp::Value(element_prop.template get<std::string>()));
+      }
+    }
+  }
+
+  std::string param_key = key;
+  param_key.replace(0, 1, "");
+  params.Insert(param_key, mgp::Value(std::move(list)));
+}
+
+template <typename T>
+void ReplaceQueryParameters(T object, std::string key, std::string &query, mgp::Map &params) {
   for (auto &el : object.items()) {
     auto new_key = fmt::format("{}__{}", key, el.key());
 
     if (el.value().type() == nlohmann::json::value_t::object) {
-      ReplaceQueryParameters(el.value(), new_key, query);
+      ReplaceQueryParameters(el.value(), new_key, query, params);
       continue;
     }
 
     if (el.value().type() == nlohmann::json::value_t::array) {
+      ReplaceQueryParametersArray(el.value(), new_key, query, params);
       continue;
     }
 
@@ -38,12 +60,12 @@ void ReplaceQueryParameters(T object, std::string key, std::string &query) {
   }
 }
 
-void ReplaceQueryParameters(nlohmann::json &json, std::string &query) {
+void ReplaceQueryParameters(nlohmann::json &json, std::string &query, mgp::Map &params) {
   for (auto &el : json.items()) {
     auto key = fmt::format("${}", el.key());
 
     if (el.value().type() == nlohmann::json::value_t::object) {
-      ReplaceQueryParameters(el.value(), key, query);
+      ReplaceQueryParameters(el.value(), key, query, params);
       continue;
     }
 
@@ -70,11 +92,12 @@ void Transformation(struct mgp_messages *messages, mgp_trans_context *ctx, mgp_r
       auto payload = nlohmann::json::parse(message.Payload());
 
       std::string generic_query = transformation_context.Query();
-      ReplaceQueryParameters(payload, generic_query);
+      auto params = mgp::Map();
+      ReplaceQueryParameters(payload, generic_query, params);
       auto query_value = mgp::Value(generic_query.data());
 
       record.Insert(kQuery.data(), query_value);
-      record.Insert(kParameters.data(), mgp::Value());
+      record.Insert(kParameters.data(), mgp::Value(params));
     }
   } catch (std::exception &ex) {
     record_factory.SetErrorMessage(ex.what());
