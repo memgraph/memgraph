@@ -18,64 +18,80 @@ static constexpr std::string_view kQuery = "query";
 static constexpr std::string_view kParameters = "parameters";
 
 template <typename T>
+mgp::Value PropToValue(T prop) {
+  if (prop.is_string()) {
+    return mgp::Value(prop.template get<std::string>());
+  }
+
+  if (prop.is_number_integer()) {
+    return mgp::Value(prop.template get<int64_t>());
+  }
+  if (prop.is_number_float()) {
+    return mgp::Value(prop.template get<float>());
+  }
+  if (prop.is_boolean()) {
+    return mgp::Value(prop.template get<bool>());
+  }
+
+  return mgp::Value();
+}
+
+template <typename T>
 void ReplaceQueryParametersArray(T array, std::string key, std::string &query, mgp::Map &params) {
   auto list = mgp::List();
   for (size_t i = 0; i < array.size(); i++) {
     auto array_element = array[i];
     for (auto &element_prop : array_element) {
-      if (element_prop.is_object()) {
+      auto value = PropToValue(element_prop);
+      if (!value.IsNull()) {
+        list.AppendExtend(std::move(value));
         continue;
       }
-
-      if (element_prop.is_string()) {
-        list.AppendExtend(mgp::Value(element_prop.template get<std::string>()));
-      }
+      // not all elements are consistent, just exit
+      return;
     }
   }
 
-  std::string param_key = key;
-  param_key.replace(0, 1, "");
-  params.Insert(param_key, mgp::Value(std::move(list)));
+  params.Insert(key, mgp::Value(std::move(list)));
 }
 
 template <typename T>
 void ReplaceQueryParameters(T object, std::string key, std::string &query, mgp::Map &params) {
   for (auto &el : object.items()) {
     auto new_key = fmt::format("{}__{}", key, el.key());
+    auto value = PropToValue(el.value());
 
-    if (el.value().type() == nlohmann::json::value_t::object) {
-      ReplaceQueryParameters(el.value(), new_key, query, params);
-      continue;
-    }
-
-    if (el.value().type() == nlohmann::json::value_t::array) {
-      ReplaceQueryParametersArray(el.value(), new_key, query, params);
-      continue;
-    }
-
-    size_t pos;
-    while ((pos = query.find(new_key)) != std::string::npos) {
-      query.replace(pos, new_key.size(), el.value());
+    if (!value.IsNull()) {
+      params.Insert(new_key, std::move(value));
+    } else {
+      if (el.value().is_object()) {
+        ReplaceQueryParameters(el.value(), new_key, query, params);
+        continue;
+      }
+      if (el.value().is_array()) {
+        ReplaceQueryParametersArray(el.value(), new_key, query, params);
+        continue;
+      }
     }
   }
 }
 
 void ReplaceQueryParameters(nlohmann::json &json, std::string &query, mgp::Map &params) {
   for (auto &el : json.items()) {
-    auto key = fmt::format("${}", el.key());
+    auto key = fmt::format("{}", el.key());
+    auto value = PropToValue(el.value());
 
-    if (el.value().type() == nlohmann::json::value_t::object) {
-      ReplaceQueryParameters(el.value(), key, query, params);
-      continue;
-    }
-
-    if (el.value().type() == nlohmann::json::value_t::array) {
-      continue;
-    }
-
-    size_t pos;
-    while ((pos = query.find(key)) != std::string::npos) {
-      query.replace(pos, key.size(), el.value());
+    if (!value.IsNull()) {
+      params.Insert(key, std::move(value));
+    } else {
+      if (el.value().is_object()) {
+        ReplaceQueryParameters(el.value(), key, query, params);
+        continue;
+      }
+      if (el.value().is_array()) {
+        ReplaceQueryParametersArray(el.value(), key, query, params);
+        continue;
+      }
     }
   }
 }
