@@ -15,7 +15,7 @@
 static constexpr std::string_view kQuery = "query";
 static constexpr std::string_view kParameters = "parameters";
 
-void CppTransform(struct mgp_messages *messages, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
   auto record_factory = mgp::RecordFactory(result);
 
   try {
@@ -36,7 +36,7 @@ void CppTransform(struct mgp_messages *messages, mgp_graph *graph, mgp_result *r
 
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
-    mgp::AddTransformation(CppTransform, "example_cpp_transformation", module);
+    mgp::AddTransformation(CppTransform, "transformation", module);
   } catch (const std::exception &e) {
     return 1;
   }

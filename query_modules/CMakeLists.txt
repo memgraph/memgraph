@@ -6,6 +6,8 @@ project(memgraph_query_modules)
 
 disallow_in_source_build()
 
+set(CMAKE_SHARED_LIBRARY_PREFIX "")
+
 # Everything that is installed here, should be under the "query_modules" component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -51,8 +53,7 @@ if (lower_build_type STREQUAL "release")
                      COMMENT "Stripping symbols and sections from the C++ transformation example module")
 endif()
 install(PROGRAMS $<TARGET_FILE:example_cpp_transformation>
-        DESTINATION lib/memgraph/query_modules
-        RENAME example_cpp_transformation.so)
+        DESTINATION lib/memgraph/query_modules)
 
 # Also install the source of the example, so user can read it.
 install(FILES example_cpp_transformation.cpp DESTINATION lib/memgraph/query_modules/src)
