@@ -33,6 +33,16 @@ def compare_apis(ctx: mgp.ProcCtx) -> mgp.Record(results_dict=mgp.Map):
         (2, 1),
     )
 
+    path.pop()
+    mock_path.pop()
+    results["pop"] = test_utils.all_equal(
+        (len(path.vertices), len(path.edges)),
+        (len(mock_path.vertices), len(mock_path.edges)),
+        (1, 0),
+    )
+    path.expand(edge_to_add)
+    mock_path.expand(mock_edge_to_add)
+
     NEXT_ID = 1
     results["vertices"] = test_utils.all_equal(
         all(isinstance(vertex, mgp.Vertex) for vertex in path.vertices),
