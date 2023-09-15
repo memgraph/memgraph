@@ -41,7 +41,7 @@ install(PROGRAMS $<TARGET_FILE:example_cpp>
 # Also install the source of the example, so user can read it.
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 
-add_library(example_cpp_transformation SHARED transformation.cpp)
+add_library(example_cpp_transformation SHARED example_transformation.cpp)
 target_include_directories(example_cpp_transformation PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_cpp_transformation PRIVATE -Wall)
 # Strip C++ transformation example in release build.
