@@ -37,8 +37,25 @@ endif()
 install(PROGRAMS $<TARGET_FILE:example_cpp>
         DESTINATION lib/memgraph/query_modules
         RENAME example_cpp.so)
+
 # Also install the source of the example, so user can read it.
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
+
+add_library(example_cpp_transformation SHARED transformation.cpp)
+target_include_directories(example_cpp_transformation PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(example_cpp_transformation PRIVATE -Wall)
+# Strip C++ transformation example in release build.
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET example_cpp_transformation POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:example_cpp_transformation>
+                     COMMENT "Stripping symbols and sections from the C++ transformation example module")
+endif()
+install(PROGRAMS $<TARGET_FILE:example_cpp_transformation>
+        DESTINATION lib/memgraph/query_modules
+        RENAME example_cpp_transformation.so)
+
+# Also install the source of the example, so user can read it.
+install(FILES example_cpp_transformation.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
