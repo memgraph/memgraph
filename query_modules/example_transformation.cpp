@@ -15,6 +15,18 @@
 static constexpr std::string_view kQuery = "query";
 static constexpr std::string_view kParameters = "parameters";
 
+std::string EscapeString(std::string s) {
+  std::string sign = "'";
+  std::string replace_sign;
+
+  size_t pos;
+  while ((pos = s.find(sign)) != std::string::npos) {
+    s.replace(pos, 1, replace_sign);
+  }
+
+  return s;
+}
+
 void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
   auto record_factory = mgp::RecordFactory(result);
@@ -23,7 +35,10 @@ void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result 
 
     for (const mgp::Message &message : stream_messages) {
       auto record = record_factory.NewRecord();
-      auto query = "CREATE (:Data {payload: '" + message.Payload() + "'});";
+
+      auto payload = EscapeString(message.Payload());
+
+      auto query = "CREATE (:Data {payload: '" + payload + "'});";
       auto query_value = mgp::Value(query.data());
 
       record.Insert(kQuery.data(), query_value);
