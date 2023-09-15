@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@ using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
 struct ConsumerInfo {
   int64_t batch_size;
   std::chrono::milliseconds batch_interval;
+  std::string transformation_query;
   std::vector<std::string> topics;
   std::string consumer_name;
   std::string service_url;

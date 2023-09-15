@@ -772,7 +772,9 @@ stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, Expressi
       .batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator)
                             .value_or(stream::kDefaultBatchInterval),
       .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator).value_or(stream::kDefaultBatchSize),
-      .transformation_name = stream_query->transform_name_};
+      .transformation_name = !stream_query->transform_name_.empty() ? stream_query->transform_name_
+                                                                    : stream::kGenericTransformation.data(),
+      .transformation_query = GetOptionalStringValue(stream_query->transformation_query_, evaluator).value_or("")};
 }
 
 std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evaluator,
@@ -945,7 +947,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name", "type", "batch_interval", "batch_size", "transformation_name", "owner", "is running"};
+      callback.header = {
+          "name",  "type",      "batch_interval", "batch_size", "transformation_name", "transformation_query",
+          "owner", "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
@@ -954,6 +958,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           typed_status.emplace_back(stream_info.batch_interval.count());
           typed_status.emplace_back(stream_info.batch_size);
           typed_status.emplace_back(stream_info.transformation_name);
+          typed_status.emplace_back(stream_info.transformation_query);
         };
 
         for (const auto &status : streams_status) {

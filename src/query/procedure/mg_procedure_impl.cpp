@@ -3475,6 +3475,10 @@ mgp_error mgp_messages_at(mgp_messages *messages, size_t index, mgp_message **re
       result);
 }
 
+mgp_error mgp_transformation_query(mgp_trans_context *ctx, const char **result) {
+  return WrapExceptions([ctx] { return ctx->query.data(); }, result);
+}
+
 mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mgp_trans_cb cb) {
   return WrapExceptions([=] {
     if (!IsValidIdentifierName(name)) {

@@ -584,12 +584,14 @@ void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) 
   memory.erase(key);
 }
 
-enum class CommonStreamConfigKey : uint8_t { TRANSFORM, BATCH_INTERVAL, BATCH_SIZE, END };
+enum class CommonStreamConfigKey : uint8_t { TRANSFORM, TRANSFORMATION_QUERY, BATCH_INTERVAL, BATCH_SIZE, END };
 
 std::string_view ToString(const CommonStreamConfigKey key) {
   switch (key) {
     case CommonStreamConfigKey::TRANSFORM:
       return "TRANSFORM";
+    case CommonStreamConfigKey::TRANSFORMATION_QUERY:
+      return "TRANSFORMATION_QUERY";
     case CommonStreamConfigKey::BATCH_INTERVAL:
       return "BATCH_INTERVAL";
     case CommonStreamConfigKey::BATCH_SIZE:
@@ -624,7 +626,9 @@ std::string_view ToString(const KafkaConfigKey key) {
 }
 
 void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
-  MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
+  MapConfig<false, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
+  MapConfig<false, Expression *>(memory, CommonStreamConfigKey::TRANSFORMATION_QUERY,
+                                 stream_query.transformation_query_);
   MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);
   MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
 }
@@ -665,6 +669,10 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
                                                                    stream_query->credentials_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
+
+  if (stream_query->transform_name_.empty() && !stream_query->transformation_query_) {
+    throw SemanticException("Transformation name and transformation query can't be empty at the same time!");
+  }
 
   return stream_query;
 }
@@ -766,6 +774,10 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarC
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
+  if (stream_query->transform_name_.empty() && !stream_query->transformation_query_) {
+    throw SemanticException("Transformation name and transformation query can't be empty at the same time!");
+  }
+
   return stream_query;
 }
 
@@ -796,6 +808,16 @@ antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::C
     ThrowIfExists(memory_, CommonStreamConfigKey::TRANSFORM);
     const auto transform_key = static_cast<uint8_t>(CommonStreamConfigKey::TRANSFORM);
     memory_[transform_key] = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+    return {};
+  }
+
+  if (ctx->TRANSFORMATION_QUERY()) {
+    ThrowIfExists(memory_, CommonStreamConfigKey::TRANSFORMATION_QUERY);
+    if (!ctx->transformationQuery->StringLiteral()) {
+      throw SemanticException("Transform query must be a string literal!");
+    }
+    const auto transform_query_key = static_cast<uint8_t>(CommonStreamConfigKey::TRANSFORMATION_QUERY);
+    memory_[transform_query_key] = std::any_cast<Expression *>(ctx->transformationQuery->accept(this));
     return {};
   }
 

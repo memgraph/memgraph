@@ -86,6 +86,7 @@ struct ConsumerInfo {
   std::string bootstrap_servers;
   std::chrono::milliseconds batch_interval;
   int64_t batch_size;
+  std::string transformation_query;
   std::unordered_map<std::string, std::string> public_configs{};
   std::unordered_map<std::string, std::string> private_configs{};
 };

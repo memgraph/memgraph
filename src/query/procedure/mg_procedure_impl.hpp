@@ -826,6 +826,12 @@ struct mgp_proc {
   ProcedureInfo info;
 };
 
+struct mgp_trans_context {
+  memgraph::query::DbAccessor *impl;
+  memgraph::storage::View view;
+  std::string query;
+};
+
 struct mgp_trans {
   using allocator_type = memgraph::utils::Allocator<mgp_trans>;
 
@@ -836,7 +842,7 @@ struct mgp_trans {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+  mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_trans_context *, mgp_result *, mgp_memory *)> cb,
             memgraph::utils::MemoryResource *memory)
       : name(name, memory), cb(cb), results(memory) {}
 
@@ -859,7 +865,7 @@ struct mgp_trans {
   /// Name of the transformation.
   memgraph::utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(mgp_messages *, mgp_trans_context *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
   memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                             std::pair<const memgraph::query::procedure::CypherType *, bool>>
