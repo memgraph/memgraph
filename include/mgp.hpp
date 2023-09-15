@@ -1406,6 +1406,8 @@ class Record {
   void Insert(const char *field_name, const Duration &duration);
   /// @brief Inserts a @ref Value value under field `field_name`, and then call appropriate insert.
   void Insert(const char *field_name, const Value &value);
+  /// @brief Inserts a @ref null value under field `field_name`.
+  void Insert(const char *field_name);
 
  private:
   mgp_result_record *record_;
@@ -4071,6 +4073,12 @@ inline const std::string Value::ToString() const {
 
 inline Record::Record(mgp_result_record *record) : record_(record) {}
 
+inline void Record::Insert(const char *field_name) {
+  auto null_value = mgp::MemHandlerCallback(value_make_null);
+  { mgp::result_record_insert(record_, field_name, null_value); }
+  mgp::value_destroy(null_value);
+}
+
 inline void Record::Insert(const char *field_name, bool value) {
   auto mgp_val = mgp::MemHandlerCallback(value_make_bool, value);
   { mgp::result_record_insert(record_, field_name, mgp_val); }
@@ -4157,6 +4165,8 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
 
 inline void Record::Insert(const char *field_name, const Value &value) {
   switch (value.Type()) {
+    case Type::Null:
+      return Insert(field_name);
     case Type::Bool:
       return Insert(field_name, value.ValueBool());
     case Type::Int:

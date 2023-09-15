@@ -27,7 +27,7 @@ void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result 
       auto query_value = mgp::Value(query.data());
 
       record.Insert(kQuery.data(), query_value);
-      record.Insert(kParameters.data(), mgp::Value(mgp::Map()));
+      record.Insert(kParameters.data(), mgp::Value());
     }
   } catch (std::exception &ex) {
     record_factory.SetErrorMessage(ex.what());
