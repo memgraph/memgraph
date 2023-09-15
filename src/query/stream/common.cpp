@@ -18,14 +18,14 @@ namespace {
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kTransformationName{"transformation_name"};
-const std::string kQuery{"query"};
+const std::string kTransformationQuery{"transformation_query"};
 }  // namespace
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&common_info) {
   data[kBatchIntervalKey] = common_info.batch_interval.count();
   data[kBatchSizeKey] = common_info.batch_size;
   data[kTransformationName] = common_info.transformation_name;
-  data[kQuery] = common_info.query;
+  data[kTransformationQuery] = common_info.transformation_query;
 }
 
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
@@ -43,6 +43,6 @@ void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
   }
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
-  data.at(kQuery).get_to(common_info.query);
+  data.at(kTransformationQuery).get_to(common_info.transformation_query);
 }
 }  // namespace memgraph::query::stream

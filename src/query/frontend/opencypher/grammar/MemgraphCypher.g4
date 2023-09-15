@@ -106,6 +106,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TOPICS
                       | TRANSACTION
                       | TRANSFORM
+                      | TRANSFORMATION_QUERY
                       | TRIGGER
                       | TRIGGERS
                       | UNCOMMITTED
@@ -408,6 +409,7 @@ symbolicTopicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAn
 topicNames : symbolicTopicNames | literal ;
 
 commonCreateStreamConfig : TRANSFORM transformationName=procedureName
+                         | TRANSFORMATION_QUERY transformationQuery=literal
                          | BATCH_INTERVAL batchInterval=literal
                          | BATCH_SIZE batchSize=literal
                          ;

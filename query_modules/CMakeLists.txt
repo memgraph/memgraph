@@ -6,6 +6,8 @@ project(memgraph_query_modules)
 
 disallow_in_source_build()
 
+find_package(fmt REQUIRED)
+
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
 # Everything that is installed here, should be under the "query_modules" component.
@@ -57,6 +59,16 @@ install(PROGRAMS $<TARGET_FILE:example_cpp_transformation>
 
 # Also install the source of the example, so user can read it.
 install(FILES example_cpp_transformation.cpp DESTINATION lib/memgraph/query_modules/src)
+
+add_library(generic_cpp_transformation SHARED generic_transformation.cpp)
+target_include_directories(generic_cpp_transformation PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(generic_cpp_transformation PRIVATE -Wall)
+target_link_libraries(generic_cpp_transformation json fmt::fmt)
+
+install(PROGRAMS $<TARGET_FILE:generic_cpp_transformation>
+        DESTINATION lib/memgraph/query_modules)
+# Also install the source of the example, so user can read it.
+install(FILES generic_cpp_transformation.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)

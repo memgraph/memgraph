@@ -129,6 +129,7 @@ TRANSACTION             : T R A N S A C T I O N ;
 TRANSACTION_MANAGEMENT  : T R A N S A C T I O N UNDERSCORE M A N A G E M E N T ;
 TRANSACTIONS            : T R A N S A C T I O N S ;
 TRANSFORM               : T R A N S F O R M ;
+TRANSFORMATION_QUERY    : T R A N S F O R M A T I O N UNDERSCORE Q U E R Y ;
 TRIGGER                 : T R I G G E R ;
 TRIGGERS                : T R I G G E R S ;
 UNCOMMITTED             : U N C O M M I T T E D ;

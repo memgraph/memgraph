@@ -1628,6 +1628,19 @@ class Messages {
   mgp_messages *ptr_;
 };
 
+/// @brief Wrapper class for @ref mgp_trans_context.
+class TransformationContext {
+ private:
+ public:
+  explicit TransformationContext(mgp_trans_context *ctx);
+
+  /// @brief Returns the transformation query (empty string if not exists)
+  std::string Query() const;
+
+ private:
+  mgp_trans_context *ctx_;
+};
+
 /// @brief Adds a procedure to the query module.
 /// @param callback - procedure callback
 /// @param name - procedure name
@@ -4445,6 +4458,10 @@ inline Messages::Iterator &Messages::Iterator::operator++() {
 }
 inline const Message Messages::Iterator::operator*() const { return (*iterable_)[index_]; }
 inline Messages::Iterator::Iterator(const Messages *iterable, size_t index) : iterable_(iterable), index_(index) {}
+
+// Transformation context
+inline TransformationContext::TransformationContext(mgp_trans_context *ctx) : ctx_(ctx) {}
+inline std::string TransformationContext::Query() const { return std::string{mgp::transformation_query(ctx_)}; }
 
 // do not enter
 namespace detail {

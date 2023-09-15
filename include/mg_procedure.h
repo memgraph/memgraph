@@ -1594,6 +1594,9 @@ enum mgp_error mgp_messages_at(struct mgp_messages *message, size_t index, struc
 
 struct mgp_trans_context;
 
+// Return transformation query, empty string if exists.
+enum mgp_error mgp_transformation_query(struct mgp_trans_context *ctx, const char **result);
+
 /// Entry-point for a module transformation, invoked through a stream transformation.
 ///
 /// Passed in arguments will not live longer than the callback's execution.

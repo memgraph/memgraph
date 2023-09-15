@@ -25,6 +25,7 @@ namespace memgraph::query::stream {
 
 inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
+inline constexpr std::string_view kGenericTransformation{"generic_cpp_transformation.transform"};
 
 template <typename TMessage>
 using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;
@@ -33,7 +34,7 @@ struct CommonStreamInfo {
   std::chrono::milliseconds batch_interval;
   int64_t batch_size;
   std::string transformation_name;
-  std::string query;
+  std::string transformation_query;
 };
 
 template <typename T>

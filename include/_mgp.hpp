@@ -816,6 +816,12 @@ inline mgp_message *messages_at(struct mgp_messages *message, size_t index) {
   return MgInvoke<mgp_message *>(mgp_messages_at, message, index);
 }
 
+// Transformation context
+
+inline const char *transformation_query(struct mgp_trans_context *ctx) {
+  return MgInvoke<const char *>(mgp_transformation_query, ctx);
+}
+
 // Transformation
 
 inline void module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb) {
