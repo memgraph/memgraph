@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,12 +18,14 @@ namespace {
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kTransformationName{"transformation_name"};
+const std::string kQuery{"query"};
 }  // namespace
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&common_info) {
   data[kBatchIntervalKey] = common_info.batch_interval.count();
   data[kBatchSizeKey] = common_info.batch_size;
   data[kTransformationName] = common_info.transformation_name;
+  data[kQuery] = common_info.query;
 }
 
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
@@ -41,5 +43,6 @@ void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
   }
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
+  data.at(kQuery).get_to(common_info.query);
 }
 }  // namespace memgraph::query::stream

@@ -1315,8 +1315,9 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
   auto *memory = self->module->transformations.get_allocator().GetMemoryResource();
   mgp_trans trans(
       name,
-      [py_cb](mgp_messages *msgs, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-        CallPythonTransformation(py_cb, msgs, graph, result, memory);
+      [py_cb](mgp_messages *msgs, mgp_trans_context *ctx, mgp_result *result, mgp_memory *memory) {
+        auto graph = mgp_graph::NonWritableGraph(*(ctx->impl), ctx->view);
+        CallPythonTransformation(py_cb, msgs, &graph, result, memory);
       },
       memory);
   const auto [trans_it, did_insert] = self->module->transformations.emplace(name, std::move(trans));

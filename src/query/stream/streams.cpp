@@ -82,9 +82,10 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
 }
 
 template <typename TMessage>
-void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
-                              mgp_result &result, storage::Storage::Accessor &storage_accessor,
-                              utils::MemoryResource &memory_resource, const std::string &stream_name) {
+void CallCustomTransformation(const std::string &transformation_name, const std::string &query,
+                              const std::vector<TMessage> &messages, mgp_result &result,
+                              storage::Storage::Accessor &storage_accessor, utils::MemoryResource &memory_resource,
+                              const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
     auto maybe_transformation =
@@ -97,7 +98,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
     std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
                    [](const TMessage &message) { return mgp_message{message}; });
-    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
+    mgp_trans_context ctx{&db_accessor, storage::View::OLD, query};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
     result.error_msg.reset();
@@ -108,7 +109,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     MG_ASSERT(result.signature->contains(params_param_name));
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
-    trans.cb(&mgp_messages, &graph, &result, &memory);
+    trans.cb(&mgp_messages, &ctx, &result, &memory);
   }
   if (result.error_msg.has_value()) {
     throw StreamsException(result.error_msg->c_str());
@@ -483,7 +484,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto *memory_resource = utils::NewDeleteResource();
 
   auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+                            transformation_name = stream_info.common_info.transformation_name,
+                            query = stream_info.common_info.query, owner = owner,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource},
                             total_retries = interpreter_context_->config.stream_transaction_conflict_retries,
@@ -496,7 +498,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
     memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
-    CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
+    CallCustomTransformation(transformation_name, query, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;
 
@@ -740,10 +742,11 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
         TransformationResult test_result;
 
         auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, &stream_name,
-                                  &transformation_name = transformation_name, &result,
+                                  &transformation_name = transformation_name, transformation_query = "", &result,
                                   &test_result]<typename T>(const std::vector<T> &messages) mutable {
           auto accessor = interpreter_context->db->Access();
-          CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
+          CallCustomTransformation(transformation_name, transformation_query, messages, result, *accessor,
+                                   *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();
           result_row.reserve(kCheckStreamResultSize);

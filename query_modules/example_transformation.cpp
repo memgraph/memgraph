@@ -27,7 +27,7 @@ std::string EscapeString(std::string s) {
   return s;
 }
 
-void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+void Transformation(struct mgp_messages *messages, mgp_trans_context *ctx, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
   auto record_factory = mgp::RecordFactory(result);
   try {

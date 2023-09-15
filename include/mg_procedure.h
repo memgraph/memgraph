@@ -1592,12 +1592,15 @@ enum mgp_error mgp_messages_size(struct mgp_messages *message, size_t *result);
 /// Get the message from a messages list at given index
 enum mgp_error mgp_messages_at(struct mgp_messages *message, size_t index, struct mgp_message **result);
 
+struct mgp_trans_context;
+
 /// Entry-point for a module transformation, invoked through a stream transformation.
 ///
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_trans_cb)(struct mgp_messages *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
+typedef void (*mgp_trans_cb)(struct mgp_messages *, struct mgp_trans_context *, struct mgp_result *,
+                             struct mgp_memory *);
 
 /// Register a transformation with a module.
 ///

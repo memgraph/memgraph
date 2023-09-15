@@ -3254,6 +3254,7 @@ class StreamQuery : public memgraph::query::Query {
   memgraph::query::Expression *batch_limit_{nullptr};
   memgraph::query::Expression *timeout_{nullptr};
   std::string transform_name_;
+  std::string query_;
   memgraph::query::Expression *batch_interval_{nullptr};
   memgraph::query::Expression *batch_size_{nullptr};
   std::variant<memgraph::query::Expression *, std::vector<std::string>> topic_names_{nullptr};
@@ -3271,6 +3272,7 @@ class StreamQuery : public memgraph::query::Query {
     object->batch_limit_ = batch_limit_ ? batch_limit_->Clone(storage) : nullptr;
     object->timeout_ = timeout_ ? timeout_->Clone(storage) : nullptr;
     object->transform_name_ = transform_name_;
+    object->query_ = query_;
     object->batch_interval_ = batch_interval_ ? batch_interval_->Clone(storage) : nullptr;
     object->batch_size_ = batch_size_ ? batch_size_->Clone(storage) : nullptr;
     if (auto *topic_expression = std::get_if<Expression *>(&topic_names_)) {

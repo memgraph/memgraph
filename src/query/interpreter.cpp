@@ -772,7 +772,8 @@ stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, Expressi
       .batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator)
                             .value_or(stream::kDefaultBatchInterval),
       .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator).value_or(stream::kDefaultBatchSize),
-      .transformation_name = stream_query->transform_name_};
+      .transformation_name = stream_query->transform_name_,
+      .query = stream_query->query_};
 }
 
 std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evaluator,

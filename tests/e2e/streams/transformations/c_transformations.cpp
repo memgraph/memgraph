@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #include "mg_procedure.h"
 
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
-  static const auto no_op_cb = [](mgp_messages *msg, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {};
+  static const auto no_op_cb = [](mgp_messages *msg, mgp_trans_context *ctx, mgp_result *result, mgp_memory *memory) {};
 
   if (mgp_error::MGP_ERROR_NO_ERROR != mgp_module_add_transformation(module, "empty_transformation", no_op_cb)) {
     return 1;
