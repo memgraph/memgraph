@@ -16,17 +16,18 @@ static constexpr std::string_view kQuery = "query";
 static constexpr std::string_view kParameters = "parameters";
 
 void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
   auto record_factory = mgp::RecordFactory(result);
-
   try {
     auto stream_messages = mgp::Messages(messages);
 
     for (const mgp::Message &message : stream_messages) {
       auto record = record_factory.NewRecord();
-      auto payload = mgp::Value(message.Payload());
+      auto query = "CREATE (:Data {payload: '" + message.Payload() + "'});";
+      auto query_value = mgp::Value(query.data());
 
-      record.Insert(kQuery.data(), payload);
-      record.Insert(kParameters.data(), mgp::Value());
+      record.Insert(kQuery.data(), query_value);
+      record.Insert(kParameters.data(), mgp::Value(mgp::Map()));
     }
   } catch (std::exception &ex) {
     record_factory.SetErrorMessage(ex.what());
@@ -36,7 +37,8 @@ void Transformation(struct mgp_messages *messages, mgp_graph *graph, mgp_result 
 
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
-    mgp::AddTransformation(CppTransform, "transformation", module);
+    mgp::MemoryDispatcherGuard guard(memory);
+    mgp::AddTransformation(Transformation, "transform", module);
   } catch (const std::exception &e) {
     return 1;
   }
