@@ -759,3 +759,5 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b);
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
 
 }  // namespace memgraph::query
+
+#include "query/typed_value.inl"

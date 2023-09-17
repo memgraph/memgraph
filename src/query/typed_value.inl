@@ -8,29 +8,17 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#pragma once
 
-#include "query/typed_value.hpp"
-
-#include <fmt/format.h>
-#include <chrono>
-#include <cmath>
-#include <iostream>
-#include <memory>
-#include <string_view>
-#include <utility>
-
-#include "storage/v2/temporal.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
-#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
-TypedValue::TypedValue(const storage::PropertyValue &value)
+inline TypedValue::TypedValue(const storage::PropertyValue &value)
     // TODO: MemoryResource in storage::PropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
+inline TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -96,11 +84,11 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
   LOG_FATAL("Unsupported type");
 }
 
-TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
+inline TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
     // TODO: MemoryResource in storage::PropertyValue, so this can be noexcept
     : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
+inline TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
   switch (other.type()) {
     case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -167,12 +155,13 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
   other = storage::PropertyValue();
 }
 
-TypedValue::TypedValue(const TypedValue &other)
+inline TypedValue::TypedValue(const TypedValue &other)
     : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
                             other.memory_)
                             .GetMemoryResource()) {}
 
-TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) : memory_(memory), type_(other.type_) {
+inline TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
+    : memory_(memory), type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       return;
@@ -223,9 +212,9 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
   LOG_FATAL("Unsupported TypedValue::Type");
 }
 
-TypedValue::TypedValue(TypedValue &&other) noexcept : TypedValue(std::move(other), other.memory_) {}
+inline TypedValue::TypedValue(TypedValue &&other) noexcept : TypedValue(std::move(other), other.memory_) {}
 
-TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memory_(memory), type_(other.type_) {
+inline TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memory_(memory), type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       break;
@@ -279,7 +268,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
   other.DestroyValue();
 }
 
-TypedValue::operator storage::PropertyValue() const {
+inline TypedValue::operator storage::PropertyValue() const {
   switch (type_) {
     case TypedValue::Type::Null:
       return storage::PropertyValue();
@@ -316,19 +305,19 @@ TypedValue::operator storage::PropertyValue() const {
 }
 
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
-  type_param &TypedValue::Value##type_enum() {                                                   \
+  inline type_param &TypedValue::Value##type_enum() {                                            \
     if (type_ != Type::type_enum)                                                                \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
                                                                                                  \
-  const type_param &TypedValue::Value##type_enum() const {                                       \
+  inline const type_param &TypedValue::Value##type_enum() const {                                \
     if (type_ != Type::type_enum)                                                                \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
                                                                                                  \
-  bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
+  inline bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
 
 DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
@@ -343,30 +332,15 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
-
-Graph &TypedValue::ValueGraph() {
-  if (type_ != Type::Graph) {
-    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
-  }
-  return *graph_v;
-}
-
-const Graph &TypedValue::ValueGraph() const {
-  if (type_ != Type::Graph) {
-    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
-  }
-  return *graph_v;
-}
-
-bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
+DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 
-bool TypedValue::IsNull() const { return type_ == Type::Null; }
+inline bool TypedValue::IsNull() const { return type_ == Type::Null; }
 
-bool TypedValue::IsNumeric() const { return IsInt() || IsDouble(); }
+inline bool TypedValue::IsNumeric() const { return IsInt() || IsDouble(); }
 
-bool TypedValue::IsPropertyValue() const {
+inline bool TypedValue::IsPropertyValue() const {
   switch (type_) {
     case Type::Null:
     case Type::Bool:
@@ -385,7 +359,7 @@ bool TypedValue::IsPropertyValue() const {
   }
 }
 
-std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
+inline std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
   switch (type) {
     case TypedValue::Type::Null:
       return os << "null";
@@ -422,7 +396,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
 }
 
 #define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, member) \
-  TypedValue &TypedValue::operator=(type_param other) {                          \
+  inline TypedValue &TypedValue::operator=(type_param other) {                   \
     if (this->type_ == TypedValue::Type::typed_value_type) {                     \
       this->member = other;                                                      \
     } else {                                                                     \
@@ -440,7 +414,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(double, Double, double_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string_view, String, string_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TVector &, List, list_v)
 
-TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
+inline TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
   if (type_ == Type::List) {
     list_v.reserve(other.size());
     list_v.assign(other.begin(), other.end());
@@ -452,7 +426,7 @@ TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
 
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TMap &, Map, map_v)
 
-TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other) {
+inline TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other) {
   if (type_ == Type::Map) {
     map_v.clear();
     for (const auto &kv : other) map_v.emplace(kv.first, kv.second);
@@ -473,7 +447,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, member) \
-  TypedValue &TypedValue::operator=(type_param &&other) {                        \
+  inline TypedValue &TypedValue::operator=(type_param &&other) {                 \
     if (this->type_ == TypedValue::Type::typed_value_type) {                     \
       this->member = std::move(other);                                           \
     } else {                                                                     \
@@ -485,7 +459,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TString, String, string_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TVector, List, list_v)
 
-TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
+inline TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   if (type_ == Type::List) {
     list_v.reserve(other.size());
     list_v.assign(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
@@ -497,7 +471,7 @@ TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
 
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TMap, Map, map_v)
 
-TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
+inline TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
   if (type_ == Type::Map) {
     map_v.clear();
     for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
@@ -511,7 +485,7 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
 
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
-TypedValue &TypedValue::operator=(const TypedValue &other) {
+inline TypedValue &TypedValue::operator=(const TypedValue &other) {
   if (this != &other) {
     // NOTE: STL uses
     // std::allocator_traits<>::propagate_on_container_copy_assignment to
@@ -575,7 +549,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
+inline TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   if (this != &other) {
     DestroyValue();
     // NOTE: STL uses
@@ -642,7 +616,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   return *this;
 }
 
-void TypedValue::DestroyValue() {
+inline void TypedValue::DestroyValue() {
   switch (type_) {
       // destructor for primitive types does nothing
     case Type::Null:
@@ -689,7 +663,7 @@ void TypedValue::DestroyValue() {
   type_ = TypedValue::Type::Null;
 }
 
-TypedValue::~TypedValue() { DestroyValue(); }
+inline TypedValue::~TypedValue() { DestroyValue(); }
 
 /**
  * Returns the double value of a value.
@@ -698,7 +672,7 @@ TypedValue::~TypedValue() { DestroyValue(); }
  * @param value
  * @return
  */
-double ToDouble(const TypedValue &value) {
+inline double ToDouble(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Int:
       return (double)value.ValueInt();
@@ -710,7 +684,7 @@ double ToDouble(const TypedValue &value) {
 }
 
 namespace {
-bool IsTemporalType(const TypedValue::Type type) {
+inline bool IsTemporalType(const TypedValue::Type type) {
   static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
                                              TypedValue::Type::LocalDateTime, TypedValue::Type::Duration};
   return std::any_of(temporal_types.begin(), temporal_types.end(),
@@ -718,7 +692,7 @@ bool IsTemporalType(const TypedValue::Type type) {
 };
 }  // namespace
 
-TypedValue operator<(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   auto is_legal = [](TypedValue::Type type) {
     switch (type) {
       case TypedValue::Type::Null:
@@ -778,7 +752,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-TypedValue operator==(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
 
   // check we have values that can be compared
@@ -850,7 +824,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-TypedValue operator!(const TypedValue &a) {
+inline TypedValue operator!(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
   if (a.IsBool()) return TypedValue(!a.ValueBool(), a.GetMemoryResource());
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
@@ -862,7 +836,7 @@ TypedValue operator!(const TypedValue &a) {
  * @param value a value.
  * @return A string.
  */
-std::string ValueToString(const TypedValue &value) {
+inline std::string ValueToString(const TypedValue &value) {
   // TODO: Should this allocate a string through value.GetMemoryResource()?
   if (value.IsString()) return std::string(value.ValueString());
   if (value.IsInt()) return std::to_string(value.ValueInt());
@@ -871,7 +845,7 @@ std::string ValueToString(const TypedValue &value) {
   throw TypedValueException("Unsupported TypedValue::Type conversion to string");
 }
 
-TypedValue operator-(const TypedValue &a) {
+inline TypedValue operator-(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
   if (a.IsInt()) return TypedValue(-a.ValueInt(), a.GetMemoryResource());
   if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.GetMemoryResource());
@@ -879,7 +853,7 @@ TypedValue operator-(const TypedValue &a) {
   throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
 }
 
-TypedValue operator+(const TypedValue &a) {
+inline TypedValue operator+(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
   if (a.IsInt()) return TypedValue(+a.ValueInt(), a.GetMemoryResource());
   if (a.IsDouble()) return TypedValue(+a.ValueDouble(), a.GetMemoryResource());
@@ -913,7 +887,7 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
 
 namespace {
 
-std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
+inline std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
     return TypedValue(a.ValueDuration() + b.ValueDuration());
@@ -942,7 +916,7 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
   return std::nullopt;
 }
 
-std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
+inline std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
     return TypedValue(a.ValueDuration() - b.ValueDuration());
@@ -972,7 +946,7 @@ std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, co
 }
 }  // namespace
 
-TypedValue operator+(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
 
   if (a.IsList() || b.IsList()) {
@@ -1006,7 +980,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
 }
 
-TypedValue operator-(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
     return *maybe_sub;
@@ -1019,7 +993,7 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
 }
 
-TypedValue operator/(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "division");
 
@@ -1032,7 +1006,7 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-TypedValue operator*(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator*(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "multiplication");
 
@@ -1044,7 +1018,7 @@ TypedValue operator*(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-TypedValue operator%(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator%(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "modulo");
 
@@ -1062,7 +1036,7 @@ inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const st
     throw TypedValueException("Invalid {} operand types({} && {})", op_name, a.type(), b.type());
 }
 
-TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical AND");
   // at this point we only have null and bool
   // if either operand is false, the result is false
@@ -1073,7 +1047,7 @@ TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   return TypedValue(true, a.GetMemoryResource());
 }
 
-TypedValue operator||(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical OR");
   // at this point we only have null and bool
   // if either operand is true, the result is true
@@ -1084,7 +1058,7 @@ TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   return TypedValue(false, a.GetMemoryResource());
 }
 
-TypedValue operator^(const TypedValue &a, const TypedValue &b) {
+inline TypedValue operator^(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical XOR");
   // at this point we only have null and bool
   if (a.IsNull() || b.IsNull())
@@ -1093,7 +1067,7 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
     return TypedValue(static_cast<bool>(a.ValueBool() ^ b.ValueBool()), a.GetMemoryResource());
 }
 
-bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
+inline bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
   if (lhs.IsNull() && rhs.IsNull()) return true;
   TypedValue equality_result = lhs == rhs;
   switch (equality_result.type()) {
@@ -1108,7 +1082,7 @@ bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &
   }
 }
 
-size_t TypedValue::Hash::operator()(const TypedValue &value) const {
+inline size_t TypedValue::Hash::operator()(const TypedValue &value) const {
   switch (value.type()) {
     case TypedValue::Type::Null:
       return 31;
