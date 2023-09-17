@@ -944,6 +944,10 @@ class Path:
             raise InvalidContextError()
         self._path.pop()
 
+        # Invalidate cached tuples
+        self._vertices = None
+        self._edges = None
+
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
         """

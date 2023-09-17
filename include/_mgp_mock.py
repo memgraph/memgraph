@@ -335,7 +335,7 @@ class Path:
 
     def pop(self):
         if not self._edges:
-            raise IndexError("Path contains not relationships.")
+            raise IndexError("Path contains no relationships.")
 
         self._vertices.pop()
         self._edges.pop()
