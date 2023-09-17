@@ -123,10 +123,11 @@ class AstStorage {
 
  private:
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
-    for (int64_t i = 0; i < names->size(); ++i) {
-      if ((*names)[i] == name) {
-        return i;
-      }
+    auto const b = names->begin();
+    auto const e = names->end();
+    auto const it = std::find(b, e, name);
+    if (it != e) {
+      return std::distance(b, it);
     }
     names->push_back(name);
     return names->size() - 1;
