@@ -477,6 +477,8 @@ class TypedValue {
   type_param &Value##field();                                      \
   /** Gets the value of type field. Throws if value is not field*/ \
   const type_param &Value##field() const;                          \
+  /** Gets the value of type field*/                               \
+  const type_param &UnsafeValue##field() const;                    \
   /** Checks if it's the value is of the given type */             \
   bool Is##field() const;
 
@@ -484,18 +486,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
   DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)
   DECLARE_VALUE_AND_TYPE_GETTERS(TString, String)
-
-  /**
-   * Get the list value.
-   * @throw TypedValueException if stored value is not a list.
-   */
-  TVector &ValueList();
-
-  const TVector &ValueList() const;
-
-  /** Check if the stored value is a list value */
-  bool IsList() const;
-
+  DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List)
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)

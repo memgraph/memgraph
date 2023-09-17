@@ -1203,9 +1203,11 @@ class ExpandVariableCursor : public Cursor {
       // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
       // Check edge-uniqueness.
-      bool found_existing =
-          std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
-                      [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
+      bool found_existing = std::any_of(edges_on_frame.cbegin(), edges_on_frame.cend(),
+                                        [cmp_edge = current_edge.first](TypedValue const &edge) {
+                                          // by construction edges_on_frame must be edges, hence ok to use unsafe
+                                          return cmp_edge == edge.UnsafeValueEdge();
+                                        });
       if (found_existing) continue;
 
       VertexAccessor current_vertex =

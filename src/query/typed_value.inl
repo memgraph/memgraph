@@ -317,6 +317,8 @@ inline TypedValue::operator storage::PropertyValue() const {
     return field;                                                                                \
   }                                                                                              \
                                                                                                  \
+  inline const type_param &TypedValue::UnsafeValue##type_enum() const { return field; }          \
+                                                                                                 \
   inline bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
 
 DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
