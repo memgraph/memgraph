@@ -4190,12 +4190,10 @@ class DistinctCursor : public Cursor {
     while (true) {
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
+      auto row = utils::pmr::vector<TypedValue>(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
-
-      for (const auto &symbol : self_.value_symbols_) {
-        row.emplace_back(frame.at(symbol));
-      }
+      std::transform(self_.value_symbols_.begin(), self_.value_symbols_.end(), std::back_inserter(row),
+                     [&](Symbol const &symbol) { return frame[symbol]; });
 
       if (seen_rows_.insert(std::move(row)).second) {
         return true;
