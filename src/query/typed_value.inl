@@ -553,7 +553,6 @@ inline TypedValue &TypedValue::operator=(const TypedValue &other) {
 
 inline TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   if (this != &other) {
-    DestroyValue();
     // NOTE: STL uses
     // std::allocator_traits<>::propagate_on_container_move_assignment to
     // determine whether to take the allocator from `other`, or use the one in
@@ -561,7 +560,26 @@ inline TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
     // from `this`.
     static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
                   "Allocator propagation not implemented");
-    type_ = other.type_;
+
+    auto const cond_move = [&, this](auto field, TypedValue::Type requiredType) {
+      auto &this_field = field(*this);
+      auto &other_field = field(other);
+      if (type_ == requiredType && other.GetMemoryResource() == memory_) {
+        // ok to move
+        this_field = std::move(other_field);
+      } else {
+        if (type_ == requiredType) {
+          // we know how to destroy
+          std::destroy_at(&this_field);
+        } else {
+          // need to destroy appropriately
+          DestroyValue();
+        }
+        // allocator aware construction
+        new (&this_field) std::remove_cvref_t<decltype(this_field)>(std::move(other_field), memory_);
+      }
+    };
+
     switch (other.type_) {
       case TypedValue::Type::Null:
         break;
@@ -575,44 +593,54 @@ inline TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         this->double_v = other.double_v;
         break;
       case TypedValue::Type::String:
-        new (&string_v) TString(std::move(other.string_v), memory_);
+        cond_move(std::mem_fn(&TypedValue::string_v), TypedValue::Type::String);
         break;
       case TypedValue::Type::List:
-        new (&list_v) TVector(std::move(other.list_v), memory_);
+        cond_move(std::mem_fn(&TypedValue::list_v), TypedValue::Type::List);
         break;
       case TypedValue::Type::Map:
-        new (&map_v) TMap(std::move(other.map_v), memory_);
+        cond_move(std::mem_fn(&TypedValue::map_v), TypedValue::Type::Map);
         break;
       case TypedValue::Type::Vertex:
-        new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
+        vertex_v = std::move(other.vertex_v);
         break;
       case TypedValue::Type::Edge:
-        new (&edge_v) EdgeAccessor(std::move(other.edge_v));
+        edge_v = std::move(other.edge_v);
         break;
       case TypedValue::Type::Path:
-        new (&path_v) Path(std::move(other.path_v), memory_);
+        cond_move(std::mem_fn(&TypedValue::path_v), TypedValue::Type::Path);
         break;
       case Type::Date:
-        new (&date_v) utils::Date(other.date_v);
+        date_v = std::move(other.date_v);
         break;
       case Type::LocalTime:
-        new (&local_time_v) utils::LocalTime(other.local_time_v);
+        local_time_v = std::move(other.local_time_v);
         break;
       case Type::LocalDateTime:
-        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+        local_date_time_v = std::move(other.local_date_time_v);
         break;
       case Type::Duration:
-        new (&duration_v) utils::Duration(other.duration_v);
+        duration_v = std::move(other.duration_v);
         break;
       case Type::Graph:
-        if (other.GetMemoryResource() == memory_) {
-          new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
+        if (type_ == Type::Graph && other.GetMemoryResource() == memory_) {
+          graph_v = std::move(other.graph_v);
         } else {
+          if (type_ == Type::Graph) {
+            auto *graph = graph_v.release();
+            std::destroy_at(&graph_v);
+            if (graph) {
+              utils::Allocator<Graph>(memory_).delete_object(graph);
+            }
+          } else {
+            DestroyValue();
+          }
           auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
           new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
         }
         break;
     }
+    type_ = other.type_;
     other.DestroyValue();
   }
   return *this;
