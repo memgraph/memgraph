@@ -1437,6 +1437,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
 
       auto &db_acc = *db_acc_;
       db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
+      current_transaction_ = db_accessor_->GetTransactionId();  // TODO: decouple from storage
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
@@ -3482,10 +3483,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, storage::Stora
 #endif
 }
 
-std::optional<uint64_t> Interpreter::GetTransactionId() const {
-  if (db_accessor_) return db_accessor_->GetTransactionId();
-  return {};
-}
+std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   const auto prepared_query = PrepareTransactionQuery("BEGIN", extras);
@@ -3629,6 +3627,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       auto &db_acc = *db_acc_;
       db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
+      current_transaction_ = db_accessor_->GetTransactionId();
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
@@ -3792,6 +3791,7 @@ void Interpreter::Abort() {
   }
   execution_db_accessor_.reset();
   db_accessor_.reset();
+  current_transaction_.reset();
   trigger_context_collector_.reset();
   frame_change_collector_.reset();
 }
@@ -3941,6 +3941,7 @@ void Interpreter::Commit() {
     }
     execution_db_accessor_.reset();
     db_accessor_.reset();
+    current_transaction_.reset();
     trigger_context_collector_.reset();
   };
   utils::OnScopeExit members_reseter(reset_necessary_members);
