@@ -286,6 +286,8 @@ struct FilterInfo {
 /// expressions that should be generated.
 class Filters final {
  public:
+  std::vector<FilterInfo> all_filters_;
+
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
@@ -367,8 +369,6 @@ class Filters final {
 
  private:
   void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
-
-  std::vector<FilterInfo> all_filters_;
 };
 
 /// Normalized representation of a single or multiple Match clauses.
