@@ -544,7 +544,7 @@ void mgp_path_destroy(struct mgp_path *path);
 enum mgp_error mgp_path_expand(struct mgp_path *path, struct mgp_edge *edge);
 
 /// Remove the last node and the last relationship from the path.
-/// mgp_error::MGP_ERROR_OUT_OF_RANGE if the path contains no relationships.
+/// Return mgp_error::MGP_ERROR_OUT_OF_RANGE if the path contains no relationships.
 enum mgp_error mgp_path_pop(struct mgp_path *path);
 
 /// Get the number of edges in a mgp_path.
