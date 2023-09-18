@@ -204,7 +204,8 @@ void DiskStorage::LoadTimestampIfExists() {
     return;
   }
   if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
-    std::from_chars(last_timestamp_->data(), last_timestamp_->data() + last_timestamp_->size(), timestamp_);
+    auto last_timestamp_value = last_timestamp_.value();
+    std::from_chars(last_timestamp_value.data(), last_timestamp_value.data() + last_timestamp_value.size(), timestamp_);
   }
 }
 
