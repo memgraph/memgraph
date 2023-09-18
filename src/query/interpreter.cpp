@@ -3575,6 +3575,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     AbortCommand(&query_executions_.back());
   }
 
+  if (!in_explicit_transaction_) {
+    current_transaction_ = interpreter_context_->id_handler.next();
+  }
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     query_executions_.emplace_back(
@@ -3627,7 +3631,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       auto &db_acc = *db_acc_;
       db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
-      current_transaction_ = interpreter_context_->id_handler.next();
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
@@ -3780,6 +3783,7 @@ void Interpreter::Abort() {
   in_explicit_transaction_ = false;
   metadata_ = std::nullopt;
   explicit_transaction_timer_.reset();
+  current_transaction_.reset();
 
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 
@@ -3791,7 +3795,6 @@ void Interpreter::Abort() {
   }
   execution_db_accessor_.reset();
   db_accessor_.reset();
-  current_transaction_.reset();
   trigger_context_collector_.reset();
   frame_change_collector_.reset();
 }
@@ -3870,6 +3873,7 @@ void Interpreter::Commit() {
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
+  current_transaction_.reset();
   if (!db_accessor_) return;
 
   // TODO: Better (or removed) check
@@ -3941,7 +3945,6 @@ void Interpreter::Commit() {
     }
     execution_db_accessor_.reset();
     db_accessor_.reset();
-    current_transaction_.reset();
     trigger_context_collector_.reset();
   };
   utils::OnScopeExit members_reseter(reset_necessary_members);
