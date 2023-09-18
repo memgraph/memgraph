@@ -1,2 +1,1 @@
 neo4j-driver==4.1.1
-gqlalchemy==1.3.3
