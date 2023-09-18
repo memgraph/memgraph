@@ -209,7 +209,7 @@ class DbmsHandler {
     std::shared_lock<LockT> rd(lock_);
     const uint64_t ndb = std::distance(db_handler_.cbegin(), db_handler_.cend());
     for (auto &[_, db_gk] : db_handler_) {
-      auto db_acc_opt = db_gk.Access();
+      auto db_acc_opt = db_gk.access();
       if (!db_acc_opt) continue;
       auto &db_acc = *db_acc_opt;
       const auto &info = db_acc->GetInfo();
@@ -226,7 +226,7 @@ class DbmsHandler {
   void RestoreTriggers(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
     for (auto &[_, db_gk] : db_handler_) {
-      auto db_acc_opt = db_gk.Access();
+      auto db_acc_opt = db_gk.access();
       if (!db_acc_opt) continue;
       auto &db_acc = *db_acc_opt;
       spdlog::debug("Restoring trigger for database \"{}\"", db_acc->id());
@@ -243,7 +243,7 @@ class DbmsHandler {
   void RestoreStreams(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
     for (auto &[_, db_gk] : db_handler_) {
-      auto db_acc = db_gk.Access();
+      auto db_acc = db_gk.access();
       if (!db_acc) continue;
       auto *db = db_acc->get();
       spdlog::debug("Restoring streams for database \"{}\"", db->id());

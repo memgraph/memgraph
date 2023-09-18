@@ -77,7 +77,7 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::dbms::DatabaseAccess db{
       [&]() {
-        auto db_acc_opt = db_gk.Access();
+        auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
         MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
@@ -1132,7 +1132,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
     }
 
     memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
-    auto db_acc_opt = db_gk2.Access();
+    auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
     auto &db_acc = *db_acc_opt;
     ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>

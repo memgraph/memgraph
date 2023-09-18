@@ -67,5 +67,5 @@ class Database {
 extern template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
-using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::access;
+using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Accessor;
 }  // namespace memgraph::dbms

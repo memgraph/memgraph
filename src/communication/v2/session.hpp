@@ -283,11 +283,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::shared_ptr<Session>(new Session(std::forward<Args>(args)...));
   }
 
-  // #ifdef MG_ENTERPRISE
-  //   ~Session() { session_context_->Delete(session_); }
-  // #else
   ~Session() = default;
-  // #endif
 
   Session(const Session &) = delete;
   Session(Session &&) = delete;

@@ -88,21 +88,21 @@ struct Gatekeeper {
   Gatekeeper &operator=(Gatekeeper const &) = delete;
   Gatekeeper &operator=(Gatekeeper &&) = delete;
 
-  struct access {
+  struct Accessor {
     friend Gatekeeper;
 
    private:
-    explicit access(Gatekeeper *owner) : owner_{owner} { ++owner_->count_; }
+    explicit Accessor(Gatekeeper *owner) : owner_{owner} { ++owner_->count_; }
 
    public:
-    access(access const &other) : owner_{other.owner_} {
+    Accessor(Accessor const &other) : owner_{other.owner_} {
       if (owner_) {
         auto guard = std::unique_lock{owner_->mutex_};
         ++owner_->count_;
       }
     };
-    access(access &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
-    access &operator=(access const &other) {
+    Accessor(Accessor &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
+    Accessor &operator=(Accessor const &other) {
       // no change assignment
       if (owner_ == other.owner_) {
         return *this;
@@ -124,7 +124,7 @@ struct Gatekeeper {
       owner_ = other.owner_;
       return *this;
     };
-    access &operator=(access &&other) noexcept {
+    Accessor &operator=(Accessor &&other) noexcept {
       // self assignment
       if (&other == this) return *this;
 
@@ -139,7 +139,7 @@ struct Gatekeeper {
       return *this;
     }
 
-    ~access() { reset(); }
+    ~Accessor() { reset(); }
 
     auto get() -> T * { return std::addressof(*owner_->value_); }
     auto get() const -> const T * { return std::addressof(*owner_->value_); }
@@ -183,16 +183,16 @@ struct Gatekeeper {
       owner_ = nullptr;
     }
 
-    friend bool operator==(access const &lhs, access const &rhs) { return lhs.owner_ == rhs.owner_; }
+    friend bool operator==(Accessor const &lhs, Accessor const &rhs) { return lhs.owner_ == rhs.owner_; }
 
    private:
     Gatekeeper *owner_ = nullptr;
   };
 
-  std::optional<access> Access() {
+  std::optional<Accessor> access() {
     auto guard = std::unique_lock{mutex_};
     if (value_) {
-      return access{this};
+      return Accessor{this};
     }
     return std::nullopt;
   }

@@ -80,7 +80,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
 
   memgraph::dbms::DatabaseAccess db{
       [&]() {
-        auto db_acc_opt = db_gk.Access();
+        auto db_acc_opt = db_gk.access();
         auto &db_acc = *db_acc_opt;
         MG_ASSERT(db_acc, "Failed to access db");
         return db_acc;

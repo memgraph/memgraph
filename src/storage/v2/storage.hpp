@@ -208,7 +208,6 @@ class Storage {
 
    protected:
     Storage *storage_;
-    std::shared_ptr<Storage> storage_sp_;  // TODO Use a different way of reference counting and unify with raw pointer
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;

@@ -90,7 +90,7 @@ class StreamsTestFixture : public ::testing::Test {
   };
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
-        auto db_acc_opt = db_gk.Access();
+        auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
         MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>

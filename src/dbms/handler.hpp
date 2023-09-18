@@ -32,7 +32,7 @@ namespace memgraph::dbms {
 template <typename T>
 class Handler {
  public:
-  using NewResult = utils::BasicResult<NewError, typename utils::Gatekeeper<T>::access>;
+  using NewResult = utils::BasicResult<NewError, typename utils::Gatekeeper<T>::Accessor>;
 
   /**
    * @brief Empty Handler constructor.
@@ -43,11 +43,9 @@ class Handler {
   /**
    * @brief Generate a new context and corresponding configuration.
    *
-   * @tparam T1 Variadic template of context constructor arguments
-   * @tparam T2 Variadic template of config constructor arguments
-   * @param name Name associated with the new context/config pair
-   * @param args1 Arguments passed (as a tuple) to the context constructor
-   * @param args2 Arguments passed (as a tuple) to the config constructor
+   * @tparam Args Variadic template of constructor arguments of T
+   * @param name Name associated with the new T
+   * @param args Arguments passed to the constructor of T
    * @return NewResult
    */
   template <typename... Args>
@@ -56,7 +54,7 @@ class Handler {
     if (!Has(name)) {
       auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
                                      std::forward_as_tuple(std::forward<Args>(args)...));
-      auto db_acc = itr->second.Access();
+      auto db_acc = itr->second.access();
       if (db_acc) return std::move(*db_acc);
       return NewError::DEFUNCT;
     }
@@ -68,11 +66,11 @@ class Handler {
    * @brief Get pointer to context.
    *
    * @param name Name associated with the wanted context
-   * @return std::optional<std::shared_ptr<T>>
+   * @return std::optional<typename utils::Gatekeeper<T>::Accessor>
    */
-  std::optional<typename utils::Gatekeeper<T>::access> Get(std::string_view name) {
+  std::optional<typename utils::Gatekeeper<T>::Accessor> Get(std::string_view name) {
     if (auto search = items_.find(name); search != items_.end()) {
-      return search->second.Access();
+      return search->second.access();
     }
     return std::nullopt;
   }
@@ -85,7 +83,7 @@ class Handler {
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
-      auto db_acc = itr->second.Access();
+      auto db_acc = itr->second.access();
       if (db_acc && db_acc->try_delete()) {
         db_acc->reset();
         items_.erase(itr);
@@ -100,7 +98,7 @@ class Handler {
    * @brief Check if a name is already used.
    *
    * @param name Name to check
-   * @return true if a context/config pair is already associated with the name
+   * @return true if a T is already associated with the name
    */
   bool Has(std::string_view name) const { return items_.find(name) != items_.end(); }
 
