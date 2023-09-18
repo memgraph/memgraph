@@ -94,10 +94,9 @@ def test_analyze_full_graph(analyze_query, multi_db):
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
     # Choose id2 before tha analysis because it has less vertices
-    # TODO ante
     expected_explain_before_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
         (f" * Once",),
     ]
@@ -116,10 +115,9 @@ def test_analyze_full_graph(analyze_query, multi_db):
     assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
     assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0, 0)
     # After analyzing graph, id1 index should be chosen because it has smaller average group size
-    # TODO ante
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
         (f" * Once",),
     ]
@@ -152,10 +150,9 @@ def test_cardinality_different_avg_group_size_uniform_dist(multi_db):
     # Check results
     assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
     assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0, 0)
-    # TODO ante
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
         (f" * Once",),
     ]
@@ -184,10 +181,9 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(multi_db
     # Check results
     assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
     assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0, 0)
-    # TODO ante
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
         (f" * Once",),
     ]
@@ -216,10 +212,9 @@ def test_large_diff_in_num_vertices_v1(multi_db):
     # Check results
     assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0, 0)
     assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0, 0)
-    # TODO ante
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
         (f" * Once",),
     ]
@@ -248,10 +243,9 @@ def test_large_diff_in_num_vertices_v2(multi_db):
     # Check results
     assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0, 0)
     assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0, 0)
-    # TODO ante
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
         (f" * Once",),
     ]
@@ -290,10 +284,9 @@ def test_same_avg_group_size_diff_distribution(multi_db):
     # Check results
     assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5, 0)
     assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0, 0)
-    # TODO ante
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
-        (f" * Filter",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
         (f" * Once",),
     ]
