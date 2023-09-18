@@ -1437,7 +1437,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
 
       auto &db_acc = *db_acc_;
       db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
-      current_transaction_ = db_accessor_->GetTransactionId();  // TODO: decouple from storage
+      current_transaction_ = interpreter_context_->id_handler.next();
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
@@ -3627,7 +3627,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       auto &db_acc = *db_acc_;
       db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
-      current_transaction_ = db_accessor_->GetTransactionId();
+      current_transaction_ = interpreter_context_->id_handler.next();
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 

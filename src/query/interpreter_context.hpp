@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -33,6 +35,8 @@ class Database;
 }  // namespace memgraph::dbms
 
 namespace memgraph::query {
+
+constexpr uint64_t kInterpreterTransactionInitialId = 1ULL << 63U;
 
 class AuthQueryHandler;
 class AuthChecker;
@@ -71,6 +75,13 @@ struct InterpreterContext {
   // Used to check active transactions
   // TODO: Have a way to read the current database
   memgraph::utils::Synchronized<std::unordered_set<Interpreter *>, memgraph::utils::SpinLock> interpreters;
+
+  struct {
+    auto next() -> uint64_t { return transaction_id++; }
+
+   private:
+    std::atomic<uint64_t> transaction_id = kInterpreterTransactionInitialId;
+  } id_handler;
 
   /// Function that is used to tell all active interpreters that they should stop
   /// their ongoing execution.
