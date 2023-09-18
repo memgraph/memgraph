@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <charconv>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -43,7 +44,7 @@ class DiskNameIdMapper final : public NameIdMapper {
     }
     uint64_t res_id = 0;
     if (auto maybe_id_from_disk = name_to_id_storage_->Get(std::string(name)); maybe_id_from_disk.has_value()) {
-      res_id = std::stoull(maybe_id_from_disk.value());
+      std::from_chars(maybe_id_from_disk->data(), maybe_id_from_disk->data() + maybe_id_from_disk->size(), res_id);
       InsertNameIdEntryToCache(std::string(name), res_id);
       InsertIdNameEntryToCache(res_id, std::string(name));
     } else {
@@ -92,14 +93,16 @@ class DiskNameIdMapper final : public NameIdMapper {
 
   void InitializeFromDisk() {
     for (auto itr = name_to_id_storage_->begin(); itr != name_to_id_storage_->end(); ++itr) {
-      auto name = itr->first;
-      auto id = std::stoull(itr->second);
+      std::string name = itr->first;
+      uint64_t id = 0;
+      std::from_chars(itr->second.data(), itr->second.data() + itr->second.size(), id);
       InsertNameIdEntryToCache(name, id);
       counter_.fetch_add(1, std::memory_order_release);
     }
     for (auto itr = id_to_name_storage_->begin(); itr != id_to_name_storage_->end(); ++itr) {
-      auto id = std::stoull(itr->first);
-      auto name = itr->second;
+      uint64_t id = 0;
+      std::from_chars(itr->first.data(), itr->first.data() + itr->first.size(), id);
+      std::string name = itr->second;
       InsertIdNameEntryToCache(id, name);
     }
   }

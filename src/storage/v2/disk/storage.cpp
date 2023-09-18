@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <atomic>
+#include <charconv>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -203,7 +204,7 @@ void DiskStorage::LoadTimestampIfExists() {
     return;
   }
   if (auto last_timestamp_ = durability_kvstore_->Get(lastTransactionStartTimeStamp); last_timestamp_.has_value()) {
-    timestamp_ = std::stoull(last_timestamp_.value());
+    std::from_chars(last_timestamp_->data(), last_timestamp_->data() + last_timestamp_->size(), timestamp_);
   }
 }
 
@@ -348,7 +349,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
                                                                                               std::string &&ts) {
   auto main_storage_accessor = vertices_.access();
 
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key)));
+  storage::Gid gid = Gid::FromString(utils::ExtractGidFromKey(key));
   if (ObjectExistsInCache(main_storage_accessor, gid)) {
     return std::nullopt;
   }
@@ -361,7 +362,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
     std::string &&key, std::string &&value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
+  storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
   if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
@@ -374,7 +375,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
     std::string &&key, std::string &&value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
-  storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
+  storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
   if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
@@ -387,7 +388,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
                                                                        const rocksdb::Slice &value,
                                                                        const rocksdb::Slice &ts) {
   const auto edge_parts = utils::Split(key.ToStringView(), "|");
-  const Gid edge_gid = Gid::FromUint(std::stoull(edge_parts[4]));
+  const Gid edge_gid = Gid::FromString(edge_parts[4]);
 
   auto edge_acc = edges_.access();
   auto res = edge_acc.find(edge_gid);
@@ -405,12 +406,12 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
       },
       edge_parts);
 
-  const auto from_acc = FindVertex(Gid::FromUint(std::stoull(from_gid)), View::OLD);
-  const auto to_acc = FindVertex(Gid::FromUint(std::stoull(to_gid)), View::OLD);
+  const auto from_acc = FindVertex(Gid::FromString(from_gid), View::OLD);
+  const auto to_acc = FindVertex(Gid::FromString(to_gid), View::OLD);
   if (!from_acc || !to_acc) {
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
-  const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
+  const auto edge_type_id = storage::EdgeTypeId::FromString(edge_parts[3]);
   auto maybe_edge = CreateEdgeFromDisk(&*from_acc, &*to_acc, edge_type_id, edge_gid, value.ToStringView(),
                                        key.ToString(), ts.ToString());
   MG_ASSERT(maybe_edge.HasValue());
@@ -450,7 +451,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromMainStorageToEdgeImportCache() {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
-    storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromMainDiskStorage(key)));
+    storage::Gid gid = Gid::FromString(utils::ExtractGidFromMainDiskStorage(key));
     if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
     std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
@@ -485,7 +486,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelIndexStorageToEdgeImportCac
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
     if (key.starts_with(label_prefix)) {
-      storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
+      storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
       if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
@@ -539,7 +540,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromLabelPropertyIndexStorageToEdgeI
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
     if (key.starts_with(label_property_prefix)) {
-      storage::Gid gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
+      storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
       if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
@@ -726,7 +727,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelIndex(LabelId label,
   const auto serialized_label = utils::SerializeIdType(label);
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
-    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelIndexStorage(key)));
+    Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
     spdlog::trace("Loaded vertex with key: {} from label index storage", key);
     if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
       // We should pass it->timestamp().ToString() instead of "0"
@@ -780,7 +781,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndex(LabelId l
   const auto label_property_prefix = utils::SerializeIdType(label) + "|" + utils::SerializeIdType(property);
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
-    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
+    Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
     /// TODO: optimize
     if (label_property_filter(key, label_property_prefix, gids, curr_gid)) {
       // We should pass it->timestamp().ToString() instead of "0"
@@ -810,7 +811,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexWithPointV
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key = index_it->key().ToString();
     std::string it_value = index_it->value().ToString();
-    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key)));
+    Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
     /// TODO: optimize
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value);
     if (key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
@@ -869,7 +870,7 @@ void DiskStorage::DiskAccessor::LoadVerticesFromDiskLabelPropertyIndexForInterva
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
     std::string key_str = index_it->key().ToString();
     std::string it_value_str = index_it->value().ToString();
-    Gid curr_gid = Gid::FromUint(std::stoull(utils::ExtractGidFromLabelPropertyIndexStorage(key_str)));
+    Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key_str));
     /// TODO: andi this will be optimized
     /// TODO: couple this condition
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
@@ -1076,7 +1077,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
       disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
-    if (Gid::FromUint(std::stoull(utils::ExtractGidFromKey(key))) == gid) {
+    if (Gid::FromString(utils::ExtractGidFromKey(key)) == gid) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       return LoadVertexToMainMemoryCache(std::move(key), it->value().ToString(), deserializeTimestamp);
