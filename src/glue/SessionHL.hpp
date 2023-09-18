@@ -81,9 +81,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
    */
   std::string GetDefaultDB();
 
-#ifdef MG_ENTERPRISE
-  // memgraph::dbms::SessionContextHandler &sc_handler_;
-#endif
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
   std::optional<memgraph::auth::User> user_;

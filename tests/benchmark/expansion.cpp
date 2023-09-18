@@ -30,7 +30,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
 
   void SetUp(const benchmark::State &state) override {
-    auto db_acc_opt = db_gk->Access();
+    auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
     interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);

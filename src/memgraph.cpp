@@ -340,7 +340,7 @@ int main(int argc, char **argv) {
                                                            auth_checker.get());
 #else
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
-  auto db_acc_opt = db_gatekeeper.Access();
+  auto db_acc_opt = db_gatekeeper.access();
   MG_ASSERT(db_acc_opt, "Failed to access the main database");
   auto &db_acc = *db_acc_opt;
   memgraph::query::InterpreterContext interpreter_context_(interp_config, nullptr, auth_handler.get(),
@@ -419,7 +419,7 @@ int main(int argc, char **argv) {
     });
 #else
     telemetry->AddCollector("storage", [gk = &db_gatekeeper]() -> nlohmann::json {
-      auto db_acc = gk->Access();
+      auto db_acc = gk->access();
       MG_ASSERT(db_acc, "Failed to get access to the default database");
       auto info = db_acc->get()->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
@@ -496,7 +496,7 @@ int main(int argc, char **argv) {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
     }
 #else
-    auto db_acc_2 = db_gatekeeper.Access();
+    auto db_acc_2 = db_gatekeeper.access();
     MG_ASSERT(db_acc_2, "Failed to gain access to the main database");
     InitFromCypherlFile(interpreter_context_, *db_acc_2, FLAGS_init_data_file);
 #endif

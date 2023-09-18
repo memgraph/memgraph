@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(memgraph::storage::Config{
       .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
-  auto db_acc_opt = db_gk.Access();
+  auto db_acc_opt = db_gk.access();
   MG_ASSERT(db_acc_opt, "Failed to access db");
   auto &db_acc = *db_acc_opt;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
