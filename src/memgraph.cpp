@@ -203,6 +203,22 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
+  memgraph::utils::EnsureDirOrDie(data_directory);
+  // Verify that the user that started the process is the same user that is
+  // the owner of the storage directory.
+  memgraph::storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(data_directory);
+  // Create the lock file and open a handle to it. This will crash the
+  // database if it can't open the file for writing or if any other process is
+  // holding the file opened.
+  memgraph::utils::OutputFile lock_file_handle;
+  lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  MG_ASSERT(lock_file_handle.AcquireLock(),
+            "Couldn't acquire lock on the storage directory {}"
+            "!\nAnother Memgraph process is currently running with the same "
+            "storage directory, please stop it first before starting this "
+            "process!",
+            data_directory);
+
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   spdlog::info("Memory limit in config is set to {}", memgraph::utils::GetReadableSize(memory_limit));

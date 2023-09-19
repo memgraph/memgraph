@@ -60,35 +60,4 @@ class UnknownDatabaseException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-/**
- * @brief Session interface used by the DBMS to handle the the active sessions.
- * @todo Try to remove this dependency from SessionContextHandler. OnDelete could be removed, as it only does an assert.
- * OnChange could be removed if SetFor returned the pointer and the called then handled the OnChange execution.
- * However, the interface is very useful to  decouple the interpreter's query execution and the sessions themselves.
- */
-class SessionInterface {
- public:
-  SessionInterface() = default;
-  virtual ~SessionInterface() = default;
-
-  SessionInterface(const SessionInterface &) = default;
-  SessionInterface &operator=(const SessionInterface &) = default;
-  SessionInterface(SessionInterface &&) noexcept = default;
-  SessionInterface &operator=(SessionInterface &&) noexcept = default;
-
-  /**
-   * @brief Return the unique string identifying the session.
-   *
-   * @return std::string
-   */
-  virtual std::string UUID() const = 0;
-
-  /**
-   * @brief Return the currently active database.
-   *
-   * @return std::string
-   */
-  virtual std::string GetDatabaseName() const = 0;
-};
-
 }  // namespace memgraph::dbms

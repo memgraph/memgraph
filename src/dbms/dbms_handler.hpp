@@ -63,31 +63,13 @@ class DbmsHandler {
   /**
    * @brief Initialize the handler.
    *
-   * @param audit_log pointer to the audit logger (ENTERPRISE only)
    * @param configs storage and interpreter configurations
+   * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
+   * @param delete_on_drop when dropping delete any associated directories on disk
    */
   DbmsHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
       : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)}, delete_on_drop_(delete_on_drop) {
-    // Update
-    const auto &root = default_config_->durability.storage_directory;
-    utils::EnsureDirOrDie(root);
-    // Verify that the user that started the process is the same user that is
-    // the owner of the storage directory.
-    storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(root);
-
-    // Create the lock file and open a handle to it. This will crash the
-    // database if it can't open the file for writing or if any other process is
-    // holding the file opened.
-    lock_file_path_ = root / ".lock";
-    lock_file_handle_.Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    MG_ASSERT(lock_file_handle_.AcquireLock(),
-              "Couldn't acquire lock on the storage directory {}"
-              "!\nAnother Memgraph process is currently running with the same "
-              "storage directory, please stop it first before starting this "
-              "process!",
-              root);
-
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
     storage::UpdatePaths(*default_config_, default_config_->durability.storage_directory / "databases");
@@ -119,7 +101,7 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Create a new SessionContext associated with the "name" database
+   * @brief Create a new Database associated with the "name" database
    *
    * @param name name of the database
    * @return NewResultT context on success, error on failure
@@ -133,8 +115,8 @@ class DbmsHandler {
    * @brief Get the context associated with the "name" database
    *
    * @param name
-   * @return SessionContext
-   * @throw UnknownDatabaseException if getting unknown database
+   * @return DatabaseAccess
+   * @throw UnknownDatabaseException if database not found
    */
   DatabaseAccess Get(std::string_view name) {
     std::shared_lock<LockT> rd(lock_);
@@ -222,6 +204,8 @@ class DbmsHandler {
   /**
    * @brief Restore triggers for all currently defined databases.
    * @note: Triggers can execute query procedures, so we need to reload the modules first and then the triggers
+   *
+   * @param ic global InterpreterContext
    */
   void RestoreTriggers(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
@@ -239,6 +223,8 @@ class DbmsHandler {
   /**
    * @brief Restore streams of all currently defined databases.
    * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
+   *
+   * @param ic global InterpreterContext
    */
   void RestoreStreams(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
@@ -252,6 +238,12 @@ class DbmsHandler {
   }
 
  private:
+  /**
+   * @brief return the storage directory of the associated database
+   *
+   * @param name Database name
+   * @return std::optional<std::filesystem::path>
+   */
   std::optional<std::filesystem::path> StorageDir_(const std::string &name) {
     const auto conf = db_handler_.GetConfig(name);
     if (conf) {
@@ -262,7 +254,7 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Create a new SessionContext associated with the "name" database
+   * @brief Create a new Database associated with the "name" database
    *
    * @param name name of the database
    * @return NewResultT context on success, error on failure
@@ -270,7 +262,7 @@ class DbmsHandler {
   NewResultT New_(const std::string &name) { return New_(name, name); }
 
   /**
-   * @brief Create a new SessionContext associated with the "name" database
+   * @brief Create a new Database associated with the "name" database
    *
    * @param name name of the database
    * @param storage_subdir undelying RocksDB directory
@@ -287,11 +279,10 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Create a new SessionContext associated with the "name" database
+   * @brief Create a new Database associated with the "name" database
    *
    * @param name name of the database
    * @param storage_config storage configuration
-   * @param inter_config interpreter configuration
    * @return NewResultT context on success, error on failure
    */
   NewResultT New_(const std::string &name, storage::Config &storage_config) {
@@ -311,7 +302,7 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Create a new SessionContext associated with the default database
+   * @brief Create a new Database associated with the default database
    *
    * @return NewResultT context on success, error on failure
    */
@@ -372,10 +363,10 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Get the context associated with the "name" database
+   * @brief Get the DatabaseAccess for the database associated with the "name"
    *
    * @param name
-   * @return SessionContext
+   * @return DatabaseAccess
    * @throw UnknownDatabaseException if trying to get unknown database
    */
   DatabaseAccess Get_(std::string_view name) {
@@ -388,8 +379,6 @@ class DbmsHandler {
 
   // Should storage objects ever be deleted?
   mutable LockT lock_;                             //!< protective lock
-  std::filesystem::path lock_file_path_;           //!< Lock file protecting the main storage
-  utils::OutputFile lock_file_handle_;             //!< Handler the lock (crash if already open)
   DatabaseHandler db_handler_;                     //!< multi-tenancy storage handler
   std::optional<storage::Config> default_config_;  //!< Storage configuration used when creating new databases
   std::unique_ptr<kvstore::KVStore> durability_;   //!< list of active dbs (pointer so we can postpone its creation)

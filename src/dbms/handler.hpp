@@ -80,6 +80,7 @@ class Handler {
    *
    * @param name Name associated with the context to delete
    * @return true on success
+   * @throw BasicException
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {

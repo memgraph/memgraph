@@ -28,28 +28,15 @@
 namespace memgraph::dbms {
 
 /* NOTE
- * The Database object is shared. All the undelying function calls should be protected.
+ * The Database object is shared. All the higher-level function calls should be protected.
  * Storage function calls should already be protected; add protection where needed.
  *
- * What is not protected is the pointer storage_. This can change when switching from
- * inmemory to ondisk. This was previously protected by locking the interpreters and
- * checking if we were the only ones using the storage. This won't be possible
- * (or will be expensive) to do.
- *
  * Current implementation uses a handler of Database objects. It owns them and gives
- * shared pointers to it. These shared pointers guarantee that the object won't be
+ * Gatekeeper::Accessor to it. These guarantee that the object won't be
  * destroyed unless no one is using it.
- *
- * Do we add a RWLock here and protect the storage?
- * This will be difficult since a lot of the API uses a raw pointer to storage.
- * We could modify the reference counting (done via the shared_ptr) to something
- * better and when changing storage go through the handler. There we can guarantee
- * that we are the only ones using it.
- * There will be a problem of streams and triggers that rely on the undelying storage.
- * Make sure they are using the Database and not the storage pointer?
  */
 
-/**
+/**Config
  * @brief Multi-database storage handler
  *
  */
@@ -90,6 +77,12 @@ class DatabaseHandler : public Handler<Database> {
     return res;
   }
 
+  /**
+   * @brief Get the associated storage's configuration
+   *
+   * @param name
+   * @return std::optional<storage::Config>
+   */
   std::optional<storage::Config> GetConfig(std::string_view name) {
     auto db = Get(name);
     if (db) {
