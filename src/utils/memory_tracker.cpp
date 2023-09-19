@@ -104,16 +104,16 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
-    MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
+  // if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+  //   MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
-    amount_.fetch_sub(size, std::memory_order_relaxed);
+  //   amount_.fetch_sub(size, std::memory_order_relaxed);
 
-    throw OutOfMemoryException(
-        fmt::format("Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
-                    "use to {}, while the maximum allowed size for allocation is set to {}.",
-                    GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
-  }
+  //   throw OutOfMemoryException(
+  //       fmt::format("Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+  //                   "use to {}, while the maximum allowed size for allocation is set to {}.",
+  //                   GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
+  // }
 
   UpdatePeak(will_be);
 }

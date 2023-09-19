@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 
 namespace {
 void *newImpl(const std::size_t size) {
-  auto *ptr = malloc(size);
+  auto *ptr = mallocx(size, MALLOCX_ALIGN(1));
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -32,7 +32,7 @@ void *newImpl(const std::size_t size) {
 }
 
 void *newImpl(const std::size_t size, const std::align_val_t align) {
-  auto *ptr = aligned_alloc(static_cast<std::size_t>(align), size);
+  auto *ptr = mallocx(size, MALLOCX_ALIGN(align));
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -40,9 +40,9 @@ void *newImpl(const std::size_t size, const std::align_val_t align) {
   throw std::bad_alloc{};
 }
 
-void *newNoExcept(const std::size_t size) noexcept { return malloc(size); }
+void *newNoExcept(const std::size_t size) noexcept { return mallocx(size, MALLOCX_ALIGN(1)); }
 void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
-  return aligned_alloc(size, static_cast<std::size_t>(align));
+  return mallocx(size, MALLOCX_ALIGN(align));
 }
 
 #if USE_JEMALLOC

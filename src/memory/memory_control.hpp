@@ -35,5 +35,10 @@ int mallctlWrite(const char *cmd, T in) {
 }
 
 void PurgeUnusedMemory();
+void SetHooks();
 void PrintStats();
+
+inline std::atomic<int64_t> allocated_memory{0};
+inline std::atomic<int64_t> virtual_allocated_memory{0};
+
 }  // namespace memgraph::memory

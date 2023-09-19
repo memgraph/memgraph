@@ -1302,6 +1302,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     return std::nullopt;
   }
 
+  memgraph::memory::PrintStats();
+
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
@@ -2899,8 +2901,13 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("memory_allocated"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("jemalloc_memory_allocated"),
+             TypedValue(utils::GetReadableSize(
+                 static_cast<double>(memgraph::memory::allocated_memory.load(std::memory_order_relaxed))))},
+            {TypedValue("allocation_limit"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
