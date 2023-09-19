@@ -87,10 +87,9 @@ struct InterpreterContext {
   /// their ongoing execution.
   void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
 
-  std::vector<std::vector<TypedValue>> KillTransactions(std::vector<std::string> maybe_kill_transaction_ids,
-                                                        const std::optional<std::string> &username,
-                                                        bool hasTransactionManagementPrivilege,
-                                                        Interpreter &calling_interpreter);
+  std::vector<std::vector<TypedValue>> TerminateTransactions(
+      std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
+      std::function<bool(std::string const &)> privilege_checker);
 };
 
 }  // namespace memgraph::query

@@ -850,7 +850,7 @@ class StatefulInterpreter {
       : context_(context), interpreter_(context_, db) {}
 
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(interpreter_.db_acc_->get()->storage());
+    ResultStreamFaker stream(interpreter_.current_db_.db_acc_->get()->storage());
 
     auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, nullptr);
     stream.Header(header);

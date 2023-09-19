@@ -69,7 +69,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(interpreter->db_acc_->get()->storage());
+    ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
     interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }
@@ -84,7 +84,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(interpreter->db_acc_->get()->storage());
+    ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
     interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }

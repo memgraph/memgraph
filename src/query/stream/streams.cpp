@@ -497,7 +497,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
-    auto accessor = interpreter->db_acc_->get()->Access();
+    auto accessor = interpreter->current_db_.db_acc_->get()->Access();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
     utils::OnScopeExit interpreter_cleanup{
