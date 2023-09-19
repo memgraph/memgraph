@@ -62,7 +62,7 @@ def test_analyze_graph_delete_statistics(delete_query, multi_db):
     # After deleting statistics, id2 should be chosen because it has less vertices
     expected_explain_after_delete_analysis = [
         (f" * Produce {{n}}",),
-        (f" * (n :Label), {{n.id1}}, {{n.id2}}",),
+        (f" * Filter (n :Label), {{n.id1}}, {{n.id2}}",),
         (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
         (f" * Once",),
     ]
