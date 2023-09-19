@@ -1135,7 +1135,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
       return fmt::format("id({})", single_filter.id_filter->symbol_.name());
     } else if (single_filter.type == Type::Label) {
       if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
-        LOG_FATAL("This type of label filter syntax is not supported for query inspection!");
+        LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
 
