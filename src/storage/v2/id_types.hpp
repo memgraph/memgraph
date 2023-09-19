@@ -13,7 +13,9 @@
 
 #include <charconv>
 #include <functional>
+#include <system_error>
 #include <type_traits>
+#include <utils/exceptions.hpp>
 
 #include "utils/cast.hpp"
 
@@ -33,9 +35,10 @@ namespace memgraph::storage {
     uint64_t AsUint() const { return id_; }                                                                   \
     int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
     static name FromString(std::string_view id) {                                                             \
-      uint64_t value;                                                                                         \
-      std::from_chars(id.data(), id.data() + id.size(), value);                                               \
-      return name{value};                                                                                     \
+      if (uint64_t value; std::from_chars(id.data(), id.data() + id.size(), value).ec == std::errc{}) {       \
+        return name{value};                                                                                   \
+      }                                                                                                       \
+      throw utils::BasicException("Cannot parse string to uint64_t.");                                        \
     }                                                                                                         \
                                                                                                               \
    private:                                                                                                   \
