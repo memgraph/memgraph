@@ -16,11 +16,9 @@
 namespace memgraph::flags::run_time {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern utils::Synchronized<std::string, utils::SpinLock> bolt_server_name_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern std::atomic<double> execution_timeout_sec_;
 
 void Initialize();
+std::string GetServerName();
 
 }  // namespace memgraph::flags::run_time

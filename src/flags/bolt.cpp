@@ -37,6 +37,6 @@ DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_server_name_for_init, "",
+DEFINE_string(bolt_server_name_for_init, "Neo4j/v5.11.0 compatible graph database server - Memgraph",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");

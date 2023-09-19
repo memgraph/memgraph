@@ -65,7 +65,9 @@ std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::st
 }
 
 spdlog::level::level_enum ParseLogLevel() {
-  const auto log_level = memgraph::flags::LogLevelToEnum(FLAGS_log_level);
+  std::string ll;
+  gflags::GetCommandLineOption("log_level", &ll);
+  const auto log_level = memgraph::flags::LogLevelToEnum(ll);
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
 }

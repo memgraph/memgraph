@@ -146,7 +146,7 @@ DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Puls
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_double(query_execution_timeout_sec, -1,
+DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
