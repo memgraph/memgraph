@@ -26,7 +26,6 @@ using namespace std::string_view_literals;
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 inline constexpr std::array log_level_mappings{
@@ -34,11 +33,8 @@ inline constexpr std::array log_level_mappings{
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string log_level_help_string = fmt::format("Minimum log level. Allowed values: {}",
-                                                      memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
-
-DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(),
-                        { return memgraph::flags::ValidLogLevel(value); });
+const std::string memgraph::flags::log_level_help_string = fmt::format(
+    "Minimum log level. Allowed values: {}", memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
 
 bool memgraph::flags::ValidLogLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
@@ -79,10 +75,6 @@ void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
   logger->set_level(log_level);
   logger->flush_on(spdlog::level::trace);
   spdlog::set_default_logger(std::move(logger));
-  // Enable stderr sink
-  if (FLAGS_also_log_to_stderr) {
-    memgraph::flags::LogToStderr(log_level);
-  }
 }
 
 void memgraph::flags::InitializeLogger() {

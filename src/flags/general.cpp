@@ -146,11 +146,6 @@ DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Puls
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_double(query_execution_timeout_sec, 600,
-              "Maximum allowed query execution time. Queries exceeding this "
-              "limit will be aborted. Value of 0 means no limit.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(replication_replica_check_frequency_sec, 1,
               "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
               "The MAIN instance allocates a new thread for each REPLICA.");

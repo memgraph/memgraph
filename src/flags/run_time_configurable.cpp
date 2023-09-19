@@ -9,123 +9,169 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "flags/run_time_configurable.hpp"
 #include <string>
 #include <tuple>
+
+#include "gflags/gflags.h"
+
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "flags/log_level.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "spdlog/cfg/helpers-inl.h"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/flag_validation.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+
+/*
+ * Setup GFlags
+ */
+
+// Bolt server flags.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(bolt_server_name_for_init, "Neo4j/v5.11.0 compatible graph database server - Memgraph",
+              "Server name which the database should send to the client in the "
+              "Bolt INIT message.");
+
+// Logging flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::log_level_help_string.c_str(),
+                        { return memgraph::flags::ValidLogLevel(value); });
+
+// Query flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_double(query_execution_timeout_sec, 600,
+              "Maximum allowed query execution time. Queries exceeding this "
+              "limit will be aborted. Value of 0 means no limit.");
 
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
+constexpr auto kServerNameGFlagsKey = "bolt_server_name_for_init";
 // Query timeout
 constexpr auto kQueryTxSettingKey = "query.timeout";
+constexpr auto kQueryTxGFlagsKey = "query_execution_timeout_sec";
 // Log level
 // No default value because it is not persistent
 constexpr auto kLogLevelSettingKey = "log.level";
+constexpr auto kLogLevelGFlagsKey = "log_level";
 // Log to stderr
 // No default value because it is not persistent
 constexpr auto kLogToStderrSettingKey = "log.to_stderr";
+constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<double> execution_timeout_sec_;  // Local cache-like thing
+
+auto ToLLEnum(std::string_view val) {
+  const auto ll_enum = memgraph::flags::LogLevelToEnum(val);
+  if (!ll_enum) {
+    throw memgraph::utils::BasicException("Unsupported log level {}", val);
+  }
+  return *ll_enum;
+}
+
+bool ValidBoolStr(std::string_view in) {
+  const auto lc = memgraph::utils::ToLowerCase(in);
+  return lc == "false" || lc == "true";
+}
+
+auto GenHandler(std::string flag, std::string key) {
+  return [key = std::move(key), flag = std::move(flag)]() -> std::string {
+    const auto &val = memgraph::utils::global_settings.GetValue(key);
+    MG_ASSERT(val, "Failed to read value at '{}' from settings.", key);
+    gflags::SetCommandLineOption(flag.c_str(), val->c_str());
+    return *val;
+  };
+}
+
 }  // namespace
 
 namespace memgraph::flags::run_time {
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::atomic<double> execution_timeout_sec_;
-
-std::string GetServerName() {
-  std::string s;
-  // Thread safe read of gflag
-  gflags::GetCommandLineOption("bolt_server_name_for_init", &s);
-  return s;
-}
 
 void Initialize() {
-  gflags::CommandLineFlagInfo info;
+  constexpr bool kRestore = true;
+  auto register_flag = [&](
+                           const std::string &flag, const std::string &key, bool restore,
+                           std::function<void(const std::string &)> post_update = [](auto) {},
+                           std::function<bool(std::string_view)> validator = [](std::string_view) { return true; }) {
+    // Get flag info
+    gflags::CommandLineFlagInfo info;
+    gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
+    // Register setting
+    auto update = GenHandler(flag, key);
+    memgraph::utils::global_settings.RegisterSetting(
+        key, info.default_value,
+        [update, post_update] {
+          const auto &val = update();
+          post_update(val);
+        },
+        validator);
+    if (restore) {
+      // Override value if passed via command line argument
+      if (!info.is_default) {
+        memgraph::utils::global_settings.SetValue(key, info.current_value);
+      } else {
+        // Force read from settings (restore previously saved value)
+        update();
+      }
+    } else {
+      // No restore, just force the current value
+      memgraph::utils::global_settings.SetValue(key, info.current_value);
+    }
+  };
 
   /*
    * Register bolt server name settings
    */
-  gflags::GetCommandLineFlagInfo("bolt_server_name_for_init", &info);
-  auto update_server_name = [&]() {
-    const auto &name = memgraph::utils::global_settings.GetValue(kServerNameSettingKey);
-    MG_ASSERT(name, "Failed to read server name from settings.");
-    gflags::SetCommandLineOption("bolt_server_name_for_init", name->c_str());
-  };
-  memgraph::utils::global_settings.RegisterSetting(kServerNameSettingKey, info.default_value,
-                                                   [&] { update_server_name(); });
-  // Override server name if passed via command line argument
-  if (!info.is_default) {
-    memgraph::utils::global_settings.SetValue(kServerNameSettingKey, info.current_value);
-  } else {
-    // Force read from settings
-    update_server_name();
-  }
+  register_flag(kServerNameGFlagsKey, kServerNameSettingKey, kRestore);
 
   /*
    * Register query timeout
    */
-  gflags::GetCommandLineFlagInfo("query_execution_timeout_sec", &info);
-  auto update_exe_timeout = [&]() {
-    const auto query_tx = memgraph::utils::global_settings.GetValue(kQueryTxSettingKey);
-    MG_ASSERT(query_tx, "Query timeout is missing from the settings");
-    gflags::SetCommandLineOption("query_execution_timeout_sec", query_tx->c_str());
-    execution_timeout_sec_ = std::stod(*query_tx);  // For faster reads
-  };
-  memgraph::utils::global_settings.RegisterSetting(kQueryTxSettingKey, info.default_value,
-                                                   [&] { update_exe_timeout(); });
-  // Override query timeout via command line argument
-  memgraph::utils::global_settings.SetValue(kQueryTxSettingKey, info.current_value);
+  register_flag(kQueryTxGFlagsKey, kQueryTxSettingKey, !kRestore, [&](const std::string &val) {
+    execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
+  });
 
   /*
    * Register log level
    */
-  auto get_global_log_level = []() {
-    const auto log_level = memgraph::utils::global_settings.GetValue(kLogLevelSettingKey);
-    MG_ASSERT(log_level, "Log level is missing from the settings");
-    const auto ll_enum = memgraph::flags::LogLevelToEnum(*log_level);
-    if (!ll_enum) {
-      throw utils::BasicException("Unsupported log level {}", *log_level);
-    }
-    return std::make_tuple(*log_level, *ll_enum);
-  };
-  gflags::GetCommandLineFlagInfo("log_level", &info);
-  memgraph::utils::global_settings.RegisterSetting(
-      kLogLevelSettingKey, info.default_value,
-      [&] {
-        const auto [str, e] = get_global_log_level();
-        spdlog::set_level(e);
-        gflags::SetCommandLineOption("log_level", str.c_str());
+  register_flag(
+      kLogLevelGFlagsKey, kLogLevelSettingKey, !kRestore,
+      [](const std::string &val) {
+        const auto ll_enum = ToLLEnum(val);
+        spdlog::set_level(ll_enum);
       },
       memgraph::flags::ValidLogLevel);
-  // Override with the flag's value
-  memgraph::utils::global_settings.SetValue(kLogLevelSettingKey, info.current_value);
 
   /*
    * Register logging to stderr
    */
-  gflags::GetCommandLineFlagInfo("also_log_to_stderr", &info);
-  memgraph::utils::global_settings.RegisterSetting(
-      kLogToStderrSettingKey, info.default_value,
-      [&] {
-        const auto enable = memgraph::utils::global_settings.GetValue(kLogToStderrSettingKey);
-        if (enable == "true") {
-          LogToStderr(std::get<1>(get_global_log_level()));
+  register_flag(
+      kLogToStderrGFlagsKey, kLogToStderrSettingKey, !kRestore,
+      [](const std::string &val) {
+        if (val == "true") {
+          // No need to check if ll_val exists, we got here, so the log_level must exist already
+          const auto &ll_val = memgraph::utils::global_settings.GetValue(kLogLevelSettingKey);
+          LogToStderr(ToLLEnum(*ll_val));
         } else {
           LogToStderr(spdlog::level::off);
         }
-        gflags::SetCommandLineOption("also_log_to_stderr", enable->c_str());
       },
-      [](std::string_view in) {
-        const auto lc = memgraph::utils::ToLowerCase(in);
-        return lc == "false" || lc == "true";
-      });
-  // Override log to stderr with command line argument
-  memgraph::utils::global_settings.SetValue(kLogToStderrSettingKey, info.current_value);
+      ValidBoolStr);
 }
+
+std::string GetServerName() {
+  std::string s;
+  // Thread safe read of gflag
+  gflags::GetCommandLineOption(kServerNameGFlagsKey, &s);
+  return s;
+}
+
+double GetExecutionTimeout() { return execution_timeout_sec_; }
+
 }  // namespace memgraph::flags::run_time
