@@ -1180,6 +1180,17 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
   });
 }
 
+mgp_error mgp_path_pop(struct mgp_path *path) {
+  return WrapExceptions([path] {
+    if (path->edges.empty()) {
+      throw std::out_of_range("Path contains no relationships.");
+    }
+
+    path->vertices.pop_back();
+    path->edges.pop_back();
+  });
+}
+
 namespace {
 size_t MgpPathSize(const mgp_path &path) noexcept { return path.edges.size(); }
 }  // namespace
