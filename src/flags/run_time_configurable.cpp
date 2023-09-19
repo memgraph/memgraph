@@ -38,7 +38,7 @@ DEFINE_string(bolt_server_name_for_init, "Neo4j/v5.11.0 compatible graph databas
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::log_level_help_string.c_str(),
                         { return memgraph::flags::ValidLogLevel(value); });
 
@@ -145,6 +145,7 @@ void Initialize() {
       [](const std::string &val) {
         const auto ll_enum = ToLLEnum(val);
         spdlog::set_level(ll_enum);
+        UpdateStderr(ll_enum);  // Updates level if active
       },
       memgraph::flags::ValidLogLevel);
 

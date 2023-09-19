@@ -27,5 +27,6 @@ std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value);
 void InitializeLogger();
 void AddLoggerSink(spdlog::sink_ptr new_sink);
 void LogToStderr(spdlog::level::level_enum log_level);
+void UpdateStderr(spdlog::level::level_enum log_level);
 
 }  // namespace memgraph::flags

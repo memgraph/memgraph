@@ -111,6 +111,14 @@ void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
 // NOTE: default_logger is not thread-safe and shouldn't be changed during application lifetime
 void memgraph::flags::LogToStderr(spdlog::level::level_enum log_level) {
   auto default_logger = spdlog::default_logger();
-  auto sink = default_logger->sinks().front();
-  sink->set_level(log_level);
+  auto stderr = default_logger->sinks().front();
+  stderr->set_level(log_level);
+}
+
+void memgraph::flags::UpdateStderr(spdlog::level::level_enum log_level) {
+  auto default_logger = spdlog::default_logger();
+  auto stderr = default_logger->sinks().front();
+  if (stderr->level() != spdlog::level::off) {
+    stderr->set_level(log_level);
+  }
 }
