@@ -95,14 +95,12 @@ class DiskNameIdMapper final : public NameIdMapper {
   void InitializeFromDisk() {
     for (auto itr = name_to_id_storage_->begin(); itr != name_to_id_storage_->end(); ++itr) {
       std::string name = itr->first;
-      uint64_t id = 0;
-      std::from_chars(itr->second.data(), itr->second.data() + itr->second.size(), id);
+      uint64_t id = utils::ParseStringToUint64(itr->second);
       InsertNameIdEntryToCache(name, id);
       counter_.fetch_add(1, std::memory_order_release);
     }
     for (auto itr = id_to_name_storage_->begin(); itr != id_to_name_storage_->end(); ++itr) {
-      uint64_t id = 0;
-      std::from_chars(itr->first.data(), itr->first.data() + itr->first.size(), id);
+      uint64_t id = utils::ParseStringToUint64(itr->first);
       std::string name = itr->second;
       InsertIdNameEntryToCache(id, name);
     }

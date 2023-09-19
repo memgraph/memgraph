@@ -18,6 +18,7 @@
 #include <utils/exceptions.hpp>
 
 #include "utils/cast.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -34,12 +35,7 @@ namespace memgraph::storage {
     static name FromInt(int64_t id) { return name{utils::MemcpyCast<uint64_t>(id)}; }                         \
     uint64_t AsUint() const { return id_; }                                                                   \
     int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
-    static name FromString(std::string_view id) {                                                             \
-      if (uint64_t value; std::from_chars(id.data(), id.data() + id.size(), value).ec == std::errc{}) {       \
-        return name{value};                                                                                   \
-      }                                                                                                       \
-      throw utils::BasicException("Cannot parse string to uint64_t.");                                        \
-    }                                                                                                         \
+    static name FromString(std::string_view id) { return name{utils::ParseStringToUint64(id)}; }              \
                                                                                                               \
    private:                                                                                                   \
     uint64_t id_;                                                                                             \
