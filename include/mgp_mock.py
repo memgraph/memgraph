@@ -929,6 +929,25 @@ class Path:
         self._vertices = None
         self._edges = None
 
+    def pop(self):
+        """
+        Remove the last node and the last relationship from the path.
+
+        Raises:
+            InvalidContextError: If using an invalid `Path` instance
+            OutOfRangeError: If the path contains no relationships.
+
+        Examples:
+            ```path.pop()```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._path.pop()
+
+        # Invalidate cached tuples
+        self._vertices = None
+        self._edges = None
+
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
         """

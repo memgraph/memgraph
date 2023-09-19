@@ -125,6 +125,7 @@ def test_path():
         "__copy__": True,
         "is_valid": True,
         "expand": True,
+        "pop": True,
         "vertices": True,
         "edges": True,
     }
