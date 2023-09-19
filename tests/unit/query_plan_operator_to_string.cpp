@@ -232,8 +232,9 @@ TYPED_TEST(OperatorToStringTest, Filter) {
 
   FilterInfo pattern_filter_info = {.type = FilterInfo::Type::Pattern};
 
-  Filters filters = {.all_filters_ = {generic_filter_info, id_filter_info, label_filter_info, label_filter_2_info,
-                                      property_filter_info, pattern_filter_info}};
+  Filters filters;
+  filters.SetFilters({generic_filter_info, id_filter_info, label_filter_info, label_filter_2_info, property_filter_info,
+                      pattern_filter_info});
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
   last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},

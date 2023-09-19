@@ -286,8 +286,6 @@ struct FilterInfo {
 /// expressions that should be generated.
 class Filters final {
  public:
-  std::vector<FilterInfo> all_filters_;
-
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
@@ -302,6 +300,8 @@ class Filters final {
   auto erase(const_iterator pos) { return all_filters_.erase(pos); }
   auto erase(iterator first, iterator last) { return all_filters_.erase(first, last); }
   auto erase(const_iterator first, const_iterator last) { return all_filters_.erase(first, last); }
+
+  void SetFilters(std::vector<FilterInfo> all_filters) { all_filters_ = all_filters; }
 
   auto FilteredLabels(const Symbol &symbol) const {
     std::unordered_set<LabelIx> labels;
@@ -368,6 +368,7 @@ class Filters final {
   void CollectFilterExpression(Expression *, const SymbolTable &);
 
  private:
+  std::vector<FilterInfo> all_filters_;
   void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
