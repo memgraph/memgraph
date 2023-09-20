@@ -9,8 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from workload_mode import (
+    BENCHMARK_MODE_ISOLATED,
+    BENCHMARK_MODE_MIXED,
+    BENCHMARK_MODE_REALISTIC,
+)
 
-# Describes all the information of single benchmark.py run.
+
 class BenchmarkContext:
     """
     Class for holding information on what type of benchmark is being executed
@@ -52,15 +57,19 @@ class BenchmarkContext:
         self.export_results = export_results
         self.temporary_directory = temporary_directory
 
+        assert (
+            workload_mixed is None or workload_realistic is None
+        ), "Cannot run both mixed and realistic workload, please select one!"
+
         if workload_mixed != None:
-            self.mode = "Mixed"
+            self.mode = BENCHMARK_MODE_MIXED
             self.mode_config = workload_mixed
         elif workload_realistic != None:
-            self.mode = "Realistic"
+            self.mode = BENCHMARK_MODE_REALISTIC
             self.mode_config = workload_realistic
         else:
-            self.mode = "Isolated"
-            self.mode_config = "Isolated run does not have a config."
+            self.mode = BENCHMARK_MODE_ISOLATED
+            self.mode_config = None
 
         self.time_dependent_execution = time_dependent_execution
         self.performance_tracking = performance_tracking
