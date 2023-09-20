@@ -33,12 +33,14 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
+#include "dbms/database.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "dbms/session_context_handler.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
+#include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -60,6 +62,7 @@
 #include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
+#include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
@@ -90,6 +93,11 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include "dbms/dbms_handler.hpp"
+#include "query/auth_query_handler.hpp"
+#include "query/interpreter_context.hpp"
+
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -112,6 +120,7 @@ constexpr auto kAlwaysFalse = false;
 
 namespace {
 template <typename T, typename K>
+
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
 }
@@ -126,9 +135,11 @@ void Sort(std::vector<TypedValue, K> &vec) {
 bool Same(const TypedValue &lv, const TypedValue &rv) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
+// NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
 // NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
+// NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -357,7 +368,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters) {
   AuthQueryHandler *auth = interpreter_context->auth;
 #ifdef MG_ENTERPRISE
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  auto *db_handler = interpreter_context->db_handler;
 #endif
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
@@ -566,11 +577,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+      callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
-          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          std::optional<memgraph::dbms::DatabaseAccess> db =
+              std::nullopt;  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
-            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
           if (!auth->GrantDatabaseToUser(database, username)) {
             throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
@@ -586,11 +598,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+      callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
-          memgraph::dbms::SessionContext sc(nullptr, "", nullptr, nullptr);
+          std::optional<memgraph::dbms::DatabaseAccess> db =
+              std::nullopt;  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
-            sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
           if (!auth->RevokeDatabaseFromUser(database, username)) {
             throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
@@ -606,19 +619,22 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
       callback.header = {"grants", "denies"};
-      callback.fn = [auth, username] {  // NOLINT
 #ifdef MG_ENTERPRISE
+      callback.fn = [auth, username] {  // NOLINT
         return auth->GetDatabasePrivileges(username);
-#else
-        return std::vector<std::vector<TypedValue>>();
-#endif
       };
+#else
+      callback.fn = [] {  // NOLINT
+        return std::vector<std::vector<TypedValue>>();
+      };
+#endif
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, &sc_handler] {  // NOLINT
+      callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
-          const auto sc = sc_handler.Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          const auto db =
+              db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           if (!auth->SetMainDatabase(database, username)) {
             throw QueryRuntimeException("Failed to set main database {} for user {}.", database, username);
           }
@@ -636,8 +652,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   }
 }  // namespace
 
-Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, std::vector<Notification> *notifications) {
+Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters, storage::Storage *storage,
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -657,8 +673,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, role = repl_query->role_,
-                     maybe_port]() mutable {
+      callback.fn = [handler = ReplQueryHandler{storage}, role = repl_query->role_, maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -670,7 +685,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}] {
+      callback.fn = [handler = ReplQueryHandler{storage}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -687,9 +702,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &name = repl_query->replica_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
-      const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
+      const auto replica_check_frequency = config.replication_replica_check_frequency;
 
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, name, socket_address, sync_mode,
+      callback.fn = [handler = ReplQueryHandler{storage}, name, socket_address, sync_mode,
                      replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -701,7 +716,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{storage}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -714,8 +729,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db.get()},
-                     replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{storage}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -787,6 +801,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evalu
 }
 
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
+                                                  memgraph::dbms::DatabaseAccess db_acc,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
   static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
@@ -815,29 +830,30 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
-  return [interpreter_context, stream_name = stream_query->stream_name_,
+  return [db_acc = std::move(db_acc), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
           bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username),
           configs = get_config_map(stream_query->configs_, "Configs"),
-          credentials = get_config_map(stream_query->credentials_, "Credentials")]() mutable {
-    std::string bootstrap = bootstrap_servers
-                                ? std::move(*bootstrap_servers)
-                                : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
-    interpreter_context->streams.Create<query::stream::KafkaStream>(stream_name,
-                                                                    {.common_info = std::move(common_stream_info),
-                                                                     .topics = std::move(topic_names),
-                                                                     .consumer_group = std::move(consumer_group),
-                                                                     .bootstrap_servers = std::move(bootstrap),
-                                                                     .configs = std::move(configs),
-                                                                     .credentials = std::move(credentials)},
-                                                                    std::move(owner));
+          credentials = get_config_map(stream_query->credentials_, "Credentials"),
+          default_server = interpreter_context->config.default_kafka_bootstrap_servers]() mutable {
+    std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : std::move(default_server);
+
+    db_acc->streams()->Create<query::stream::KafkaStream>(stream_name,
+                                                          {.common_info = std::move(common_stream_info),
+                                                           .topics = std::move(topic_names),
+                                                           .consumer_group = std::move(consumer_group),
+                                                           .bootstrap_servers = std::move(bootstrap),
+                                                           .configs = std::move(configs),
+                                                           .credentials = std::move(credentials)},
+                                                          std::move(owner), db_acc, interpreter_context);
 
     return std::vector<std::vector<TypedValue>>{};
   };
 }
 
 Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
+                                                   memgraph::dbms::DatabaseAccess db,
                                                    InterpreterContext *interpreter_context,
                                                    const std::string *username) {
   auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
@@ -847,24 +863,24 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
-  return [interpreter_context, stream_name = stream_query->stream_name_,
+  return [db = std::move(db), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
-          owner = StringPointerToOptional(username)]() mutable {
-    std::string url =
-        service_url ? std::move(*service_url) : std::string{interpreter_context->config.default_pulsar_service_url};
-    interpreter_context->streams.Create<query::stream::PulsarStream>(
+          owner = StringPointerToOptional(username),
+          default_service = interpreter_context->config.default_pulsar_service_url]() mutable {
+    std::string url = service_url ? std::move(*service_url) : std::move(default_service);
+    db->streams()->Create<query::stream::PulsarStream>(
         stream_name,
         {.common_info = std::move(common_stream_info), .topics = std::move(topic_names), .service_url = std::move(url)},
-        std::move(owner));
+        std::move(owner), db, interpreter_context);
 
     return std::vector<std::vector<TypedValue>>{};
   };
 }
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
-                           InterpreterContext *interpreter_context, const std::string *username,
-                           std::vector<Notification> *notifications) {
+                           memgraph::dbms::DatabaseAccess &db_acc, InterpreterContext *interpreter_context,
+                           const std::string *username, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -877,10 +893,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     case StreamQuery::Action::CREATE_STREAM: {
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
-          callback.fn = GetKafkaCreateCallback(stream_query, evaluator, interpreter_context, username);
+          callback.fn = GetKafkaCreateCallback(stream_query, evaluator, db_acc, interpreter_context, username);
           break;
         case StreamQuery::Type::PULSAR:
-          callback.fn = GetPulsarCreateCallback(stream_query, evaluator, interpreter_context, username);
+          callback.fn = GetPulsarCreateCallback(stream_query, evaluator, db_acc, interpreter_context, username);
           break;
       }
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
@@ -896,13 +912,13 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
         }
 
-        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit, timeout]() {
-          interpreter_context->streams.StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
+        callback.fn = [streams = db_acc->streams(), stream_name = stream_query->stream_name_, batch_limit, timeout]() {
+          streams->StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
           return std::vector<std::vector<TypedValue>>{};
         };
       } else {
-        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-          interpreter_context->streams.Start(stream_name);
+        callback.fn = [streams = db_acc->streams(), stream_name = stream_query->stream_name_]() {
+          streams->Start(stream_name);
           return std::vector<std::vector<TypedValue>>{};
         };
         notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
@@ -911,16 +927,16 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::START_ALL_STREAMS: {
-      callback.fn = [interpreter_context]() {
-        interpreter_context->streams.StartAll();
+      callback.fn = [streams = db_acc->streams()]() {
+        streams->StartAll();
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_ALL_STREAMS, "Started all streams.");
       return callback;
     }
     case StreamQuery::Action::STOP_STREAM: {
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Stop(stream_name);
+      callback.fn = [streams = db_acc->streams(), stream_name = stream_query->stream_name_]() {
+        streams->Stop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::STOP_STREAM,
@@ -928,16 +944,16 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::STOP_ALL_STREAMS: {
-      callback.fn = [interpreter_context]() {
-        interpreter_context->streams.StopAll();
+      callback.fn = [streams = db_acc->streams()]() {
+        streams->StopAll();
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::STOP_ALL_STREAMS, "Stopped all streams.");
       return callback;
     }
     case StreamQuery::Action::DROP_STREAM: {
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Drop(stream_name);
+      callback.fn = [streams = db_acc->streams(), stream_name = stream_query->stream_name_]() {
+        streams->Drop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_STREAM,
@@ -946,8 +962,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     }
     case StreamQuery::Action::SHOW_STREAMS: {
       callback.header = {"name", "type", "batch_interval", "batch_size", "transformation_name", "owner", "is running"};
-      callback.fn = [interpreter_context]() {
-        auto streams_status = interpreter_context->streams.GetStreamInfo();
+      callback.fn = [streams = db_acc->streams()]() {
+        auto streams_status = streams->GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(streams_status.size());
         auto stream_info_as_typed_stream_info_emplace_in = [](auto &typed_status, const auto &stream_info) {
@@ -983,10 +999,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
       }
 
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+      callback.fn = [db_acc, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
                      batch_limit]() mutable {
-        return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
+        // TODO Is this safe
+        return db_acc->streams()->Check(stream_name, db_acc, timeout, batch_limit);
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
                                   fmt::format("Checked stream {}.", stream_query->stream_name_));
@@ -1346,32 +1363,29 @@ storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) 
 
 }  // namespace
 
-InterpreterContext::InterpreterContext(const storage::Config storage_config, const InterpreterConfig interpreter_config,
-                                       const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
-                                       query::AuthChecker *ac)
-    : auth(ah),
-      auth_checker(ac),
-      trigger_store(data_directory / "triggers"),
-      config(interpreter_config),
-      streams{this, data_directory / "streams"} {
-  if (utils::DirExists(storage_config.disk.main_storage_directory)) {
-    db = std::make_unique<storage::DiskStorage>(storage_config);
-  } else {
-    db = std::make_unique<storage::InMemoryStorage>(storage_config);
-  }
-}
-
-InterpreterContext::InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
-                                       const std::filesystem::path &data_directory, query::AuthQueryHandler *ah,
-                                       query::AuthChecker *ac)
-    : db(std::move(db)),
-      auth(ah),
-      auth_checker(ac),
-      trigger_store(data_directory / "triggers"),
-      config(interpreter_config),
-      streams{this, data_directory / "streams"} {}
+#ifdef MG_ENTERPRISE
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *handler,
+                                       query::AuthQueryHandler *ah, query::AuthChecker *ac)
+    : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
+#else
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config,
+                                       memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
+                                       query::AuthQueryHandler *ah, query::AuthChecker *ac)
+    : db_gatekeeper(db_gatekeeper), config(interpreter_config), auth(ah), auth_checker(ac) {}
+#endif
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+  MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
+#ifndef MG_ENTERPRISE
+  auto db_acc = interpreter_context_->db_gatekeeper->access();
+  MG_ASSERT(db_acc, "Database accessor needs to be valid");
+  db_acc_ = std::move(db_acc);
+#endif
+}
+
+Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
+    : db_acc_(std::move(db)), interpreter_context_(interpreter_context) {
+  MG_ASSERT(db_acc_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
@@ -1413,12 +1427,15 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       explicit_transaction_timer_ =
           timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
 
-      db_accessor_ = interpreter_context_->db->Access(GetIsolationLevelOverride());
+      if (!db_acc_) throw DatabaseContextRequiredException("No current database for transaction defined.");
+
+      auto &db_acc = *db_acc_;
+      db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
-      if (interpreter_context_->trigger_store.HasTriggers()) {
-        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
+      if (db_acc->trigger_store()->HasTriggers()) {
+        trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
       }
     };
   } else if (query_upper == "COMMIT") {
@@ -1515,7 +1532,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  const std::string *username, std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                 std::shared_ptr<utils::AsyncTimer> tx_timer, auto *plan_cache,
                                  TriggerContextCollector *trigger_context_collector = nullptr,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -1548,8 +1565,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                 IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
-                                parsed_query.parameters,
-                                parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+                                parsed_query.parameters, plan_cache, dba);
 
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
@@ -1585,8 +1601,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                  utils::MemoryResource *execution_memory) {
+                                  InterpreterContext *interpreter_context, DbAccessor *dba, auto *plan_cache) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -1606,7 +1621,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? plan_cache : nullptr, dba);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
@@ -1634,7 +1649,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
                                   std::atomic<TransactionStatus> *transaction_status,
-                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                  std::shared_ptr<utils::AsyncTimer> tx_timer, auto *plan_cache,
                                   FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
 
@@ -1657,7 +1672,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     throw ProfileInMulticommandTxException();
   }
 
-  if (!interpreter_context->tsc_frequency) {
+  if (!memgraph::utils::IsAvailableTSC()) {
     throw QueryException("TSC support is missing for PROFILE");
   }
 
@@ -1694,7 +1709,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? plan_cache : nullptr, dba);
   TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   auto optional_username = StringPointerToOptional(username);
@@ -1956,13 +1971,13 @@ Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAcces
 }
 
 PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                       DbAccessor *execution_db_accessor, InterpreterContext *interpreter_context) {
+                                       DbAccessor *execution_db_accessor, auto *plan_cache) {
   if (in_explicit_transaction) {
     throw AnalyzeGraphInMulticommandTxException();
   }
 
   // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
+  auto invalidate_plan_cache = [plan_cache] {
     auto access = plan_cache->access();
     for (auto &kv : access) {
       access.remove(kv.first);
@@ -1990,7 +2005,7 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::vector<Notification> *notifications, InterpreterContext *interpreter_context) {
+                                std::vector<Notification> *notifications, storage::Storage *storage, auto *plan_cache) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -1999,21 +2014,21 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   std::function<void(Notification &)> handler;
 
   // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
+  auto invalidate_plan_cache = [plan_cache] {
     auto access = plan_cache->access();
     for (auto &kv : access) {
       access.remove(kv.first);
     }
   };
 
-  auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
+  auto label = storage->NameToLabel(index_query->label_.name);
 
   std::vector<storage::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -2029,12 +2044,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.title =
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
-      handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
+      handler = [storage, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? interpreter_context->db->CreateIndex(label)
-                                                    : interpreter_context->db->CreateIndex(label, properties[0]);
+        auto maybe_index_error =
+            properties.empty() ? storage->CreateIndex(label) : storage->CreateIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -2066,12 +2081,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
-      handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
+      handler = [storage, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? interpreter_context->db->DropIndex(label)
-                                                    : interpreter_context->db->DropIndex(label, properties[0]);
+        auto maybe_index_error =
+            properties.empty() ? storage->DropIndex(label) : storage->DropIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -2123,42 +2138,41 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters);
 
-  return PreparedQuery{
-      std::move(callback.header), std::move(parsed_query.required_privileges),
-      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr), interpreter_context](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          // Run the specific query
-          auto results = handler();
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr),
+                        interpreter_context](  // NOLINT
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           // Run the specific query
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
 #ifdef MG_ENTERPRISE
-          // Invalidate auth cache after every type of AuthQuery
-          interpreter_context->auth_checker->ClearCache();
+                           // Invalidate auth cache after every type of AuthQuery
+                           interpreter_context->auth_checker->ClearCache();
 #endif
-        }
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::COMMIT;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE};
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                      std::vector<Notification> *notifications,
-                                      InterpreterContext *interpreter_context) {
+                                      std::vector<Notification> *notifications, storage::Storage *storage,
+                                      const InterpreterConfig &config) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
-  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ReplicationDisabledOnDiskStorage();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, notifications);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, storage, config, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2177,13 +2191,12 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
-PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                   InterpreterContext *interpreter_context) {
+PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_transaction, storage::Storage *storage) {
   if (in_explicit_transaction) {
     throw LockPathModificationInMulticommandTxException();
   }
 
-  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw LockPathDisabledOnDiskStorage();
   }
 
@@ -2192,9 +2205,9 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
   return PreparedQuery{
       {"STATUS"},
       std::move(parsed_query.required_privileges),
-      [interpreter_context, action = lock_path_query->action_](
-          AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
+      [storage, action = lock_path_query->action_](AnyStream *stream,
+                                                   std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
         std::vector<std::vector<TypedValue>> status;
         std::string res;
 
@@ -2236,24 +2249,23 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     InterpreterContext *interpreter_context) {
+                                     storage::Storage *storage) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
-  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw FreeMemoryDisabledOnDiskStorage();
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        interpreter_context->db->FreeMemory();
-        memory::PurgeUnusedMemory();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [storage](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         storage->FreeMemory();
+                         memory::PurgeUnusedMemory();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
@@ -2314,34 +2326,36 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query,
                        const std::map<std::string, storage::PropertyValue> &user_parameters,
-                       InterpreterContext *interpreter_context, DbAccessor *dba, std::optional<std::string> owner) {
-  return {
-      {},
-      [trigger_name = std::move(trigger_query->trigger_name_), trigger_statement = std::move(trigger_query->statement_),
-       event_type = trigger_query->event_type_, before_commit = trigger_query->before_commit_, interpreter_context, dba,
-       user_parameters, owner = std::move(owner)]() mutable -> std::vector<std::vector<TypedValue>> {
-        interpreter_context->trigger_store.AddTrigger(
-            std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
-            before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
-        return {};
-      }};
-}
-
-Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context) {
+                       TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
+                       std::optional<std::string> owner) {
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
-           interpreter_context]() -> std::vector<std::vector<TypedValue>> {
-            interpreter_context->trigger_store.DropTrigger(trigger_name);
+           trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
+           before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba, user_parameters,
+           owner = std::move(owner)]() mutable -> std::vector<std::vector<TypedValue>> {
+            trigger_store->AddTrigger(std::move(trigger_name), trigger_statement, user_parameters,
+                                      ToTriggerEventType(event_type),
+                                      before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
+                                      &interpreter_context->ast_cache, dba, interpreter_context->config.query,
+                                      std::move(owner), interpreter_context->auth_checker);
+            memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
             return {};
           }};
 }
 
-Callback ShowTriggers(InterpreterContext *interpreter_context) {
-  return {{"trigger name", "statement", "event type", "phase", "owner"}, [interpreter_context] {
+Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
+  return {{},
+          [trigger_name = std::move(trigger_query->trigger_name_),
+           trigger_store]() -> std::vector<std::vector<TypedValue>> {
+            trigger_store->DropTrigger(trigger_name);
+            return {};
+          }};
+}
+
+Callback ShowTriggers(TriggerStore *trigger_store) {
+  return {{"trigger name", "statement", "event type", "phase", "owner"}, [trigger_store] {
             std::vector<std::vector<TypedValue>> results;
-            auto trigger_infos = interpreter_context->trigger_store.GetTriggerInfo();
+            auto trigger_infos = trigger_store->GetTriggerInfo();
             results.reserve(trigger_infos.size());
             for (auto &trigger_info : trigger_infos) {
               std::vector<TypedValue> typed_trigger_info;
@@ -2362,8 +2376,9 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 }
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                  DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  std::vector<Notification> *notifications, TriggerStore *trigger_store,
+                                  InterpreterContext *interpreter_context, DbAccessor *dba,
+                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   const std::string *username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -2373,19 +2388,19 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
   MG_ASSERT(trigger_query);
 
   std::optional<Notification> trigger_notification;
-  auto callback = std::invoke([trigger_query, interpreter_context, dba, &user_parameters,
+  auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba, &user_parameters,
                                owner = StringPointerToOptional(username), &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
+        return CreateTrigger(trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
                                      fmt::format("Dropped trigger {}.", trigger_query->trigger_name_));
-        return DropTrigger(trigger_query, interpreter_context);
+        return DropTrigger(trigger_query, trigger_store);
       case TriggerQuery::Action::SHOW_TRIGGERS:
-        return ShowTriggers(interpreter_context);
+        return ShowTriggers(trigger_store);
     }
   });
 
@@ -2411,8 +2426,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                 std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                 const std::string *username) {
+                                 std::vector<Notification> *notifications, memgraph::dbms::DatabaseAccess &db_acc,
+                                 InterpreterContext *interpreter_context, const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
   }
@@ -2420,7 +2435,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_tran
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
   auto callback =
-      HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, username, notifications);
+      HandleStreamQuery(stream_query, parsed_query.parameters, db_acc, interpreter_context, username, notifications);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2481,7 +2496,7 @@ bool SwitchingFromDiskToInMemory(storage::StorageMode current_mode, storage::Sto
 }
 
 PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                         InterpreterContext *interpreter_context, Interpreter *interpreter) {
+                                         storage::Storage *storage, Interpreter *interpreter) {
   if (in_explicit_transaction) {
     throw IsolationLevelModificationInMulticommandTxException();
   }
@@ -2491,12 +2506,11 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 
   const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
 
-  auto callback = [isolation_level_query, isolation_level, interpreter_context,
-                   interpreter]() -> std::function<void()> {
+  auto callback = [isolation_level_query, isolation_level, storage, interpreter]() -> std::function<void()> {
     switch (isolation_level_query->isolation_level_scope_) {
       case IsolationLevelQuery::IsolationLevelScope::GLOBAL:
-        return [interpreter_context, isolation_level] {
-          if (auto maybe_error = interpreter_context->db->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
+        return [storage, isolation_level] {
+          if (auto maybe_error = storage->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
             switch (maybe_error.GetError()) {
               case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
                 throw IsolationLevelModificationInAnalyticsException();
@@ -2522,9 +2536,9 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
-                            InterpreterContext *interpreter_context) {
+                            memgraph::dbms::DatabaseAccess &db) {
   Callback callback;
-  callback.fn = [current_mode, requested_mode, interpreter_context]() mutable {
+  callback.fn = [current_mode, requested_mode, &db]() mutable {
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -2535,29 +2549,38 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      std::unique_lock main_guard{interpreter_context->db->main_lock_};
+      if (!db.try_exclusively([](auto &in) {
+            if (!in.streams()->GetStreamInfo().empty()) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+                  "associated streams. Drop all streams and retry.");
+            }
 
-      if (auto vertex_cnt_approx = interpreter_context->db->GetInfo().vertex_count; vertex_cnt_approx > 0) {
-        throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
-            "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
-            "query. ");
-      }
+            if (!in.trigger_store()->GetTriggerInfo().empty()) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+                  "associated triggers. Drop all triggers and retry.");
+            }
 
-      main_guard.unlock();
-      if (interpreter_context->interpreters->size() > 1) {
+            std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
+            if (auto vertex_cnt_approx = in.storage()->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+                  "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
+                  "query. ");
+            }
+            main_guard.unlock();
+            in.SwitchToOnDisk();
+          })) {  // Try exclusively failed
         throw utils::BasicException(
             "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
             "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
-            "multiple sessions to run queries in parallel,  "
+            "multiple sessions to run queries in parallel, "
             "it is currently impossible to switch to the on-disk storage mode within Lab. "
             "Close it, connect to the instance with mgconsole "
             "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
             "and continue to use the instance as usual.");
       }
-
-      auto db_config = interpreter_context->db->config_;
-      interpreter_context->db = std::make_unique<memgraph::storage::DiskStorage>(db_config);
     }
     return std::vector<std::vector<TypedValue>>();
   };
@@ -2574,7 +2597,7 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
 }
 
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                      InterpreterContext *interpreter_context) {
+                                      memgraph::dbms::DatabaseAccess &db, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw StorageModeModificationInMulticommandTxException();
   }
@@ -2582,13 +2605,13 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
   const auto requested_mode = ToStorageMode(storage_mode_query->storage_mode_);
-  auto current_mode = interpreter_context->db->GetStorageMode();
+  auto current_mode = db->GetStorageMode();
 
   std::function<void()> callback;
 
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    callback = SwitchMemoryDevice(current_mode, requested_mode, interpreter_context).fn;
+    callback = SwitchMemoryDevice(current_mode, requested_mode, db).fn;
   } else {
     if (ActiveTransactionsExist(interpreter_context)) {
       spdlog::info(
@@ -2596,8 +2619,9 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
           "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
     }
 
-    callback = [requested_mode, interpreter_context]() -> std::function<void()> {
-      return [interpreter_context, requested_mode] { interpreter_context->db->SetStorageMode(requested_mode); };
+    callback = [requested_mode, storage = db->storage()]() -> std::function<void()> {
+      // SetStorageMode will probably be handled at the Database level
+      return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();
   }
 
@@ -2612,12 +2636,12 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 }
 
 PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                         InterpreterContext *interpreter_context) {
+                                         storage::Storage *db) {
   if (in_explicit_transaction) {
     throw EdgeImportModeModificationInMulticommandTxException();
   }
 
-  if (interpreter_context->db->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (db->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw EdgeImportModeQueryDisabledOnDiskStorage();
   }
 
@@ -2625,9 +2649,9 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, const bool in
   MG_ASSERT(edge_import_mode_query);
   const auto requested_status = ToEdgeImportMode(edge_import_mode_query->status_);
 
-  auto callback = [requested_status, interpreter_context]() -> std::function<void()> {
-    return [interpreter_context, requested_status] {
-      auto *disk_storage = static_cast<storage::DiskStorage *>(interpreter_context->db.get());
+  auto callback = [requested_status, db]() -> std::function<void()> {
+    return [db, requested_status] {
+      auto *disk_storage = static_cast<storage::DiskStorage *>(db);
       disk_storage->SetEdgeImportMode(requested_status);
     };
   }();
@@ -2643,20 +2667,20 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, const bool in
 }
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                         InterpreterContext *interpreter_context) {
+                                         storage::Storage *storage) {
   if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
   }
 
-  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw CreateSnapshotDisabledOnDiskStorage();
   }
 
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(interpreter_context->db.get());
+      [storage](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
         if (auto maybe_error = mem_storage->CreateSnapshot({}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
@@ -2704,7 +2728,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransactions(
     const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username,
-    bool hasTransactionManagementPrivilege) {
+    bool hasTransactionManagementPrivilege, std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc) {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
@@ -2717,6 +2741,7 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
     utils::OnScopeExit clean_status([interpreter]() {
       interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
     });
+    if (interpreter->db_acc_ != filter_db_acc) continue;
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (interpreter->username_ == username || hasTransactionManagementPrivilege)) {
       const auto &typed_queries = interpreter->GetQueries();
@@ -2735,57 +2760,10 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   return results;
 }
 
-std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransactions(
-    InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
-    const std::optional<std::string> &username, bool hasTransactionManagementPrivilege) {
-  std::vector<std::vector<TypedValue>> results;
-  for (const std::string &transaction_id : maybe_kill_transaction_ids) {
-    bool killed = false;
-    bool transaction_found = false;
-    // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
-    // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-    interpreter_context->interpreters.WithLock([&transaction_id, &killed, &transaction_found, username,
-                                                hasTransactionManagementPrivilege](const auto &interpreters) {
-      for (Interpreter *interpreter : interpreters) {
-        TransactionStatus alive_status = TransactionStatus::ACTIVE;
-        // if it is just checking kill, commit and abort should wait for the end of the check
-        // The only way to start checking if the transaction will get killed is if the transaction_status is
-        // active
-        if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
-          continue;
-        }
-        utils::OnScopeExit clean_status([interpreter, &killed]() {
-          if (killed) {
-            interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
-          } else {
-            interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-          }
-        });
-
-        std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-        if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {
-          transaction_found = true;
-          if (interpreter->username_ == username || hasTransactionManagementPrivilege) {
-            killed = true;
-            spdlog::warn("Transaction {} successfully killed", transaction_id);
-          } else {
-            spdlog::warn("Not enough rights to kill the transaction");
-          }
-          break;
-        }
-      }
-    });
-    if (!transaction_found) {
-      spdlog::warn("Transaction {} not found", transaction_id);
-    }
-    results.push_back({TypedValue(transaction_id), TypedValue(killed)});
-  }
-  return results;
-}
-
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      const std::optional<std::string> &username, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context) {
+                                     InterpreterContext *interpreter_context,
+                                     memgraph::query::Interpreter &interpreter) {
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
@@ -2794,17 +2772,23 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   bool hasTransactionManagementPrivilege = interpreter_context->auth_checker->IsUserAuthorized(
       username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, "");
 
+  if (!interpreter.db_acc_) {
+    // TODO: remove in future when we have cypher execution which can happen without any database transaction
+    //       ie. when we have a transaction ID not tied to storage transaction
+    throw DatabaseContextRequiredException("No current database for transaction defined.");
+  }
+
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       callback.header = {"username", "transaction_id", "query", "metadata"};
       callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, username,
-                     hasTransactionManagementPrivilege]() mutable {
+                     hasTransactionManagementPrivilege, db_acc = &interpreter.db_acc_]() mutable {
         std::vector<std::vector<TypedValue>> results;
         // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
         interpreter_context->interpreters.WithLock(
-            [&results, handler, username, hasTransactionManagementPrivilege](const auto &interpreters) {
-              results = handler.ShowTransactions(interpreters, username, hasTransactionManagementPrivilege);
+            [&results, handler, username, hasTransactionManagementPrivilege, db_acc](const auto &interpreters) {
+              results = handler.ShowTransactions(interpreters, username, hasTransactionManagementPrivilege, *db_acc);
             });
         return results;
       };
@@ -2817,10 +2801,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                        return std::string(expression->Accept(evaluator).ValueString());
                      });
       callback.header = {"transaction_id", "killed"};
-      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, maybe_kill_transaction_ids,
-                     username, hasTransactionManagementPrivilege]() mutable {
-        return handler.KillTransactions(interpreter_context, maybe_kill_transaction_ids, username,
-                                        hasTransactionManagementPrivilege);
+      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context,
+                     maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids), username,
+                     hasTransactionManagementPrivilege, interpreter = &interpreter]() mutable {
+        return interpreter_context->KillTransactions(std::move(maybe_kill_transaction_ids), username,
+                                                     hasTransactionManagementPrivilege, *interpreter);
       };
       break;
     }
@@ -2831,15 +2816,15 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::optional<std::string> &username,
                                            bool in_explicit_transaction, InterpreterContext *interpreter_context,
-                                           DbAccessor *dba) {
+                                           memgraph::query::Interpreter &interpreter) {
   if (in_explicit_transaction) {
     throw TransactionQueueInMulticommandTxException();
   }
 
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback =
-      HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters, interpreter_context);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters,
+                                              interpreter_context, interpreter);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2875,8 +2860,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MemoryResource * /*execution_memory*/,
+                               std::map<std::string, TypedValue> * /*summary*/, storage::Storage *storage,
+                               utils::MemoryResource * /*execution_memory*/,
                                std::optional<storage::IsolationLevel> interpreter_isolation_level,
                                std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
@@ -2891,10 +2876,10 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::STORAGE:
       header = {"storage info", "value"};
 
-      handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
-        auto info = db->GetInfo();
+      handler = [storage, interpreter_isolation_level, next_transaction_isolation_level] {
+        auto info = storage->GetInfo();
         std::vector<std::vector<TypedValue>> results{
-            {TypedValue("name"), TypedValue(db->id())},
+            {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
@@ -2902,29 +2887,28 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
-            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
+            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
              TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(db->GetStorageMode()))}};
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
-      handler = [interpreter_context] {
+      handler = [storage] {
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
-        auto *db = interpreter_context->db.get();
-        auto info = db->ListAllIndices();
+        auto info = storage->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
-          results.push_back({TypedValue(label_index_mark), TypedValue(db->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue()});
         }
         for (const auto &item : info.label_property) {
-          results.push_back({TypedValue(label_property_index_mark), TypedValue(db->LabelToName(item.first)),
-                             TypedValue(db->PropertyToName(item.second))});
+          results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
+                             TypedValue(storage->PropertyToName(item.second))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -2949,23 +2933,22 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       break;
     case InfoQuery::InfoType::CONSTRAINT:
       header = {"constraint type", "label", "properties"};
-      handler = [interpreter_context] {
-        auto *db = interpreter_context->db.get();
-        auto info = db->ListAllConstraints();
+      handler = [storage] {
+        auto info = storage->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.existence.size() + info.unique.size());
         for (const auto &item : info.existence) {
-          results.push_back({TypedValue("exists"), TypedValue(db->LabelToName(item.first)),
-                             TypedValue(db->PropertyToName(item.second))});
+          results.push_back({TypedValue("exists"), TypedValue(storage->LabelToName(item.first)),
+                             TypedValue(storage->PropertyToName(item.second))});
         }
         for (const auto &item : info.unique) {
           std::vector<TypedValue> properties;
           properties.reserve(item.second.size());
           for (const auto &property : item.second) {
-            properties.emplace_back(db->PropertyToName(property));
+            properties.emplace_back(storage->PropertyToName(property));
           }
           results.push_back(
-              {TypedValue("unique"), TypedValue(db->LabelToName(item.first)), TypedValue(std::move(properties))});
+              {TypedValue("unique"), TypedValue(storage->LabelToName(item.first)), TypedValue(std::move(properties))});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
@@ -3000,8 +2983,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     std::vector<Notification> *notifications,
-                                     InterpreterContext *interpreter_context) {
+                                     std::vector<Notification> *notifications, storage::Storage *storage) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
@@ -3009,13 +2991,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  auto label = interpreter_context->db->NameToLabel(constraint_query->constraint_.label.name);
+  auto label = storage->NameToLabel(constraint_query->constraint_.label.name);
   std::vector<storage::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(constraint_query->constraint_.properties.size());
   properties_string.reserve(constraint_query->constraint_.properties.size());
   for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -3034,21 +3016,20 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           }
           constraint_notification.title = fmt::format("Created EXISTS constraint on label {} on properties {}.",
                                                       constraint_query->constraint_.label.name, properties_stringified);
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->CreateExistenceConstraint(label, properties[0], {});
+            auto maybe_constraint_error = storage->CreateExistenceConstraint(label, properties[0], {});
 
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [&interpreter_context, &label_name, &properties_stringified,
-                   &constraint_notification]<typename T>(T &&arg) {
+                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
                       MG_ASSERT(violation.properties.size() == 1U);
-                      auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
+                      auto property_name = storage->PropertyToName(*violation.properties.begin());
                       throw QueryRuntimeException(
                           "Unable to create existence constraint :{}({}), because an "
                           "existing node violates it.",
@@ -3085,24 +3066,22 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Created UNIQUE constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->CreateUniqueConstraint(label, property_set, {});
+            auto maybe_constraint_error = storage->CreateUniqueConstraint(label, property_set, {});
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [&interpreter_context, &label_name, &properties_stringified,
-                   &constraint_notification]<typename T>(T &&arg) {
+                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
-                      auto violation_label_name = interpreter_context->db->LabelToName(violation.label);
+                      auto violation_label_name = storage->LabelToName(violation.label);
                       std::stringstream property_names_stream;
-                      utils::PrintIterable(property_names_stream, violation.properties, ", ",
-                                           [&interpreter_context](auto &stream, const auto &prop) {
-                                             stream << interpreter_context->db->PropertyToName(prop);
-                                           });
+                      utils::PrintIterable(
+                          property_names_stream, violation.properties, ", ",
+                          [storage](auto &stream, const auto &prop) { stream << storage->PropertyToName(prop); });
                       throw QueryRuntimeException(
                           "Unable to create unique constraint :{}({}), because an "
                           "existing node violates it.",
@@ -3161,10 +3140,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Dropped EXISTS constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->DropExistenceConstraint(label, properties[0], {});
+            auto maybe_constraint_error = storage->DropExistenceConstraint(label, properties[0], {});
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
@@ -3202,10 +3181,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Dropped UNIQUE constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto maybe_constraint_error = interpreter_context->db->DropUniqueConstraint(label, property_set, {});
+            auto maybe_constraint_error = storage->DropUniqueConstraint(label, property_set, {});
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
@@ -3264,13 +3243,17 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 }
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, bool in_explicit_db,
-                                        InterpreterContext *interpreter_context, const std::string &session_uuid) {
+                                        InterpreterContext *interpreter_context,
+                                        memgraph::query::Interpreter &interpreter,
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(interpreter_context->db.get()) == storage::replication::ReplicationRole::REPLICA) {
+  if (!interpreter.db_acc_)
+    throw DatabaseContextRequiredException("Multi database queries require a defined database.");
+  if (GetReplicaRole(interpreter.db_acc_->get()->storage()) == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("Query forbidden on the replica!");
   }
   if (in_explicit_transaction) {
@@ -3278,19 +3261,19 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  auto *db_handler = interpreter_context->db_handler;
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sc_handler](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, db_handler](AnyStream *stream,
+                                                  std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            const auto success = sc_handler.New(db_name);
+            const auto success = db_handler->New(db_name);
             if (success.HasError()) {
               switch (success.GetError()) {
                 case dbms::NewError::EXISTS:
@@ -3326,28 +3309,22 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, session_uuid, &sc_handler](
+                           [db_name = query->db_name_, db_handler, &interpreter, on_change_cb](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                              std::vector<std::vector<TypedValue>> status;
                              std::string res;
 
-                             memgraph::dbms::SetForResult set = memgraph::dbms::SetForResult::SUCCESS;
-
                              try {
-                               set = sc_handler.SetFor(session_uuid, db_name);
+                               if (interpreter.db_acc_ && db_name == interpreter.db_acc_->get()->id()) {
+                                 res = "Already using " + db_name;
+                               } else {
+                                 auto tmp = db_handler->Get(db_name);
+                                 if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
+                                 interpreter.SetCurrentDB(std::move(tmp));
+                                 res = "Using " + db_name;
+                               }
                              } catch (const utils::BasicException &e) {
                                throw QueryRuntimeException(e.what());
-                             }
-
-                             switch (set) {
-                               case dbms::SetForResult::SUCCESS:
-                                 res = "Using " + db_name;
-                                 break;
-                               case dbms::SetForResult::ALREADY_SET:
-                                 res = "Already using " + db_name;
-                                 break;
-                               case dbms::SetForResult::FAIL:
-                                 throw QueryRuntimeException("Failed to start using {}", db_name);
                              }
 
                              status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
@@ -3364,31 +3341,34 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, session_uuid, &sc_handler](
+          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
 
             memgraph::dbms::DeleteResult success{};
 
             try {
-              success = sc_handler.Delete(db_name);
+              // Remove database
+              success = db_handler->Delete(db_name);
+              if (!success.HasError()) {
+                // Remove from auth
+                auth->DeleteDatabase(db_name);
+              } else {
+                switch (success.GetError()) {
+                  case dbms::DeleteError::DEFAULT_DB:
+                    throw QueryRuntimeException("Cannot delete the default database.");
+                  case dbms::DeleteError::NON_EXISTENT:
+                    throw QueryRuntimeException("{} does not exist.", db_name);
+                  case dbms::DeleteError::USING:
+                    throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
+                  case dbms::DeleteError::FAIL:
+                    throw QueryRuntimeException("Failed while deleting {}", db_name);
+                  case dbms::DeleteError::DISK_FAIL:
+                    throw QueryRuntimeException("Failed to clean storage of {}", db_name);
+                }
+              }
             } catch (const utils::BasicException &e) {
               throw QueryRuntimeException(e.what());
-            }
-
-            if (success.HasError()) {
-              switch (success.GetError()) {
-                case dbms::DeleteError::DEFAULT_DB:
-                  throw QueryRuntimeException("Cannot delete the default database.");
-                case dbms::DeleteError::NON_EXISTENT:
-                  throw QueryRuntimeException("{} does not exist.", db_name);
-                case dbms::DeleteError::USING:
-                  throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
-                case dbms::DeleteError::FAIL:
-                  throw QueryRuntimeException("Failed while deleting {}", db_name);
-                case dbms::DeleteError::DISK_FAIL:
-                  throw QueryRuntimeException("Failed to clean storage of {}", db_name);
-              }
             }
 
             status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
@@ -3406,25 +3386,27 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 #endif
 }
 
-PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        const std::string &session_uuid, const std::optional<std::string> &username) {
+PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, storage::Storage *storage,
+                                        InterpreterContext *interpreter_context,
+                                        const std::optional<std::string> &username) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(interpreter_context->db.get()) == storage::replication::ReplicationRole::REPLICA) {
+  if (GetReplicaRole(storage) == storage::replication::ReplicationRole::REPLICA) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 
-  auto &sc_handler = memgraph::dbms::SessionContextHandler::ExtractSCH(interpreter_context);
+  // TODO pick directly from ic
+  auto *db_handler = interpreter_context->db_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
   callback.header = {"Name", "Current"};
-  callback.fn = [auth, session_uuid, &sc_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [auth, storage, db_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
-    const auto in_use = sc_handler.Current(session_uuid);
+    const auto &in_use = storage->id();
     bool found_current = false;
 
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
@@ -3454,7 +3436,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
     if (!username) {
       // No user, return all
-      gen_status(sc_handler.All(), std::vector<TypedValue>{});
+      gen_status(db_handler->All(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(*username);
@@ -3462,7 +3444,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(sc_handler.All(), denied);
+        gen_status(db_handler->All(), denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }
@@ -3518,11 +3500,30 @@ void Interpreter::RollbackTransaction() {
   transaction_queries_->clear();
 }
 
+#if MG_ENTERPRISE
+// Before Prepare or during Prepare, but single-threaded.
+// TODO: Is there any cleanup?
+void Interpreter::SetCurrentDB(std::string_view db_name) {
+  // Can throw
+  // do we lock here?
+  db_acc_ = interpreter_context_->db_handler->Get(db_name);
+}
+void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess new_db) {
+  // do we lock here?
+  db_acc_ = std::move(new_db);
+}
+#endif
+
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 const std::string *username, QueryExtras const &extras,
                                                 const std::string &session_uuid) {
   std::shared_ptr<utils::AsyncTimer> current_timer;
+
+  // TODO: Remove once the interpreter is storage/tx independent and could run without an associated database
+  if (!db_acc_) throw DatabaseContextRequiredException("Database required for the query.");
+  auto *db = db_acc_->get();
+
   if (!in_explicit_transaction_) {
     query_executions_.clear();
     transaction_queries_->clear();
@@ -3620,14 +3621,21 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
       memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
-      db_accessor_ = interpreter_context_->db->Access(GetIsolationLevelOverride());
+      auto &db_acc = *db_acc_;
+      db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
-      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
-        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
+      if (utils::Downcast<CypherQuery>(parsed_query.query) && db_acc->trigger_store()->HasTriggers()) {
+        trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
       }
     }
+
+    const auto is_cacheable = parsed_query.is_cacheable;
+    auto *plan_cache = db->plan_cache();
+    auto get_plan_cache = [&]() {
+      return is_cacheable ? plan_cache : nullptr;
+    };  // Some queries run additional parsing and may need the plan_cache even if the outer query is not cacheable
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
@@ -3637,77 +3645,77 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     frame_change_collector_.reset();
     frame_change_collector_.emplace(memory_resource);
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(
-          std::move(parsed_query), &query_execution->summary, interpreter_context_, &*execution_db_accessor_,
-          memory_resource, &query_execution->notifications, username, &transaction_status_, std::move(current_timer),
-          trigger_context_collector_ ? &*trigger_context_collector_ : nullptr, &*frame_change_collector_);
+      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
+                                          &*execution_db_accessor_, memory_resource, &query_execution->notifications,
+                                          username, &transaction_status_, std::move(current_timer), get_plan_cache(),
+                                          trigger_context_collector_ ? &*trigger_context_collector_ : nullptr,
+                                          &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                           &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
+                                           &*execution_db_accessor_, plan_cache);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           interpreter_context_, &*execution_db_accessor_,
-                                           &query_execution->execution_memory_with_exception, username,
-                                           &transaction_status_, std::move(current_timer), &*frame_change_collector_);
+      prepared_query = PrepareProfileQuery(
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_,
+          std::move(current_timer), plan_cache, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         memory_resource);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                         &query_execution->notifications, interpreter_context_);
+                                         &query_execution->notifications, db->storage(), get_plan_cache());
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_,
-                                                &*execution_db_accessor_, interpreter_context_);
+                                                &*execution_db_accessor_, get_plan_cache());
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                        interpreter_context_, interpreter_context_->db.get(),
-                                        &query_execution->execution_memory_with_exception, interpreter_isolation_level,
-                                        next_transaction_isolation_level);
+                                        db->storage(), &query_execution->execution_memory_with_exception,
+                                        interpreter_isolation_level, next_transaction_isolation_level);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
-                                              &query_execution->notifications, interpreter_context_);
+                                              &query_execution->notifications, db->storage());
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
-      prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_,
-                                               &query_execution->notifications, interpreter_context_);
+      prepared_query =
+          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                                  db->storage(), interpreter_context_->config);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
-      prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, db->storage());
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
-      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, db->storage());
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
       prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                              interpreter_context_, &*execution_db_accessor_, params, username);
+                              db->trigger_store(), interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_,
-                                          &query_execution->notifications, interpreter_context_, username);
+                                          &query_execution->notifications, *db_acc_, interpreter_context_, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
+          PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, db->storage(), this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, db->storage());
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
-      prepared_query = PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query =
+          PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, *db_acc_, interpreter_context_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
-                                                    interpreter_context_, &*execution_db_accessor_);
+                                                    interpreter_context_, *this);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_, in_explicit_db_,
-                                                 interpreter_context_, session_uuid);
+                                                 interpreter_context_, *this, on_change_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid, username_);
+          PrepareShowDatabasesQuery(std::move(parsed_query), db->storage(), interpreter_context_, username_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareEdgeImportModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), in_explicit_transaction_, db->storage());
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -3720,14 +3728,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (IsWriteQueryOnMainMemoryReplica(interpreter_context_->db.get(), rw_type)) {
+    if (IsWriteQueryOnMainMemoryReplica(db->storage(), rw_type)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {
-      query_execution->prepared_query->db = interpreter_context_->db->id();
+      query_execution->prepared_query->db = db->id();
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
@@ -3783,16 +3791,16 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
-                             TriggerContext original_trigger_context,
-                             std::atomic<TransactionStatus> *transaction_status) {
+void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
+                            TriggerContext original_trigger_context,
+                            std::atomic<TransactionStatus> *transaction_status) {
   // Run the triggers
-  for (const auto &trigger : triggers.access()) {
+  for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
-    auto storage_acc = interpreter_context->db->Access();
-    DbAccessor db_accessor{storage_acc.get()};
+    auto tx_acc = db_acc->Access();
+    DbAccessor db_accessor{tx_acc.get()};
 
     // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
     // So we need to adapt TriggerContext based on user transaction which is still alive.
@@ -3858,6 +3866,10 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
+  // TODO: Better (or removed) check
+  if (!db_acc_) return;
+  auto *db = db_acc_->get();
+
   /*
   At this point we must check that the transaction is alive to start committing. The only other possible state is
   verifying and in that case we must check if the transaction was terminated and if yes abort committing. Exception
@@ -3877,7 +3889,7 @@ void Interpreter::Commit() {
   utils::OnScopeExit clean_status(
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
-  auto current_storage_mode = interpreter_context_->db->GetStorageMode();
+  auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = db_accessor_->GetCreationStorageMode();
   if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
       current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -3902,7 +3914,7 @@ void Interpreter::Commit() {
 
   if (trigger_context) {
     // Run the triggers
-    for (const auto &trigger : interpreter_context_->trigger_store.BeforeCommitTriggers().access()) {
+    for (const auto &trigger : db->trigger_store()->BeforeCommitTriggers().access()) {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
@@ -3973,15 +3985,14 @@ void Interpreter::Commit() {
   // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
-  if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
-    interpreter_context_->after_commit_trigger_pool.AddTask(
-        [this, trigger_context = std::move(*trigger_context),
-         user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-          RunTriggersIndividually(this->interpreter_context_->trigger_store.AfterCommitTriggers(),
-                                  this->interpreter_context_, std::move(trigger_context), &this->transaction_status_);
-          user_transaction->FinalizeTransaction();
-          SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
-        });
+  if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
+    db->AddTask([this, trigger_context = std::move(*trigger_context),
+                 user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
+      // TODO: Should this take the db_ and not Access()?
+      RunTriggersAfterCommit(*db_acc_, interpreter_context_, std::move(trigger_context), &this->transaction_status_);
+      user_transaction->FinalizeTransaction();
+      SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+    });
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
