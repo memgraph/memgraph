@@ -60,6 +60,19 @@ USERNAME = "user"
 PASSWORD = "test"
 BENCHMARK_MODE_MIXED = "Mixed"
 BENCHMARK_MODE_REALISTIC = "Realistic"
+DATABASE_CONDITION_HOT = "hot"
+DATABASE_CONDITION_VULCANIC = "vulcanic"
+WRITE_TYPE_QUERY = "write"
+READ_TYPE_QUERY = "read"
+UPDATE_TYPE_QUERY = "update"
+ANALYTICAL_TYPE_QUERY = "analytical"
+QUERY = "query"
+
+WARMUP_TO_HOT_QUERIES = [
+    ("CREATE ();", {}),
+    ("CREATE ()-[:TempEdge]->();", {}),
+    ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
+]
 
 
 def parse_args():
@@ -190,7 +203,6 @@ def parse_args():
 
     subparsers = parser.add_subparsers(help="Subparsers", dest="run_option")
 
-    # Vendor native parser starts here
     parser_vendor_native = subparsers.add_parser(
         "vendor-native",
         help="Running database in binary native form",
@@ -214,7 +226,6 @@ def parse_args():
         help="Client binary used for benchmarking",
     )
 
-    # Vendor docker parsers starts here
     parser_vendor_docker = subparsers.add_parser(
         "vendor-docker", help="Running database in docker", parents=[benchmark_parser]
     )
@@ -229,28 +240,21 @@ def parse_args():
 
 
 def get_queries(gen, count):
-    # Make the generator deterministic.
     random.seed(gen.__name__)
-    # Generate queries.
     ret = []
-    for i in range(count):
+    for _ in range(count):
         ret.append(gen())
     return ret
 
 
 def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
-    log.init("Started warm-up procedure to match database condition: {} ".format(condition))
-    if condition == "hot":
+    if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(
-            queries=[
-                ("CREATE ();", {}),
-                ("CREATE ()-[:TempEdge]->();", {}),
-                ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
-            ],
+            queries=WARMUP_TO_HOT_QUERIES,
             num_workers=1,
         )
-    elif condition == "vulcanic":
+    elif condition == DATABASE_CONDITION_VULCANIC:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(queries=queries)
     else:
@@ -258,9 +262,22 @@ def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
     log.log("Finished warm-up procedure to match database condition: {} ".format(condition))
 
 
-def mixed_workload(
-    vendor: runners.BaseRunner, client: runners.BaseClient, dataset, group, queries, benchmark_context: BenchmarkContext
-):
+def validate_workload_distribution(percentage_distribution, queries_by_type):
+    percentages_by_type = {
+        WRITE_TYPE_QUERY: percentage_distribution[0],
+        READ_TYPE_QUERY: percentage_distribution[1],
+        UPDATE_TYPE_QUERY: percentage_distribution[2],
+        ANALYTICAL_TYPE_QUERY: percentage_distribution[3],
+    }
+
+    for key, percentage in percentages_by_type.items():
+        if percentage != 0 and len(queries_by_type[key]) == 0:
+            raise Exception(
+                "There is a missing query in group (write, read, update or analytical) for given workload distribution."
+            )
+
+
+def prepare_for_workload(benchmark_context, dataset, group, queries):
     num_of_queries = benchmark_context.mode_config[0]
     percentage_distribution = benchmark_context.mode_config[1:]
     if sum(percentage_distribution) != 100:
@@ -269,10 +286,19 @@ def mixed_workload(
             percentage_distribution,
         )
     s = [str(i) for i in benchmark_context.mode_config]
-
     config_distribution = "_".join(s)
 
-    log.log("Generating mixed workload...")
+    queries_by_type = {
+        WRITE_TYPE_QUERY: [],
+        READ_TYPE_QUERY: [],
+        UPDATE_TYPE_QUERY: [],
+        ANALYTICAL_TYPE_QUERY: [],
+    }
+
+    for _, funcname in queries[group]:
+        for key in queries_by_type.keys():
+            if key in funcname:
+                queries_by_type[key].append(funcname)
 
     percentages_by_type = {
         "write": percentage_distribution[0],
@@ -281,119 +307,125 @@ def mixed_workload(
         "analytical": percentage_distribution[3],
     }
 
-    queries_by_type = {
-        "write": [],
-        "read": [],
-        "update": [],
-        "analytical": [],
-    }
-
-    for _, funcname in queries[group]:
-        for key in queries_by_type.keys():
-            if key in funcname:
-                queries_by_type[key].append(funcname)
-
     for key, percentage in percentages_by_type.items():
         if percentage != 0 and len(queries_by_type[key]) == 0:
             raise Exception(
                 "There is a missing query in group (write, read, update or analytical) for given workload distribution."
             )
 
+    validate_workload_distribution(percentage_distribution, queries_by_type)
     random.seed(config_distribution)
 
-    # Executing mixed workload for each test
-    if benchmark_context.mode == "Mixed":
-        for query, funcname in queries[group]:
-            full_workload = []
+    return config_distribution, queries_by_type, percentages_by_type, percentage_distribution, num_of_queries
 
-            log.info(
-                "Running query in mixed workload: {}/{}/{}".format(
-                    group,
-                    query,
-                    funcname,
-                ),
-            )
-            base_query = getattr(dataset, funcname)
 
-            base_query_type = funcname.rsplit("_", 1)[1]
+def realistic_workload(
+    vendor: runners.BaseRunner, client: runners.BaseClient, dataset, group, queries, benchmark_context: BenchmarkContext
+):
+    log.log("Executing realistic workload...")
+    config_distribution, queries_by_type, _, percentage_distribution, num_of_queries = prepare_for_workload(
+        benchmark_context, dataset, group, queries
+    )
 
-            if percentages_by_type.get(base_query_type, 0) > 0:
-                continue
+    options = [WRITE_TYPE_QUERY, READ_TYPE_QUERY, UPDATE_TYPE_QUERY, ANALYTICAL_TYPE_QUERY]
+    function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
 
-            options = ["write", "read", "update", "analytical", "query"]
-            function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
+    prepared_queries = []
+    for t in function_type:
+        # Get the appropriate functions with same probability
+        funcname = random.choices(queries_by_type[t], k=1)[0]
+        additional_query = getattr(dataset, funcname)
+        prepared_queries.append(additional_query())
 
-            for t in function_type:
-                # Get the appropriate functions with same probabilty
-                if t == "query":
-                    full_workload.append(base_query())
-                else:
-                    funcname = random.choices(queries_by_type[t], k=1)[0]
-                    additional_query = getattr(dataset, funcname)
-                    full_workload.append(additional_query())
+    rss_db = dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
+    vendor.start_db(rss_db)
+    warmup(benchmark_context.warm_up, client=client)
 
-            vendor.start_db(
-                dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
-            )
-            warmup(benchmark_context.warm_up, client=client)
-            ret = client.execute(
-                queries=full_workload,
-                num_workers=benchmark_context.num_workers_for_benchmark,
-            )[0]
-            usage_workload = vendor.stop_db(
-                dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
-            )
+    ret = client.execute(
+        queries=prepared_queries,
+        num_workers=benchmark_context.num_workers_for_benchmark,
+    )[0]
 
-            ret["database"] = usage_workload
+    usage_workload = vendor.stop_db(rss_db)
 
-            results_key = [
-                dataset.NAME,
-                dataset.get_variant(),
+    realistic_workload_res = {
+        COUNT: ret[COUNT],
+        DURATION: ret[DURATION],
+        RETRIES: ret[RETRIES],
+        THROUGHPUT: ret[THROUGHPUT],
+        NUM_WORKERS: ret[NUM_WORKERS],
+        DATABASE: usage_workload,
+    }
+    results_key = [
+        dataset.NAME,
+        dataset.get_variant(),
+        group,
+        config_distribution,
+        WITHOUT_FINE_GRAINED_AUTHORIZATION,
+    ]
+    results.set_value(*results_key, value=realistic_workload_res)
+    print(realistic_workload_res)
+
+
+def mixed_workload(
+    vendor: runners.BaseRunner, client: runners.BaseClient, dataset, group, queries, benchmark_context: BenchmarkContext
+):
+    log.log("Executing mixed workload...")
+    (
+        config_distribution,
+        queries_by_type,
+        percentages_by_type,
+        percentage_distribution,
+        num_of_queries,
+    ) = prepare_for_workload(benchmark_context, dataset, group, queries)
+
+    options = [WRITE_TYPE_QUERY, READ_TYPE_QUERY, UPDATE_TYPE_QUERY, ANALYTICAL_TYPE_QUERY, QUERY]
+
+    for query, funcname in queries[group]:
+        log.info(
+            "Running query in mixed workload: {}/{}/{}".format(
                 group,
-                query + "_" + config_distribution,
-                WITHOUT_FINE_GRAINED_AUTHORIZATION,
-            ]
-            results.set_value(*results_key, value=ret)
+                query,
+                funcname,
+            ),
+        )
+        base_query_type = funcname.rsplit("_", 1)[1]
+        if percentages_by_type.get(base_query_type, 0) > 0:
+            continue
 
-    else:
-        # Executing mixed workload from groups of queries
-        full_workload = []
-        options = ["write", "read", "update", "analytical"]
         function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
 
+        full_workload = []
+        base_query = getattr(dataset, funcname)
         for t in function_type:
-            # Get the appropriate functions with same probability
-            funcname = random.choices(queries_by_type[t], k=1)[0]
-            additional_query = getattr(dataset, funcname)
-            full_workload.append(additional_query())
+            if t == QUERY:
+                full_workload.append(base_query())
+            else:
+                funcname = random.choices(queries_by_type[t], k=1)[0]
+                additional_query = getattr(dataset, funcname)
+                full_workload.append(additional_query())
 
-        vendor.start_db(dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution)
+        rss_db = dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
+        vendor.start_db(rss_db)
         warmup(benchmark_context.warm_up, client=client)
+
         ret = client.execute(
             queries=full_workload,
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
-        usage_workload = vendor.stop_db(
-            dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
-        )
-        mixed_workload = {
-            "count": ret["count"],
-            "duration": ret["duration"],
-            "retries": ret["retries"],
-            "throughput": ret["throughput"],
-            "num_workers": ret["num_workers"],
-            "database": usage_workload,
-        }
+
+        usage_workload = vendor.stop_db(rss_db)
+
+        ret[DATABASE] = usage_workload
+
         results_key = [
             dataset.NAME,
             dataset.get_variant(),
             group,
-            config_distribution,
+            query + "_" + config_distribution,
             WITHOUT_FINE_GRAINED_AUTHORIZATION,
         ]
-        results.set_value(*results_key, value=mixed_workload)
-
-        print(mixed_workload)
+        results.set_value(*results_key, value=ret)
 
 
 def get_query_cache_count(
@@ -715,8 +747,10 @@ def run_target_workloads(benchmark_context, target_workloads):
         for group in sorted(queries.keys()):
             print("\n")
             log.init("Running benchmark in " + benchmark_context.mode)
-            if benchmark_context.mode == BENCHMARK_MODE_MIXED or benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
+            if benchmark_context.mode == BENCHMARK_MODE_MIXED:
                 mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
+            elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
+                realistic_workload(vendor_runner, client, workload, group, queries, benchmark_context)
             else:
                 for query, funcname in queries[group]:
                     log.init(
