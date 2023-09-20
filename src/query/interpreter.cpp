@@ -113,8 +113,8 @@ extern const Event CommitedTransactions;
 extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
 }  // namespace memgraph::metrics
-void memgraph::query::CurrentDB::SetupDBForTransaction(std::optional<storage::IsolationLevel> override_isolation_level,
-                                                       bool could_commit) {
+void memgraph::query::CurrentDB::SetupDatabaseTransaction(
+    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit) {
   auto &db_acc = *db_acc_;
   db_accessor_ = db_acc->Access(override_isolation_level);
   execution_db_accessor_.emplace(db_accessor_.get());
@@ -1447,20 +1447,11 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
-
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
-      current_transaction_ = interpreter_context_->id_handler.next();
-      transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-
+      SetupInterpreterTransaction(extras);
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
-      // metadata from BEGIN until end of transaction, does not change
-      metadata_ = GenOptional(extras.metadata_pv);
-
-      current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
-
       if (!current_db_.db_acc_) throw DatabaseContextRequiredException("No current database for transaction defined.");
-      current_db_.SetupDBForTransaction(GetIsolationLevelOverride(), true);
+      SetupDatabaseTransaction(true);
     };
   } else if (query_upper == "COMMIT") {
     handler = [this] {
@@ -3624,13 +3615,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       AbortCommand(nullptr);
     }
 
-    // TODO: changed the nature of this counter, do we want a separate counter for no of used databases
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
-    transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    current_transaction_ = interpreter_context_->id_handler.next();
-    // Handle user-defined metadata in auto-transactions
-    metadata_ = GenOptional(extras.metadata_pv);
-    current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
+    SetupInterpreterTransaction(extras);
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
@@ -3696,8 +3681,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ && t1) {
       // analysis on parsed_query.query to figure out if db_access required
       // for now assume that is the current db (which either bolt set of is the default or using statement changed to)
-      auto could_commit = utils::Downcast<CypherQuery>(parsed_query.query);
-      current_db_.SetupDBForTransaction(GetIsolationLevelOverride(), could_commit);
+      bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
+      SetupDatabaseTransaction(could_commit);
     }
     if (!t1) {
       // system clock....maybe not observable
@@ -3829,6 +3814,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     AbortCommand(query_execution_ptr);
     throw;
   }
+}
+void Interpreter::SetupDatabaseTransaction(bool couldCommit) {
+  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit);
+}
+void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
+  metrics::IncrementCounter(metrics::ActiveTransactions);
+  transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+  current_transaction_ = interpreter_context_->id_handler.next();
+  metadata_ = GenOptional(extras.metadata_pv);
+  current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 }
 
 std::vector<TypedValue> Interpreter::GetQueries() {

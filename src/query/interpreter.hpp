@@ -148,7 +148,7 @@ struct CurrentDB {
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
-  void SetupDBForTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit);
+  void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -359,6 +359,8 @@ class Interpreter final {
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
+  void SetupInterpreterTransaction(const QueryExtras &extras);
+  void SetupDatabaseTransaction(bool couldCommit);
 };
 
 template <typename TStream>
