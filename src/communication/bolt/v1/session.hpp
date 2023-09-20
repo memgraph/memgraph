@@ -208,7 +208,7 @@ class Session {
 
   Version version_;
 
-  virtual std::string GetDatabaseName() const = 0;
+  virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
 
  private:

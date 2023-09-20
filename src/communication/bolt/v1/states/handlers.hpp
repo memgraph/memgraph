@@ -208,7 +208,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run - {}] '{}'", session.GetDatabaseName(), query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
   try {
     // Interpret can throw.
@@ -272,7 +272,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     return HandleFailure(session, e);
   }
 
-  spdlog::debug("[Run - {}] '{}'", session.GetDatabaseName(), query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
   try {
     // Interpret can throw.

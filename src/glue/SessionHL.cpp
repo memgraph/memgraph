@@ -114,7 +114,7 @@ std::string SessionHL::GetDefaultDB() {
 }
 #endif
 
-std::string SessionHL::GetDatabaseName() const {
+std::string SessionHL::GetCurrentDB() const {
   if (!interpreter_.current_db_.db_acc_) return "";
   const auto *db = interpreter_.current_db_.db_acc_->get();
   return db->id();
@@ -131,6 +131,11 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
     auto locked_auth = auth_->Lock();
     if (locked_auth->HasUsers()) {
       user_ = locked_auth->Authenticate(username, password);
+      if (user_) {
+        interpreter_.SetUser(user_->username());
+      } else {
+        interpreter_.ResetUser();
+      }
       res = user_.has_value();
     }
   }
@@ -138,11 +143,14 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   // Start off with the default database
   interpreter_.SetCurrentDB(GetDefaultDB(), false);
 #endif
-  implicit_db_.emplace(GetDatabaseName());
+  implicit_db_.emplace(GetCurrentDB());
   return res;
 }
 
-void SessionHL::Abort() { interpreter_.Abort(); }
+void SessionHL::Abort() {
+  interpreter_.Abort();
+  interpreter_.ResetUser();
+}
 
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(std::optional<int> n,
                                                                                std::optional<int> qid) {
@@ -191,7 +199,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   }
 #endif
   try {
-    auto result = interpreter_.Prepare(query, params_pv, username, ToQueryExtras(extra), UUID());
+    auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
     const std::string db_name = result.db ? *result.db : "";
     if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
       interpreter_.Abort();
@@ -230,7 +238,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
       throw memgraph::communication::bolt::ClientError("Malformed database name.");
     }
     db = db_info.ValueString();
-    const auto &current = GetDatabaseName();
+    const auto &current = GetCurrentDB();
     update = db != current;
     if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
     in_explicit_db_ = true;
@@ -241,7 +249,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
     } else {
       db = GetDefaultDB();
     }
-    update = db != GetDatabaseName();
+    update = db != GetCurrentDB();
     in_explicit_db_ = false;
   }
 

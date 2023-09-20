@@ -827,7 +827,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evalu
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
                                                   memgraph::dbms::DatabaseAccess db_acc,
                                                   InterpreterContext *interpreter_context,
-                                                  const std::string *username) {
+                                                  const std::optional<std::string> &username) {
   static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
   std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                    : stream_query->consumer_group_};
@@ -857,7 +857,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   return [db_acc = std::move(db_acc), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
-          bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username),
+          bootstrap_servers = std::move(bootstrap), owner = username,
           configs = get_config_map(stream_query->configs_, "Configs"),
           credentials = get_config_map(stream_query->credentials_, "Credentials"),
           default_server = interpreter_context->config.default_kafka_bootstrap_servers]() mutable {
@@ -879,7 +879,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
                                                    memgraph::dbms::DatabaseAccess db,
                                                    InterpreterContext *interpreter_context,
-                                                   const std::string *username) {
+                                                   const std::optional<std::string> &username) {
   auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
   if (service_url && service_url->empty()) {
     throw SemanticException("Service URL must not be an empty string!");
@@ -889,8 +889,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
 
   return [db = std::move(db), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
-          common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
-          owner = StringPointerToOptional(username),
+          common_stream_info = std::move(common_stream_info), service_url = std::move(service_url), owner = username,
           default_service = interpreter_context->config.default_pulsar_service_url]() mutable {
     std::string url = service_url ? std::move(*service_url) : std::move(default_service);
     db->streams()->Create<query::stream::PulsarStream>(
@@ -904,7 +903,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            memgraph::dbms::DatabaseAccess &db_acc, InterpreterContext *interpreter_context,
-                           const std::string *username, std::vector<Notification> *notifications) {
+                           const std::optional<std::string> &username, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -1430,10 +1429,18 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
+  auto const timeout = DetermineTxTimeout(extras.tx_timeout, config);
+  return timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
+}
+
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras) {
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
+    query_executions_.clear();
+    transaction_queries_->clear();
     // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
     // becomes large.
     handler = [this, extras = extras] {
@@ -1447,11 +1454,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
 
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
+      // metadata from BEGIN until end of transaction, does not change
       metadata_ = GenOptional(extras.metadata_pv);
 
-      auto const timeout = DetermineTxTimeout(extras.tx_timeout, interpreter_context_->config);
-      explicit_transaction_timer_ =
-          timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
+      current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 
       if (!current_db_.db_acc_) throw DatabaseContextRequiredException("No current database for transaction defined.");
       current_db_.SetupDBForTransaction(GetIsolationLevelOverride(), true);
@@ -1477,7 +1483,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
       metadata_ = std::nullopt;
-      explicit_transaction_timer_.reset();
+      current_timeout_timer_.reset();
     };
   } else if (query_upper == "ROLLBACK") {
     handler = [this] {
@@ -1491,7 +1497,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
       metadata_ = std::nullopt;
-      explicit_transaction_timer_.reset();
+      current_timeout_timer_.reset();
     };
   } else {
     LOG_FATAL("Should not get here -- unknown transaction query!");
@@ -1549,7 +1555,8 @@ bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &c
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 const std::string *username, std::atomic<TransactionStatus> *transaction_status,
+                                 std::optional<std::string> const &username,
+                                 std::atomic<TransactionStatus> *transaction_status,
                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -1612,11 +1619,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // TODO: pass current DB into plan, in future current can change during pull
   auto trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
-                                 StringPointerToOptional(username), transaction_status, std::move(tx_timer),
-                                 trigger_context_collector, memory_limit, use_monotonic_memory,
-                                 frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+  auto pull_plan = std::make_shared<PullPlan>(
+      plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, username, transaction_status,
+      std::move(tx_timer), trigger_context_collector, memory_limit, use_monotonic_memory,
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -1681,7 +1687,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  const std::string *username, std::atomic<TransactionStatus> *transaction_status,
+                                  std::optional<std::string> const &username,
+                                  std::atomic<TransactionStatus> *transaction_status,
                                   std::shared_ptr<utils::AsyncTimer> tx_timer,
                                   FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
@@ -1749,14 +1756,13 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                         cypher_query, parsed_inner_query.parameters, plan_cache, dba);
   TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
-  auto optional_username = StringPointerToOptional(username);
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
   return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
                        std::move(parsed_query.required_privileges),
                        [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
-                        summary, dba, interpreter_context, execution_memory, memory_limit, optional_username,
+                        summary, dba, interpreter_context, execution_memory, memory_limit, username,
                         // We want to execute the query we are profiling lazily, so we delay
                         // the construction of the corresponding context.
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
@@ -1766,9 +1772,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                          // No output symbols are given so that nothing is streamed.
                          if (!stats_and_total_time) {
                            stats_and_total_time =
-                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory,
-                                        optional_username, transaction_status, std::move(tx_timer), nullptr,
-                                        memory_limit, use_monotonic_memory,
+                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, username,
+                                        transaction_status, std::move(tx_timer), nullptr, memory_limit,
+                                        use_monotonic_memory,
                                         frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
                                    .Pull(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
@@ -2437,7 +2443,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   std::vector<Notification> *notifications, CurrentDB &current_db,
                                   InterpreterContext *interpreter_context,
                                   const std::map<std::string, storage::PropertyValue> &user_parameters,
-                                  const std::string *username) {
+                                  std::optional<std::string> const &username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
   }
@@ -2452,7 +2458,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   std::optional<Notification> trigger_notification;
   auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba, &user_parameters,
-                               owner = StringPointerToOptional(username), &trigger_notification]() mutable {
+                               owner = username, &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
@@ -2490,7 +2496,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                  std::vector<Notification> *notifications, CurrentDB &current_db,
-                                 InterpreterContext *interpreter_context, const std::string *username) {
+                                 InterpreterContext *interpreter_context, const std::optional<std::string> &username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
   }
@@ -3584,30 +3590,9 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
-                                                const std::string *username, QueryExtras const &extras,
-                                                const std::string &session_uuid) {
+                                                QueryExtras const &extras) {
   // TODO: Remove once the interpreter is storage/tx independent and could run without an associated database
   if (!current_db_.db_acc_) throw DatabaseContextRequiredException("Database required for the query.");
-
-  if (!in_explicit_transaction_) {
-    query_executions_.clear();
-    transaction_queries_->clear();
-    // Handle user-defined metadata in auto-transactions
-    metadata_ = GenOptional(extras.metadata_pv);
-  }
-
-  // why not a consistent current transaction timer
-  auto current_timer = [&, this]() -> std::shared_ptr<utils::AsyncTimer> {
-    if (in_explicit_transaction_) {
-      return explicit_transaction_timer_;
-    }
-    auto const timeout = DetermineTxTimeout(extras.tx_timeout, interpreter_context_->config);
-    return timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
-  }();  // IILE
-
-  // This will be done in the handle transaction query. Our handler can save username and then send it to the kill and
-  // show transactions.
-  username_ = StringPointerToOptional(username);
 
   // Handle transaction control queries.
   const auto trimmed_query = utils::Trim(utils::ToUpperCase(query_string));
@@ -3621,6 +3606,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
 
+  if (!in_explicit_transaction_) {
+    transaction_queries_->clear();
+  }
   // Don't save BEGIN, COMMIT or ROLLBACK
   transaction_queries_->push_back(query_string);
 
@@ -3629,6 +3617,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   if (in_explicit_transaction_) {
     AdvanceCommand();
   } else {
+    query_executions_.clear();
     if (current_db_.db_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open
       // transaction, abort it since we're about to prepare a new query.
@@ -3639,6 +3628,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
     transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
     current_transaction_ = interpreter_context_->id_handler.next();
+    // Handle user-defined metadata in auto-transactions
+    metadata_ = GenOptional(extras.metadata_pv);
+    current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
@@ -3725,8 +3717,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     frame_change_collector_.emplace(memory_resource);
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          current_db_, memory_resource, &query_execution->notifications, username,
-                                          &transaction_status_, std::move(current_timer), &*frame_change_collector_);
+                                          current_db_, memory_resource, &query_execution->notifications, username_,
+                                          &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query =
           PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_);
@@ -3734,7 +3726,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query =
           PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                               interpreter_context_, current_db_, &query_execution->execution_memory_with_exception,
-                              username, &transaction_status_, std::move(current_timer), &*frame_change_collector_);
+                              username_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query =
           PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, current_db_, memory_resource);
@@ -3767,10 +3759,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                              current_db_, interpreter_context_, params, username);
+                              current_db_, interpreter_context_, params, username_);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
-      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_,
-                                          &query_execution->notifications, current_db_, interpreter_context_, username);
+      prepared_query =
+          PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                             current_db_, interpreter_context_, username_);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query = PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
@@ -3864,7 +3857,7 @@ void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   metadata_ = std::nullopt;
-  explicit_transaction_timer_.reset();
+  current_timeout_timer_.reset();
   current_transaction_.reset();
 
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
@@ -4121,5 +4114,7 @@ void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel
 void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolation_level) {
   interpreter_isolation_level.emplace(isolation_level);
 }
+void Interpreter::ResetUser() { username_.reset(); }
+void Interpreter::SetUser(std::string_view username) { username_ = username; }
 
 }  // namespace memgraph::query

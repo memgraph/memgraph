@@ -191,7 +191,7 @@ class Interpreter final {
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
-  std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
+  std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
@@ -207,9 +207,9 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username, QueryExtras const &extras = {},
-                        const std::string &session_uuid = {});
+  Interpreter::PrepareResult Prepare(const std::string &query,
+                                     const std::map<std::string, storage::PropertyValue> &params,
+                                     QueryExtras const &extras);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -273,6 +273,10 @@ class Interpreter final {
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
   std::optional<uint64_t> current_transaction_;
+
+  void ResetUser();
+
+  void SetUser(std::string_view username);
 
  private:
   struct QueryExecution {
