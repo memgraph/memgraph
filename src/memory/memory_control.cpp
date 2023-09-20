@@ -249,6 +249,8 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
 
 static bool my_purge_lazy(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                           unsigned arena_ind) {
+  // This doesn't make sense to do, because if memory is purged lazily, it will not be cleaned immediatelly.
+  // allocated_memory.fetch_sub(static_cast<int64_t>(size), std::memory_order_relaxed);
   allocated_memory.fetch_sub(static_cast<int64_t>(size), std::memory_order_relaxed);
 
   extent_hook_stats.purge_lazy.counter.fetch_add(1, std::memory_order_relaxed);
