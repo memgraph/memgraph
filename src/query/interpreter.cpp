@@ -1402,7 +1402,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
 #ifndef MG_ENTERPRISE
   auto db_acc = interpreter_context_->db_gatekeeper->access();
   MG_ASSERT(db_acc, "Database accessor needs to be valid");
-  db_acc_ = std::move(db_acc);
+  current_db_.db_acc_ = std::move(db_acc);
 #endif
 }
 
