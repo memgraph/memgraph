@@ -250,6 +250,7 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
 static bool my_purge_lazy(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                           unsigned arena_ind) {
   allocated_memory.fetch_sub(static_cast<int64_t>(size), std::memory_order_relaxed);
+
   extent_hook_stats.purge_lazy.counter.fetch_add(1, std::memory_order_relaxed);
 
   if (jemalloc_logging_level == JemallocLoggingLevel::HIGH) {
