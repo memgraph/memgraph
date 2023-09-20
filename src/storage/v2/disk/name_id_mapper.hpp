@@ -45,7 +45,7 @@ class DiskNameIdMapper final : public NameIdMapper {
     uint64_t res_id = 0;
     if (auto maybe_id_from_disk = name_to_id_storage_->Get(std::string(name)); maybe_id_from_disk.has_value()) {
       auto id_disk_value = maybe_id_from_disk.value();
-      std::from_chars(id_disk_value.data(), id_disk_value.data() + id_disk_value.size(), res_id);
+      res_id = utils::ParseStringToUint64(id_disk_value);
       InsertNameIdEntryToCache(std::string(name), res_id);
       InsertIdNameEntryToCache(res_id, std::string(name));
     } else {
