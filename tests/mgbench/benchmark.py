@@ -18,6 +18,7 @@ import pathlib
 import platform
 import random
 import sys
+from typing import Dict
 
 import helpers
 import log
@@ -28,6 +29,11 @@ from workloads import *
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
+RUN_CONFIGURATION = "__run_configuration__"
+IMPORT = "__import__"
+THROUGHPUT = "throughput"
+DATABASE = "database"
+MEMORY = "memory"
 
 
 def parse_args():
@@ -423,6 +429,57 @@ def get_query_cache_count(
     return count
 
 
+def print_benchmark_summary(export_results_file: str):
+    log.init("~" * 45)
+    log.info("Benchmark finished.")
+    log.init("~" * 45)
+    log.log("\n")
+    log.summary("Benchmark summary")
+    log.log("-" * 90)
+    log.summary("{:<20} {:>30} {:>30}".format("Query name", "Throughput", "Peak Memory usage"))
+    with open(export_results_file, "r") as f:
+        results = json.load(f)
+        for dataset, variants in results.items():
+            if dataset == RUN_CONFIGURATION:
+                continue
+            for groups in variants.values():
+                for group, queries in groups.items():
+                    if group == IMPORT:
+                        continue
+                    for query, auth in queries.items():
+                        for value in auth.values():
+                            log.log("-" * 90)
+                            log.summary(
+                                "{:<20} {:>26.2f} QPS {:>27.2f} MB".format(
+                                    query, value[THROUGHPUT], value[DATABASE][MEMORY] / (1024.0 * 1024.0)
+                                )
+                            )
+    log.log("-" * 90)
+
+
+def print_benchmark_arguments(benchmark_context):
+    log.init("Executing benchmark with following arguments: ")
+    for key, value in benchmark_context.__dict__.items():
+        log.log("{:<30} : {:<30}".format(str(key), str(value)))
+
+
+def check_benchmark_requirements(benchmark_context):
+    log.init("Check requirements for running benchmark")
+    if setup.check_requirements(benchmark_context):
+        log.success("Requirements satisfied... ")
+    else:
+        log.warning("Requirements not satisfied...")
+        sys.exit(1)
+
+
+def setup_cache_config(benchmark_context, cache):
+    if not benchmark_context.no_load_query_counts:
+        log.log("Using previous cached query count data from cache directory.")
+        return cache.load_config()
+    else:
+        return helpers.RecursiveDict()
+
+
 if __name__ == "__main__":
     args = parse_args()
     vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
@@ -463,25 +520,14 @@ if __name__ == "__main__":
         vendor_args=vendor_specific_args,
     )
 
-    log.init("Executing benchmark with following arguments: ")
-    for key, value in benchmark_context.__dict__.items():
-        log.log("{:<30} : {:<30}".format(str(key), str(value)))
+    print_benchmark_arguments(benchmark_context)
+    check_benchmark_requirements(benchmark_context)
 
-    log.init("Check requirements for running benchmark")
-    if setup.check_requirements(benchmark_context=benchmark_context):
-        log.success("Requirements satisfied... ")
-    else:
-        log.warning("Requirements not satisfied...")
-        sys.exit(1)
-
-    log.log("Creating cache folder for: dataset, configurations, indexes, results etc. ")
     cache = helpers.Cache()
+    log.log("Creating cache folder for: dataset, configurations, indexes, results etc. ")
     log.init("Folder in use: " + cache.get_default_cache_directory())
-    if not benchmark_context.no_load_query_counts:
-        log.log("Using previous cached query count data from cache directory.")
-        config = cache.load_config()
-    else:
-        config = helpers.RecursiveDict()
+    config = setup_cache_config(benchmark_context, cache)
+
     results = helpers.RecursiveDict()
 
     run_config = {
@@ -494,7 +540,7 @@ if __name__ == "__main__":
         "platform": platform.platform(),
     }
 
-    results.set_value("__run_configuration__", value=run_config)
+    results.set_value(RUN_CONFIGURATION, value=run_config)
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
@@ -574,7 +620,7 @@ if __name__ == "__main__":
                 log.info("Custom import executed...")
 
         # Save import results.
-        import_key = [workload.NAME, workload.get_variant(), "__import__"]
+        import_key = [workload.NAME, workload.get_variant(), IMPORT]
         if ret != None and usage != None:
             # Display import statistics.
             for row in ret:
@@ -778,29 +824,4 @@ if __name__ == "__main__":
         with open(benchmark_context.export_results, "w") as f:
             json.dump(results.get_data(), f)
 
-    # Results summary.
-    log.init("~" * 45)
-    log.info("Benchmark finished.")
-    log.init("~" * 45)
-    log.log("\n")
-    log.summary("Benchmark summary")
-    log.log("-" * 90)
-    log.summary("{:<20} {:>30} {:>30}".format("Query name", "Throughput", "Peak Memory usage"))
-    with open(benchmark_context.export_results, "r") as f:
-        results = json.load(f)
-        for dataset, variants in results.items():
-            if dataset == "__run_configuration__":
-                continue
-            for variant, groups in variants.items():
-                for group, queries in groups.items():
-                    if group == "__import__":
-                        continue
-                    for query, auth in queries.items():
-                        for key, value in auth.items():
-                            log.log("-" * 90)
-                            log.summary(
-                                "{:<20} {:>26.2f} QPS {:>27.2f} MB".format(
-                                    query, value["throughput"], value["database"]["memory"] / 1024.0 / 1024.0
-                                )
-                            )
-    log.log("-" * 90)
+    print_benchmark_summary(benchmark_context.export_results)
