@@ -497,7 +497,6 @@ def log_benchmark_summary(results: Dict):
     log.summary("Benchmark summary")
     log.log("-" * 90)
     log.summary("{:<20} {:>30} {:>30}".format("Query name", "Throughput", "Peak Memory usage"))
-    results = json.load(f)
     for dataset, variants in results.items():
         if dataset == RUN_CONFIGURATION:
             continue
