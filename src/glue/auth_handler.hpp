@@ -17,7 +17,7 @@
 #include "auth_global.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
-#include "query/interpreter.hpp"
+#include "query/auth_query_handler.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
@@ -45,6 +45,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) override;
 
   bool SetMainDatabase(const std::string &db, const std::string &username) override;
+
+  void DeleteDatabase(std::string_view db) override;
 #endif
 
   bool CreateRole(const std::string &rolename) override;

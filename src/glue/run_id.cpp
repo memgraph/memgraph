@@ -8,6 +8,8 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "glue/MonitoringServerT.hpp"
 
-template class memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler, memgraph::storage::Storage>;
+#include "glue/run_id.hpp"
+#include "utils/uuid.hpp"
+
+const std::string memgraph::glue::run_id_ = memgraph::utils::GenerateUUID();

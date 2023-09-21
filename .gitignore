@@ -16,8 +16,7 @@
 .ycm_extra_conf.pyc
 .temp/
 Testing/
-build
-build/
+/build*/
 release/examples/build
 cmake-build-*
 cmake/DownloadProject/

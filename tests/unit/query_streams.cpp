@@ -22,6 +22,7 @@
 #include "kafka_mock.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -74,9 +75,32 @@ class StreamsTestFixture : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  memgraph::query::InterpreterContext interpreter_context_{
-      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-      memgraph::query::InterpreterConfig{}, data_directory_};
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory_;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
+  memgraph::dbms::DatabaseAccess db_{
+      [&]() {
+        auto db_acc_opt = db_gk.access();
+        MG_ASSERT(db_acc_opt, "Failed to access db");
+        auto &db_acc = *db_acc_opt;
+        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+                  "Wrong storage mode!");
+        return db_acc;
+      }()  // iile
+  };
+  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
 
@@ -84,11 +108,12 @@ class StreamsTestFixture : public ::testing::Test {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
+    std::filesystem::remove_all(data_directory_);
   }
 
   void ResetStreamsObject() {
     proxyStreams_.emplace();
-    proxyStreams_->streams_.emplace(&interpreter_context_, streams_data_directory_);
+    proxyStreams_->streams_.emplace(streams_data_directory_);
   }
 
   void CheckStreamStatus(const StreamCheckData &check_data) {
@@ -151,8 +176,8 @@ TYPED_TEST_CASE(StreamsTestFixture, StorageTypes);
 
 TYPED_TEST(StreamsTestFixture, SimpleStreamManagement) {
   auto check_data = this->CreateDefaultStreamCheckData();
-  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(check_data.name, check_data.info,
-                                                                                       check_data.owner);
+  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+      check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
   EXPECT_NO_FATAL_FAILURE(this->CheckStreamStatus(check_data));
 
   EXPECT_NO_THROW(this->proxyStreams_->streams_->Start(check_data.name));
@@ -178,12 +203,12 @@ TYPED_TEST(StreamsTestFixture, SimpleStreamManagement) {
 TYPED_TEST(StreamsTestFixture, CreateAlreadyExisting) {
   auto stream_info = this->CreateDefaultStreamInfo();
   auto stream_name = GetDefaultStreamName();
-  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info,
-                                                                                       std::nullopt);
+  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+      stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
 
   try {
-    this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info,
-                                                                                         std::nullopt);
+    this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+        stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
     FAIL() << "Creating already existing stream should throw\n";
   } catch (memgraph::query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Stream already exists with name '{}'", stream_name));
@@ -194,8 +219,8 @@ TYPED_TEST(StreamsTestFixture, DropNotExistingStream) {
   const auto stream_info = this->CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
   const std::string not_existing_stream_name{"ThisDoesn'tExists"};
-  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info,
-                                                                                       std::nullopt);
+  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+      stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
 
   try {
     this->proxyStreams_->streams_->Drop(not_existing_stream_name);
@@ -250,7 +275,7 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
     // Reset the Streams object to trigger reloading
     this->ResetStreamsObject();
     EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
-    this->proxyStreams_->streams_->RestoreStreams();
+    this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
     EXPECT_EQ(stream_check_datas.size(), this->proxyStreams_->streams_->GetStreamInfo().size());
     for (const auto &check_data : stream_check_datas) {
       ASSERT_NO_FATAL_FAILURE(this->CheckStreamStatus(check_data));
@@ -258,12 +283,12 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
     }
   };
 
-  this->proxyStreams_->streams_->RestoreStreams();
+  this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
   EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
 
   for (auto &check_data : stream_check_datas) {
     this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-        check_data.name, check_data.info, check_data.owner);
+        check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
   }
   {
     SCOPED_TRACE("After streams are created");
@@ -299,13 +324,13 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
 TYPED_TEST(StreamsTestFixture, CheckWithTimeout) {
   const auto stream_info = this->CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
-  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info,
-                                                                                       std::nullopt);
+  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+      stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
 
   std::chrono::milliseconds timeout{3000};
 
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_THROW(this->proxyStreams_->streams_->Check(stream_name, timeout, std::nullopt),
+  EXPECT_THROW(this->proxyStreams_->streams_->Check(stream_name, this->db_, timeout, std::nullopt),
                memgraph::integrations::kafka::ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
@@ -325,7 +350,7 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidConfig) {
     EXPECT_TRUE(message.find(kConfigValue) != std::string::npos) << message;
   };
   EXPECT_THROW_WITH_MSG(this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-                            stream_name, stream_info, std::nullopt),
+                            stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_),
                         memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
 }
 
@@ -341,6 +366,6 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
     EXPECT_TRUE(message.find(kCredentialValue) == std::string::npos) << message;
   };
   EXPECT_THROW_WITH_MSG(this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-                            stream_name, stream_info, std::nullopt),
+                            stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_),
                         memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
 }

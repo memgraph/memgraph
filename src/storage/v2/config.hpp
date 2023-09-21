@@ -78,6 +78,7 @@ struct Config {
   } disk;
 
   std::string name;
+  bool force_on_disk{false};
 };
 
 static inline void UpdatePaths(Config &config, const std::filesystem::path &storage_dir) {
