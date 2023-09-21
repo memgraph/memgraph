@@ -208,6 +208,13 @@ def parse_args():
     benchmark_parser.add_argument("--customer-workloads", default=None, help="Path to customers workloads")
 
     benchmark_parser.add_argument(
+        "--disk-storage",
+        action="store_true",
+        default=False,
+        help="If true, benchmarks will be run also for disk storage.",
+    )
+
+    benchmark_parser.add_argument(
         "--vendor-specific",
         nargs="*",
         default=[],
@@ -563,12 +570,12 @@ def sanitize_args(args):
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
 
-def save_import_results(workload, results, ret, usage):
+def save_import_results(workload, results, import_results, rss_usage):
+    log.info("Summarized importing benchmark results:")
     import_key = [workload.NAME, workload.get_variant(), IMPORT]
-    # TODO (andi) Change name of ret and usage variables
-    if ret != None and usage != None:
+    if import_results != None and rss_usage != None:
         # Display import statistics.
-        for row in ret:
+        for row in import_results:
             log.success(
                 "Executed {} queries in {} seconds using {} workers with a total throughput of {} Q/S.".format(
                     row[COUNT], row[DURATION], row[NUM_WORKERS], row[THROUGHPUT]
@@ -577,10 +584,10 @@ def save_import_results(workload, results, ret, usage):
 
         log.success(
             "The database used {} seconds of CPU time and peaked at {} MiB of RAM".format(
-                usage[CPU], usage[MEMORY] / (1024 * 1024)
+                rss_usage[CPU], rss_usage[MEMORY] / (1024 * 1024)
             )
         )
-        results.set_value(*import_key, value={CLIENT: ret, DATABASE: usage})
+        results.set_value(*import_key, value={CLIENT: import_results, DATABASE: rss_usage})
     else:
         results.set_value(*import_key, value={CLIENT: CUSTOM_LOAD, DATABASE: CUSTOM_LOAD})
 
@@ -706,83 +713,78 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
 
 
+def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload):
+    vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
+    log.info("Executing database index setup")
+
+    if generated_queries:
+        client.execute(queries=workload.indexes_generator(), num_workers=1)
+        log.info("Finished setting up indexes.")
+        log.info("Started importing dataset")
+        import_results = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
+    else:
+        log.info("Using workload information for importing dataset and creating indices")
+        log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
+        workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+        imported = workload.custom_import()
+        if not imported:
+            client.execute(file_path=workload.get_index(), num_workers=1)
+            log.info("Finished setting up indexes.")
+            log.info("Started importing dataset")
+            import_results = client.execute(
+                file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
+            )
+        else:
+            log.info("Custom import executed")
+
+    log.info("Finished importing dataset")
+    rss_usage = vendor_runner.stop_db_init(VENDOR_RUNNER_IMPORT)
+
+    return import_results, rss_usage
+
+
 def run_target_workloads(benchmark_context, target_workloads):
     for workload, queries in target_workloads:
-        log.info("Started running following workload: " + str(workload.NAME))
+        log.info(f"Started running {str(workload.NAME)} workload")
 
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        log.init("Creating vendor runner for DB: " + benchmark_context.vendor_name)
         vendor_runner = runners.BaseRunner.create(
             benchmark_context=benchmark_context,
         )
-        log.log("Class in use: " + str(vendor_runner.__class__.__name__))
-
-        log.info("Cleaning the database from any previous data")
         vendor_runner.clean_db()
+        log.log("Database cleaned from any previous data")
 
         client = vendor_runner.fetch_client()
-        log.log("Get appropriate client for vendor " + str(client.__class__.__name__))
-
-        ret = None
-        usage = None
-
         generated_queries = workload.dataset_generator()
-        if generated_queries:
-            log.info("\nUsing workload as dataset generator...")
 
-            vendor_runner.start_db_init("import")
+        import_results, rss_usage = setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload)
+        save_import_results(workload, results, import_results, rss_usage)
 
-            # TODO (andi) What is indexes_generator?
-            log.warning("Using following indexes...")
-            log.info(workload.indexes_generator())
-            log.info("Executing database index setup...")
-            ret = client.execute(queries=workload.indexes_generator(), num_workers=1)
-            log.log("Finished setting up indexes...")
-            for row in ret:
-                log.success(
-                    "Executed {} queries in {} seconds using {} workers with a total throughput of {} Q/S.".format(
-                        row[COUNT], row[DURATION], row[NUM_WORKERS], row[THROUGHPUT]
-                    )
-                )
-
-            log.info("Importing dataset...")
-            ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
-            log.log("Finished importing dataset...")
-            usage = vendor_runner.stop_db_init("import")
-        else:
-            log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
-            workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-            log.info("Using workload dataset information for import...")
-            imported = workload.custom_import()
-            if not imported:
-                log.log("Basic import execution")
-                vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
-                log.log("Executing database index setup...")
-                client.execute(file_path=workload.get_index(), num_workers=1)
-                log.log("Importing dataset...")
-                ret = client.execute(
-                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
-                )
-                usage = vendor_runner.stop_db_init("import")
-            else:
-                log.info("Custom import executed...")
-
-        # TODO (andi) Sending results here could be problematic
-        save_import_results(workload, results, ret, usage)
-
-        # Run all benchmarks in all available groups.
         for group in sorted(queries.keys()):
-            log.init("\nRunning benchmark in " + benchmark_context.mode)
-            if benchmark_context.mode == BENCHMARK_MODE_MIXED:
-                mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
-            elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
-                realistic_workload(vendor_runner, client, workload, group, queries, benchmark_context)
-            else:
-                run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload)
+            log.init(f"\nRunning benchmark in {benchmark_context.mode} workload mode")
+            # if benchmark_context.mode == BENCHMARK_MODE_MIXED:
+            #     mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
+            # elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
+            #     realistic_workload(vendor_runner, client, workload, group, queries, benchmark_context)
+            # else:
+            #     run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload)
+
+            if benchmark_context.disk_storage:
+                pass
+
             if benchmark_context.no_authorization:
                 run_isolated_workload_with_authorization(vendor_runner, client, queries, group, workload)
+
+
+def validate_target_workloads(benchmark_context, target_workloads):
+    if len(target_workloads) == 0:
+        log.error("No workloads matched the pattern: " + str(benchmark_context.benchmark_target_workload))
+        log.error("Please check the pattern and workload NAME property, query group and query name.")
+        log.info("Currently available workloads: ")
+        log.log(helpers.list_available_workloads(benchmark_context.customer_workloads))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
@@ -813,14 +815,15 @@ if __name__ == "__main__":
         no_authorization=args.no_authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
+        disk_storage=args.disk_storage,
     )
 
     log_benchmark_arguments(benchmark_context)
     check_benchmark_requirements(benchmark_context)
 
     cache = helpers.Cache()
-    log.log("Creating cache folder for: dataset, configurations, indexes, results...")
-    log.init("Folder in use: " + cache.get_default_cache_directory())
+    log.log("Creating cache folder for dataset, configurations, indexes and results.")
+    log.log("Cache folder in use: " + cache.get_default_cache_directory())
     config = setup_cache_config(benchmark_context, cache)
 
     run_config = {
@@ -844,14 +847,7 @@ if __name__ == "__main__":
         available_workloads=available_workloads, benchmark_context=benchmark_context
     )
 
-    # TODO (andi) Don't send whole benchmark context to filter workloads
-    if len(target_workloads) == 0:
-        log.error("No workloads matched the pattern: " + str(benchmark_context.benchmark_target_workload))
-        log.error("Please check the pattern and workload NAME property, query group and query name.")
-        log.info("Currently available workloads: ")
-        log.log(helpers.list_available_workloads(benchmark_context.customer_workloads))
-        sys.exit(1)
-
+    validate_target_workloads(benchmark_context, target_workloads)
     run_target_workloads(benchmark_context, target_workloads)
 
     if not benchmark_context.no_save_query_counts:
