@@ -44,6 +44,7 @@ class BenchmarkContext:
         customer_workloads: str = None,
         vendor_args: dict = {},
         disk_storage: bool = False,
+        in_memory_analytical: bool = False,
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.vendor_binary = vendor_binary
@@ -81,6 +82,7 @@ class BenchmarkContext:
         self.active_workload = None
         self.active_variant = None
         self.disk_storage = disk_storage
+        self.in_memory_analytical = in_memory_analytical
 
     def set_active_workload(self, workload: str) -> None:
         self.active_workload = workload

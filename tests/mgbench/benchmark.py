@@ -18,6 +18,7 @@ import pathlib
 import platform
 import random
 import sys
+import time
 from typing import Dict, List
 
 import helpers
@@ -67,6 +68,9 @@ UPDATE_TYPE_QUERY = "update"
 ANALYTICAL_TYPE_QUERY = "analytical"
 QUERY = "query"
 CACHE = "cache"
+DISK_PREPARATION_RSS = "disk_storage_preparation"
+IN_MEMORY_ANALYTICAL_RSS = "in_memory_analytical_preparation"
+
 
 WARMUP_TO_HOT_QUERIES = [
     ("CREATE ();", {}),
@@ -87,10 +91,17 @@ CLEANUP_AUTH_QUERIES = [
     ("DROP USER user;", {}),
 ]
 
+SETUP_DISK_STORAGE = [
+    ("STORAGE MODE ON_DISK_TRANSACTIONAL;", {}),
+]
+
+SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
+    ("STORAGE MODE IN_MEMORY_ANALYTICAL;", {}),
+]
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
-
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
 
     benchmark_parser.add_argument(
@@ -211,7 +222,14 @@ def parse_args():
         "--disk-storage",
         action="store_true",
         default=False,
-        help="If true, benchmarks will be run also for disk storage.",
+        help="If the flag set, benchmarks will be run also for disk storage.",
+    )
+
+    benchmark_parser.add_argument(
+        "--in-memory-analytical",
+        action="store_true",
+        default=False,
+        help="If the flag set, benchmarks will be run also for in_memory_analytical.",
     )
 
     benchmark_parser.add_argument(
@@ -743,39 +761,70 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     return import_results, rss_usage
 
 
+def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client):
+    generated_queries = workload.dataset_generator()
+    import_results, rss_usage = setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload)
+    save_import_results(workload, results, import_results, rss_usage)
+
+    for group in sorted(bench_queries.keys()):
+        log.init(f"\nRunning benchmark in {benchmark_context.mode} workload mode for {group} group")
+        if benchmark_context.mode == BENCHMARK_MODE_MIXED:
+            mixed_workload(vendor_runner, client, workload, group, bench_queries, benchmark_context)
+        elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
+            realistic_workload(vendor_runner, client, workload, group, bench_queries, benchmark_context)
+        else:
+            run_isolated_workload_without_authorization(vendor_runner, client, bench_queries, group, workload)
+
+        if benchmark_context.no_authorization:
+            run_isolated_workload_with_authorization(vendor_runner, client, bench_queries, group, workload)
+
+
+# TODO: (andi) Reorder functions in top-down notion in order to improve readibility
 def run_target_workloads(benchmark_context, target_workloads):
-    for workload, queries in target_workloads:
+    for workload, bench_queries in target_workloads:
         log.info(f"Started running {str(workload.NAME)} workload")
 
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        vendor_runner = runners.BaseRunner.create(
-            benchmark_context=benchmark_context,
+        log.info("Running benchmarks for IN-MEMORY TRANSACTIONAL storage mode.")
+        in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
+        run_target_workload(
+            benchmark_context, workload, bench_queries, in_memory_txn_vendor_runner, in_memory_txn_client
         )
-        vendor_runner.clean_db()
-        log.log("Database cleaned from any previous data")
+        log.info("Finished running benchmarks for IN-MEMORY TRANSACTIONAL storage mode.")
 
-        client = vendor_runner.fetch_client()
-        generated_queries = workload.dataset_generator()
+        # if benchmark_context.disk_storage:
+        #   log.info("Running benchmarks for ON-DISK TRANSACTIONAL storage mode.")
+        #   disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
+        #   disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
+        #   disk_client.execute(queries=SETUP_DISK_STORAGE)
+        #   disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
+        #   run_target_workload(benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client)
+        #   log.info("Finished running benchmarks for ON-DISK TRANSACTIONAL storage mode.")
 
-        import_results, rss_usage = setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload)
-        save_import_results(workload, results, import_results, rss_usage)
+        if benchmark_context.in_memory_analytical:
+            log.info("Running benchmarks for IN-MEMORY ANALYTICAL storage mode.")
+            in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
+            in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
+            in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
+            in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
+            run_target_workload(
+                benchmark_context,
+                workload,
+                bench_queries,
+                in_memory_analytical_vendor_runner,
+                in_memory_analytical_client,
+            )
+            log.info("Finished running benchmarks for IN-MEMORY ANALYTICAL storage mode.")
 
-        for group in sorted(queries.keys()):
-            log.init(f"\nRunning benchmark in {benchmark_context.mode} workload mode")
-            # if benchmark_context.mode == BENCHMARK_MODE_MIXED:
-            #     mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
-            # elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
-            #     realistic_workload(vendor_runner, client, workload, group, queries, benchmark_context)
-            # else:
-            #     run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload)
 
-            if benchmark_context.disk_storage:
-                pass
-
-            if benchmark_context.no_authorization:
-                run_isolated_workload_with_authorization(vendor_runner, client, queries, group, workload)
+def client_runner_factory(benchmark_context):
+    vendor_runner = runners.BaseRunner.create(benchmark_context=benchmark_context)
+    vendor_runner.clean_db()
+    log.log("Database cleaned from any previous data")
+    client = vendor_runner.fetch_client()
+    return vendor_runner, client
 
 
 def validate_target_workloads(benchmark_context, target_workloads):
@@ -816,6 +865,7 @@ if __name__ == "__main__":
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
         disk_storage=args.disk_storage,
+        in_memory_analytical=args.in_memory_analytical,
     )
 
     log_benchmark_arguments(benchmark_context)
