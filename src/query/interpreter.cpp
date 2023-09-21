@@ -1431,8 +1431,10 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
 
 auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
     -> std::shared_ptr<utils::AsyncTimer> {
-  auto const timeout = DetermineTxTimeout(extras.tx_timeout, config);
-  return timeout ? std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count()) : nullptr;
+  if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
+    return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
+  }
+  return {};
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras) {
@@ -1608,7 +1610,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
   // TODO: pass current DB into plan, in future current can change during pull
-  auto trigger_context_collector =
+  auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, username, transaction_status,
@@ -1783,8 +1785,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        rw_type_checker.type};
 }
 
-PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                               CurrentDB &current_db, utils::MemoryResource *execution_memory) {
+PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.execution_db_accessor_, "Dump query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
   return PreparedQuery{{"QUERY"},
@@ -3714,8 +3715,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                               interpreter_context_, current_db_, &query_execution->execution_memory_with_exception,
                               username_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, current_db_, memory_resource);
+      prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, current_db_);

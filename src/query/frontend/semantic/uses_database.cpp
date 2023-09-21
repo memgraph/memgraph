@@ -69,7 +69,7 @@ class BLA : public QueryVisitor<void>, public HierarchicalTreeVisitor {
     return false;
   }
 
-  void Visit(IndexQuery &x) override {
+  void Visit(IndexQuery & /*unused*/) override {
     // Performance observability, implies observability
     // hence transaction required for replication sequencing
     setState(usage_kind::REQ_DB_REPLICATION_W);
@@ -80,7 +80,7 @@ class BLA : public QueryVisitor<void>, public HierarchicalTreeVisitor {
     setState(usage_kind::REQ_DB_REPLICATION_W);
   }
 
-  void Visit(AuthQuery &x /*unused*/) override { setState(usage_kind::NONE); }
+  void Visit(AuthQuery & /*unused*/) override { setState(usage_kind::NONE); }
 
   void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
@@ -90,11 +90,7 @@ class BLA : public QueryVisitor<void>, public HierarchicalTreeVisitor {
     switch (info_query.info_type_) {
       using enum InfoQuery::InfoType;
       case STORAGE:
-        setState(usage_kind::REQ_DB_NON_REPLICATION_R);
-        break;
       case INDEX:
-        setState(usage_kind::REQ_DB_NON_REPLICATION_R);
-        break;
       case CONSTRAINT:
         setState(usage_kind::REQ_DB_NON_REPLICATION_R);
         break;
@@ -104,7 +100,7 @@ class BLA : public QueryVisitor<void>, public HierarchicalTreeVisitor {
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override { setState(usage_kind::REQ_DB_REPLICATION_W); }
+  void Visit(ConstraintQuery & /*unused*/) override { setState(usage_kind::REQ_DB_REPLICATION_W); }
 
   void Visit(CypherQuery &query) override {
     query.single_query_->Accept(*this);
@@ -113,23 +109,21 @@ class BLA : public QueryVisitor<void>, public HierarchicalTreeVisitor {
     }
   }
 
-  void Visit(DumpQuery &dump_query) override { setState(usage_kind::REQ_DB_NON_REPLICATION_R); }
+  void Visit(DumpQuery & /*unused*/) override { setState(usage_kind::REQ_DB_NON_REPLICATION_R); }
 
-  void Visit(LockPathQuery &lock_path_query) override {
+  void Visit(LockPathQuery & /*unused*/) override {
     // not transactional... but requires
     setState(usage_kind::REQ_DB_NON_REPLICATION_NO_DATA);
   }
 
-  void Visit(FreeMemoryQuery &free_memory_query) override { setState(usage_kind::REQ_DB_NON_REPLICATION_NO_DATA); }
+  void Visit(FreeMemoryQuery & /*unused*/) override { setState(usage_kind::REQ_DB_NON_REPLICATION_NO_DATA); }
 
-  void Visit(ShowConfigQuery & /*show_config_query*/) override { setState(usage_kind::NONE); }
+  void Visit(ShowConfigQuery & /*unused*/) override { setState(usage_kind::NONE); }
 
   void Visit(TriggerQuery &trigger_query) override {
     switch (trigger_query.action_) {
       using enum TriggerQuery::Action;
       case CREATE_TRIGGER:
-        setState(usage_kind::REQ_DB_REPLICATION_W);
-        break;
       case DROP_TRIGGER:
         setState(usage_kind::REQ_DB_REPLICATION_W);
         break;
