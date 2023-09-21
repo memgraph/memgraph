@@ -12,6 +12,7 @@
 #include "query/procedure/module.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <optional>
 
 extern "C" {

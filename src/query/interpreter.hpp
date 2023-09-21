@@ -15,7 +15,9 @@
 
 #include <gflags/gflags.h>
 
+#include "dbms/database.hpp"
 #include "query/auth_checker.hpp"
+#include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -53,105 +55,10 @@ extern const Event FailedQuery;
 
 namespace memgraph::query {
 
+struct InterpreterContext;
+
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
-
-class AuthQueryHandler {
- public:
-  AuthQueryHandler() = default;
-  virtual ~AuthQueryHandler() = default;
-
-  AuthQueryHandler(const AuthQueryHandler &) = delete;
-  AuthQueryHandler(AuthQueryHandler &&) = delete;
-  AuthQueryHandler &operator=(const AuthQueryHandler &) = delete;
-  AuthQueryHandler &operator=(AuthQueryHandler &&) = delete;
-
-  /// Return false if the user already exists.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateUser(const std::string &username, const std::optional<std::string> &password) = 0;
-
-  /// Return false if the user does not exist.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropUser(const std::string &username) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetPassword(const std::string &username, const std::optional<std::string> &password) = 0;
-
-#ifdef MG_ENTERPRISE
-  /// Return true if access revoked successfully
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool RevokeDatabaseFromUser(const std::string &db, const std::string &username) = 0;
-
-  /// Return true if access granted successfully
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool GrantDatabaseToUser(const std::string &db, const std::string &username) = 0;
-
-  /// Returns database access rights for the user
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) = 0;
-
-  /// Return true if main database set successfully
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool SetMainDatabase(const std::string &db, const std::string &username) = 0;
-#endif
-
-  /// Return false if the role already exists.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateRole(const std::string &rolename) = 0;
-
-  /// Return false if the role does not exist.
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropRole(const std::string &rolename) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetUsernames() = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetRolenames() = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetRolenameForUser(const std::string &username) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username, const std::string &rolename) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRole(const std::string &username) = 0;
-
-  virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantPrivilege(
-      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges
-#ifdef MG_ENTERPRISE
-      ,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
-
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges
-#endif
-      ) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokePrivilege(
-      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges
-#ifdef MG_ENTERPRISE
-      ,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
-
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges
-#endif
-      ) = 0;
-};
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
@@ -232,57 +139,10 @@ struct QueryExtras {
   std::optional<int64_t> tx_timeout;
 };
 
-class Interpreter;
-
-/**
- * Holds data shared between multiple `Interpreter` instances (which might be
- * running concurrently).
- *
- */
-/// TODO: andi decouple in a separate file why here?
-struct InterpreterContext {
-  explicit InterpreterContext(storage::Config storage_config, InterpreterConfig interpreter_config,
-                              const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
-                              query::AuthChecker *ac = nullptr);
-
-  InterpreterContext(std::unique_ptr<storage::Storage> &&db, InterpreterConfig interpreter_config,
-                     const std::filesystem::path &data_directory, query::AuthQueryHandler *ah = nullptr,
-                     query::AuthChecker *ac = nullptr);
-
-  std::unique_ptr<storage::Storage> db;
-
-  // ANTLR has singleton instance that is shared between threads. It is
-  // protected by locks inside of ANTLR. Unfortunately, they are not protected
-  // in a very good way. Once we have ANTLR version without race conditions we
-  // can remove this lock. This will probably never happen since ANTLR
-  // developers introduce more bugs in each version. Fortunately, we have
-  // cache so this lock probably won't impact performance much...
-  utils::SpinLock antlr_lock;
-  std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
-  std::atomic<bool> is_shutting_down{false};
-
-  AuthQueryHandler *auth;
-  AuthChecker *auth_checker;
-
-  utils::SkipList<QueryCacheEntry> ast_cache;
-  utils::SkipList<PlanCacheEntry> plan_cache;
-
-  TriggerStore trigger_store;
-  utils::ThreadPool after_commit_trigger_pool{1};
-
-  const InterpreterConfig config;
-
-  query::stream::Streams streams;
-  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
-};
-
-/// Function that is used to tell all active interpreters that they should stop
-/// their ongoing execution.
-inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
-
 class Interpreter final {
  public:
-  explicit Interpreter(InterpreterContext *interpreter_context);
+  Interpreter(InterpreterContext *interpreter_context);
+  Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db);
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
@@ -302,6 +162,14 @@ class Interpreter final {
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
+
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
+
+#ifdef MG_ENTERPRISE
+  void SetCurrentDB(std::string_view db_name);
+  void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db);
+  void OnChangeCB(auto cb) { on_change_.emplace(cb); }
+#endif
 
   /**
    * Prepare a query for execution.
@@ -435,6 +303,8 @@ class Interpreter final {
   // To avoid this, we use unique_ptr with which we manualy control construction
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
+  // TODO Figure out how this would work for multi-database
+  // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
@@ -462,6 +332,8 @@ class Interpreter final {
     return std::count_if(query_executions_.begin(), query_executions_.end(),
                          [](const auto &execution) { return execution && execution->prepared_query; });
   }
+
+  std::optional<std::function<void(std::string_view)>> on_change_{};
 };
 
 class TransactionQueueQueryHandler {
@@ -475,13 +347,9 @@ class TransactionQueueQueryHandler {
   TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
   TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
 
-  static std::vector<std::vector<TypedValue>> ShowTransactions(const std::unordered_set<Interpreter *> &interpreters,
-                                                               const std::optional<std::string> &username,
-                                                               bool hasTransactionManagementPrivilege);
-
-  static std::vector<std::vector<TypedValue>> KillTransactions(
-      InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
-      const std::optional<std::string> &username, bool hasTransactionManagementPrivilege);
+  static std::vector<std::vector<TypedValue>> ShowTransactions(
+      const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username,
+      bool hasTransactionManagementPrivilege, std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc);
 };
 
 template <typename TStream>

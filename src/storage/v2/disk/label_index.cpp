@@ -208,7 +208,7 @@ uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const { retur
 
 void DiskLabelIndex::LoadIndexInfo(const std::vector<std::string> &labels) {
   for (const std::string &label : labels) {
-    LabelId label_id = LabelId::FromUint(std::stoull(label));
+    LabelId label_id = LabelId::FromString(label);
     index_.insert(label_id);
   }
 }
