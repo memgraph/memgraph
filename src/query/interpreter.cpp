@@ -3586,7 +3586,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   if (!current_db_.db_acc_) throw DatabaseContextRequiredException("Database required for the query.");
 
   // Handle transaction control queries.
-  const auto trimmed_query = utils::Trim(utils::ToUpperCase(query_string));
+  const auto upper_case_query = utils::ToUpperCase(query_string);
+  const auto trimmed_query = utils::Trim(upper_case_query);
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
     auto resource = utils::MonotonicBufferResource(kExecutionMemoryBlockSize);
     auto prepared_query = PrepareTransactionQuery(trimmed_query, extras);
