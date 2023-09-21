@@ -21,6 +21,7 @@ namespace memgraph::storage {
 struct ReplicationError {};
 
 struct IndexPersistenceError {};
+struct IndexDefinitionError {};
 
 struct ConstraintsPersistenceError {};
 
@@ -29,7 +30,6 @@ inline bool operator==(const SerializationError & /*err1*/, const SerializationE
 
 using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError, SerializationError>;
 
-struct IndexDefinitionError {};
 using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError, IndexPersistenceError>;
 
 struct ConstraintDefinitionError {};

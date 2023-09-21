@@ -35,6 +35,7 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
@@ -94,7 +95,13 @@ class Storage {
 
   class Accessor {
    public:
-    Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    static constexpr struct SharedAccess {
+    } shared_access;
+    static constexpr struct UniqueAccess {
+    } unique_access;
+
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -206,9 +213,27 @@ class Storage {
 
     const std::string &id() const { return storage_->id(); }
 
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
+
+    // TODO: Better
+    // bool UpgradeToUnique() {
+    //   if (unique_guard_.owns_lock()) {
+    //     return true;
+    //   }
+    //   if (transaction_.deltas.use().empty() && transaction_.md_deltas.empty()) {
+    //     storage_guard_.unlock();
+    //     unique_guard_.lock();
+    //     return true;
+    //   }
+    //   return false;
+    // }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
+    std::unique_lock<utils::RWLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
@@ -258,19 +283,8 @@ class Storage {
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) {
-    return CreateIndex(label, std::optional<uint64_t>{});
-  }
-
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) {
-    return CreateIndex(label, property, std::optional<uint64_t>{});
-  }
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
 
   virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;

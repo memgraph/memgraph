@@ -573,14 +573,17 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
-  ASSERT_FALSE(
-      this->db->storage()
-          ->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
-          .HasError());
-  ASSERT_FALSE(
-      this->db->storage()
-          ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
-          .HasError());
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+            .HasError());
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
+            .HasError());
+  }
 
   {
     ResultStreamFaker stream(this->db->storage());
@@ -767,13 +770,17 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
-  ASSERT_FALSE(this->db->storage()
-                   ->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
-                   .HasError());
-  ASSERT_FALSE(this->db->storage()
-                   ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                 this->db->storage()->NameToProperty("unexisting_property"))
-                   .HasError());
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
+            .HasError());
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->db->storage()->NameToLabel("Person"),
+                                   this->db->storage()->NameToProperty("unexisting_property"))
+                     .HasError());
+  }
 
   const auto &db_initial_state = GetState(this->db->storage());
   memgraph::storage::Config config{};
@@ -931,14 +938,17 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
 TYPED_TEST(DumpTest, MultiplePartialPulls) {
   {
     // Create indices
-    ASSERT_FALSE(
-        this->db->storage()
-            ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
-            .HasError());
-    ASSERT_FALSE(
-        this->db->storage()
-            ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
-            .HasError());
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
+              .HasError());
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
+              .HasError());
+    }
 
     // Create existence constraints
     {

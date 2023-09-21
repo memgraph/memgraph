@@ -148,7 +148,8 @@ struct CurrentDB {
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
-  void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit);
+  void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
+                                bool unique = false);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -163,7 +164,7 @@ struct CurrentDB {
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
   // move this unique_ptr into a shrared_ptr.
-  std::unique_ptr<storage::Storage::Accessor> db_accessor_;
+  std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
@@ -360,7 +361,7 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
-  void SetupDatabaseTransaction(bool couldCommit);
+  void SetupDatabaseTransaction(bool couldCommit, bool unique = false);
 };
 
 template <typename TStream>
@@ -422,7 +423,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(in_explicit_transaction_ || !current_db_.db_accessor_);
+            MG_ASSERT(in_explicit_transaction_ || !current_db_.db_transactional_accessor_);
             break;
         }
         // As the transaction is done we can clear all the executions

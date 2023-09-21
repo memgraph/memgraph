@@ -103,7 +103,10 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     ASSERT_NO_ERROR(acc->Commit());
   }
 
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+  }
 
   {
     auto acc = this->storage->Access();
@@ -189,7 +192,10 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc->Commit());
   }
 
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+  }
 
   {
     auto acc = this->storage->Access();
@@ -220,7 +226,10 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc->Commit());
   }
 
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelIndexExists(this->label1));
@@ -253,8 +262,11 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   // 3. Remove Label1 from odd numbered vertices, and add it to even numbered
   //    vertices.
   // 4. Delete even numbered vertices.
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-  EXPECT_FALSE(this->storage->CreateIndex(this->label2).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+  }
 
   auto acc = this->storage->Access();
   EXPECT_THAT(this->storage->ListAllIndices().label, UnorderedElementsAre(this->label1, this->label2));
@@ -318,8 +330,11 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   // By removing labels and adding them again we create duplicate entries for
   // the same vertex in the index (they only differ by the timestamp). This test
   // checks that duplicates are properly filtered out.
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-  EXPECT_FALSE(this->storage->CreateIndex(this->label2).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+  }
 
   {
     auto acc = this->storage->Access();
@@ -358,8 +373,11 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 // passes
 TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-  EXPECT_FALSE(this->storage->CreateIndex(this->label2).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+  }
 
   auto acc_before = this->storage->Access();
   auto acc = this->storage->Access();
@@ -391,8 +409,11 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
-    EXPECT_FALSE(this->storage->CreateIndex(this->label2).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+    }
 
     auto acc = this->storage->Access();
     for (int i = 0; i < 20; ++i) {
@@ -407,7 +428,10 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
 
 TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -427,7 +451,10 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
 
 TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -447,7 +474,10 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
 
 TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -472,7 +502,10 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     auto *disk_label_index =
         static_cast<memgraph::storage::DiskLabelIndex *>(this->storage->indices_.label_index_.get());
 
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -501,7 +534,10 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_EQ(this->storage->ListAllIndices().label_property.size(), 0);
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_id).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
@@ -512,11 +548,20 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
   }
-  EXPECT_TRUE(this->storage->CreateIndex(this->label1, this->prop_id).HasError());
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+  }
+
   EXPECT_THAT(this->storage->ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
 
-  EXPECT_FALSE(this->storage->CreateIndex(this->label2, this->prop_id).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_id).HasError());
+  }
+
   {
     auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
@@ -549,8 +594,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
-  EXPECT_FALSE(this->storage->CreateIndex(this->label2, this->prop_val).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_val).HasError());
+  }
 
   auto acc = this->storage->Access();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD), IsEmpty());
@@ -636,7 +684,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+  }
+
   {
     auto acc = this->storage->Access();
     for (int i = 0; i < 5; ++i) {
@@ -678,7 +730,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+  }
 
   auto acc_before = this->storage->Access();
   auto acc = this->storage->Access();
@@ -717,7 +772,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   // We also have a mix of doubles and integers to verify that they are sorted
   // properly.
 
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+  }
 
   {
     auto acc = this->storage->Access();
@@ -787,7 +845,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    }
 
     auto acc = this->storage->Access();
     for (int i = 1; i <= 10; ++i) {
@@ -811,7 +872,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
-  EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+  }
 
   const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
                              TemporalData{TemporalType::LocalDateTime, 20}};
@@ -1019,7 +1083,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    }
     auto acc1 = this->storage->Access();
 
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -1048,7 +1115,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
 /// TODO: empty lines, so it is easier to read what is actually going on here
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    }
     auto acc1 = this->storage->Access();
 
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -1076,7 +1146,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
 
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    }
     auto acc1 = this->storage->Access();
 
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -1105,7 +1178,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     auto *disk_label_property_index =
         static_cast<memgraph::storage::DiskLabelPropertyIndex *>(this->storage->indices_.label_property_index_.get());
 
-    EXPECT_FALSE(this->storage->CreateIndex(this->label1, this->prop_val).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));

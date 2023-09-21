@@ -52,7 +52,10 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       MG_ASSERT(!dba->Commit().HasError());
     }
 
-    MG_ASSERT(!db_acc->storage()->CreateIndex(label).HasError());
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      MG_ASSERT(!unique_acc->CreateIndex(label).HasError());
+    }
 
     interpreter.emplace(&*interpreter_context, std::move(db_acc));
   }

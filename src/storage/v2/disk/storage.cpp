@@ -320,8 +320,9 @@ DiskStorage::~DiskStorage() {
   kvstore_->options_.comparator = nullptr;
 }
 
-DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
-    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
+DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
+                                        StorageMode storage_mode)
+    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.items) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -1553,10 +1554,35 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (transaction_.deltas.use().empty() ||
-      (!edge_import_mode_active &&
-       std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(),
-                   [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; }))) {
+  if (!transaction_.md_deltas.empty()) {
+    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
+    transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+
+    for (const auto &md_delta : transaction_.md_deltas) {
+      switch (md_delta.action) {
+        case MetadataDelta::Action::LABEL_INDEX_CREATE: {
+          if (!disk_storage->PersistLabelIndexCreation(md_delta.label)) {
+            return StorageDataManipulationError{SerializationError{}};  // TODO different error
+          }
+          break;
+          case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
+            const auto &info = md_delta.label_property;
+            if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintCreation(info.label, info.property,
+                                                                                       label_property_index_str)) {
+              return StorageDataManipulationError{SerializationError{}};
+            }
+          } break;
+          default:
+            break;
+        }
+      }
+    }
+  } else if (transaction_.deltas.use().empty() ||
+             (!edge_import_mode_active &&
+              std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(), [](const Delta &delta) {
+                return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT;
+              }))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
@@ -1755,42 +1781,36 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
-    LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
-  if (!disk_label_index->CreateIndex(label, SerializeVerticesForLabelIndex(label))) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label) {
+  if (!unique_guard_.owns_lock()) {
+    throw 1;
+  }
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
+  if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-
-  if (!PersistLabelIndexCreation(label)) {
-    return StorageIndexDefinitionError{IndexPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
-
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
-    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-
-  auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
+                                                                                             PropertyId property) {
+  if (!unique_guard_.owns_lock()) {
+    throw 1;
+  }
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   if (!disk_label_property_index->CreateIndex(label, property,
-                                              SerializeVerticesForLabelPropertyIndex(label, property))) {
+                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, property))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-
-  if (!PersistLabelPropertyIndexAndExistenceConstraintCreation(label, property, label_property_index_str)) {
-    return StorageIndexDefinitionError{IndexPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-
   return {};
 }
 
@@ -1934,4 +1954,20 @@ uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_comm
   return *desired_commit_timestamp;
 }
 
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
+  auto isolation_level = override_isolation_level.value_or(isolation_level_);
+  if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+  }
+  return std::unique_ptr<DiskAccessor>(
+      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
+}
+std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
+  auto isolation_level = override_isolation_level.value_or(isolation_level_);
+  if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+  }
+  return std::unique_ptr<DiskAccessor>(
+      new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+}
 }  // namespace memgraph::storage

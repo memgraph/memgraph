@@ -77,11 +77,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
-    // Create label index.
-    ASSERT_FALSE(store->CreateIndex(label_unindexed).HasError());
-
-    // Create label+property index.
-    ASSERT_FALSE(store->CreateIndex(label_indexed, property_id).HasError());
+    {
+      auto unique_acc = store->UniqueAccess();
+      // Create label index.
+      ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
+      // Create label+property index.
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
+    }
 
     // Create existence constraint.
     ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id, {}).HasError());
@@ -142,11 +144,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
-    // Create label index.
-    ASSERT_FALSE(store->CreateIndex(label_unused).HasError());
-
-    // Create label+property index.
-    ASSERT_FALSE(store->CreateIndex(label_indexed, property_count).HasError());
+    {
+      auto unique_acc = store->UniqueAccess();
+      // Create label index.
+      ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
+      // Create label+property index.
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
+    }
 
     // Create existence constraint.
     ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count, {}).HasError());

@@ -75,23 +75,23 @@ namespace memgraph::storage::durability {
 
 namespace {
 
-Marker OperationToMarker(StorageGlobalOperation operation) {
+Marker OperationToMarker(StorageMetadataOperation operation) {
   switch (operation) {
-    case StorageGlobalOperation::LABEL_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_INDEX_CREATE:
       return Marker::DELTA_LABEL_INDEX_CREATE;
-    case StorageGlobalOperation::LABEL_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_DROP:
       return Marker::DELTA_LABEL_INDEX_DROP;
-    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       return Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE;
-    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
       return Marker::DELTA_LABEL_PROPERTY_INDEX_DROP;
-    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE;
-    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
       return Marker::DELTA_EXISTENCE_CONSTRAINT_DROP;
-    case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
       return Marker::DELTA_UNIQUE_CONSTRAINT_CREATE;
-    case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
       return Marker::DELTA_UNIQUE_CONSTRAINT_DROP;
   }
 }
@@ -585,30 +585,30 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
 }
 
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
                      LabelId label, const std::set<PropertyId> &properties, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   switch (operation) {
-    case StorageGlobalOperation::LABEL_INDEX_CREATE:
-    case StorageGlobalOperation::LABEL_INDEX_DROP: {
+    case StorageMetadataOperation::LABEL_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_INDEX_DROP: {
       MG_ASSERT(properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       break;
     }
-    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
-    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
-    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
-    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP: {
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
       MG_ASSERT(properties.size() == 1, "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       encoder->WriteString(name_id_mapper->IdToName((*properties.begin()).AsUint()));
       break;
     }
-    case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
-    case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP: {
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
       MG_ASSERT(!properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
@@ -964,7 +964,7 @@ void WalFile::AppendTransactionEnd(uint64_t timestamp) {
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
+void WalFile::AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
                               uint64_t timestamp) {
   EncodeOperation(&wal_, name_id_mapper_, operation, label, properties, timestamp);
   UpdateStats(timestamp);

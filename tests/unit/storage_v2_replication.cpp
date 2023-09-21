@@ -230,9 +230,12 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *property = "property";
   const auto *property_extra = "property_extra";
   {
-    ASSERT_FALSE(main_store->CreateIndex(main_store->NameToLabel(label)).HasError());
-    ASSERT_FALSE(
-        main_store->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+    {
+      auto unique_acc = main_store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(main_store->NameToLabel(label)).HasError());
+      ASSERT_FALSE(
+          unique_acc->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+    }
     ASSERT_FALSE(
         main_store->CreateExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})
             .HasError());

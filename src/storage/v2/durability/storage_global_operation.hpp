@@ -14,7 +14,7 @@
 namespace memgraph::storage::durability {
 
 /// Enum used to indicate a global database operation that isn't transactional.
-enum class StorageGlobalOperation {
+enum class StorageMetadataOperation {
   LABEL_INDEX_CREATE,
   LABEL_INDEX_DROP,
   LABEL_PROPERTY_INDEX_CREATE,

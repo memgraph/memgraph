@@ -14,6 +14,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -111,7 +112,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
 
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  utils::Synchronized<std::map<LabelId, utils::SkipList<Entry>>, utils::ReadPrioritizedRWLock> index_;
   std::map<LabelId, storage::LabelIndexStats> stats_;
 };
 

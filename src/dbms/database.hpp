@@ -60,6 +60,11 @@ class Database {
     return storage_->Access(override_isolation_level);
   }
 
+  std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
+      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
+    return storage_->UniqueAccess(override_isolation_level);
+  }
+
   /**
    * @brief Unique storage identified (name)
    *

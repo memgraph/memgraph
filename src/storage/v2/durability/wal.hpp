@@ -174,7 +174,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 /// Function used to encode non-transactional operation.
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
                      LabelId label, const std::set<PropertyId> &properties, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
@@ -204,7 +204,7 @@ class WalFile {
 
   void AppendTransactionEnd(uint64_t timestamp);
 
-  void AppendOperation(StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
+  void AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
                        uint64_t timestamp);
 
   void Sync();

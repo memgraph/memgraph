@@ -602,6 +602,15 @@ class DbAccessor final {
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const std::string &id() const { return accessor_->id(); }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label) {
+    return accessor_->CreateIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label,
+                                                                             storage::PropertyId property) {
+    return accessor_->CreateIndex(label, property);
+  }
 };
 
 class SubgraphDbAccessor final {

@@ -122,7 +122,10 @@ TYPED_TEST(QueryPlan, ScanAll) {
 
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
-  ASSERT_FALSE(this->db->CreateIndex(label).HasError());
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+  }
   {
     auto dba = this->db->Access();
     // Add some unlabeled vertices

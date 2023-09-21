@@ -308,7 +308,7 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
+void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                                     const std::set<PropertyId> &properties, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, timestamp);

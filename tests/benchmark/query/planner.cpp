@@ -94,7 +94,10 @@ static memgraph::query::CypherQuery *AddIndexedMatches(int num_matches, const st
 static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::storage::Storage *db) {
   auto label = db->NameToLabel("label");
   auto prop = db->NameToProperty("prop");
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  {
+    auto unique_acc = db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
   auto dba = db->Access();
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {

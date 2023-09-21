@@ -30,7 +30,10 @@ TEST(Storage, LabelIndex) {
   std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
 
   auto label = store->NameToLabel("label");
-  ASSERT_FALSE(store->CreateIndex(label).HasError());
+  {
+    auto unique_acc = store->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+  }
 
   std::vector<std::thread> verifiers;
   verifiers.reserve(kNumVerifiers);
@@ -112,7 +115,10 @@ TEST(Storage, LabelPropertyIndex) {
 
   auto label = store->NameToLabel("label");
   auto prop = store->NameToProperty("prop");
-  ASSERT_FALSE(store->CreateIndex(label, prop).HasError());
+  {
+    auto unique_acc = store->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(label, prop).HasError());
+  }
 
   std::vector<std::thread> verifiers;
   verifiers.reserve(kNumVerifiers);

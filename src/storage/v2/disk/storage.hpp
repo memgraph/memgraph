@@ -44,7 +44,7 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
-    explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
     /// TODO: const methods?
     void LoadVerticesToMainMemoryCache();
@@ -228,6 +228,10 @@ class DiskStorage final : public Storage {
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
                                                          const rocksdb::Slice &ts);
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                         std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
@@ -277,23 +281,13 @@ class DiskStorage final : public Storage {
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
     bool scanned_all_vertices_ = false;
-  };
+  };  // Accessor
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    auto isolation_level = override_isolation_level.value_or(isolation_level_);
-    if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-      throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
-    }
-    return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
-  }
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;

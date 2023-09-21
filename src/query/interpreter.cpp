@@ -114,20 +114,24 @@ extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
 }  // namespace memgraph::metrics
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
-    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit) {
+    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
   auto &db_acc = *db_acc_;
-  db_accessor_ = db_acc->Access(override_isolation_level);
-  execution_db_accessor_.emplace(db_accessor_.get());
+  if (unique) {
+    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level);
+  } else {
+    db_transactional_accessor_ = db_acc->Access(override_isolation_level);
+  }
+  execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
   if (db_acc->trigger_store()->HasTriggers() && could_commit) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
   }
 }
 void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
-  if (abort && db_accessor_) {
-    db_accessor_->Abort();
+  if (abort && db_transactional_accessor_) {
+    db_transactional_accessor_->Abort();
   }
-  db_accessor_.reset();
+  db_transactional_accessor_.reset();
   execution_db_accessor_.reset();
   trigger_context_collector_.reset();
 }
@@ -799,10 +803,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
   }
-}
-
-std::optional<std::string> StringPointerToOptional(const std::string *str) {
-  return str == nullptr ? std::nullopt : std::make_optional(*str);
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
@@ -2058,6 +2058,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
   // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
     auto access = plan_cache->access();
@@ -2091,12 +2094,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [storage, label, properties_stringified = std::move(properties_stringified),
+      handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? storage->CreateIndex(label) : storage->CreateIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -2171,7 +2173,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
-        return QueryHandlerResult::NOTHING;  // TODO: Will need to become COMMIT when we fix replication
+        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
       },
       RWType::W};
 }
@@ -3611,7 +3613,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     AdvanceCommand();
   } else {
     query_executions_.clear();
-    if (current_db_.db_accessor_ /* && !in_explicit_transaction_*/) {
+    if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open
       // transaction, abort it since we're about to prepare a new query.
       AbortCommand(nullptr);
@@ -3673,7 +3675,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     bool t1 = utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
               utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
               utils::Downcast<TriggerQuery>(parsed_query.query) ||
-              utils::Downcast<AnalyzeGraphQuery>(parsed_query.query);  // TODO: add stream+index
+              utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+              utils::Downcast<IndexQuery>(parsed_query.query);  // TODO: add stream+index
     //    auto t2 = UsesDatabases(parsed_query.query);
     // some visitor to get this from parsed_query.query
     // use DB     R/W
@@ -3684,7 +3687,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // analysis on parsed_query.query to figure out if db_access required
       // for now assume that is the current db (which either bolt set of is the default or using statement changed to)
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      SetupDatabaseTransaction(could_commit);
+      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr;
+      SetupDatabaseTransaction(could_commit, unique);
     }
     if (!t1) {
       // system clock....maybe not observable
@@ -3816,8 +3820,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     throw;
   }
 }
-void Interpreter::SetupDatabaseTransaction(bool couldCommit) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit);
+void Interpreter::SetupDatabaseTransaction(bool couldCommit, bool unique) {
+  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, unique);
 }
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
@@ -3858,7 +3862,7 @@ void Interpreter::Abort() {
 
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 
-  // if (!current_db_.db_accessor_) return;
+  // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);
   for (auto &qe : query_executions_) {
     if (qe) qe->CleanRuntimeData();
@@ -3941,7 +3945,7 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   current_transaction_.reset();
-  if (!current_db_.db_accessor_) return;
+  if (!current_db_.db_transactional_accessor_) return;
 
   // TODO: Better (or removed) check
   if (!current_db_.db_acc_) return;
@@ -3967,7 +3971,7 @@ void Interpreter::Commit() {
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
   auto current_storage_mode = db->GetStorageMode();
-  auto creation_mode = current_db_.db_accessor_->GetCreationStorageMode();
+  auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
   if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
       current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw QueryException(
@@ -4016,7 +4020,7 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_repplicas = true;
 
-  auto maybe_commit_error = current_db_.db_accessor_->Commit();
+  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 
@@ -4062,7 +4066,7 @@ void Interpreter::Commit() {
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([this, trigger_context = std::move(*trigger_context),
-                 user_transaction = std::shared_ptr(std::move(current_db_.db_accessor_))]() mutable {
+                 user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
       // TODO: Should this take the db_ and not Access()?
       RunTriggersAfterCommit(*current_db_.db_acc_, interpreter_context_, std::move(trigger_context),
                              &this->transaction_status_);
@@ -4078,8 +4082,8 @@ void Interpreter::Commit() {
 }
 
 void Interpreter::AdvanceCommand() {
-  if (!current_db_.db_accessor_) return;
-  current_db_.db_accessor_->AdvanceCommand();
+  if (!current_db_.db_transactional_accessor_) return;
+  current_db_.db_transactional_accessor_->AdvanceCommand();
 }
 
 void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution) {

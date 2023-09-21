@@ -29,24 +29,24 @@
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
-memgraph::storage::durability::WalDeltaData::Type StorageGlobalOperationToWalDeltaDataType(
-    memgraph::storage::durability::StorageGlobalOperation operation) {
+memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalDeltaDataType(
+    memgraph::storage::durability::StorageMetadataOperation operation) {
   switch (operation) {
-    case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
-    case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
-    case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
-    case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
-    case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
-    case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+    case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
-    case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+    case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
-    case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+    case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
   }
 }
@@ -210,7 +210,7 @@ class DeltaGenerator final {
     valid_ = false;
   }
 
-  void AppendOperation(memgraph::storage::durability::StorageGlobalOperation operation, const std::string &label,
+  void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
                        const std::set<std::string> properties = {}) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<memgraph::storage::PropertyId> property_ids;
@@ -221,20 +221,20 @@ class DeltaGenerator final {
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
-      data.type = StorageGlobalOperationToWalDeltaDataType(operation);
+      data.type = StorageMetadataOperationToWalDeltaDataType(operation);
       switch (operation) {
-        case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
-        case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
           data.operation_label.label = label;
           break;
-        case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
-        case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
-        case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
-        case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
           data.operation_label_property.property = *properties.begin();
-        case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
-        case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
       }
@@ -299,7 +299,7 @@ class DeltaGenerator final {
   }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define OPERATION(op, ...) gen.AppendOperation(memgraph::storage::durability::StorageGlobalOperation::op, __VA_ARGS__)
+#define OPERATION(op, ...) gen.AppendOperation(memgraph::storage::durability::StorageMetadataOperation::op, __VA_ARGS__)
 
 void AssertWalInfoEqual(const memgraph::storage::durability::WalInfo &a,
                         const memgraph::storage::durability::WalInfo &b) {

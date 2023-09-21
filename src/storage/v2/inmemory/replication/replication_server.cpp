@@ -477,8 +477,13 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         spdlog::trace("       Create label index on :{}", delta.operation_label.label);
         // Need to send the timestamp
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (storage->CreateIndex(storage->NameToLabel(delta.operation_label.label), timestamp).HasError())
+        // TODO: Double check this
+        auto access = storage->UniqueAccess({});
+        if (access->CreateIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction!");
+        if (access->Commit(timestamp).HasError()) {
+          throw 1;
+        }
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
@@ -492,11 +497,16 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         spdlog::trace("       Create label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (storage
+        // TODO: Double check this
+        auto access = storage->UniqueAccess({});
+        if (access
                 ->CreateIndex(storage->NameToLabel(delta.operation_label_property.label),
-                              storage->NameToProperty(delta.operation_label_property.property), timestamp)
+                              storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
           throw utils::BasicException("Invalid transaction!");
+        if (access->Commit(timestamp).HasError()) {
+          throw 1;
+        }
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {

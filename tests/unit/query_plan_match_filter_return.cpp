@@ -3081,7 +3081,10 @@ TYPED_TEST(QueryPlan, Distinct) {
 
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label);
+  }
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a vertex with a label and one without.
@@ -3138,7 +3141,11 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3244,7 +3251,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     ASSERT_TRUE(string_vertex.SetProperty(prop, memgraph::storage::PropertyValue("string")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3279,7 +3289,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3308,7 +3321,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3360,7 +3376,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3393,7 +3412,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3422,7 +3444,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3463,7 +3488,10 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
-  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
 
   // Make sure there are `vertex_count` vertices
   {

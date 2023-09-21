@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
 #include "storage/v2/inmemory/replication/replication_client.hpp"
@@ -187,9 +188,9 @@ InMemoryStorage::~InMemoryStorage() {
   }
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level,
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode)
-    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {}
+    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -651,7 +652,65 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  if (transaction_.deltas.use().empty()) {
+  if (!transaction_.md_deltas.empty()) {
+    // This is usually done by the MVCC, but it does not handle the metadata deltas
+    transaction_.EnsureCommitTimestampExists();
+
+    // Save these so we can mark them used in the commit log.
+    uint64_t start_timestamp = transaction_.start_timestamp;
+
+    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
+
+    // Write transaction to WAL while holding the engine lock to make sure
+    // that committed transactions are sorted by the commit timestamp in the
+    // WAL files. We supply the new commit timestamp to the function so that
+    // it knows what will be the final commit timestamp. The WAL must be
+    // written before actually committing the transaction (before setting
+    // the commit timestamp) so that no other transaction can see the
+    // modifications before they are written to disk.
+    // Replica can log only the write transaction received from Main
+    // so the Wal files are consistent
+    if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
+        desired_commit_timestamp.has_value()) {
+      for (const auto &md_delta : transaction_.md_deltas) {
+        switch (md_delta.action) {
+          case MetadataDelta::Action::LABEL_INDEX_CREATE: {
+            could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
+                durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label, {}, *commit_timestamp_);
+          } break;
+          case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
+            could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
+                durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, md_delta.label_property.label,
+                {md_delta.label_property.property}, *commit_timestamp_);
+          } break;
+          default:
+            break;
+        }
+      }
+      // Take committed_transactions lock while holding the engine lock to
+      // make sure that committed transactions are sorted by the commit
+      // timestamp in the list.
+      mem_storage->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
+        // TODO: release lock, and update all deltas to have a local copy
+        // of the commit timestamp
+        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+        // Replica can only update the last commit timestamp with
+        // the commits received from main.
+        if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
+            desired_commit_timestamp.has_value()) {
+          // Update the last commit timestamp
+          mem_storage->replication_state_.last_commit_timestamp_.store(*commit_timestamp_);
+        }
+        // Release engine lock because we don't have to hold it anymore
+        // and emplace back could take a long time.
+        engine_guard.unlock();
+      });
+
+      mem_storage->commit_log_->MarkFinished(start_timestamp);
+    }
+  } else if (transaction_.deltas.use().empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -951,50 +1010,48 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
-    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices_.label_index_.get());
-  if (!mem_label_index->CreateIndex(label, vertices_.access(), std::nullopt)) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label) {
+  if (!unique_guard_.owns_lock()) {
+    throw 1;
+  }
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
+  if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  const auto success =
-      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
-
-  if (success) {
-    return {};
-  }
-
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, property, vertices_.access(), std::nullopt)) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+    LabelId label, PropertyId property) {
+  if (!unique_guard_.owns_lock()) {
+    throw 1;
+  }
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
-                                           {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  return {};
 
-  if (success) {
-    return {};
-  }
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, label,
+  //                                          {property}, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // replication_state_.last_commit_timestamp_ = commit_timestamp;
 
-  return StorageIndexDefinitionError{ReplicationError{}};
+  // if (success) {
+  //   return {};
+  // }
+
+  // return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
@@ -1005,7 +1062,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success =
-      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
+      AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   replication_state_.last_commit_timestamp_ = commit_timestamp;
 
@@ -1028,7 +1085,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label,
+  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   replication_state_.last_commit_timestamp_ = commit_timestamp;
@@ -1059,7 +1116,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStor
   constraints_.existence_constraints_->InsertConstraint(label, property);
 
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
+  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   replication_state_.last_commit_timestamp_ = commit_timestamp;
@@ -1078,7 +1135,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
+  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP, label,
                                            {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   replication_state_.last_commit_timestamp_ = commit_timestamp;
@@ -1103,7 +1160,7 @@ InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId
     return ret.GetValue();
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
+  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE, label,
                                            properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   replication_state_.last_commit_timestamp_ = commit_timestamp;
@@ -1124,7 +1181,7 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
     return ret;
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP, label,
                                            properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   replication_state_.last_commit_timestamp_ = commit_timestamp;
@@ -1715,7 +1772,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   return replication_state_.FinalizeTransaction(final_commit_timestamp);
 }
 
-bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 const std::set<PropertyId> &properties,
                                                 uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) {

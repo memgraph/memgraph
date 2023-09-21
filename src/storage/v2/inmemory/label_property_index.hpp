@@ -13,6 +13,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -136,7 +137,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                     Constraints *constraints);
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>, utils::ReadPrioritizedRWLock>
+      index_;
   std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
   std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
 };

@@ -40,11 +40,12 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
                                              const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
+  auto create_index_seq = [](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
+                             std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it,
+                             auto &index) {
     using IndexAccessor = decltype(it->second.access());
 
-    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, property),
+    CreateIndexOnSingleThread(vertices, it, index, std::make_pair(label, property),
                               [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
                                 TryInsertLabelPropertyIndex(vertex, key, index_accessor);
                               });
@@ -53,13 +54,13 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   };
 
   auto create_index_par =
-      [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-             std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParallelizedIndexCreationInfo &parallel_exec_info) {
+      [](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
+         std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
+         const ParallelizedIndexCreationInfo &parallel_exec_info, auto &index) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
+            vertices, label_property_it, index, std::make_pair(label, property), parallel_exec_info,
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             });
@@ -67,10 +68,11 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
         return true;
       };
 
+  auto locked_index = index_.Lock();
   auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+      index_->emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
 
-  indices_by_property_[property].insert({label, &index_.at({label, property})});
+  indices_by_property_[property].insert({label, &it->second});
 
   if (!emplaced) {
     // Index already exists.
@@ -78,15 +80,16 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   }
 
   if (parallel_exec_info) {
-    return create_index_par(label, property, vertices, it, *parallel_exec_info);
+    return create_index_par(label, property, vertices, it, *parallel_exec_info, *locked_index);
   }
 
-  return create_index_seq(label, property, vertices, it);
+  return create_index_seq(label, property, vertices, it, *locked_index);
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
-  for (auto &[label_prop, storage] : index_) {
+  auto locked_index = index_.Lock();
+  for (auto &[label_prop, storage] : *locked_index) {
     if (label_prop.first != added_label) {
       continue;
     }
@@ -123,24 +126,28 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
     }
   }
 
-  return index_.erase({label, property}) > 0;
+  auto locked_index = index_.Lock();
+  return locked_index->erase({label, property}) > 0;
 }
 
 bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return index_.find({label, property}) != index_.end();
+  auto locked_index = index_.ReadLock();
+  return locked_index->find({label, property}) != locked_index->end();
 }
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, PropertyId>> ret;
-  ret.reserve(index_.size());
-  for (const auto &item : index_) {
+  auto locked_index = index_.ReadLock();
+  ret.reserve(index_->size());
+  for (const auto &item : *locked_index) {
     ret.push_back(item.first);
   }
   return ret;
 }
 
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
-  for (auto &[label_property, index] : index_) {
+  auto locked_index = index_.Lock();
+  for (auto &[label_property, index] : *locked_index) {
     auto index_acc = index.access();
     for (auto it = index_acc.begin(); it != index_acc.end();) {
       auto next_it = it;
@@ -350,15 +357,19 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = index_.ReadLock();
+  auto it = locked_index->find({label, property});
+  MG_ASSERT(it != locked_index->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   return it->second.size();
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                             const PropertyValue &value) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = index_.ReadLock();
+  auto it = locked_index->find({label, property});
+  MG_ASSERT(it != locked_index->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   auto acc = it->second.access();
   if (!value.IsNull()) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -377,8 +388,10 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, Prope
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = index_.ReadLock();
+  auto it = locked_index->find({label, property});
+  MG_ASSERT(it != locked_index->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   auto acc = it->second.access();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
@@ -421,7 +434,8 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  for (auto &index_entry : index_) {
+  auto locked_index = index_.Lock();
+  for (auto &index_entry : *locked_index) {
     index_entry.second.run_gc();
   }
 }
@@ -430,8 +444,10 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
     Constraints *constraints) {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = index_.Lock();
+  auto it = locked_index->find({label, property});
+  MG_ASSERT(it != locked_index->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   return {it->second.access(), label,    property,    lower_bound, upper_bound, view,
           transaction,         indices_, constraints, config_};
 }

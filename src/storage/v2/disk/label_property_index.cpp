@@ -61,7 +61,7 @@ DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, const Config &c
 
 bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                          const std::vector<std::pair<std::string, std::string>> &vertices) {
-  if (!index_.emplace(label, property).second) {
+  if (!index_->emplace(label, property).second) {
     return false;
   }
 
@@ -93,7 +93,8 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
       return false;
     }
   }
-  for (const auto &[index_label, index_property] : index_) {
+  auto locked_index = index_.ReadLock();
+  for (const auto &[index_label, index_property] : *locked_index) {
     if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
       if (!disk_transaction
                ->Put(utils::SerializeVertexAsKeyForLabelPropertyIndex(index_label, index_property, vertex.gid),
@@ -168,7 +169,8 @@ void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *verte
 
 void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                                                  const Transaction &tx) {
-  for (const auto &index_entry : index_) {
+  auto locked_index = index_.Lock();
+  for (const auto &index_entry : *locked_index) {
     if (index_entry.first != removed_label) {
       continue;
     }
@@ -189,15 +191,17 @@ void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Prop
                                                  const Transaction &tx) {}
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  return index_.erase({label, property}) > 0;
+  return index_->erase({label, property}) > 0;
 }
 
 bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return utils::Contains(index_, std::make_pair(label, property));
+  auto locked_index = index_.ReadLock();
+  return utils::Contains(*locked_index, std::make_pair(label, property));
 }
 
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
-  return {index_.begin(), index_.end()};
+  auto locked_index = index_.ReadLock();
+  return {index_->begin(), index_->end()};
 }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const { return 10; }
@@ -214,15 +218,16 @@ uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
 }
 
 void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys) {
+  auto locked_index = index_.Lock();
   for (const auto &label_property : keys) {
     std::vector<std::string> label_property_split = utils::Split(label_property, ",");
-    index_.emplace(
+    locked_index->emplace(
         std::make_pair(LabelId::FromString(label_property_split[0]), PropertyId::FromString(label_property_split[1])));
   }
 }
 
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
-std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
+std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return *index_.ReadLock(); }
 
 }  // namespace memgraph::storage

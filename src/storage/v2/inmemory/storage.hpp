@@ -64,7 +64,8 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                              StorageMode storage_mode);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -253,6 +254,22 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `IndexDefinitionError`: the index already exists.
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index already exists.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
@@ -281,27 +298,14 @@ class InMemoryStorage final : public Storage {
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    return std::unique_ptr<InMemoryAccessor>(
-        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+        Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
   }
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `IndexDefinitionError`: the index already exists.
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// @throw std::bad_alloc
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index already exists.
-  /// @throw std::bad_alloc
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override {
+    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+        Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+  }
 
   /// Drop an existing index.
   /// Returns void if the index has been dropped.
@@ -400,7 +404,7 @@ class InMemoryStorage final : public Storage {
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
