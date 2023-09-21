@@ -2894,6 +2894,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
       handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
         auto info = db->GetInfo();
+
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(db->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -2901,11 +2902,10 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("memory_allocated"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("old_jemalloc_memory_allocated"), TypedValue(utils::GetReadableSize(static_cast<double>(
+                                                              utils::old_jemalloc_total_memory_tracker.Amount())))},
             {TypedValue("jemalloc_memory_allocated"),
-             TypedValue(utils::GetReadableSize(
-                 static_cast<double>(memgraph::memory::allocated_memory.load(std::memory_order_relaxed))))},
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
@@ -2976,7 +2976,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
-
+                         memgraph::memory::PrintStats();
                          if (pull_plan->Pull(stream, n)) {
                            return action;
                          }

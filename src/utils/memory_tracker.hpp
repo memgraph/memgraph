@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@ class OutOfMemoryException : public utils::BasicException {
 class MemoryTracker final {
  private:
   std::atomic<int64_t> amount_{0};
+  std::atomic<int64_t> amount_virt_{0};
   std::atomic<int64_t> peak_{0};
   std::atomic<int64_t> hard_limit_{0};
   // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
@@ -48,7 +49,11 @@ class MemoryTracker final {
   void Alloc(int64_t size);
   void Free(int64_t size);
 
+  void AllocVirt(int64_t size);
+  void FreeVirt(int64_t size);
+
   auto Amount() const { return amount_.load(std::memory_order_relaxed); }
+  auto AmountVirt() const { return amount_virt_.load(std::memory_order_relaxed); }
 
   auto Peak() const { return peak_.load(std::memory_order_relaxed); }
 
@@ -98,4 +103,7 @@ class MemoryTracker final {
 
 // Global memory tracker which tracks every allocation in the application.
 extern MemoryTracker total_memory_tracker;
+
+// Global memory tracker which tracks every allocation in the application.
+extern MemoryTracker old_jemalloc_total_memory_tracker;
 }  // namespace memgraph::utils

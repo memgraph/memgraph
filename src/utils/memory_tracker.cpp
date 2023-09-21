@@ -44,6 +44,8 @@ bool MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() { return counter_ >
 
 MemoryTracker total_memory_tracker;
 
+MemoryTracker old_jemalloc_total_memory_tracker;
+
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution
 // should be used.
@@ -102,7 +104,7 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
 
-  const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
+  // const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
   // if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
   //   MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
@@ -115,9 +117,13 @@ void MemoryTracker::Alloc(const int64_t size) {
   //                   GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   // }
 
-  UpdatePeak(will_be);
+  // UpdatePeak(will_be);
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+
+void MemoryTracker::AllocVirt(const int64_t size) { amount_virt_.fetch_add(size, std::memory_order_relaxed); }
+
+void MemoryTracker::FreeVirt(const int64_t size) { amount_virt_.fetch_sub(size, std::memory_order_relaxed); }
 
 }  // namespace memgraph::utils
