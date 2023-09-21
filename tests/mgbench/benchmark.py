@@ -74,6 +74,19 @@ WARMUP_TO_HOT_QUERIES = [
     ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
 ]
 
+SETUP_AUTH_QUERIES = [
+    ("CREATE USER user IDENTIFIED BY 'test';", {}),
+    ("GRANT ALL PRIVILEGES TO user;", {}),
+    ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
+    ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
+]
+
+CLEANUP_AUTH_QUERIES = [
+    ("REVOKE LABELS * FROM user;", {}),
+    ("REVOKE EDGE_TYPES * FROM user;", {}),
+    ("DROP USER user;", {}),
+]
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
@@ -618,17 +631,10 @@ def save_to_results(results, ret, workload, group, query, authorization_mode):
 
 def run_isolated_workload_with_authorization(vendor_runner, client, queries, group, workload):
     log.init("Running isolated workload with authorization")
-    log.info("Setting USER and PRIVILEGES...")
-    vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
-    client.execute(
-        queries=[
-            ("CREATE USER user IDENTIFIED BY 'test';", {}),
-            ("GRANT ALL PRIVILEGES TO user;", {}),
-            ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
-            ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
-        ]
-    )
 
+    log.info("Running preprocess AUTH queries")
+    vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
+    client.execute(queries=SETUP_AUTH_QUERIES)
     client.set_credentials(username=USERNAME, password=PASSWORD)
     vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
 
@@ -647,23 +653,17 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
+
         ret[DATABASE] = usage
         log_metrics_summary(ret, usage)
         log_metadata_summary(ret)
         log.success("Throughput: {:02f} QPS".format(ret[THROUGHPUT]))
-
         save_to_results(results, ret, workload, group, query, WITH_FINE_GRAINED_AUTHORIZATION)
 
-        log.info("Deleting USER and PRIVILEGES...")
-        vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
-        ret = client.execute(
-            queries=[
-                ("REVOKE LABELS * FROM user;", {}),
-                ("REVOKE EDGE_TYPES * FROM user;", {}),
-                ("DROP USER user;", {}),
-            ]
-        )
-        vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
+    vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
+    log.info("Running cleanup of auth queries")
+    ret = client.execute(queries=CLEANUP_AUTH_QUERIES)
+    vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
 
 
 def run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload):
