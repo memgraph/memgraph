@@ -34,6 +34,8 @@ class BenchmarkContext:
         no_load_query_counts: bool = False,
         no_save_query_counts: bool = False,
         export_results: str = None,
+        export_results_in_memory_analytical: str = None,
+        export_results_on_disk_txn: str = None,
         temporary_directory: str = None,
         workload_mixed: str = None,  # Default mode is isolated, mixed None
         workload_realistic: str = None,  # Default mode is isolated, realistic None
@@ -57,6 +59,8 @@ class BenchmarkContext:
         self.no_load_query_counts = no_load_query_counts
         self.no_save_query_counts = no_save_query_counts
         self.export_results = export_results
+        self.export_results_in_memory_analytical = export_results_in_memory_analytical
+        self.export_results_on_disk_txn = export_results_on_disk_txn
         self.temporary_directory = temporary_directory
 
         assert (
