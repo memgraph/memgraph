@@ -1555,6 +1555,8 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (!transaction_.md_deltas.empty()) {
+    // This is usually done by the MVCC, but it does not handle the metadata deltas
+    transaction_.EnsureCommitTimestampExists();
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
@@ -1782,7 +1784,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label) {
-  if (!unique_guard_.owns_lock()) {
+  if (!unique_grant_) {
     throw 1;
   }
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -1798,7 +1800,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
                                                                                              PropertyId property) {
-  if (!unique_guard_.owns_lock()) {
+  if (!unique_grant_) {
     throw 1;
   }
   auto *on_disk = static_cast<DiskStorage *>(storage_);

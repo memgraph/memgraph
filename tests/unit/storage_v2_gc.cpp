@@ -173,6 +173,7 @@ TEST(StorageV2Gc, Indices) {
   {
     auto unique_acc = storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {

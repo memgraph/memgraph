@@ -70,7 +70,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
 
   auto locked_index = index_.Lock();
   auto [it, emplaced] =
-      index_->emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+      locked_index->emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
 
   indices_by_property_[property].insert({label, &it->second});
 
@@ -138,7 +138,7 @@ bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property)
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, PropertyId>> ret;
   auto locked_index = index_.ReadLock();
-  ret.reserve(index_->size());
+  ret.reserve(locked_index->size());
   for (const auto &item : *locked_index) {
     ret.push_back(item.first);
   }

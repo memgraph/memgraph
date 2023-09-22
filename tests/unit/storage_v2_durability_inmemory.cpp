@@ -78,11 +78,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et2 = store->NameToEdgeType("base_et2");
 
     {
-      auto unique_acc = store->UniqueAccess();
       // Create label index.
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
       // Create label+property index.
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create existence constraint.
@@ -145,11 +150,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et4 = store->NameToEdgeType("extended_et4");
 
     {
-      auto unique_acc = store->UniqueAccess();
       // Create label index.
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
       // Create label+property index.
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create existence constraint.

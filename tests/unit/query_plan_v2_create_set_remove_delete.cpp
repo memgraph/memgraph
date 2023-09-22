@@ -125,6 +125,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
     auto dba = this->db->Access();

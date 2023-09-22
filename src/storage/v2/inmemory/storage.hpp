@@ -297,15 +297,9 @@ class InMemoryStorage final : public Storage {
     Transaction &GetTransaction() { return transaction_; }
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-        Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
-  }
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override {
-    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-        Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
-  }
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
   /// Drop an existing index.
   /// Returns void if the index has been dropped.

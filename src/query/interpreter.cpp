@@ -2058,7 +2058,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
-  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  // TODO: Enable when all are supported
+  MG_ASSERT(index_query->action_ != IndexQuery::Action::CREATE || current_db.db_transactional_accessor_,
+            "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
   // Creating an index influences computed plan costs.
@@ -3671,12 +3673,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
 
+    // TODO: Update as more are supported
+    const auto *tmp = utils::Downcast<IndexQuery>(parsed_query.query);
+    bool supported_index_query = tmp != nullptr && tmp->action_ == IndexQuery::Action::CREATE;
+
     // Some queries require an active transaction in order to be prepared.
     bool t1 = utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
               utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
               utils::Downcast<TriggerQuery>(parsed_query.query) ||
               utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-              utils::Downcast<IndexQuery>(parsed_query.query);  // TODO: add stream+index
+              supported_index_query;  // TODO: add stream+index
     //    auto t2 = UsesDatabases(parsed_query.query);
     // some visitor to get this from parsed_query.query
     // use DB     R/W
@@ -3687,7 +3693,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // analysis on parsed_query.query to figure out if db_access required
       // for now assume that is the current db (which either bolt set of is the default or using statement changed to)
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr;
+      bool unique = supported_index_query;
       SetupDatabaseTransaction(could_commit, unique);
     }
     if (!t1) {

@@ -1011,7 +1011,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label) {
-  if (!unique_guard_.owns_lock()) {
+  if (!unique_grant_) {
     throw 1;
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1027,7 +1027,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, PropertyId property) {
-  if (!unique_guard_.owns_lock()) {
+  if (!unique_grant_) {
     throw 1;
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1040,18 +1040,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
-
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, label,
-  //                                          {property}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // replication_state_.last_commit_timestamp_ = commit_timestamp;
-
-  // if (success) {
-  //   return {};
-  // }
-
-  // return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
@@ -1899,4 +1887,13 @@ std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
   return std::make_unique<InMemoryReplicationServer>(this, config);
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+}
+std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
+    std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+}
 }  // namespace memgraph::storage

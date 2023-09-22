@@ -233,8 +233,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     {
       auto unique_acc = main_store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(main_store->NameToLabel(label)).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = main_store->UniqueAccess();
       ASSERT_FALSE(
           unique_acc->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     ASSERT_FALSE(
         main_store->CreateExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})

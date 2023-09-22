@@ -106,6 +106,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -195,6 +196,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -229,6 +231,7 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
@@ -265,7 +268,12 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -333,7 +341,12 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -376,7 +389,12 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc_before = this->storage->Access();
@@ -412,7 +430,12 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
+    }
+    {
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
     auto acc = this->storage->Access();
@@ -431,6 +454,7 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -454,6 +478,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -477,6 +502,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -505,6 +531,7 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
@@ -537,6 +564,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
@@ -552,6 +580,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_TRUE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   EXPECT_THAT(this->storage->ListAllIndices().label_property,
@@ -560,6 +589,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_id).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -597,7 +627,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -687,6 +722,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -733,6 +769,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc_before = this->storage->Access();
@@ -775,6 +812,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -848,6 +886,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
     auto acc = this->storage->Access();
@@ -875,6 +914,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
@@ -1086,6 +1126,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
 
@@ -1118,6 +1159,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
 
@@ -1149,6 +1191,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
 
@@ -1181,6 +1224,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
