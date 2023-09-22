@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 def parse_args():
     argp = ArgumentParser(description=__doc__)
     argp.add_argument("--benchmark-name", type=str, required=True)
-    argp.add_argument("--benchmark-results-in-memory-txn-path", type=str, required=True)
+    argp.add_argument("--benchmark-results", type=str, required=True)
     argp.add_argument("--benchmark-results-in-memory-analytical-path", type=str, required=False)
     argp.add_argument("--benchmark-results-on-disk-txn-path", type=str, required=False)
     argp.add_argument("--github-run-id", type=int, required=True)
@@ -39,7 +39,7 @@ def parse_args():
 
 def post_measurement(args):
     timestamp = datetime.now().timestamp()
-    with open(args.benchmark_results_in_memory_txn_path, "r") as in_memory_txn_file:
+    with open(args.benchmark_results, "r") as in_memory_txn_file:
         in_memory_txn_data = json.load(in_memory_txn_file)
 
     with open(args.benchmark_results_in_memory_analytical_path, "r") as in_memory_analytical_file:
