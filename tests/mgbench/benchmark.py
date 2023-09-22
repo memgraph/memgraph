@@ -71,10 +71,6 @@ CACHE = "cache"
 DISK_PREPARATION_RSS = "disk_storage_preparation"
 IN_MEMORY_ANALYTICAL_RSS = "in_memory_analytical_preparation"
 
-IN_MEMORY_ANALYTICAL = "IN_MEMORY_ANALYTICAL"
-IN_MEMORY_TRANSACTIONAL = "IN_MEMORY_TRANSACTIONAL"
-ON_DISK_TRANSACTIONAL = "ON_DISK_TRANSACTIONAL"
-
 
 WARMUP_TO_HOT_QUERIES = [
     ("CREATE ();", {}),
@@ -537,24 +533,23 @@ def log_benchmark_summary(results: Dict):
     log.init("~" * 45)
     log.log("\n")
     log.summary("Benchmark summary")
-    log.log("-" * 130)
-    log.summary("{:<30} {:<20} {:>30} {:>30}".format("Storage mode", "Query name", "Throughput", "Peak Memory usage"))
+    log.log("-" * 90)
+    log.summary("{:<20} {:>30} {:>30}".format("Query name", "Throughput", "Peak Memory usage"))
     for dataset, variants in results.items():
         if dataset == RUN_CONFIGURATION:
             continue
         for groups in variants.values():
-            for group, group_info in groups.items():
+            for group, queries in groups.items():
                 if group == IMPORT:
                     continue
-                for storage_mode, queries_info in group_info.items():
-                    for query, auth_info in queries_info.items():
-                        for value in auth_info.values():
-                            log.log("-" * 130)
-                            log.summary(
-                                "{:<25} {:<20} {:>26.2f} QPS {:>27.2f} MB".format(
-                                    storage_mode, query, value[THROUGHPUT], value[DATABASE][MEMORY] / (1024.0 * 1024.0)
-                                )
+                for query, auth in queries.items():
+                    for value in auth.values():
+                        log.log("-" * 90)
+                        log.summary(
+                            "{:<20} {:>26.2f} QPS {:>27.2f} MB".format(
+                                query, value[THROUGHPUT], value[DATABASE][MEMORY] / (1024.0 * 1024.0)
                             )
+                        )
     log.log("-" * 90)
 
 
@@ -648,19 +643,18 @@ def log_output_summary(benchmark_context, ret, usage, funcname, sample_query):
     log.success("Throughput: {:02f} QPS\n\n".format(ret[THROUGHPUT]))
 
 
-def save_to_results(results, ret, storage_mode, workload, group, query, authorization_mode):
+def save_to_results(results, ret, workload, group, query, authorization_mode):
     results_key = [
         workload.NAME,
         workload.get_variant(),
         group,
-        storage_mode,
         query,
-        authorization_mode,
+        WITH_FINE_GRAINED_AUTHORIZATION,
     ]
     results.set_value(*results_key, value=ret)
 
 
-def run_isolated_workload_with_authorization(vendor_runner, client, queries, group, workload, storage_mode):
+def run_isolated_workload_with_authorization(vendor_runner, client, queries, group, workload):
     log.init("Running isolated workload with authorization")
 
     log.info("Running preprocess AUTH queries")
@@ -689,7 +683,7 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
         log_metrics_summary(ret, usage)
         log_metadata_summary(ret)
         log.success("Throughput: {:02f} QPS".format(ret[THROUGHPUT]))
-        save_to_results(results, ret, storage_mode, workload, group, query, WITH_FINE_GRAINED_AUTHORIZATION)
+        save_to_results(results, ret, workload, group, query, WITH_FINE_GRAINED_AUTHORIZATION)
 
     vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
     log.info("Running cleanup of auth queries")
@@ -697,7 +691,7 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
     vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
 
 
-def run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload, storage_mode):
+def run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload):
     log.init("Running isolated workload without authorization")
     for query, funcname in queries[group]:
         log.init(
@@ -734,7 +728,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         ret[DATABASE] = usage
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
 
-        save_to_results(results, ret, storage_mode, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
+        save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload):
@@ -767,7 +761,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     return import_results, rss_usage
 
 
-def run_target_workload(benchmark_context, storage_mode, workload, bench_queries, vendor_runner, client):
+def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client):
     generated_queries = workload.dataset_generator()
     import_results, rss_usage = setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload)
     save_import_results(workload, results, import_results, rss_usage)
@@ -779,14 +773,10 @@ def run_target_workload(benchmark_context, storage_mode, workload, bench_queries
         elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
             realistic_workload(vendor_runner, client, workload, group, bench_queries, benchmark_context)
         else:
-            run_isolated_workload_without_authorization(
-                vendor_runner, client, bench_queries, group, workload, storage_mode
-            )
+            run_isolated_workload_without_authorization(vendor_runner, client, bench_queries, group, workload)
 
         if benchmark_context.no_authorization:
-            run_isolated_workload_with_authorization(
-                vendor_runner, client, bench_queries, group, workload, storage_mode
-            )
+            run_isolated_workload_with_authorization(vendor_runner, client, bench_queries, group, workload)
 
 
 # TODO: (andi) Reorder functions in top-down notion in order to improve readibility
@@ -797,42 +787,36 @@ def run_target_workloads(benchmark_context, target_workloads):
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
+        log.info("Running benchmarks for IN-MEMORY TRANSACTIONAL storage mode.")
         in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
         run_target_workload(
-            benchmark_context,
-            IN_MEMORY_TRANSACTIONAL.lower(),
-            workload,
-            bench_queries,
-            in_memory_txn_vendor_runner,
-            in_memory_txn_client,
+            benchmark_context, workload, bench_queries, in_memory_txn_vendor_runner, in_memory_txn_client
         )
-        log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
+        log.info("Finished running benchmarks for IN-MEMORY TRANSACTIONAL storage mode.")
 
         # if benchmark_context.disk_storage:
-        #   log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
+        #   log.info("Running benchmarks for ON-DISK TRANSACTIONAL storage mode.")
         #   disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
         #   disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
         #   disk_client.execute(queries=SETUP_DISK_STORAGE)
         #   disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
-        #   run_target_workload(benchmark_context, ON_DISK_TRANSACTIONAL.lower(), workload, bench_queries, disk_vendor_runner, disk_client)
-        #   log.info(f"Finished running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
+        #   run_target_workload(benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client)
+        #   log.info("Finished running benchmarks for ON-DISK TRANSACTIONAL storage mode.")
 
         if benchmark_context.in_memory_analytical:
-            log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
+            log.info("Running benchmarks for IN-MEMORY ANALYTICAL storage mode.")
             in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
             in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
             in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
             in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
             run_target_workload(
                 benchmark_context,
-                IN_MEMORY_ANALYTICAL.lower(),
                 workload,
                 bench_queries,
                 in_memory_analytical_vendor_runner,
                 in_memory_analytical_client,
             )
-            log.info(f"Finished running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
+            log.info("Finished running benchmarks for IN-MEMORY ANALYTICAL storage mode.")
 
 
 def client_runner_factory(benchmark_context):
@@ -919,8 +903,8 @@ if __name__ == "__main__":
     if not benchmark_context.no_save_query_counts:
         cache.save_config(config)
 
+    log_benchmark_summary(results.get_data())
+
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
             json.dump(results.get_data(), f)
-
-    log_benchmark_summary(results.get_data())
