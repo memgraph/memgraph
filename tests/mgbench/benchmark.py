@@ -71,6 +71,8 @@ CACHE = "cache"
 DISK_PREPARATION_RSS = "disk_storage_preparation"
 IN_MEMORY_ANALYTICAL_RSS = "in_memory_analytical_preparation"
 
+IN_MEMORY_TRANSACTIONAL = "IN_MEMORY_TRANSACTIONAL"
+
 
 WARMUP_TO_HOT_QUERIES = [
     ("CREATE ();", {}),
@@ -649,7 +651,7 @@ def save_to_results(results, ret, workload, group, query, authorization_mode):
         workload.get_variant(),
         group,
         query,
-        WITH_FINE_GRAINED_AUTHORIZATION,
+        authorization_mode,
     ]
     results.set_value(*results_key, value=ret)
 
@@ -787,36 +789,12 @@ def run_target_workloads(benchmark_context, target_workloads):
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        log.info("Running benchmarks for IN-MEMORY TRANSACTIONAL storage mode.")
+        log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
         in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
         run_target_workload(
             benchmark_context, workload, bench_queries, in_memory_txn_vendor_runner, in_memory_txn_client
         )
-        log.info("Finished running benchmarks for IN-MEMORY TRANSACTIONAL storage mode.")
-
-        # if benchmark_context.disk_storage:
-        #   log.info("Running benchmarks for ON-DISK TRANSACTIONAL storage mode.")
-        #   disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
-        #   disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
-        #   disk_client.execute(queries=SETUP_DISK_STORAGE)
-        #   disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
-        #   run_target_workload(benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client)
-        #   log.info("Finished running benchmarks for ON-DISK TRANSACTIONAL storage mode.")
-
-        if benchmark_context.in_memory_analytical:
-            log.info("Running benchmarks for IN-MEMORY ANALYTICAL storage mode.")
-            in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
-            in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
-            in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
-            in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
-            run_target_workload(
-                benchmark_context,
-                workload,
-                bench_queries,
-                in_memory_analytical_vendor_runner,
-                in_memory_analytical_client,
-            )
-            log.info("Finished running benchmarks for IN-MEMORY ANALYTICAL storage mode.")
+        log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
 
 
 def client_runner_factory(benchmark_context):
