@@ -425,7 +425,8 @@ jobs:
       - name: Run mgbench
         run: |
           cd tests/mgbench
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json --export-results-in-memory-analytical results_in_memory_analytical.json
+          --export-results-on-disk-txn results_on_disk_txn.json pokec/medium/*/*
 
       - name: Upload mgbench results
         run: |
@@ -435,6 +436,8 @@ jobs:
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
                     --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --benchmark-results-in-memory-analytical-path "../../tests/mgbench/results_in_memory_analytical.json" \
+                    --benchmark-results-on-disk-txn-path "../../tests/mgbench/results_on_disk_txn.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
