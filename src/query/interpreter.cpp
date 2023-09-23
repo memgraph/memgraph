@@ -1788,16 +1788,17 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.execution_db_accessor_, "Dump query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-  return PreparedQuery{{"QUERY"},
-                       std::move(parsed_query.required_privileges),
-                       [pull_plan = std::make_shared<PullPlanDump>(dba)](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::R};
+  auto plan = std::make_shared<PullPlanDump>(dba);
+  return PreparedQuery{
+      {"QUERY"},
+      std::move(parsed_query.required_privileges),
+      [pull_plan = std::move(plan)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::R};
 }
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
@@ -3588,7 +3589,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 QueryExtras const &extras) {
   // TODO: Remove once the interpreter is storage/tx independent and could run without an associated database
-  if (!current_db_.db_acc_) throw DatabaseContextRequiredException("Database required for the query.");
+  if (!current_db_.db_acc_) {
+    throw DatabaseContextRequiredException("Database required for the query.");
+  }
 
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
@@ -3634,7 +3637,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     CypherQuery const *const cypher_query = [&]() -> CypherQuery * {
       if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
         return cypher_query;
-      } else if (auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query)) {
+      }
+      if (auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query)) {
         return profile_query->cypher_query_;
       }
       return nullptr;

@@ -482,7 +482,7 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         if (access->CreateIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction!");
         if (access->Commit(timestamp).HasError()) {
-          throw 1;
+          throw utils::BasicException("Failed to commit!");
         }
         break;
       }
@@ -505,7 +505,7 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
                 .HasError())
           throw utils::BasicException("Invalid transaction!");
         if (access->Commit(timestamp).HasError()) {
-          throw 1;
+          throw utils::BasicException("Failed to commit!");
         }
         break;
       }

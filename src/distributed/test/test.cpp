@@ -20,10 +20,10 @@ int main() try {
   auto sut_m2 = mgd::LamportClock<test_tag>{};
   auto ts1 = sut_m1.get_timestamp(mgd::internal);
   auto ts2 = sut_m1.get_timestamp(mgd::internal);
-  if (!(ts1 < ts2)) throw __LINE__;
+  if (!(ts1 < ts2)) throw __LINE__;  // NOLINT
   auto ts3 = sut_m1.get_timestamp(mgd::send);
   auto ts4 = sut_m2.get_timestamp(mgd::receive, ts3);
-  if (!(ts3 < ts4)) throw __LINE__;
+  if (!(ts3 < ts4)) throw __LINE__;  // NOLINT
 } catch (int line) {
   std::cerr << "not correct, line: " << line << '\n';
   return EXIT_FAILURE;
