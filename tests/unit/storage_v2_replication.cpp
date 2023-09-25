@@ -252,7 +252,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    const auto indices = replica_store->ListAllIndices();
+    const auto indices = replica_store->Access()->ListAllIndices();
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica_store->NameToLabel(label)));
     ASSERT_THAT(indices.label_property, UnorderedElementsAre(std::make_pair(replica_store->NameToLabel(label),
                                                                             replica_store->NameToProperty(property))));
@@ -294,7 +294,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 
   {
-    const auto indices = replica_store->ListAllIndices();
+    const auto indices = replica_store->Access()->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
 

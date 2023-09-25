@@ -111,21 +111,21 @@ TEST_F(TestPrivilegeExtractor, AuthQuery) {
 #endif
 
 TEST_F(TestPrivilegeExtractor, ShowIndexInfo) {
-  auto *query = storage.Create<InfoQuery>();
-  query->info_type_ = InfoQuery::InfoType::INDEX;
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::INDEX));
+  auto *db_query = storage.Create<DatabaseInfoQuery>();
+  db_query->info_type_ = DatabaseInfoQuery::InfoType::INDEX;
+  EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::INDEX));
 }
 
 TEST_F(TestPrivilegeExtractor, ShowStatsInfo) {
-  auto *query = storage.Create<InfoQuery>();
-  query->info_type_ = InfoQuery::InfoType::STORAGE;
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
+  auto *db_query = storage.Create<DatabaseInfoQuery>();
+  db_query->info_type_ = DatabaseInfoQuery::InfoType::STORAGE;
+  EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
 }
 
 TEST_F(TestPrivilegeExtractor, ShowConstraintInfo) {
-  auto *query = storage.Create<InfoQuery>();
-  query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
+  auto *db_query = storage.Create<DatabaseInfoQuery>();
+  db_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
+  EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
 }
 
 TEST_F(TestPrivilegeExtractor, CreateConstraint) {

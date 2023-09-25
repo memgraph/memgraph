@@ -1,411 +1,962 @@
 /*
- * Copyright (c) 2015-2016 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2015-2016 "Neo Technology," Network Engine for Objects in Lund AB
+ * [http://neotechnology.com]
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
  */
 
 parser grammar Cypher;
 
-options { tokenVocab=CypherLexer; }
+options {
+	tokenVocab = CypherLexer;
+}
 
-cypher : statement ';'? EOF ;
+cypher: statement ';'? EOF;
 
-statement : query ;
+statement: query;
 
-query : cypherQuery
-      | indexQuery
-      | explainQuery
-      | profileQuery
-      | infoQuery
-      | constraintQuery
-      ;
+query:
+	cypherQuery
+	| indexQuery
+	| explainQuery
+	| profileQuery
+	| databaseInfoQuery
+	| systemInfoQuery
+	| constraintQuery;
 
-constraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+constraintQuery: ( CREATE | DROP) CONSTRAINT ON constraint;
 
-constraint : '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
-           | '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
-           | '(' nodeName=variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY
-           ;
+constraint:
+	'(' nodeName = variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
+	| '(' nodeName = variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
+	| '(' nodeName = variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY;
 
-constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
+constraintPropertyList:
+	variable propertyLookup (',' variable propertyLookup)*;
 
-storageInfo : STORAGE INFO ;
+storageInfo: STORAGE INFO;
 
-indexInfo : INDEX INFO ;
+indexInfo: INDEX INFO;
 
-constraintInfo : CONSTRAINT INFO ;
+constraintInfo: CONSTRAINT INFO;
 
-buildInfo : BUILD INFO ;
+buildInfo: BUILD INFO;
 
-infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo | buildInfo) ;
+databaseInfoQuery:
+	SHOW (storageInfo | indexInfo | constraintInfo);
 
-explainQuery : EXPLAIN cypherQuery ;
+systemInfoQuery: buildInfo;
 
-profileQuery : PROFILE cypherQuery ;
+explainQuery: EXPLAIN cypherQuery;
 
-cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+profileQuery: PROFILE cypherQuery;
 
-indexQuery : createIndex | dropIndex;
+cypherQuery: singleQuery ( cypherUnion)* ( queryMemoryLimit)?;
 
-singleQuery : clause ( clause )* ;
+indexQuery: createIndex | dropIndex;
 
-cypherUnion : ( UNION ALL singleQuery )
-            | ( UNION singleQuery )
-            ;
+singleQuery: clause ( clause)*;
 
-clause : cypherMatch
-       | unwind
-       | merge
-       | create
-       | set
-       | cypherDelete
-       | remove
-       | with
-       | cypherReturn
-       | callProcedure
-       ;
+cypherUnion: ( UNION ALL singleQuery) | ( UNION singleQuery);
 
-cypherMatch : OPTIONAL? MATCH pattern where? ;
+clause:
+	cypherMatch
+	| unwind
+	| merge
+	| create
+	| set
+	| cypherDelete
+	| remove
+	| with
+	| cypherReturn
+	| callProcedure;
 
-unwind : UNWIND expression AS variable ;
+cypherMatch: OPTIONAL? MATCH pattern where?;
 
-merge : MERGE patternPart ( mergeAction )* ;
+unwind: UNWIND expression AS variable;
 
-mergeAction : ( ON MATCH set )
-            | ( ON CREATE set )
-            ;
+merge: MERGE patternPart ( mergeAction)*;
 
-create : CREATE pattern ;
+mergeAction: ( ON MATCH set) | ( ON CREATE set);
 
-set : SET setItem ( ',' setItem )* ;
+create: CREATE pattern;
 
-setItem : ( propertyExpression '=' expression )
-        | ( variable '=' expression )
-        | ( variable '+=' expression )
-        | ( variable nodeLabels )
-        ;
+set: SET setItem ( ',' setItem)*;
 
-cypherDelete : DETACH? DELETE expression ( ',' expression )* ;
+setItem: (propertyExpression '=' expression)
+	| ( variable '=' expression)
+	| ( variable '+=' expression)
+	| ( variable nodeLabels);
 
-remove : REMOVE removeItem ( ',' removeItem )* ;
+cypherDelete: DETACH? DELETE expression ( ',' expression)*;
 
-removeItem : ( variable nodeLabels )
-           | propertyExpression
-           ;
+remove: REMOVE removeItem ( ',' removeItem)*;
 
-with : WITH ( DISTINCT )? returnBody ( where )? ;
+removeItem: ( variable nodeLabels) | propertyExpression;
 
-cypherReturn : RETURN ( DISTINCT )? returnBody ;
+with: WITH ( DISTINCT)? returnBody ( where)?;
 
-callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( procedureMemoryLimit )? ( yieldProcedureResults )? ;
+cypherReturn: RETURN ( DISTINCT)? returnBody;
 
-procedureName : symbolicName ( '.' symbolicName )* ;
+callProcedure:
+	CALL procedureName '(' (expression ( ',' expression)*)? ')' (
+		procedureMemoryLimit
+	)? (yieldProcedureResults)?;
 
-yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
+procedureName: symbolicName ( '.' symbolicName)*;
 
-memoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
+yieldProcedureResults:
+	YIELD ('*' | ( procedureResult ( ',' procedureResult)*));
 
-queryMemoryLimit : QUERY memoryLimit ;
+memoryLimit: MEMORY ( UNLIMITED | LIMIT literal ( MB | KB));
 
-procedureMemoryLimit : PROCEDURE memoryLimit ;
+queryMemoryLimit: QUERY memoryLimit;
 
-procedureResult : ( variable AS variable ) | variable ;
+procedureMemoryLimit: PROCEDURE memoryLimit;
 
-returnBody : returnItems ( order )? ( skip )? ( limit )? ;
+procedureResult: ( variable AS variable) | variable;
 
-returnItems : ( '*' ( ',' returnItem )* )
-            | ( returnItem ( ',' returnItem )* )
-            ;
+returnBody: returnItems ( order)? ( skip)? ( limit)?;
 
-returnItem : ( expression AS variable )
-           | expression
-           ;
+returnItems: ('*' ( ',' returnItem)*)
+	| ( returnItem ( ',' returnItem)*);
 
-order : ORDER BY sortItem ( ',' sortItem )* ;
+returnItem: ( expression AS variable) | expression;
 
-skip : L_SKIP expression ;
+order: ORDER BY sortItem ( ',' sortItem)*;
 
-limit : LIMIT expression ;
+skip: L_SKIP expression;
 
-sortItem : expression ( ASCENDING | ASC | DESCENDING | DESC )? ;
+limit: LIMIT expression;
 
-where : WHERE expression ;
+sortItem: expression ( ASCENDING | ASC | DESCENDING | DESC)?;
 
-pattern : patternPart ( ',' patternPart )* ;
+where: WHERE expression;
 
-patternPart : ( variable '=' anonymousPatternPart )
-            | anonymousPatternPart
-            ;
+pattern: patternPart ( ',' patternPart)*;
 
-anonymousPatternPart : patternElement ;
+patternPart: (variable '=' anonymousPatternPart)
+	| anonymousPatternPart;
 
-patternElement : ( nodePattern ( patternElementChain )* )
-               | ( '(' patternElement ')' )
-               ;
+anonymousPatternPart: patternElement;
 
-nodePattern : '(' ( variable )? ( nodeLabels )? ( properties )? ')' ;
+patternElement: (nodePattern ( patternElementChain)*)
+	| ( '(' patternElement ')');
 
-patternElementChain : relationshipPattern nodePattern ;
+nodePattern: '(' ( variable)? ( nodeLabels)? ( properties)? ')';
 
-relationshipPattern : ( leftArrowHead dash ( relationshipDetail )? dash rightArrowHead )
-                    | ( leftArrowHead dash ( relationshipDetail )? dash )
-                    | ( dash ( relationshipDetail )? dash rightArrowHead )
-                    | ( dash ( relationshipDetail )? dash )
-                    ;
+patternElementChain: relationshipPattern nodePattern;
 
-leftArrowHead : '<' | LeftArrowHeadPart ;
-rightArrowHead : '>' | RightArrowHeadPart ;
-dash : '-' | DashPart ;
+relationshipPattern: (
+		leftArrowHead dash (relationshipDetail)? dash rightArrowHead
+	)
+	| ( leftArrowHead dash ( relationshipDetail)? dash)
+	| ( dash ( relationshipDetail)? dash rightArrowHead)
+	| ( dash ( relationshipDetail)? dash);
 
-relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )?  properties ']'
-                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? relationshipLambda ( total_weight=variable )? (relationshipLambda )? ']'
-                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? (properties )* ( relationshipLambda total_weight=variable )? (relationshipLambda )? ']';
+leftArrowHead: '<' | LeftArrowHeadPart;
+rightArrowHead: '>' | RightArrowHeadPart;
+dash: '-' | DashPart;
 
-relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable '|' expression ')';
+relationshipDetail:
+	'[' (name = variable)? (relationshipTypes)? (
+		variableExpansion
+	)? properties ']'
+	| '[' (name = variable)? (relationshipTypes)? (
+		variableExpansion
+	)? relationshipLambda (total_weight = variable)? (
+		relationshipLambda
+	)? ']'
+	| '[' (name = variable)? (relationshipTypes)? (
+		variableExpansion
+	)? (properties)* (relationshipLambda total_weight = variable)? (
+		relationshipLambda
+	)? ']';
 
-variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
+relationshipLambda:
+	'(' traversed_edge = variable ',' traversed_node = variable '|' expression ')';
 
-properties : mapLiteral
-           | parameter
-           ;
+variableExpansion:
+	'*' (BFS | WSHORTEST | ALLSHORTEST)? (expression)? (
+		'..' ( expression)?
+	)?;
 
-relationshipTypes : ':' relTypeName ( '|' ':'? relTypeName )* ;
+properties: mapLiteral | parameter;
 
-nodeLabels : nodeLabel ( nodeLabel )* ;
+relationshipTypes: ':' relTypeName ( '|' ':'? relTypeName)*;
 
-nodeLabel : ':' labelName ;
+nodeLabels: nodeLabel ( nodeLabel)*;
 
-labelName : symbolicName ;
+nodeLabel: ':' labelName;
 
-relTypeName : symbolicName ;
+labelName: symbolicName;
 
-expression : expression12 ;
+relTypeName: symbolicName;
 
-expression12 : expression11 ( OR expression11 )* ;
+expression: expression12;
 
-expression11 : expression10 ( XOR expression10 )* ;
+expression12: expression11 ( OR expression11)*;
 
-expression10 : expression9 ( AND expression9 )* ;
+expression11: expression10 ( XOR expression10)*;
 
-expression9 : ( NOT )* expression8 ;
+expression10: expression9 ( AND expression9)*;
 
-expression8 : expression7 ( partialComparisonExpression )* ;
+expression9: ( NOT)* expression8;
 
-expression7 : expression6 ( ( '+' expression6 ) | ( '-' expression6 ) )* ;
+expression8: expression7 ( partialComparisonExpression)*;
 
-expression6 : expression5 ( ( '*' expression5 ) | ( '/' expression5 ) | ( '%' expression5 ) )* ;
+expression7:
+	expression6 (( '+' expression6) | ( '-' expression6))*;
 
-expression5 : expression4 ( '^' expression4 )* ;
+expression6:
+	expression5 (
+		( '*' expression5)
+		| ( '/' expression5)
+		| ( '%' expression5)
+	)*;
 
-expression4 : ( ( '+' | '-' ) )* expression3a ;
+expression5: expression4 ( '^' expression4)*;
 
-expression3a : expression3b ( stringAndNullOperators )* ;
+expression4: ( ( '+' | '-'))* expression3a;
 
-stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression3b) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
+expression3a: expression3b ( stringAndNullOperators)*;
 
-expression3b : expression2a ( listIndexingOrSlicing )* ;
+stringAndNullOperators: (
+		(
+			(
+				( '=~')
+				| ( IN)
+				| ( STARTS WITH)
+				| ( ENDS WITH)
+				| ( CONTAINS)
+			) expression3b
+		)
+		| ( IS CYPHERNULL)
+		| ( IS NOT CYPHERNULL)
+	);
 
-listIndexingOrSlicing : ( '[' expression ']' )
-                      | ( '[' lower_bound=expression? '..' upper_bound=expression? ']' )
-                      ;
+expression3b: expression2a ( listIndexingOrSlicing)*;
 
-expression2a : expression2b ( nodeLabels )? ;
+listIndexingOrSlicing: ('[' expression ']')
+	| (
+		'[' lower_bound = expression? '..' upper_bound = expression? ']'
+	);
 
-expression2b : atom ( propertyLookup )* ;
+expression2a: expression2b ( nodeLabels)?;
 
-atom : literal
-     | parameter
-     | caseExpression
-     | ( COUNT '(' '*' ')' )
-     | listComprehension
-     | patternComprehension
-     | ( FILTER '(' filterExpression ')' )
-     | ( EXTRACT '(' extractExpression ')' )
-     | ( REDUCE '(' reduceExpression ')' )
-     | ( COALESCE '(' expression ( ',' expression )* ')' )
-     | ( ALL '(' filterExpression ')' )
-     | ( ANY '(' filterExpression ')' )
-     | ( NONE '(' filterExpression ')' )
-     | ( SINGLE '(' filterExpression ')' )
-     | ( EXISTS '(' existsExpression ')' )
-     | relationshipsPattern
-     | parenthesizedExpression
-     | functionInvocation
-     | variable
-     ;
+expression2b: atom ( propertyLookup)*;
 
-literal : numberLiteral
-        | StringLiteral
-        | booleanLiteral
-        | CYPHERNULL
-        | mapLiteral
-        | mapProjectionLiteral
-        | listLiteral
-        ;
+atom:
+	literal
+	| parameter
+	| caseExpression
+	| ( COUNT '(' '*' ')')
+	| listComprehension
+	| patternComprehension
+	| ( FILTER '(' filterExpression ')')
+	| ( EXTRACT '(' extractExpression ')')
+	| ( REDUCE '(' reduceExpression ')')
+	| ( COALESCE '(' expression ( ',' expression)* ')')
+	| ( ALL '(' filterExpression ')')
+	| ( ANY '(' filterExpression ')')
+	| ( NONE '(' filterExpression ')')
+	| ( SINGLE '(' filterExpression ')')
+	| ( EXISTS '(' existsExpression ')')
+	| relationshipsPattern
+	| parenthesizedExpression
+	| functionInvocation
+	| variable;
 
-booleanLiteral : TRUE
-               | FALSE
-               ;
+literal:
+	numberLiteral
+	| StringLiteral
+	| booleanLiteral
+	| CYPHERNULL
+	| mapLiteral
+	| mapProjectionLiteral
+	| listLiteral;
 
-listLiteral : '[' ( expression ( ',' expression )* )? ']' ;
+booleanLiteral: TRUE | FALSE;
 
-partialComparisonExpression : ( '=' expression7 )
-                            | ( '<>' expression7 )
-                            | ( '!=' expression7 )
-                            | ( '<' expression7 )
-                            | ( '>' expression7 )
-                            | ( '<=' expression7 )
-                            | ( '>=' expression7 )
-                            ;
+listLiteral: '[' ( expression ( ',' expression)*)? ']';
 
-parenthesizedExpression : '(' expression ')' ;
+partialComparisonExpression: ('=' expression7)
+	| ( '<>' expression7)
+	| ( '!=' expression7)
+	| ( '<' expression7)
+	| ( '>' expression7)
+	| ( '<=' expression7)
+	| ( '>=' expression7);
 
-relationshipsPattern : nodePattern ( patternElementChain )+ ;
+parenthesizedExpression: '(' expression ')';
 
-filterExpression : idInColl ( where )? ;
+relationshipsPattern: nodePattern ( patternElementChain)+;
 
-reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' expression ;
+filterExpression: idInColl ( where)?;
 
-extractExpression : idInColl '|' expression ;
+reduceExpression:
+	accumulator = variable '=' initial = expression ',' idInColl '|' expression;
 
-existsExpression : patternPart ;
+extractExpression: idInColl '|' expression;
 
-idInColl : variable IN expression ;
+existsExpression: patternPart;
 
-functionInvocation : functionName '(' ( DISTINCT )? ( expression ( ',' expression )* )? ')' ;
+idInColl: variable IN expression;
 
-functionName : symbolicName ( '.' symbolicName )* ;
+functionInvocation:
+	functionName '(' (DISTINCT)? (expression ( ',' expression)*)? ')';
 
-listComprehension : '[' filterExpression ( '|' expression )? ']' ;
+functionName: symbolicName ( '.' symbolicName)*;
 
-patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
+listComprehension: '[' filterExpression ( '|' expression)? ']';
 
-propertyLookup : '.' ( propertyKeyName ) ;
+patternComprehension:
+	'[' (variable '=')? relationshipsPattern (WHERE expression)? '|' expression ']';
 
-allPropertiesLookup : '.' '*' ;
+propertyLookup: '.' ( propertyKeyName);
 
-caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
+allPropertiesLookup: '.' '*';
 
-caseAlternatives : WHEN when_expression=expression THEN then_expression=expression ;
+caseExpression: (
+		( CASE ( caseAlternatives)+)
+		| ( CASE test = expression ( caseAlternatives)+)
+	) (ELSE else_expression = expression)? END;
 
-variable : symbolicName ;
-
-numberLiteral : doubleLiteral
-              | integerLiteral
-              ;
-
-mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
-
-mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
-
-mapElement : propertyLookup
-           | allPropertiesLookup
-           | variable
-           | propertyKeyValuePair
-           ;
-
-parameter : '$' ( symbolicName | DecimalLiteral ) ;
-
-propertyExpression : atom ( propertyLookup )+ ;
-
-propertyKeyName : symbolicName ;
-
-propertyKeyValuePair : propertyKeyName ':' expression ;
-
-integerLiteral : DecimalLiteral
-               | OctalLiteral
-               | HexadecimalLiteral
-               ;
-
-createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
-
-dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
-
-doubleLiteral : FloatingLiteral ;
-
-cypherKeyword : ALL
-              | AND
-              | ANY
-              | AS
-              | ASC
-              | ASCENDING
-              | ASSERT
-              | BFS
-              | BY
-              | CALL
-              | CASE
-              | CONSTRAINT
-              | CONTAINS
-              | COUNT
-              | CREATE
-              | CYPHERNULL
-              | DELETE
-              | DESC
-              | DESCENDING
-              | DETACH
-              | DISTINCT
-              | ELSE
-              | END
-              | ENDS
-              | EXISTS
-              | EXPLAIN
-              | EXTRACT
-              | FALSE
-              | FILTER
-              | IN
-              | INDEX
-              | INFO
-              | IS
-              | KEY
-              | LIMIT
-              | L_SKIP
-              | MATCH
-              | MERGE
-              | NODE
-              | NONE
-              | NOT
-              | ON
-              | OPTIONAL
-              | OR
-              | ORDER
-              | PROCEDURE
-              | PROFILE
-              | QUERY
-              | REDUCE
-              | REMOVE
-              | RETURN
-              | SET
-              | SHOW
-              | SINGLE
-              | STARTS
-              | STORAGE
-              | THEN
-              | TRUE
-              | UNION
-              | UNIQUE
-              | UNWIND
-              | WHEN
-              | WHERE
-              | WITH
-              | WSHORTEST
-              | ALLSHORTEST
-              | XOR
-              | YIELD
-              ;
-
-symbolicName : UnescapedSymbolicName
-             | EscapedSymbolicName
-             | cypherKeyword
-             | UNDERSCORE
-             ;
+caseAlternatives:
+	WHEN when_expression = expression THEN then_expression = expression;
+
+variable: symbolicName;
+
+numberLiteral: doubleLiteral | integerLiteral;
+
+mapLiteral:
+	'{' (
+		propertyKeyName ':' expression (
+			',' propertyKeyName ':' expression
+		)*
+	)? '}';
+
+mapProjectionLiteral:
+	variable '{' (mapElement ( ',' mapElement)*)? '}';
+
+mapElement:
+	propertyLookup
+	| allPropertiesLookup
+	| variable
+	| propertyKeyValuePair;
+
+parameter: '$' ( symbolicName | DecimalLiteral);
+
+propertyExpression: atom ( propertyLookup)+;
+
+propertyKeyName: symbolicName;
+
+propertyKeyValuePair: propertyKeyName ':' expression;
+
+integerLiteral:
+	DecimalLiteral
+	| OctalLiteral
+	| HexadecimalLiteral;
+
+createIndex:
+	CREATE INDEX ON ':' labelName ('(' propertyKeyName ')')?;
+
+dropIndex:
+	DROP INDEX ON ':' labelName ('(' propertyKeyName ')')?;
+
+doubleLiteral: FloatingLiteral;
+
+cypherKeyword:
+	ALL
+	| AND
+	| ANY
+	| AS
+	| ASC
+	| ASCENDING
+	| ASSERT
+	| BFS
+	| BY
+	| CALL
+	| CASE
+	| CONSTRAINT
+	| CONTAINS
+	| COUNT
+	| CREATE
+	| CYPHERNULL
+	| DELETE
+	| DESC
+	| DESCENDING
+	| DETACH
+	| DISTINCT
+	| ELSE
+	| END
+	| ENDS
+	| EXISTS
+	| EXPLAIN
+	| EXTRACT
+	| FALSE
+	| FILTER
+	| IN
+	| INDEX
+	| INFO
+	| IS
+	| KEY
+	| LIMIT
+	| L_SKIP
+	| MATCH
+	| MERGE
+	| NODE
+	| NONE
+	| NOT
+	| ON
+	| OPTIONAL
+	| OR
+	| ORDER
+	| PROCEDURE
+	| PROFILE
+	| QUERY
+	| REDUCE
+	| REMOVE
+	| RETURN
+	| SET
+	| SHOW
+	| SINGLE
+	| STARTS
+	| STORAGE
+	| THEN
+	| TRUE
+	| UNION
+	| UNIQUE
+	| UNWIND
+	| WHEN
+	| WHERE
+	| WITH
+	| WSHORTEST
+	| ALLSHORTEST
+	| XOR
+	| YIELD;
+
+symbolicName:
+	UnescapedSymbolicName
+	| EscapedSymbolicName
+	| cypherKeyword
+	| UNDERSCORE;

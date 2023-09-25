@@ -1971,4 +1971,15 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
 }
+IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
+  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices()};
+}
+ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  return disk_storage->ListAllConstraints();
+}
 }  // namespace memgraph::storage

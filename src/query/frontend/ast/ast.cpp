@@ -223,7 +223,11 @@ constexpr utils::TypeInfo query::Unwind::kType{utils::TypeId::AST_UNWIND, "Unwin
 
 constexpr utils::TypeInfo query::AuthQuery::kType{utils::TypeId::AST_AUTH_QUERY, "AuthQuery", &query::Query::kType};
 
-constexpr utils::TypeInfo query::InfoQuery::kType{utils::TypeId::AST_INFO_QUERY, "InfoQuery", &query::Query::kType};
+constexpr utils::TypeInfo query::DatabaseInfoQuery::kType{utils::TypeId::AST_INFO_QUERY, "DatabaseInfoQuery",
+                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::SystemInfoQuery::kType{utils::TypeId::AST_INFO_QUERY, "SystemInfoQuery",
+                                                        &query::Query::kType};
 
 constexpr utils::TypeInfo query::Constraint::kType{utils::TypeId::AST_CONSTRAINT, "Constraint", nullptr};
 

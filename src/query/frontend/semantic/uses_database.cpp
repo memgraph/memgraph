@@ -86,19 +86,9 @@ class BLA : public QueryVisitor<void>, public HierarchicalTreeVisitor {
 
   void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
-  void Visit(InfoQuery &info_query) override {
-    switch (info_query.info_type_) {
-      using enum InfoQuery::InfoType;
-      case STORAGE:
-      case INDEX:
-      case CONSTRAINT:
-        setState(usage_kind::REQ_DB_NON_REPLICATION_R);
-        break;
-      case BUILD:
-        setState(usage_kind::NONE);
-        break;
-    }
-  }
+  void Visit(DatabaseInfoQuery &info_query) override { setState(usage_kind::REQ_DB_NON_REPLICATION_R); }
+
+  void Visit(SystemInfoQuery &info_query) override { setState(usage_kind::NONE); }
 
   void Visit(ConstraintQuery & /*unused*/) override { setState(usage_kind::REQ_DB_REPLICATION_W); }
 

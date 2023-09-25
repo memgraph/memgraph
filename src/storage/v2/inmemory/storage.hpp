@@ -230,10 +230,7 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
     }
 
-    IndicesInfo ListAllIndices() const override {
-      const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return mem_storage->ListAllIndices();
-    }
+    IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override {
       const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

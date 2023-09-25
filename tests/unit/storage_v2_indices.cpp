@@ -91,8 +91,8 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
-  EXPECT_EQ(this->storage->ListAllIndices().label.size(), 0);
 
   {
     auto acc = this->storage->Access();
@@ -181,8 +181,8 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
-  EXPECT_EQ(this->storage->ListAllIndices().label.size(), 0);
 
   {
     auto acc = this->storage->Access();
@@ -213,8 +213,8 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
-  EXPECT_EQ(this->storage->ListAllIndices().label.size(), 0);
 
   {
     auto unique_acc = this->storage->UniqueAccess();
@@ -224,8 +224,8 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
-  EXPECT_EQ(this->storage->ListAllIndices().label.size(), 0);
 
   {
     auto acc = this->storage->Access();
@@ -244,8 +244,8 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelIndexExists(this->label1));
+    EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1));
   }
-  EXPECT_THAT(this->storage->ListAllIndices().label, UnorderedElementsAre(this->label1));
 
   {
     auto acc = this->storage->Access();
@@ -285,7 +285,7 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   }
 
   auto acc = this->storage->Access();
-  EXPECT_THAT(this->storage->ListAllIndices().label, UnorderedElementsAre(this->label1, this->label2));
+  EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1, this->label2));
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
@@ -568,7 +568,10 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
-  EXPECT_EQ(this->storage->ListAllIndices().label_property.size(), 0);
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
+  }
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
@@ -578,8 +581,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
   }
-  EXPECT_THAT(this->storage->ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllIndices().label_property,
+                UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
@@ -591,8 +597,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  EXPECT_THAT(this->storage->ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllIndices().label_property,
+                UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+  }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
@@ -604,9 +613,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
   }
-  EXPECT_THAT(
-      this->storage->ListAllIndices().label_property,
-      UnorderedElementsAre(std::make_pair(this->label1, this->prop_id), std::make_pair(this->label2, this->prop_id)));
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(
+        acc->ListAllIndices().label_property,
+        UnorderedElementsAre(std::make_pair(this->label1, this->prop_id), std::make_pair(this->label2, this->prop_id)));
+  }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
@@ -617,8 +630,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
   }
-  EXPECT_THAT(this->storage->ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(this->label2, this->prop_id)));
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllIndices().label_property,
+                UnorderedElementsAre(std::make_pair(this->label2, this->prop_id)));
+  }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
@@ -635,7 +652,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
   }
-  EXPECT_EQ(this->storage->ListAllIndices().label_property.size(), 0);
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
+  }
 }
 
 // The following three tests are almost an exact copy-paste of the corresponding

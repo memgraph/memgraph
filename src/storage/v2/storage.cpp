@@ -94,11 +94,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-IndicesInfo Storage::ListAllIndices() const {
-  std::shared_lock storage_guard_(main_lock_);
-  return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
-}
-
 ConstraintsInfo Storage::ListAllConstraints() const {
   std::shared_lock storage_guard_(main_lock_);
   return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};

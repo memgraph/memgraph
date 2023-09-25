@@ -226,9 +226,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
+    // Create storage accessor.
+    auto acc = store->Access();
+
     // Verify indices info.
     {
-      auto info = store->ListAllIndices();
+      auto info = acc->ListAllIndices();
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -293,9 +296,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         have_extended_dataset = true;
         break;
     }
-
-    // Create storage accessor.
-    auto acc = store->Access();
 
     // Verify base dataset.
     if (have_base_dataset) {
@@ -1372,13 +1372,14 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       {.items = {.properties_on_edges = GetParam()},
        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
   {
-    auto indices = store->ListAllIndices();
+    auto acc = store->Access();
+
+    auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
     auto constraints = store->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
-    auto acc = store->Access();
     {
       auto v1 = acc->FindVertex(gid_v1, memgraph::storage::View::OLD);
       ASSERT_TRUE(v1);
@@ -1475,7 +1476,10 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
              .wal_file_flush_every_n_tx = kFlushWalEvery}}));
     CreateBaseDataset(store.get(), GetParam());
     CreateExtendedDataset(store.get());
-    auto indices = store->ListAllIndices();
+    auto indices = [&] {
+      auto acc = store->Access();
+      return acc->ListAllIndices();
+    }();  // iile
     for (const auto &index : indices.label) {
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
@@ -1511,13 +1515,13 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       {.items = {.properties_on_edges = GetParam()},
        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
   {
-    auto indices = store->ListAllIndices();
+    auto acc = store->Access();
+    auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
     auto constraints = store->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
-    auto acc = store->Access();
     uint64_t count = 0;
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {

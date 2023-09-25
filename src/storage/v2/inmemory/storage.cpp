@@ -1885,4 +1885,11 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
       Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
+IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices()};
+}
 }  // namespace memgraph::storage

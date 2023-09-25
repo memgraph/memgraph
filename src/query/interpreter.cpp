@@ -2125,7 +2125,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
-          const auto &error = maybe_index_error.GetError();
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
@@ -2894,20 +2893,23 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        RWType::NONE};
 }
 
-PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                               std::optional<storage::IsolationLevel> interpreter_isolation_level,
-                               std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
+PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                       std::optional<storage::IsolationLevel> interpreter_isolation_level,
+                                       std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
 
-  auto *info_query = utils::Downcast<InfoQuery>(parsed_query.query);
+  MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
+  MG_ASSERT(current_db.db_transactional_accessor_, "Database ifo query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
 
   switch (info_query->info_type_) {
-    case InfoQuery::InfoType::STORAGE: {
-      MG_ASSERT(current_db.db_acc_, "Info query expects a current DB");
+    case DatabaseInfoQuery::InfoType::STORAGE: {
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
                  next_transaction_isolation_level] {
@@ -2930,13 +2932,12 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       };
       break;
     }
-    case InfoQuery::InfoType::INDEX: {
-      MG_ASSERT(current_db.db_acc_, "Info query expects a current DB");
+    case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
-        auto info = storage->ListAllIndices();
+        auto info = dba->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
@@ -2964,15 +2965,14 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
           return record_1[2].ValueString() < record_2[2].ValueString();
         });
 
-        return std::pair{results, QueryHandlerResult::NOTHING};
+        return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
     }
-    case InfoQuery::InfoType::CONSTRAINT: {
-      MG_ASSERT(current_db.db_acc_, "Info query expects a current DB");
+    case DatabaseInfoQuery::InfoType::CONSTRAINT: {
       header = {"constraint type", "label", "properties"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
-        auto info = storage->ListAllConstraints();
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        auto info = dba->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.existence.size() + info.unique.size());
         for (const auto &item : info.existence) {
@@ -2988,12 +2988,41 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
           results.push_back(
               {TypedValue("unique"), TypedValue(storage->LabelToName(item.first)), TypedValue(std::move(properties))});
         }
-        return std::pair{results, QueryHandlerResult::NOTHING};
+        return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
     }
+  }
 
-    case InfoQuery::InfoType::BUILD: {
+  return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto [results, action_on_complete] = handler();
+                           action = action_on_complete;
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return action;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw InfoInMulticommandTxException();
+  }
+
+  auto *info_query = utils::Downcast<SystemInfoQuery>(parsed_query.query);
+  std::vector<std::string> header;
+  std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
+
+  switch (info_query->info_type_) {
+    case SystemInfoQuery::InfoType::BUILD: {
       header = {"build info", "value"};
       handler = [] {
         std::vector<std::vector<TypedValue>> results{
@@ -3648,7 +3677,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
               utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
               utils::Downcast<TriggerQuery>(parsed_query.query) ||
               utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-              utils::Downcast<IndexQuery>(parsed_query.query);  // TODO: add stream+index
+              utils::Downcast<IndexQuery>(parsed_query.query) ||
+              utils::Downcast<DatabaseInfoQuery>(parsed_query.query);  // TODO: add stream+index
     //    auto t2 = UsesDatabases(parsed_query.query);
     // some visitor to get this from parsed_query.query
     // use DB     R/W
@@ -3700,9 +3730,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       /// SYSTEM (Replication) PURE
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
-    } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
-                                        interpreter_isolation_level, next_transaction_isolation_level);
+    } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
+                                                interpreter_isolation_level, next_transaction_isolation_level);
+    } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, current_db_);

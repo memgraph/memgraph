@@ -195,15 +195,9 @@ class DiskStorage final : public Storage {
       return disk_storage->indices_.label_property_index_->IndexExists(label, property);
     }
 
-    IndicesInfo ListAllIndices() const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->ListAllIndices();
-    }
+    IndicesInfo ListAllIndices() const override;
 
-    ConstraintsInfo ListAllConstraints() const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->ListAllConstraints();
-    }
+    ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> Commit(
