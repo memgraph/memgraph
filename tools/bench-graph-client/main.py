@@ -45,10 +45,14 @@ def post_measurement(args):
     if args.benchmark_results_in_memory_analytical_path is not None:
         with open(args.benchmark_results_in_memory_analytical_path, "r") as in_memory_analytical_file:
             in_memory_analytical_data = json.load(in_memory_analytical_file)
+    else:
+        in_memory_analytical_data = None
 
     if args.benchmark_results_on_disk_txn_path is not None:
         with open(args.benchmark_results_on_disk_txn_path, "r") as on_disk_txn_file:
             on_disk_txn_data = json.load(on_disk_txn_file)
+    else:
+        on_disk_txn_data = None
 
     req = requests.post(
         f"{BENCH_GRAPH_SERVER_ENDPOINT}/measurements",
