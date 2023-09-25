@@ -422,6 +422,7 @@ jobs:
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
       - name: Run mgbench
         run: |
           cd tests/mgbench
