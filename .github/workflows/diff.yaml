@@ -435,7 +435,7 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
                     --benchmark-results-in-memory-analytical-path "../../tests/mgbench/results_in_memory_analytical.json" \
                     --benchmark-results-on-disk-txn-path "../../tests/mgbench/results_on_disk_txn.json" \
                     --github-run-id "${{ github.run_id }}" \
