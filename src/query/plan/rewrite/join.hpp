@@ -52,6 +52,9 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Probably yes
     // Also see if before cartesian there could be Filter -> EdgeUniquenessFilter -> Cartesian
     // e.g. MATCH (a)-[]->(b), (c)-[]->(d) return a, c;
+
+    prev_ops_.push_back(&op);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
     return true;
   }
 
@@ -63,6 +66,22 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // TODO HashJoin: Remove filter expressions just like in index_lookup.hpp
     // Remove filter if no expressions are left just like in index_lookup.hpp
+
+    ExpressionRemovalResult removal = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
+    op.expression_ = removal.expression;
+    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
+      if (op.input()->GetTypeInfo() == Cartesian::kType) {
+        auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
+        auto hash_join = std::make_shared<HashJoin>(cartesian->left_op_, cartesian->right_op_);
+        SetOnParent(hash_join);
+      } else {
+        SetOnParent(op.input());
+      }
+    } else if (removal.removed && op.input()->GetTypeInfo() == Cartesian::kType) {
+      auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
+      auto hash_join = std::make_shared<HashJoin>(cartesian->left_op_, cartesian->right_op_);
+      op.set_input(hash_join);
+    }
     return true;
   }
 
@@ -135,11 +154,26 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Similar logic is in index_lookup.hpp
 
     RewriteBranch(&op.left_op_);
-    RewriteBranch(&op.right_op_);
+    // RewriteBranch(&op.right_op_);
+    cartesian_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
+    op.right_op_->Accept(*this);
+
     return false;
   }
 
   bool PostVisit(Cartesian &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(HashJoin &op) override {
+    prev_ops_.push_back(&op);
+    RewriteBranch(&op.left_op_);
+    RewriteBranch(&op.right_op_);
+    return false;
+  }
+
+  bool PostVisit(HashJoin &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -431,7 +465,13 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
+  // Collected filters, pending for examination if they can be used for advanced
+  // lookup operations (by index, node ID, ...).
+  Filters filters_;
+  // Expressions which no longer need a plain Filter operator.
+  std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
+  std::unordered_set<Symbol> cartesian_symbols_;
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing join"); }
 

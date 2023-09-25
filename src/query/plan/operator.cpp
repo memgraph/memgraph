@@ -4350,6 +4350,7 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    // antepull
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!cartesian_pull_initialized_) {
@@ -5236,6 +5237,7 @@ class HashJoinCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    // antepull
     SCOPED_PROFILE_OP("HashJoin");
 
     // TODO HashJoin: algorithm implementation pseudocode
@@ -5274,6 +5276,7 @@ class HashJoinCursor : public Cursor {
   const HashJoin &self_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
+  bool hash_join_initialized{false};
 };
 }  // namespace
 
