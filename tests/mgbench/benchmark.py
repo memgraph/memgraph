@@ -590,6 +590,7 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
         log_metadata_summary(ret)
         log.success("Throughput: {:02f} QPS".format(ret[THROUGHPUT]))
         save_to_results(results, ret, workload, group, query, WITH_FINE_GRAINED_AUTHORIZATION)
+        break
 
     vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
     log.info("Running cleanup of auth queries")
@@ -635,6 +636,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
 
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
+        break
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload):
