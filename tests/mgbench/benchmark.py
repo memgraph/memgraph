@@ -499,16 +499,14 @@ def get_query_cache_count(
                 DURATION: benchmark_context.single_threaded_runtime_sec,
             },
         )
+        return est_num_queries
     else:
         log.log(
             "Using cached query count of {} queries for {} seconds of single-threaded runtime to extrapolate .".format(
                 cached_count[COUNT], cached_count[DURATION]
             ),
         )
-        est_num_queries = int(
-            cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION]
-        )
-    return est_num_queries
+        return int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
 
 
 def check_benchmark_requirements(benchmark_context):
@@ -690,47 +688,64 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
 # TODO: (andi) Reorder functions in top-down notion in order to improve readibility
 def run_target_workloads(benchmark_context, target_workloads, bench_results):
     for workload, bench_queries in target_workloads:
+        print(f"Workload: {workload}")
         log.info(f"Started running {str(workload.NAME)} workload")
 
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
-        in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
-        run_target_workload(
-            benchmark_context,
-            workload,
-            bench_queries,
-            in_memory_txn_vendor_runner,
-            in_memory_txn_client,
-            bench_results.in_memory_tnx_results,
-        )
-        log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
-
-        # if benchmark_context.disk_storage:
-        #   log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
-        #   disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
-        #   disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
-        #   disk_client.execute(queries=SETUP_DISK_STORAGE)
-        #   disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
-        #   run_target_workload(benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client)
-        #   log.info(f"Finished running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
-
-        if benchmark_context.in_memory_analytical:
-            log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
-            in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
-            in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
-            in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
-            in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
-            run_target_workload(
-                benchmark_context,
-                workload,
-                bench_queries,
-                in_memory_analytical_vendor_runner,
-                in_memory_analytical_client,
-                bench_results.in_memory_analytical_results,
+        if workload.is_disk_workload():
+            run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, bench_results.disk_results)
+        else:
+            run_in_memory_transactional_benchmark(
+                benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results
             )
-            log.info(f"Finished running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
+
+            if benchmark_context.in_memory_analytical:
+                run_in_memory_analytical_benchmark(
+                    benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
+                )
+
+
+def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
+    log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
+    disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
+    disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
+    disk_client.execute(queries=SETUP_DISK_STORAGE)
+    disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
+    run_target_workload(benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client, disk_results)
+    log.info(f"Finished running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
+
+
+def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_queries, in_memory_analytical_results):
+    log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
+    in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
+    in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
+    in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
+    in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
+    run_target_workload(
+        benchmark_context,
+        workload,
+        bench_queries,
+        in_memory_analytical_vendor_runner,
+        in_memory_analytical_client,
+        in_memory_analytical_results,
+    )
+    log.info(f"Finished running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
+
+
+def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, in_memory_txn_results):
+    log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
+    in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
+    run_target_workload(
+        benchmark_context,
+        workload,
+        bench_queries,
+        in_memory_txn_vendor_runner,
+        in_memory_txn_client,
+        in_memory_txn_results,
+    )
+    log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
 
 
 def client_runner_factory(benchmark_context):
@@ -868,9 +883,13 @@ if __name__ == "__main__":
     in_memory_analytical_run_config = deepcopy(in_memory_txn_run_config)
     in_memory_analytical_run_config[STORAGE_MODE] = IN_MEMORY_ANALYTICAL
 
+    on_disk_transactional_run_config = deepcopy(in_memory_txn_run_config)
+    on_disk_transactional_run_config[STORAGE_MODE] = ON_DISK_TRANSACTIONAL
+
     bench_results = BenchmarkResults()
-    bench_results.in_memory_tnx_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
+    bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
     bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
+    bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
@@ -886,10 +905,10 @@ if __name__ == "__main__":
     if not benchmark_context.no_save_query_counts:
         cache.save_config(config)
 
-    log_benchmark_summary(bench_results.in_memory_tnx_results.get_data(), IN_MEMORY_TRANSACTIONAL)
+    log_benchmark_summary(bench_results.in_memory_txn_results.get_data(), IN_MEMORY_TRANSACTIONAL)
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
-            json.dump(bench_results.in_memory_tnx_results.get_data(), f)
+            json.dump(bench_results.in_memory_txn_results.get_data(), f)
 
     log_benchmark_summary(bench_results.in_memory_analytical_results.get_data(), IN_MEMORY_ANALYTICAL)
     if benchmark_context.export_results_in_memory_analytical:
