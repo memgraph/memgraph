@@ -20,10 +20,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import log
 import workloads
 from benchmark_context import BenchmarkContext
 from workloads import *
-from workloads import base
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -116,7 +116,7 @@ def get_available_workloads(customer_workloads: str = None) -> dict:
             if key.startswith("_"):
                 continue
             base_class = getattr(module, key)
-            if not inspect.isclass(base_class) or not issubclass(base_class, base.Workload):
+            if not inspect.isclass(base_class) or not issubclass(base_class, workloads.base.Workload):
                 continue
             queries = collections.defaultdict(list)
             for funcname in dir(base_class):
@@ -137,7 +137,7 @@ def get_available_workloads(customer_workloads: str = None) -> dict:
             if key.startswith("_"):
                 continue
             base_class = getattr(dataset_to_use, key)
-            if not inspect.isclass(base_class) or not issubclass(base_class, base.Workload):
+            if not inspect.isclass(base_class) or not issubclass(base_class, workloads.base.Workload):
                 continue
             queries = collections.defaultdict(list)
             for funcname in dir(base_class):

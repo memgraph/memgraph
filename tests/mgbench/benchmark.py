@@ -18,6 +18,7 @@ import pathlib
 import platform
 import random
 import sys
+import time
 from copy import deepcopy
 from typing import Dict, List
 
@@ -467,25 +468,23 @@ def get_query_cache_count(
     workload: str,
     group: str,
     query: str,
-    func: str,
 ):
     config_key = [workload.NAME, workload.get_variant(), group, query]
     cached_count = config.get_value(*config_key)
     if cached_count is None:
         log.info(
-            "Determining the number of queries necessary for {} seconds of single-threaded runtime...".format(
+            "Determining the number of queries necessary for {} seconds of single-threaded runtime".format(
                 benchmark_context.single_threaded_runtime_sec
             )
         )
-        log.log("Running query to prime the query cache...")
+        log.info(f"Started executing the query once")
         vendor.start_db(CACHE)
         client.execute(queries=queries, num_workers=1)
-        count = 1
-        ret = client.execute(queries=get_queries(func, count), num_workers=1)
+        ret = client.execute(queries=queries, num_workers=1)
         duration = ret[0][DURATION]
         est_num_queries = int(benchmark_context.single_threaded_runtime_sec / duration)
         log.log(
-            f"Executed_queries={count}, total_duration={duration}, Estimated #queries in {benchmark_context.single_threaded_runtime_sec}s={est_num_queries}"
+            f"Executed_queries={1}, total_duration={duration}, Estimated #queries in {benchmark_context.single_threaded_runtime_sec}s={est_num_queries}"
         )
         vendor.stop_db(CACHE)
 
@@ -532,16 +531,13 @@ def save_import_results(workload, results, import_results, rss_usage):
         # Display import statistics.
         for row in import_results:
             log.success(
-                "Executed {} queries in {} seconds using {} workers with a total throughput of {} Q/S.".format(
-                    row[COUNT], row[DURATION], row[NUM_WORKERS], row[THROUGHPUT]
-                )
+                f"Executed {row[COUNT]} queries in {row[DURATION]} seconds using {row[NUM_WORKERS]} workers with a total throughput of {row[THROUGHPUT]} Q/S."
             )
 
         log.success(
-            "The database used {} seconds of CPU time and peaked at {} MiB of RAM".format(
-                rss_usage[CPU], rss_usage[MEMORY] / (1024 * 1024)
-            )
+            f"The database used {rss_usage[CPU]} seconds of CPU time and peaked at {rss_usage[MEMORY] / (1024 * 1024)} MiB of RAM"
         )
+
         results.set_value(*import_key, value={CLIENT: import_results, DATABASE: rss_usage})
     else:
         results.set_value(*import_key, value={CLIENT: CUSTOM_LOAD, DATABASE: CUSTOM_LOAD})
@@ -571,10 +567,11 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
         log.init("Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION))
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
+            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
+        start_time = time.time()
         warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
 
         ret = client.execute(
@@ -582,13 +579,14 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
+        time_elapsed = time.time() - start_time
+        log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
 
         ret[DATABASE] = usage
         log_metrics_summary(ret, usage)
         log_metadata_summary(ret)
         log.success("Throughput: {:02f} QPS".format(ret[THROUGHPUT]))
         save_to_results(results, ret, workload, group, query, WITH_FINE_GRAINED_AUTHORIZATION)
-        break
 
     vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
     log.info("Running cleanup of auth queries")
@@ -604,7 +602,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         )
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
+            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query
         )
 
         # Benchmark run.
@@ -617,6 +615,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         )
         log.log("Queries are executed using {} concurrent clients".format(benchmark_context.num_workers_for_benchmark))
 
+        start_time = time.time()
         rss_db = workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
         vendor_runner.start_db(rss_db)
         warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
@@ -627,19 +626,21 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
             time_dependent_execution=benchmark_context.time_dependent_execution,
         )[0]
 
-        log.info("Benchmark execution finished...")
+        time_elapsed = time.time() - start_time
+
+        log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
         usage = vendor_runner.stop_db(rss_db)
 
         ret[DATABASE] = usage
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
 
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
-        break
 
 
-def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload):
+def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
     vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
+    start_time = time.time()
 
     if generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
@@ -655,21 +656,27 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
             client.execute(file_path=workload.get_index(), num_workers=1)
             log.info("Finished setting up indexes.")
             log.info("Started importing dataset")
-            import_results = client.execute(
-                file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
-            )
+            if storage_mode == ON_DISK_TRANSACTIONAL:
+                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1)
+                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1)
+            else:
+                import_results = client.execute(
+                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
+                )
         else:
             log.info("Custom import executed")
 
-    log.info("Finished importing dataset")
+    log.info(f"Finished importing dataset in {time.time() - start_time}s")
     rss_usage = vendor_runner.stop_db_init(VENDOR_RUNNER_IMPORT)
 
     return import_results, rss_usage
 
 
-def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results):
+def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
     generated_queries = workload.dataset_generator()
-    import_results, rss_usage = setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload)
+    import_results, rss_usage = setup_indices_and_import_dataset(
+        client, vendor_runner, generated_queries, workload, storage_mode
+    )
     save_import_results(workload, results, import_results, rss_usage)
 
     for group in sorted(bench_queries.keys()):
@@ -688,7 +695,6 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
 # TODO: (andi) Reorder functions in top-down notion in order to improve readibility
 def run_target_workloads(benchmark_context, target_workloads, bench_results):
     for workload, bench_queries in target_workloads:
-        print(f"Workload: {workload}")
         log.info(f"Started running {str(workload.NAME)} workload")
 
         benchmark_context.set_active_workload(workload.NAME)
@@ -713,7 +719,9 @@ def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queri
     disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
     disk_client.execute(queries=SETUP_DISK_STORAGE)
     disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
-    run_target_workload(benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client, disk_results)
+    run_target_workload(
+        benchmark_context, workload, bench_queries, disk_vendor_runner, disk_client, disk_results, ON_DISK_TRANSACTIONAL
+    )
     log.info(f"Finished running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
 
 
@@ -730,6 +738,7 @@ def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_querie
         in_memory_analytical_vendor_runner,
         in_memory_analytical_client,
         in_memory_analytical_results,
+        IN_MEMORY_ANALYTICAL,
     )
     log.info(f"Finished running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
 
@@ -744,6 +753,7 @@ def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_que
         in_memory_txn_vendor_runner,
         in_memory_txn_client,
         in_memory_txn_results,
+        IN_MEMORY_TRANSACTIONAL,
     )
     log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
 
@@ -914,3 +924,8 @@ if __name__ == "__main__":
     if benchmark_context.export_results_in_memory_analytical:
         with open(benchmark_context.export_results_in_memory_analytical, "w") as f:
             json.dump(bench_results.in_memory_analytical_results.get_data(), f)
+
+    log_benchmark_summary(bench_results.disk_results.get_data(), ON_DISK_TRANSACTIONAL)
+    if benchmark_context.export_results_on_disk_txn:
+        with open(benchmark_context.export_results_on_disk_txn, "w") as f:
+            json.dump(bench_results.disk_results.get_data(), f)
