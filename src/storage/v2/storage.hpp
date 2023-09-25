@@ -189,7 +189,7 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageDataManipulationError, void> Commit(
+    virtual utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
 
     virtual void Abort() = 0;
@@ -219,6 +219,10 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
     // TODO: Better
     // bool UpgradeToUnique() {
@@ -288,20 +292,6 @@ class Storage {
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
-
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) {
-    return DropIndex(label, std::optional<uint64_t>{});
-  }
-
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) {
-    return DropIndex(label, property, std::optional<uint64_t>{});
-  }
 
   IndicesInfo ListAllIndices() const;
 

@@ -247,7 +247,7 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageDataManipulationError, void> Commit(
+    utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     /// @throw std::bad_alloc
@@ -270,6 +270,20 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
 
    protected:
     // TODO Better naming
@@ -301,22 +315,6 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
-
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Returns void if the existence constraint has been created.
   /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:

@@ -271,9 +271,17 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // existence constraint drop
   // unique constriant drop
   {
-    ASSERT_FALSE(main_store->DropIndex(main_store->NameToLabel(label)).HasError());
-    ASSERT_FALSE(
-        main_store->DropIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+    {
+      auto unique_acc = main_store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(main_store->NameToLabel(label)).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = main_store->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc->DropIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
     ASSERT_FALSE(
         main_store->DropExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})
             .HasError());

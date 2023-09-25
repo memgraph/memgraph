@@ -1349,24 +1349,24 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
   return true;
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void>
 DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
   if (auto existence_constraint_validation_result = storage_->constraints_.existence_constraints_->Validate(vertex);
       existence_constraint_validation_result.has_value()) {
-    return StorageDataManipulationError{existence_constraint_validation_result.value()};
+    return StorageManipulationError{existence_constraint_validation_result.value()};
   }
 
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
       unique_constraint_validation_result.has_value()) {
-    return StorageDataManipulationError{unique_constraint_validation_result.value()};
+    return StorageManipulationError{unique_constraint_validation_result.value()};
   }
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
     const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
@@ -1389,26 +1389,25 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
       if (!DeleteVertexFromDisk(maybe_old_disk_key.value())) {
-        return StorageDataManipulationError{SerializationError{}};
+        return StorageManipulationError{SerializationError{}};
       }
     }
 
     if (!WriteVertexToDisk(vertex)) {
-      return StorageDataManipulationError{SerializationError{}};
+      return StorageManipulationError{SerializationError{}};
     }
 
     if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
         !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
         !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
-      return StorageDataManipulationError{SerializationError{}};
+      return StorageManipulationError{SerializationError{}};
     }
   }
 
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
-DiskStorage::DiskAccessor::ClearDanglingVertices() {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::ClearDanglingVertices() {
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1420,12 +1419,12 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
       !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp, *commit_timestamp_) ||
       !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp,
                                                                          *commit_timestamp_)) {
-    return StorageDataManipulationError{SerializationError{}};
+    return StorageManipulationError{SerializationError{}};
   }
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushIndexCache() {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushIndexCache() {
   std::vector<std::vector<PropertyValue>> unique_storage;
 
   for (const auto &vec : index_storage_) {
@@ -1437,7 +1436,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedVertices() {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedVertices() {
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1449,23 +1448,23 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
         !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
         !disk_label_property_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
-      return StorageDataManipulationError{SerializationError{}};
+      return StorageManipulationError{SerializationError{}};
     }
   }
 
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
   for (const auto &edge_to_delete : edges_to_delete_) {
     if (!DeleteEdgeFromDisk(edge_to_delete)) {
-      return StorageDataManipulationError{SerializationError{}};
+      return StorageManipulationError{SerializationError{}};
     }
   }
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
   for (const auto &modified_edge : transaction_.modified_edges_) {
     const storage::Gid &gid = modified_edge.first;
@@ -1477,21 +1476,21 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (action == Delta::Action::DELETE_OBJECT && !WriteEdgeToDisk(ser_edge_key, "")) {
-        return StorageDataManipulationError{SerializationError{}};
+        return StorageManipulationError{SerializationError{}};
       }
     } else {
       // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
       // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
       // so we can delete it.
       if (action == Delta::Action::DELETE_DESERIALIZED_OBJECT && !DeleteEdgeFromDisk(ser_edge_key)) {
-        return StorageDataManipulationError{SerializationError{}};
+        return StorageManipulationError{SerializationError{}};
       }
 
       const auto &edge = edge_acc.find(gid);
       MG_ASSERT(edge != edge_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
       if (!WriteEdgeToDisk(ser_edge_key, utils::SerializeProperties(edge->properties))) {
-        return StorageDataManipulationError{SerializationError{}};
+        return StorageManipulationError{SerializationError{}};
       }
     }
   }
@@ -1546,7 +1545,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::Commit(
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
@@ -1565,19 +1564,31 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
       switch (md_delta.action) {
         case MetadataDelta::Action::LABEL_INDEX_CREATE: {
           if (!disk_storage->PersistLabelIndexCreation(md_delta.label)) {
-            return StorageDataManipulationError{SerializationError{}};  // TODO different error
+            return StorageManipulationError{PersistenceError{}};
           }
+        } break;
+        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
+          const auto &info = md_delta.label_property;
+          if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintCreation(info.label, info.property,
+                                                                                     label_property_index_str)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+        case MetadataDelta::Action::LABEL_INDEX_DROP: {
+          if (!disk_storage->PersistLabelIndexDeletion(md_delta.label)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
+          const auto &info = md_delta.label_property;
+          if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintDeletion(info.label, info.property,
+                                                                                     label_property_index_str)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+
+        default:
           break;
-          case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
-            const auto &info = md_delta.label_property;
-            if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintCreation(info.label, info.property,
-                                                                                       label_property_index_str)) {
-              return StorageDataManipulationError{SerializationError{}};
-            }
-          } break;
-          default:
-            break;
-        }
       }
     }
   } else if (transaction_.deltas.use().empty() ||
@@ -1638,7 +1649,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   disk_transaction_ = nullptr;
   if (!commitStatus.ok()) {
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
-    return StorageDataManipulationError{SerializationError{}};
+    return StorageManipulationError{SerializationError{}};
   }
   spdlog::trace("rocksdb: Commit successful");
 
@@ -1812,39 +1823,31 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
-    LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock storage_guard(main_lock_);
-
-  if (!indices_.label_index_->DropIndex(label)) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
+  if (!disk_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-
-  if (!PersistLabelIndexDeletion(label)) {
-    return StorageIndexDefinitionError{IndexPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
-
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
-    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock storage_guard(main_lock_);
-
-  if (!indices_.label_property_index_->DropIndex(label, property)) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
+                                                                                           PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
+  if (!disk_label_property_index->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-
-  if (!PersistLabelPropertyIndexAndExistenceConstraintDeletion(label, property, label_property_index_str)) {
-    return StorageIndexDefinitionError{IndexPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-
   return {};
 }
 

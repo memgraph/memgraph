@@ -53,12 +53,13 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
-  MetadataDelta(LabelIndexDrop /*tag*/) : action(Action::LABEL_INDEX_DROP) {}
+  MetadataDelta(LabelIndexDrop /*tag*/, LabelId label) : action(Action::LABEL_INDEX_DROP), label(label) {}
 
   MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/) : action(Action::LABEL_PROPERTY_INDEX_DROP) {}
+  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
+      : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/) : action(Action::EXISTENCE_CONSTRAINT_CREATE) {}
 

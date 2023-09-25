@@ -1477,10 +1477,14 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     CreateExtendedDataset(store.get());
     auto indices = store->ListAllIndices();
     for (const auto &index : indices.label) {
-      ASSERT_FALSE(store->DropIndex(index).HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &index : indices.label_property) {
-      ASSERT_FALSE(store->DropIndex(index.first, index.second).HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto constraints = store->ListAllConstraints();
     for (const auto &constraint : constraints.existence) {

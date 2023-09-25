@@ -644,7 +644,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
+utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
@@ -685,6 +685,16 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
                 durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, md_delta.label_property.label,
                 {md_delta.label_property.property}, *commit_timestamp_);
           } break;
+          case MetadataDelta::Action::LABEL_INDEX_DROP: {
+            could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
+                durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label, {}, *commit_timestamp_);
+          } break;
+          case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
+            could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
+                durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, md_delta.label_property.label,
+                {md_delta.label_property.property}, *commit_timestamp_);
+          } break;
+
           default:
             break;
         }
@@ -729,7 +739,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       auto validation_result = storage_->constraints_.existence_constraints_->Validate(*prev.vertex);
       if (validation_result) {
         Abort();
-        return StorageDataManipulationError{*validation_result};
+        return StorageManipulationError{*validation_result};
       }
     }
 
@@ -818,14 +828,14 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
     if (unique_constraint_violation) {
       Abort();
-      return StorageDataManipulationError{*unique_constraint_violation};
+      return StorageManipulationError{*unique_constraint_violation};
     }
   }
 
   is_transaction_active_ = false;
 
   if (!could_replicate_all_sync_replicas) {
-    return StorageDataManipulationError{ReplicationError{}};
+    return StorageManipulationError{ReplicationError{}};
   }
 
   return {};
@@ -1039,50 +1049,32 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
-    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock storage_guard(main_lock_);
-  if (!indices_.label_index_->DropIndex(label)) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
+  if (!mem_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success =
-      AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
-
-  if (success) {
-    return {};
-  }
-
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock storage_guard(main_lock_);
-  if (!indices_.label_property_index_->DropIndex(label, property)) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+    LabelId label, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  if (!mem_label_property_index->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, label,
-                                           {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-
-  if (success) {
-    return {};
-  }
-
-  return StorageIndexDefinitionError{ReplicationError{}};
+  return {};
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(

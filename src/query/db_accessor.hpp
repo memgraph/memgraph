@@ -533,7 +533,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageDataManipulationError, void> Commit() { return accessor_->Commit(); }
+  utils::BasicResult<storage::StorageManipulationError, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
 
@@ -610,6 +610,15 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label,
                                                                              storage::PropertyId property) {
     return accessor_->CreateIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
+    return accessor_->DropIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
+                                                                           storage::PropertyId property) {
+    return accessor_->DropIndex(label, property);
   }
 };
 

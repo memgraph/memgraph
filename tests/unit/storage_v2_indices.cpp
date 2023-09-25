@@ -205,14 +205,22 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
-  EXPECT_FALSE(this->storage->DropIndex(this->label1).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
   }
   EXPECT_EQ(this->storage->ListAllIndices().label.size(), 0);
 
-  EXPECT_TRUE(this->storage->DropIndex(this->label1).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_TRUE(unique_acc->DropIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
@@ -600,16 +608,29 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
       this->storage->ListAllIndices().label_property,
       UnorderedElementsAre(std::make_pair(this->label1, this->prop_id), std::make_pair(this->label2, this->prop_id)));
 
-  EXPECT_FALSE(this->storage->DropIndex(this->label1, this->prop_id).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
   }
   EXPECT_THAT(this->storage->ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(this->label2, this->prop_id)));
-  EXPECT_TRUE(this->storage->DropIndex(this->label1, this->prop_id).HasError());
 
-  EXPECT_FALSE(this->storage->DropIndex(this->label2, this->prop_id).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_TRUE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropIndex(this->label2, this->prop_id).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
   {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));

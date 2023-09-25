@@ -489,7 +489,9 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
       case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
         spdlog::trace("       Drop label index on :{}", delta.operation_label.label);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (storage->DropIndex(storage->NameToLabel(delta.operation_label.label), timestamp).HasError())
+        // TODO: Double check this
+        auto access = storage->UniqueAccess({});
+        if (access->DropIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction!");
         break;
       }
@@ -513,9 +515,11 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         spdlog::trace("       Drop label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (storage
+        // TODO: Double check this
+        auto access = storage->UniqueAccess({});
+        if (access
                 ->DropIndex(storage->NameToLabel(delta.operation_label_property.label),
-                            storage->NameToProperty(delta.operation_label_property.property), timestamp)
+                            storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
           throw utils::BasicException("Invalid transaction!");
         break;

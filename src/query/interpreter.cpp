@@ -73,6 +73,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
@@ -2059,9 +2060,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
-  // TODO: Enable when all are supported
-  MG_ASSERT(index_query->action_ != IndexQuery::Action::CREATE || current_db.db_transactional_accessor_,
-            "Index query expects a current DB transaction");
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
   // Creating an index influences computed plan costs.
@@ -2105,26 +2104,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
-          const auto &error = maybe_index_error.GetError();
-          std::visit(
-              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
-                using ErrorType = std::remove_cvref_t<T>;
-                if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  throw ReplicationException(
-                      fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
-                                  "on properties {}.",
-                                  label_name, properties_stringified));
-                } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
-                  index_notification.code = NotificationCode::EXISTENT_INDEX;
-                  index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
-                                                         label_name, properties_stringified);
-                } else if constexpr (std::is_same_v<ErrorType, storage::IndexPersistenceError>) {
-                  throw IndexPersistenceException();
-                } else {
-                  static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-                }
-              },
-              error);
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
+          // ABORT?
         }
       };
       break;
@@ -2134,35 +2117,18 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [storage, label, properties_stringified = std::move(properties_stringified),
+      handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? storage->DropIndex(label) : storage->DropIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           const auto &error = maybe_index_error.GetError();
-          std::visit(
-              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
-                using ErrorType = std::remove_cvref_t<T>;
-                if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  throw ReplicationException(
-                      fmt::format("At least one SYNC replica has not confirmed the dropping of the index on label {} "
-                                  "on properties {}.",
-                                  label_name, properties_stringified));
-                } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
-                  index_notification.code = NotificationCode::NONEXISTENT_INDEX;
-                  index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
-                                                         label_name, properties_stringified);
-                } else if constexpr (std::is_same_v<ErrorType, storage::IndexPersistenceError>) {
-                  throw IndexPersistenceException();
-                } else {
-                  static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-                }
-              },
-              error);
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
         }
       };
       break;
@@ -3677,16 +3643,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
 
-    // TODO: Update as more are supported
-    const auto *tmp = utils::Downcast<IndexQuery>(parsed_query.query);
-    bool supported_index_query = tmp != nullptr && tmp->action_ == IndexQuery::Action::CREATE;
-
     // Some queries require an active transaction in order to be prepared.
     bool t1 = utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
               utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
               utils::Downcast<TriggerQuery>(parsed_query.query) ||
               utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-              supported_index_query;  // TODO: add stream+index
+              utils::Downcast<IndexQuery>(parsed_query.query);  // TODO: add stream+index
     //    auto t2 = UsesDatabases(parsed_query.query);
     // some visitor to get this from parsed_query.query
     // use DB     R/W
@@ -3697,7 +3659,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // analysis on parsed_query.query to figure out if db_access required
       // for now assume that is the current db (which either bolt set of is the default or using statement changed to)
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      bool unique = supported_index_query;
+      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr;
       SetupDatabaseTransaction(could_commit, unique);
     }
     if (!t1) {
@@ -3938,6 +3900,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
               throw QueryException("Unable to commit due to serialization error.");
+            } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+              throw QueryException("Unable to commit due to persistance error.");
             } else {
               static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
             }
@@ -4062,6 +4026,8 @@ void Interpreter::Commit() {
             }
           } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
             throw QueryException("Unable to commit due to serialization error.");
+          } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+            throw QueryException("Unable to commit due to persistance error.");
           } else {
             static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
           }

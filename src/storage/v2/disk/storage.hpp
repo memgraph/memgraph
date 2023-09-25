@@ -206,7 +206,7 @@ class DiskStorage final : public Storage {
     }
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageDataManipulationError, void> Commit(
+    utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     void UpdateObjectsCountOnAbort();
@@ -232,6 +232,10 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                         std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
@@ -247,20 +251,20 @@ class DiskStorage final : public Storage {
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushIndexCache();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedVertices();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedEdges();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushVertices(
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
         const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> ClearDanglingVertices();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
     bool WriteVertexToDisk(const Vertex &vertex);
@@ -288,12 +292,6 @@ class DiskStorage final : public Storage {
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
