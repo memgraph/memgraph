@@ -1015,7 +1015,7 @@ void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
 }
 
 EdgeImportMode DiskStorage::GetEdgeImportMode() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  std::shared_lock storage_guard_(main_lock_);
   return edge_import_status_;
 }
 
@@ -1784,7 +1784,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_grant_, "Create index requires unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
@@ -1798,7 +1798,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
                                                                                              PropertyId property) {
-  MG_ASSERT(unique_grant_, "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
@@ -1814,7 +1814,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
 
   if (!indices_.label_index_->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1832,7 +1832,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
 
   if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1850,7 +1850,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
 
   if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
@@ -1885,7 +1885,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                     const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
 
@@ -1913,7 +1913,7 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                   const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;

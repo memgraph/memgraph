@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "utils/resource_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -1011,7 +1012,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_grant_, "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
@@ -1025,7 +1026,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_grant_, "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -1040,7 +1041,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
   if (!indices_.label_index_->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
@@ -1062,7 +1063,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
   if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
@@ -1086,7 +1087,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
 
   if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
@@ -1114,7 +1115,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStor
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
@@ -1134,7 +1135,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                         const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
   auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError()) {
@@ -1159,7 +1160,7 @@ InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  std::unique_lock storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
@@ -1232,7 +1233,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 template <bool force>
-void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard) {
+void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard) {
   // NOTE: You do not need to consider cleanup of deleted object that occurred in
   // different storage modes within the same CollectGarbage call. This is because
   // SetStorageMode will ensure CollectGarbage is called before any new transactions
@@ -1542,8 +1543,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
 }
 
 // tell the linker he can find the CollectGarbage definitions here
-template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::RWLock>);
-template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::RWLock>);
+template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock>);
+template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock>);
 
 StorageInfo InMemoryStorage::GetInfo() const {
   auto vertex_count = vertices_.size();
@@ -1797,7 +1798,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto max_num_tries{10};
   while (max_num_tries) {
     if (should_try_shared) {
-      std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+      std::shared_lock storage_guard(main_lock_);
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
         snapshot_creator();
         return {};
@@ -1819,7 +1820,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   return CreateSnapshotError::ReachedMaxNumTries;
 }
 
-void InMemoryStorage::FreeMemory(std::unique_lock<utils::RWLock> main_guard) {
+void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) {
   CollectGarbage<true>(std::move(main_guard));
 
   // SkipList is already threadsafe

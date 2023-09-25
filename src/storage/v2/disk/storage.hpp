@@ -360,7 +360,7 @@ class DiskStorage final : public Storage {
 
   StorageInfo GetInfo() const override;
 
-  void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
+  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
   void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 

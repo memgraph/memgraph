@@ -41,8 +41,7 @@ class InMemoryStorage;
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 Storage::Storage(Config config, StorageMode storage_mode)
-    : unique_access_(&main_lock_),
-      name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
                                                     config.disk.id_name_mapper_directory);
@@ -77,8 +76,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_, std::defer_lock),
-      // unique_guard_(storage_->main_lock_),
-      unique_grant_(storage->unique_access_.UniqueAccess()),
+      unique_guard_(storage_->main_lock_),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
@@ -86,7 +84,6 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),
-      unique_grant_(std::move(other.unique_grant_)),
       unique_guard_(std::move(other.unique_guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
@@ -98,12 +95,12 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 }
 
 IndicesInfo Storage::ListAllIndices() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  std::shared_lock storage_guard_(main_lock_);
   return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  std::shared_lock storage_guard_(main_lock_);
   return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
 }
 

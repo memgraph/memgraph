@@ -38,7 +38,7 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
-#include "utils/rw_lock.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
@@ -78,70 +78,6 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_dest_edge_ids{};
   std::unordered_set<Vertex *> partial_src_vertices{};
   std::unordered_set<Vertex *> partial_dest_vertices{};
-};
-
-// For unique access to the storage, you need to lock the main_lock_.
-// However, using unique_lock to lock it and then unlocking in another thread is UB.
-// This broker is used to actually lock and unlock in a single thread, but dispatch
-// locking requests.
-// TODO: Look into this, there must a simpler way... Could we use a spin lock in storage?
-class AccessBroker {
- public:
-  class Grant {
-   public:
-    Grant() {}
-    Grant(std::binary_semaphore *sem, std::atomic_int *waiting) : sem_(sem), waiting_(waiting) {
-      ++(*waiting_);
-      sem_->acquire();
-      --(*waiting_);
-    }
-    ~Grant() {
-      if (sem_) {
-        sem_->release();
-      }
-    }
-    Grant(Grant &&) = default;
-
-    explicit operator bool() { return sem_ != nullptr; }
-
-   private:
-    std::binary_semaphore *sem_{};
-    std::atomic_int *waiting_{};
-  };
-
-  explicit AccessBroker(utils::RWLock *mtx)
-      : mtx_(mtx), l_(*mtx_, std::defer_lock), t_([&]() {
-          bool ok = true;
-          while (running_) {
-            if (!ok) {
-              sem_.acquire();
-              ok = true;
-            }
-            if (l_.owns_lock()) {
-              l_.unlock();
-            } else if (waiting_) {
-              l_.lock();
-              ok = false;
-              sem_.release();
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          }
-        }) {}
-
-  ~AccessBroker() {
-    running_ = false;
-    if (t_.joinable()) t_.join();
-  }
-
-  Grant UniqueAccess() { return {&sem_, &waiting_}; }
-
- private:
-  utils::RWLock *mtx_;
-  std::unique_lock<utils::RWLock> l_;
-  std::atomic_int waiting_{0};
-  std::atomic_bool running_{true};
-  std::binary_semaphore sem_{0};
-  std::thread t_;
 };
 
 class Storage {
@@ -299,9 +235,8 @@ class Storage {
 
    protected:
     Storage *storage_;
-    std::shared_lock<utils::RWLock> storage_guard_;
-    AccessBroker::Grant unique_grant_;
-    std::unique_lock<utils::RWLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
+    std::shared_lock<utils::ResourceLock> storage_guard_;
+    std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
@@ -344,7 +279,7 @@ class Storage {
 
   StorageMode GetStorageMode() const;
 
-  virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
 
   void FreeMemory() { FreeMemory({}); }
 
@@ -433,9 +368,7 @@ class Storage {
   // creation of new accessors by taking a unique lock. This is used when doing
   // operations on storage that affect the global state, for example index
   // creation.
-  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
-
-  mutable AccessBroker unique_access_;
+  mutable utils::ResourceLock main_lock_;
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we

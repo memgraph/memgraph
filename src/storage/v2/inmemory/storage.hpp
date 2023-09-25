@@ -28,6 +28,7 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -359,7 +360,7 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
+  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -388,7 +389,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage(std::unique_lock<utils::RWLock> main_guard = {});
+  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
 
   bool InitializeWalFile();
   void FinalizeWalFile();
