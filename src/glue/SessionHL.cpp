@@ -127,14 +127,13 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
   bool res = true;
+  interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->HasUsers()) {
       user_ = locked_auth->Authenticate(username, password);
       if (user_) {
         interpreter_.SetUser(user_->username());
-      } else {
-        interpreter_.ResetUser();
       }
       res = user_.has_value();
     }
@@ -147,10 +146,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   return res;
 }
 
-void SessionHL::Abort() {
-  interpreter_.Abort();
-  interpreter_.ResetUser();
-}
+void SessionHL::Abort() { interpreter_.Abort(); }
 
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(std::optional<int> n,
                                                                                std::optional<int> qid) {
