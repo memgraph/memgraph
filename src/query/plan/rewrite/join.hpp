@@ -47,13 +47,17 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
 
+    std::vector<std::string> prev_op_names;
+    for (auto prev_op : prev_ops_) {
+      prev_op_names.push_back(prev_op->GetTypeInfo().name);
+    }
+
     // TODO HashJoin: Collect filter expressions like in the index_lookup.hpp
     // Check if we only need to collect if the child operator is Cartesian
     // Probably yes
     // Also see if before cartesian there could be Filter -> EdgeUniquenessFilter -> Cartesian
     // e.g. MATCH (a)-[]->(b), (c)-[]->(d) return a, c;
 
-    prev_ops_.push_back(&op);
     filters_.CollectFilterExpression(op.expression_, *symbol_table_);
     return true;
   }
@@ -64,8 +68,17 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
 
+    std::vector<std::string> prev_op_names;
+    for (auto prev_op : prev_ops_) {
+      prev_op_names.push_back(prev_op->GetTypeInfo().name);
+    }
+
     // TODO HashJoin: Remove filter expressions just like in index_lookup.hpp
     // Remove filter if no expressions are left just like in index_lookup.hpp
+
+    auto op_type = op.input()->GetTypeInfo();
+    auto op_ex = op.expression_;
+    auto op_ex_type = op_ex->GetTypeInfo().name;
 
     ExpressionRemovalResult removal = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
     op.expression_ = removal.expression;
@@ -80,6 +93,8 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     } else if (removal.removed && op.input()->GetTypeInfo() == Cartesian::kType) {
       auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
       auto hash_join = std::make_shared<HashJoin>(cartesian->left_op_, cartesian->right_op_);
+      auto left_op_type = cartesian->left_op_->GetTypeInfo().name;
+      auto right_op_type = cartesian->right_op_->GetTypeInfo().name;
       op.set_input(hash_join);
     }
     return true;
@@ -161,8 +176,12 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(Cartesian &) override {
+  bool PostVisit(Cartesian &op) override {
     prev_ops_.pop_back();
+    auto hash_join = GenHashJoin(op);
+    if (indexed_scan) {
+      SetOnParent(std::move(hash_join));
+    }
     return true;
   }
 
@@ -491,6 +510,41 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
     }
+  }
+
+  std::unique_ptr<ScanAll> GenHashJoin(const Cartesian &cartesian) {
+    // TODO ante this is GenScanByIndex code, replace it with appropriate logic that rewrites Cartesian to HashJoin
+    const auto &input = scan.input();
+    const auto &node_symbol = scan.output_symbol_;
+    const auto &view = scan.view_;
+
+    auto modified_symbols = scan.ModifiedSymbols(*symbol_table_);
+    modified_symbols.insert(modified_symbols.end(), cartesian_symbols_.begin(), cartesian_symbols_.end());
+
+    std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      for (const auto &used_symbol : used_symbols) {
+        if (!utils::Contains(bound_symbols, used_symbol)) {
+          return false;
+        }
+      }
+      return true;
+    };
+    // First, try to see if we can find a vertex by ID.
+    if (!max_vertex_count || *max_vertex_count >= 1) {
+      for (const auto &filter : filters_.IdFilters(node_symbol)) {
+        if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
+        auto *value = filter.id_filter->value_;
+        filter_exprs_for_removal_.insert(filter.expression);
+        filters_.EraseFilter(filter);
+        return std::make_unique<ScanAllById>(input, node_symbol, value, view);
+      }
+    }
+
+    std::vector<Expression *> removed_expressions;
+    filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
+    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };
 
