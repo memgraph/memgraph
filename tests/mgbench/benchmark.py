@@ -93,7 +93,7 @@ def parse_args():
     benchmark_parser.add_argument(
         "--single-threaded-runtime-sec",
         type=int,
-        default=10,
+        default=1,
         help="single threaded duration of each query",
     )
     benchmark_parser.add_argument(
@@ -254,7 +254,7 @@ def sanitize_args(args):
     assert args.num_workers_for_benchmark > 0
     assert args.export_results != None, "Pass where will results be saved"
     assert (
-        args.single_threaded_runtime_sec >= 10
+        args.single_threaded_runtime_sec >= 1
     ), "Low runtime value, consider extending time for more accurate results"
     assert (
         args.workload_realistic == None or args.workload_mixed == None
@@ -471,7 +471,6 @@ def get_query_cache_count(
     query: str,
     func: str,
 ):
-    log.init("Determining query count for benchmark based on --single-threaded-runtime argument")
     config_key = [workload.NAME, workload.get_variant(), group, query]
     cached_count = config.get_value(*config_key)
     if cached_count is None:
@@ -484,32 +483,19 @@ def get_query_cache_count(
         vendor.start_db(CACHE)
         client.execute(queries=queries, num_workers=1)
         count = 1
-        while True:
-            ret = client.execute(queries=get_queries(func, count), num_workers=1)
-            duration = ret[0][DURATION]
-            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
-            log.log(
-                "executed_queries={}, total_duration={}, query_duration={}, estimated_count={}".format(
-                    count, duration, duration / count, should_execute
-                )
-            )
-            # We don't have to execute the next iteration when
-            # `should_execute` becomes the same order of magnitude as
-            # `count * 10`.
-            if should_execute / (count * 10) < 10:
-                count = should_execute
-                break
-            else:
-                count = count * 10
+        ret = client.execute(queries=get_queries(func, count), num_workers=1)
+        duration = ret[0][DURATION]
+        est_num_queries = int(benchmark_context.single_threaded_runtime_sec / duration)
+        log.log(f"Executed_queries={count}, total_duration={duration}, Estimated #queries in {benchmark_context.single_threaded_runtime_sec}s={est_num_queries}")
         vendor.stop_db(CACHE)
 
-        if count < benchmark_context.query_count_lower_bound:
-            count = benchmark_context.query_count_lower_bound
+        if est_num_queries < benchmark_context.query_count_lower_bound:
+            est_num_queries = benchmark_context.query_count_lower_bound
 
         config.set_value(
             *config_key,
             value={
-                COUNT: count,
+                COUNT: est_num_queries,
                 DURATION: benchmark_context.single_threaded_runtime_sec,
             },
         )
@@ -519,8 +505,8 @@ def get_query_cache_count(
                 cached_count[COUNT], cached_count[DURATION]
             ),
         )
-        count = int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
-    return count
+        est_num_queries = int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
+    return est_num_queries
 
 
 def check_benchmark_requirements(benchmark_context):
@@ -602,6 +588,7 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
         log_metadata_summary(ret)
         log.success("Throughput: {:02f} QPS".format(ret[THROUGHPUT]))
         save_to_results(results, ret, workload, group, query, WITH_FINE_GRAINED_AUTHORIZATION)
+        break
 
     vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
     log.info("Running cleanup of auth queries")
@@ -647,6 +634,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
 
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
+        break
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload):
@@ -804,7 +792,6 @@ def log_metadata_summary(ret):
             "{name:>30}: {minimum:>20.06f} {average:>20.06f} " "{maximum:>20.06f}".format(name=key, **metadata[key])
         )
 
-
 def log_output_summary(benchmark_context, ret, usage, funcname, sample_query):
     log_metrics_summary(ret, usage)
     if DOCKER not in benchmark_context.vendor_name:
@@ -905,3 +892,4 @@ if __name__ == "__main__":
     if benchmark_context.export_results_in_memory_analytical:
         with open(benchmark_context.export_results_in_memory_analytical, "w") as f:
             json.dump(bench_results.in_memory_analytical_results.get_data(), f)
+
