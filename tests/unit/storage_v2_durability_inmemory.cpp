@@ -271,7 +271,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Verify constraints info.
     {
-      auto info = store->ListAllConstraints();
+      auto info = acc->ListAllConstraints();
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
@@ -1392,7 +1392,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
-    auto constraints = store->ListAllConstraints();
+    auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
     {
@@ -1493,7 +1493,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     CreateExtendedDataset(store.get());
     auto indices = [&] {
       auto acc = store->Access();
-      return acc->ListAllIndices();
+      auto res = acc->ListAllIndices();
+      acc->Commit();
+      return res;
     }();  // iile
     for (const auto &index : indices.label) {
       auto unique_acc = store->UniqueAccess();
@@ -1505,7 +1507,12 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    auto constraints = store->ListAllConstraints();
+    auto constraints = [&] {
+      auto acc = store->Access();
+      auto res = acc->ListAllConstraints();
+      acc->Commit();
+      return res;
+    }();  // iile
     for (const auto &constraint : constraints.existence) {
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
@@ -1538,7 +1545,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
-    auto constraints = store->ListAllConstraints();
+    auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
     uint64_t count = 0;

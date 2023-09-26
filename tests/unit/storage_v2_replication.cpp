@@ -264,7 +264,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_THAT(indices.label_property, UnorderedElementsAre(std::make_pair(replica_store->NameToLabel(label),
                                                                             replica_store->NameToProperty(property))));
 
-    const auto constraints = replica_store->ListAllConstraints();
+    const auto constraints = replica_store->Access()->ListAllConstraints();
     ASSERT_THAT(constraints.existence, UnorderedElementsAre(std::make_pair(replica_store->NameToLabel(label),
                                                                            replica_store->NameToProperty(property))));
     ASSERT_THAT(constraints.unique,
@@ -309,7 +309,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
 
-    const auto constraints = replica_store->ListAllConstraints();
+    const auto constraints = replica_store->Access()->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
   }

@@ -1883,4 +1883,9 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices()};
 }
+ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
+  const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
+          mem_storage->constraints_.unique_constraints_->ListConstraints()};
+}
 }  // namespace memgraph::storage

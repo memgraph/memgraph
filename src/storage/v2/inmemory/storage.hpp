@@ -232,10 +232,7 @@ class InMemoryStorage final : public Storage {
 
     IndicesInfo ListAllIndices() const override;
 
-    ConstraintsInfo ListAllConstraints() const override {
-      const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return mem_storage->ListAllConstraints();
-    }
+    ConstraintsInfo ListAllConstraints() const override;
 
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:

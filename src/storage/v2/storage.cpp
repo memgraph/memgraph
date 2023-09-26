@@ -94,11 +94,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-ConstraintsInfo Storage::ListAllConstraints() const {
-  std::shared_lock storage_guard_(main_lock_);
-  return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
-}
-
 /// Main lock is taken by the caller.
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
