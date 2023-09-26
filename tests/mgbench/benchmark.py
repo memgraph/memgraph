@@ -191,20 +191,6 @@ def parse_args():
     benchmark_parser.add_argument("--customer-workloads", default=None, help="Path to customers workloads")
 
     benchmark_parser.add_argument(
-        "--disk-storage",
-        action="store_true",
-        default=False,
-        help="If the flag set, benchmarks will be run also for disk storage.",
-    )
-
-    benchmark_parser.add_argument(
-        "--in-memory-analytical",
-        action="store_true",
-        default=False,
-        help="If the flag set, benchmarks will be run also for in_memory_analytical.",
-    )
-
-    benchmark_parser.add_argument(
         "--vendor-specific",
         nargs="*",
         default=[],
@@ -700,14 +686,14 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        if workload.is_disk_workload():
+        if workload.is_disk_workload() and benchmark_context.export_results_on_disk_txn:
             run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, bench_results.disk_results)
         else:
             run_in_memory_transactional_benchmark(
                 benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results
             )
 
-            if benchmark_context.in_memory_analytical:
+            if benchmark_context.export_results_in_memory_analytical:
                 run_in_memory_analytical_benchmark(
                     benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
                 )
@@ -867,8 +853,6 @@ if __name__ == "__main__":
         no_authorization=args.no_authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
-        disk_storage=args.disk_storage,
-        in_memory_analytical=args.in_memory_analytical,
     )
 
     log_benchmark_arguments(benchmark_context)

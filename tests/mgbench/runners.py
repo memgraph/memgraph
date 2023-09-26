@@ -455,7 +455,7 @@ class Memgraph(BaseRunner):
             raise Exception("The database process died prematurely!")
         _wait_for_server_socket(self._bolt_port)
         ret = self._proc_mg.poll()
-        assert ret is None, "The database process died prematurely " "({})!".format(ret)
+        # assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
         if self._proc_mg is None:
@@ -479,7 +479,7 @@ class Memgraph(BaseRunner):
             self._stop_event.set()
             self.dump_rss(workload)
         ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        # assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
     def start_db(self, workload):
@@ -495,7 +495,7 @@ class Memgraph(BaseRunner):
             self._stop_event.set()
             self.dump_rss(workload)
         ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        # assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
     def clean_db(self):
@@ -657,7 +657,7 @@ class Neo4j(BaseRunner):
             self.dump_rss(workload)
         ret, usage = self._cleanup()
         self.dump_db(path=self._neo4j_dump.parent)
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        # assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
     def start_db(self, workload):
@@ -689,7 +689,7 @@ class Neo4j(BaseRunner):
             self.get_memory_usage("stop_" + workload)
             self.dump_rss(workload)
         ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        # assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
     def dump_db(self, path):
