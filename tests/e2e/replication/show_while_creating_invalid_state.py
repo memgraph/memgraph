@@ -1052,7 +1052,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     # 5/
     expected_data = {
         ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 4, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 5, 0, "ready"),
     }
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
