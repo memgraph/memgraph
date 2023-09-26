@@ -454,44 +454,52 @@ def get_query_cache_count(
     workload: str,
     group: str,
     query: str,
+    func: str,
 ):
+    log.init(
+        f"Determining query count for benchmark based on --single-threaded-runtime argument = {benchmark_context.single_threaded_runtime_sec}s"
+    )
     config_key = [workload.NAME, workload.get_variant(), group, query]
     cached_count = config.get_value(*config_key)
     if cached_count is None:
-        log.info(
-            "Determining the number of queries necessary for {} seconds of single-threaded runtime".format(
-                benchmark_context.single_threaded_runtime_sec
-            )
-        )
-        log.info(f"Started executing the query once")
         vendor.start_db(CACHE)
         client.execute(queries=queries, num_workers=1)
-        ret = client.execute(queries=queries, num_workers=1)
-        duration = ret[0][DURATION]
-        est_num_queries = int(benchmark_context.single_threaded_runtime_sec / duration)
-        log.log(
-            f"Executed_queries={1}, total_duration={duration}, Estimated #queries in {benchmark_context.single_threaded_runtime_sec}s={est_num_queries}"
-        )
+        count = 1
+        while True:
+            ret = client.execute(queries=get_queries(func, count), num_workers=1)
+            duration = ret[0][DURATION]
+            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
+            log.log(
+                "Executed_queries={}, total_duration={}, query_duration={}, estimated_count={}".format(
+                    count, duration, duration / count, should_execute
+                )
+            )
+            if should_execute / (count * 10) < 10:
+                count = should_execute
+                break
+            else:
+                count = count * 10
+
         vendor.stop_db(CACHE)
 
-        if est_num_queries < benchmark_context.query_count_lower_bound:
-            est_num_queries = benchmark_context.query_count_lower_bound
+        if count < benchmark_context.query_count_lower_bound:
+            count = benchmark_context.query_count_lower_bound
 
         config.set_value(
             *config_key,
             value={
-                COUNT: est_num_queries,
+                COUNT: count,
                 DURATION: benchmark_context.single_threaded_runtime_sec,
             },
         )
-        return est_num_queries
     else:
         log.log(
             "Using cached query count of {} queries for {} seconds of single-threaded runtime to extrapolate .".format(
                 cached_count[COUNT], cached_count[DURATION]
             ),
         )
-        return int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
+        count = int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
+    return count
 
 
 def check_benchmark_requirements(benchmark_context):
@@ -553,7 +561,7 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
         log.init("Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION))
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query
+            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
@@ -588,7 +596,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         )
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query
+            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
         )
 
         # Benchmark run.
