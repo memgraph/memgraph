@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -161,9 +162,7 @@ class InMemoryStorage final : public Storage {
       index->SetIndexStats(key, stats);
     }
 
-    void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override {
-      SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
-    }
+    void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const LabelPropertyIndexStats &stats) override {
@@ -393,6 +392,10 @@ class InMemoryStorage final : public Storage {
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                               const std::set<PropertyId> &properties, LabelIndexStats stats,
+                                               uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

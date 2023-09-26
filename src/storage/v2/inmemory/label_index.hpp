@@ -13,15 +13,11 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_index.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
-
-struct LabelIndexStats {
-  uint64_t count;
-  double avg_degree;
-};
 
 using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
@@ -113,7 +109,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
  private:
   utils::Synchronized<std::map<LabelId, utils::SkipList<Entry>>, utils::ReadPrioritizedRWLock> index_;
-  std::map<LabelId, storage::LabelIndexStats> stats_;
+  utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
 }  // namespace memgraph::storage

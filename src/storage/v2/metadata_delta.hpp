@@ -17,6 +17,7 @@
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 
@@ -27,6 +28,7 @@ struct MetadataDelta {
   enum class Action {
     LABEL_INDEX_CREATE,
     LABEL_INDEX_DROP,
+    LABEL_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_CREATE,
     LABEL_PROPERTY_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -39,6 +41,8 @@ struct MetadataDelta {
   } label_index_create;
   static constexpr struct LabelIndexDrop {
   } label_index_drop;
+  static constexpr struct LabelIndexStatsSet {
+  } label_index_stats_set;
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
   static constexpr struct LabelPropertyIndexDrop {
@@ -55,6 +59,9 @@ struct MetadataDelta {
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
   MetadataDelta(LabelIndexDrop /*tag*/, LabelId label) : action(Action::LABEL_INDEX_DROP), label(label) {}
+
+  MetadataDelta(LabelIndexStatsSet /*tag*/, LabelId label, LabelIndexStats stats)
+      : action(Action::LABEL_INDEX_STATS_SET), label_stats{label, stats} {}
 
   MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
@@ -83,6 +90,7 @@ struct MetadataDelta {
     switch (action) {
       case Action::LABEL_INDEX_CREATE:
       case Action::LABEL_INDEX_DROP:
+      case Action::LABEL_INDEX_STATS_SET:
       case Action::LABEL_PROPERTY_INDEX_CREATE:
       case Action::LABEL_PROPERTY_INDEX_DROP:
       case Action::EXISTENCE_CONSTRAINT_CREATE:
@@ -99,14 +107,21 @@ struct MetadataDelta {
 
   union {
     LabelId label;
+
     struct {
       LabelId label;
       PropertyId property;
     } label_property;
+
     struct {
       LabelId label;
       std::set<PropertyId> properties;
     } label_properties;
+
+    struct {
+      LabelId label;
+      LabelIndexStats stats;
+    } label_stats;
   };
 };
 

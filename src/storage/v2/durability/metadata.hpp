@@ -19,6 +19,7 @@
 
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -39,6 +40,7 @@ struct RecoveredIndicesAndConstraints {
   struct {
     std::vector<LabelId> label;
     std::vector<std::pair<LabelId, PropertyId>> label_property;
+    std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
   } indices;
 
   struct {
@@ -67,6 +69,21 @@ template <typename TObj>
 void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const char *error_message) {
   auto it = std::find(list->begin(), list->end(), obj);
   if (it != list->end()) {
+    std::swap(*it, list->back());
+    list->pop_back();
+  } else {
+    throw RecoveryFailure(error_message);
+  }
+}
+
+// Helper function used to remove indices stats from the recovered
+// indices/constraints object.
+// @note multiple stats can be pushed one after the other; when removing, remove from the back
+// @throw RecoveryFailure
+template <typename TObj>
+void RemoveRecoveredIndexStats(std::vector<TObj> *list, TObj obj, const char *error_message) {
+  auto it = std::find(list->rbegin(), list->rend(), obj);
+  if (it != list->rend()) {
     std::swap(*it, list->back());
     list->pop_back();
   } else {

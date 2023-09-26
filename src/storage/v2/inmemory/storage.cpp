@@ -696,6 +696,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                 mem_storage->AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP,
                                                        info.label, {info.property}, *commit_timestamp_);
           } break;
+          case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+            const auto &info = md_delta.label_stats;
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET,
+                                                       info.label, {}, info.stats, *commit_timestamp_);
+          } break;
           case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
             const auto &info = md_delta.label_property;
             could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
@@ -1741,16 +1747,22 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties,
+                                                const std::set<PropertyId> &properties, LabelIndexStats stats,
                                                 uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) {
     return true;
   }
 
-  wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
+  wal_file_->AppendOperation(operation, label, properties, stats, final_commit_timestamp);
   FinalizeWalFile();
-  return replication_state_.AppendOperation(wal_file_->SequenceNumber(), operation, label, properties,
+  return replication_state_.AppendOperation(wal_file_->SequenceNumber(), operation, label, properties, stats,
                                             final_commit_timestamp);
+}
+
+bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                                const std::set<PropertyId> &properties,
+                                                uint64_t final_commit_timestamp) {
+  return AppendToWalDataDefinition(operation, label, properties, {}, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
@@ -1887,5 +1899,9 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
           mem_storage->constraints_.unique_constraints_->ListConstraints()};
+}
+void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
+  SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
 }
 }  // namespace memgraph::storage

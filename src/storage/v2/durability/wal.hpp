@@ -23,6 +23,7 @@
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -58,6 +59,7 @@ struct WalDeltaData {
     TRANSACTION_END,
     LABEL_INDEX_CREATE,
     LABEL_INDEX_DROP,
+    LABEL_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_CREATE,
     LABEL_PROPERTY_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -103,6 +105,11 @@ struct WalDeltaData {
     std::string label;
     std::set<std::string> properties;
   } operation_label_properties;
+
+  struct {
+    std::string label;
+    std::string stats;
+  } operation_label_stats;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -131,13 +138,14 @@ constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
     // 'transaction'.
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-      return true;
+      return true;  // TODO: Still true?
   }
 }
 
@@ -175,7 +183,7 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 /// Function used to encode non-transactional operation.
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     LabelId label, const std::set<PropertyId> &properties, uint64_t timestamp);
+                     LabelId label, const std::set<PropertyId> &properties, LabelIndexStats stats, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
@@ -205,7 +213,7 @@ class WalFile {
   void AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                       uint64_t timestamp);
+                       LabelIndexStats stats, uint64_t timestamp);
 
   void Sync();
 

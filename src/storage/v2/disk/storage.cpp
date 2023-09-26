@@ -1586,6 +1586,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+        case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+        } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintCreation(info.label, info.property,

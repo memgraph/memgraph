@@ -13,6 +13,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
@@ -491,6 +492,22 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         auto access = storage->UniqueAccess({});
         if (access->DropIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction!");
+        break;
+      }
+      case durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
+        spdlog::trace("       Set label index statistics on :{}", delta.operation_label_stats.label);
+        // Need to send the timestamp
+        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
+        auto access = storage->Access({});
+        const auto label = storage->NameToLabel(delta.operation_label_stats.label);
+        LabelIndexStats stats{};
+        if (!FromJson(delta.operation_label_stats.stats, stats)) {
+          throw utils::BasicException("Failed to read statistics!");
+        }
+        access->SetIndexStats(label, stats);
+        if (access->Commit(timestamp).HasError()) {
+          throw utils::BasicException("Failed to commit!");
+        }
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {

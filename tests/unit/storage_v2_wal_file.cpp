@@ -20,6 +20,7 @@
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage_test_utils.hpp"
@@ -36,6 +37,8 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
@@ -211,13 +214,17 @@ class DeltaGenerator final {
   }
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
-                       const std::set<std::string> properties = {}) {
+                       const std::set<std::string> properties = {}, const std::string &stats = {}) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {
       property_ids.insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
     }
-    wal_file_.AppendOperation(operation, label_id, property_ids, timestamp_);
+    memgraph::storage::LabelIndexStats stat{};
+    if (!stats.empty()) {
+      ASSERT_TRUE(FromJson(stats, stat));
+    }
+    wal_file_.AppendOperation(operation, label_id, property_ids, stat, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
@@ -226,6 +233,10 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
           data.operation_label.label = label;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+          data.operation_label_stats.label = label;
+          data.operation_label_stats.stats = stats;
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:

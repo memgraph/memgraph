@@ -17,6 +17,7 @@ namespace memgraph::storage::durability {
 enum class StorageMetadataOperation {
   LABEL_INDEX_CREATE,
   LABEL_INDEX_DROP,
+  LABEL_INDEX_STATS_SET,
   LABEL_PROPERTY_INDEX_CREATE,
   LABEL_PROPERTY_INDEX_DROP,
   EXISTENCE_CONSTRAINT_CREATE,
