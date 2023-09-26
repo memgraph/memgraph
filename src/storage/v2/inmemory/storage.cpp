@@ -22,13 +22,15 @@ namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config)
-    : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL),
+InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
+    : Storage(config, storage_mode),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
+  MG_ASSERT(storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
+            "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -146,6 +148,8 @@ InMemoryStorage::InMemoryStorage(Config config)
         "without write-ahead logs this instance is not replicating any data.");
   }
 }
+
+InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {}
 
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
