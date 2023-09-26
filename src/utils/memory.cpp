@@ -303,6 +303,7 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
                              [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
   if (it != pools_.end() && it->GetBlockSize() == block_size) {
     last_alloc_pool_ = &*it;
+    last_dealloc_pool_ = &*it;
     return it->Allocate();
   }
   // We don't have a pool for this block_size, so insert it in the sorted
