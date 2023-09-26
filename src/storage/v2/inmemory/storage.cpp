@@ -242,6 +242,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
+  OOMExceptionEnabler oom_exception;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto acc = mem_storage->vertices_.access();
   auto it = acc.find(gid);
@@ -252,6 +253,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                                 bool detach) {
+  OOMExceptionEnabler oom_exception;
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
   auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
@@ -438,6 +440,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
+  OOMExceptionEnabler oom_exception;
   MG_ASSERT(edge->transaction_ == new_from->transaction_,
             "EdgeAccessor must be from the same transaction as the new from vertex "
             "accessor when deleting an edge!");
@@ -540,6 +543,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
+  OOMExceptionEnabler oom_exception;
   MG_ASSERT(edge->transaction_ == new_to->transaction_,
             "EdgeAccessor must be from the same transaction as the new to vertex "
             "accessor when deleting an edge!");
@@ -953,6 +957,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, vertices_.access(), std::nullopt)) {
@@ -976,6 +981,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get());
   if (!mem_label_property_index->CreateIndex(label, property, vertices_.access(), std::nullopt)) {
@@ -999,6 +1005,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index_->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1021,6 +1028,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1045,6 +1053,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
 
   if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
@@ -1073,6 +1082,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStor
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
@@ -1093,6 +1103,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                         const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices_.access());
@@ -1118,6 +1129,7 @@ InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
+  OOMExceptionEnabler oom_exception;
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
