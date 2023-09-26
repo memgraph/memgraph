@@ -681,22 +681,45 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                 durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label, {}, *commit_timestamp_);
           } break;
           case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
+            const auto &info = md_delta.label_property;
             could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
-                durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, md_delta.label_property.label,
-                {md_delta.label_property.property}, *commit_timestamp_);
+                durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label, {info.property},
+                *commit_timestamp_);
           } break;
           case MetadataDelta::Action::LABEL_INDEX_DROP: {
             could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
                 durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label, {}, *commit_timestamp_);
           } break;
           case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
-            could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
-                durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, md_delta.label_property.label,
-                {md_delta.label_property.property}, *commit_timestamp_);
+            const auto &info = md_delta.label_property;
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP,
+                                                       info.label, {info.property}, *commit_timestamp_);
           } break;
-
-          default:
-            break;
+          case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
+            const auto &info = md_delta.label_property;
+            could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
+                durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label, {info.property},
+                *commit_timestamp_);
+          } break;
+          case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
+            const auto &info = md_delta.label_property;
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP,
+                                                       info.label, {info.property}, *commit_timestamp_);
+          } break;
+          case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
+            const auto &info = md_delta.label_properties;
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE,
+                                                       info.label, info.properties, *commit_timestamp_);
+          } break;
+          case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
+            const auto &info = md_delta.label_properties;
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP,
+                                                       info.label, info.properties, *commit_timestamp_);
+          } break;
         }
       }
       // Take committed_transactions lock while holding the engine lock to
@@ -1077,97 +1100,65 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock storage_guard(main_lock_);
-
-  if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
+InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
+  if (existence_constraints->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
-
-  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices_.access(), label, property);
+  if (auto violation =
+          ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property);
       violation.has_value()) {
     return StorageExistenceConstraintDefinitionError{violation.value()};
   }
-
-  constraints_.existence_constraints_->InsertConstraint(label, property);
-
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, label,
-                                           {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
-  if (success) {
-    return {};
-  }
-
-  return StorageExistenceConstraintDefinitionError{ReplicationError{}};
+  existence_constraints->InsertConstraint(label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
+  return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::DropExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock storage_guard(main_lock_);
-  if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
+utils::BasicResult<StorageExistenceConstraintDroppingError, void>
+InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
+  if (!existence_constraints->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP, label,
-                                           {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
-  if (success) {
-    return {};
-  }
-
-  return StorageExistenceConstraintDroppingError{ReplicationError{}};
+  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
+  return {};
 }
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                        const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock storage_guard(main_lock_);
-  auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-  auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices_.access());
+InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_unique_constraints =
+      static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
+  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access());
   if (ret.HasError()) {
     return StorageUniqueConstraintDefinitionError{ret.GetError()};
   }
   if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret.GetValue();
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE, label,
-                                           properties, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
-  if (success) {
-    return UniqueConstraints::CreationStatus::SUCCESS;
-  }
-
-  return StorageUniqueConstraintDefinitionError{ReplicationError{}};
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
+  return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
-InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                      const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
+UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
+    LabelId label, const std::set<PropertyId> &properties) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_unique_constraints =
+      static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
+  auto ret = mem_unique_constraints->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  auto success = AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP, label,
-                                           properties, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  replication_state_.last_commit_timestamp_ = commit_timestamp;
-
-  if (success) {
-    return UniqueConstraints::DeletionStatus::SUCCESS;
-  }
-
-  return StorageUniqueConstraintDroppingError{ReplicationError{}};
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
+  return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {

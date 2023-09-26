@@ -282,6 +282,48 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
 
+    /// Returns void if the existence constraint has been created.
+    /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
+    /// * `ConstraintDefinitionError`: the constraint already exists.
+    /// @throw std::bad_alloc
+    /// @throw std::length_error
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    /// Drop an existing existence constraint.
+    /// Returns void if the existence constraint has been dropped.
+    /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintDefinitionError`: the constraint did not exists.
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    /// Create an unique constraint.
+    /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintViolation`: there are already vertices violating the constraint.
+    /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
+    /// * `SUCCESS` if the constraint was successfully created,
+    /// * `ALREADY_EXISTS` if the constraint already existed,
+    /// * `EMPTY_PROPERTIES` if the property set is empty, or
+    /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+
+    /// Removes an existing unique constraint.
+    /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
+    /// * `SUCCESS` if constraint was successfully removed,
+    /// * `NOT_FOUND` if the specified constraint was not found,
+    /// * `EMPTY_PROPERTIES` if the property set is empty, or
+    /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                           const std::set<PropertyId> &properties) override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
@@ -312,48 +354,6 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
-
-  /// Returns void if the existence constraint has been created.
-  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
-  /// * `ConstraintDefinitionError`: the constraint already exists.
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Drop an existing existence constraint.
-  /// Returns void if the existence constraint has been dropped.
-  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintDefinitionError`: the constraint did not exists.
-  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Create an unique constraint.
-  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there are already vertices violating the constraint.
-  /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
-  /// * `SUCCESS` if the constraint was successfully created,
-  /// * `ALREADY_EXISTS` if the constraint already existed,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-  /// @throw std::bad_alloc
-  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Removes an existing unique constraint.
-  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
-  /// * `SUCCESS` if constraint was successfully removed,
-  /// * `NOT_FOUND` if the specified constraint was not found,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 

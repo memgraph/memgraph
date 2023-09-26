@@ -229,26 +229,33 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *label = "label";
   const auto *property = "property";
   const auto *property_extra = "property_extra";
+
   {
-    {
-      auto unique_acc = main_store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(main_store->NameToLabel(label)).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
-    }
-    {
-      auto unique_acc = main_store->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
-    }
+    auto unique_acc = main_store->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(main_store->NameToLabel(label)).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
     ASSERT_FALSE(
-        main_store->CreateExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})
+        unique_acc->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc->CreateExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property))
             .HasError());
-    ASSERT_FALSE(main_store
-                     ->CreateUniqueConstraint(
-                         main_store->NameToLabel(label),
-                         {main_store->NameToProperty(property), main_store->NameToProperty(property_extra)}, {})
-                     .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateUniqueConstraint(main_store->NameToLabel(label),
+                                     {main_store->NameToProperty(property), main_store->NameToProperty(property_extra)})
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -271,26 +278,30 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // existence constraint drop
   // unique constriant drop
   {
-    {
-      auto unique_acc = main_store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(main_store->NameToLabel(label)).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
-    }
-    {
-      auto unique_acc = main_store->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc->DropIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
-    }
+    auto unique_acc = main_store->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(main_store->NameToLabel(label)).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
     ASSERT_FALSE(
-        main_store->DropExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property), {})
+        unique_acc->DropIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc->DropExistenceConstraint(main_store->NameToLabel(label), main_store->NameToProperty(property))
             .HasError());
-    ASSERT_EQ(main_store
-                  ->DropUniqueConstraint(
-                      main_store->NameToLabel(label),
-                      {main_store->NameToProperty(property), main_store->NameToProperty(property_extra)}, {})
-                  .GetValue(),
-              memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
+    ASSERT_EQ(
+        unique_acc->DropUniqueConstraint(main_store->NameToLabel(label), {main_store->NameToProperty(property),
+                                                                          main_store->NameToProperty(property_extra)}),
+        memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {

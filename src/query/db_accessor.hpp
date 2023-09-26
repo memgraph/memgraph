@@ -620,6 +620,26 @@ class DbAccessor final {
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(label, property);
   }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    return accessor_->CreateExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    return accessor_->DropExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageUniqueConstraintDefinitionError, storage::UniqueConstraints::CreationStatus>
+  CreateUniqueConstraint(storage::LabelId label, const std::set<storage::PropertyId> &properties) {
+    return accessor_->CreateUniqueConstraint(label, properties);
+  }
+
+  storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
+                                                                  const std::set<storage::PropertyId> &properties) {
+    return accessor_->DropUniqueConstraint(label, properties);
+  }
 };
 
 class SubgraphDbAccessor final {

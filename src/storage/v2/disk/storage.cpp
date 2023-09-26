@@ -1586,9 +1586,32 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-
-        default:
-          break;
+        case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
+          const auto &info = md_delta.label_property;
+          if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintCreation(info.label, info.property,
+                                                                                     existence_constraints_str)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+        case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
+          const auto &info = md_delta.label_property;
+          if (!disk_storage->PersistLabelPropertyIndexAndExistenceConstraintDeletion(info.label, info.property,
+                                                                                     existence_constraints_str)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+        case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
+          const auto &info = md_delta.label_properties;
+          if (!disk_storage->PersistUniqueConstraintCreation(info.label, info.properties)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+        case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
+          const auto &info = md_delta.label_properties;
+          if (!disk_storage->PersistUniqueConstraintDeletion(info.label, info.properties)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
       }
     }
   } else if (transaction_.deltas.use().empty() ||
@@ -1851,81 +1874,65 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock storage_guard(main_lock_);
-
-  if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
+DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create existence constraint requires a unique access to the storage!");
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
+  if (existence_constraints->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
-
-  if (auto check = CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property); check.has_value()) {
+  if (auto check = on_disk->CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property);
+      check.has_value()) {
     return StorageExistenceConstraintDefinitionError{check.value()};
   }
-
-  constraints_.existence_constraints_->InsertConstraint(label, property);
-
-  if (!PersistLabelPropertyIndexAndExistenceConstraintCreation(label, property, existence_constraints_str)) {
-    return StorageExistenceConstraintDefinitionError{ConstraintsPersistenceError{}};
-  }
-
+  existence_constraints->InsertConstraint(label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DropExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropExistenceConstraint(
+    LabelId label, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop existence constraint requires a unique access to the storage!");
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
+  if (!existence_constraints->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
-
-  if (!PersistLabelPropertyIndexAndExistenceConstraintDeletion(label, property, existence_constraints_str)) {
-    return StorageExistenceConstraintDroppingError{ConstraintsPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                    const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock storage_guard(main_lock_);
-
-  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
-
+DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create unique constraint requires a unique access to the storage!");
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
       constraint_check != UniqueConstraints::CreationStatus::SUCCESS) {
     return constraint_check;
   }
-
-  auto check = CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties);
+  auto check = on_disk->CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties);
   if (check.HasError()) {
     return StorageUniqueConstraintDefinitionError{check.GetError()};
   }
-
   if (!disk_unique_constraints->InsertConstraint(label, properties, check.GetValue())) {
     return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
   }
-
-  if (!PersistUniqueConstraintCreation(label, properties)) {
-    return StorageUniqueConstraintDefinitionError{ConstraintsPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
-DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                  const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  std::unique_lock storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
-  if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
+UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
+    LabelId label, const std::set<PropertyId> &properties) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop unique constraint requires a unique access to the storage!");
+  auto *on_disk = static_cast<DiskStorage *>(storage_);
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
+  if (auto ret = disk_unique_constraints->DropConstraint(label, properties);
+      ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-
-  if (!PersistUniqueConstraintDeletion(label, properties)) {
-    return StorageUniqueConstraintDroppingError{ConstraintsPersistenceError{}};
-  }
-
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 

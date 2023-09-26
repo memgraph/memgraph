@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <set>
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -61,20 +62,38 @@ struct MetadataDelta {
   MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
 
-  MetadataDelta(ExistenceConstraintCreate /*tag*/) : action(Action::EXISTENCE_CONSTRAINT_CREATE) {}
+  MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
+      : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
 
-  MetadataDelta(ExistenceConstraintDrop /*tag*/) : action(Action::EXISTENCE_CONSTRAINT_DROP) {}
+  MetadataDelta(ExistenceConstraintDrop /*tag*/, LabelId label, PropertyId property)
+      : action(Action::EXISTENCE_CONSTRAINT_DROP), label_property{label, property} {}
 
-  MetadataDelta(UniqueConstraintCreate /*tag*/) : action(Action::UNIQUE_CONSTRAINT_CREATE) {}
+  MetadataDelta(UniqueConstraintCreate /*tag*/, LabelId label, std::set<PropertyId> properties)
+      : action(Action::UNIQUE_CONSTRAINT_CREATE), label_properties{label, std::move(properties)} {}
 
-  MetadataDelta(UniqueConstraintDrop /*tag*/) : action(Action::UNIQUE_CONSTRAINT_DROP) {}
+  MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
+      : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
   MetadataDelta &operator=(const MetadataDelta &) = delete;
   MetadataDelta &operator=(MetadataDelta &&) = delete;
 
-  ~MetadataDelta() = default;
+  ~MetadataDelta() {
+    switch (action) {
+      case Action::LABEL_INDEX_CREATE:
+      case Action::LABEL_INDEX_DROP:
+      case Action::LABEL_PROPERTY_INDEX_CREATE:
+      case Action::LABEL_PROPERTY_INDEX_DROP:
+      case Action::EXISTENCE_CONSTRAINT_CREATE:
+      case Action::EXISTENCE_CONSTRAINT_DROP:
+        break;
+      case Action::UNIQUE_CONSTRAINT_CREATE:
+      case Action::UNIQUE_CONSTRAINT_DROP:
+        label_properties.properties.~set<PropertyId>();
+        break;
+    }
+  }
 
   Action action;
 
@@ -84,6 +103,10 @@ struct MetadataDelta {
       LabelId label;
       PropertyId property;
     } label_property;
+    struct {
+      LabelId label;
+      std::set<PropertyId> properties;
+    } label_properties;
   };
 };
 

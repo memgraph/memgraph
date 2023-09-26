@@ -3057,9 +3057,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
     throw ConstraintInMulticommandTxException();
   }
 
-  // TODO: Going to be transactional for replication
   MG_ASSERT(current_db.db_acc_, "Constraint query expects a current DB");
   storage::Storage *storage = current_db.db_acc_->get()->storage();
+  MG_ASSERT(current_db.db_transactional_accessor_, "Constraint query expects a DB transactional access");
+  auto *dba = &*current_db.execution_db_accessor_;
 
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
@@ -3089,10 +3090,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           }
           constraint_notification.title = fmt::format("Created EXISTS constraint on label {} on properties {}.",
                                                       constraint_query->constraint_.label.name, properties_stringified);
-          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
+          handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto maybe_constraint_error = storage->CreateExistenceConstraint(label, properties[0], {});
+            auto maybe_constraint_error = dba->CreateExistenceConstraint(label, properties[0]);
 
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
@@ -3112,14 +3113,6 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                       constraint_notification.title =
                           fmt::format("Constraint EXISTS on label {} on properties {} already exists.", label_name,
                                       properties_stringified);
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException(
-                          "At least one SYNC replica has not confirmed the creation of the EXISTS constraint on "
-                          "label "
-                          "{} on properties {}.",
-                          label_name, properties_stringified);
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
-                      throw ConstraintsPersistenceException();
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -3139,10 +3132,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Created UNIQUE constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
+          handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto maybe_constraint_error = storage->CreateUniqueConstraint(label, property_set, {});
+            auto maybe_constraint_error = dba->CreateUniqueConstraint(label, property_set);
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
@@ -3164,13 +3157,6 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                       constraint_notification.title =
                           fmt::format("Constraint UNIQUE on label {} and properties {} couldn't be created.",
                                       label_name, properties_stringified);
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException(
-                          fmt::format("At least one SYNC replica has not confirmed the creation of the UNIQUE "
-                                      "constraint: {}({}).",
-                                      label_name, properties_stringified));
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
-                      throw ConstraintsPersistenceException();
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -3213,32 +3199,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Dropped EXISTS constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
+          handler = [dba, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto maybe_constraint_error = storage->DropExistenceConstraint(label, properties[0], {});
+            auto maybe_constraint_error = dba->DropExistenceConstraint(label, properties[0]);
             if (maybe_constraint_error.HasError()) {
-              const auto &error = maybe_constraint_error.GetError();
-              std::visit(
-                  [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&) {
-                    using ErrorType = std::remove_cvref_t<T>;
-                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
-                      constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
-                      constraint_notification.title =
-                          fmt::format("Constraint EXISTS on label {} on properties {} doesn't exist.", label_name,
-                                      properties_stringified);
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException(
-                          fmt::format("At least one SYNC replica has not confirmed the dropping of the EXISTS "
-                                      "constraint  on label {} on properties {}.",
-                                      label_name, properties_stringified));
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
-                      throw ConstraintsPersistenceException();
-                    } else {
-                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-                    }
-                  },
-                  error);
+              constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
+              constraint_notification.title = fmt::format(
+                  "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
             }
             return std::vector<std::vector<TypedValue>>();
           };
@@ -3254,29 +3222,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Dropped UNIQUE constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [storage, label, label_name = constraint_query->constraint_.label.name,
+          handler = [dba, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto maybe_constraint_error = storage->DropUniqueConstraint(label, property_set, {});
-            if (maybe_constraint_error.HasError()) {
-              const auto &error = maybe_constraint_error.GetError();
-              std::visit(
-                  [&label_name, &properties_stringified]<typename T>(T &&) {
-                    using ErrorType = std::remove_cvref_t<T>;
-                    if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException(
-                          fmt::format("At least one SYNC replica has not confirmed the dropping of the UNIQUE "
-                                      "constraint on label {} on properties {}.",
-                                      label_name, properties_stringified));
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintsPersistenceError>) {
-                      throw ConstraintsPersistenceException();
-                    } else {
-                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-                    }
-                  },
-                  error);
-            }
-            const auto &res = maybe_constraint_error.GetValue();
+            auto res = dba->DropUniqueConstraint(label, property_set);
             switch (res) {
               case storage::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
@@ -3673,12 +3622,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     // Some queries require an active transaction in order to be prepared.
-    bool t1 = utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
-              utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-              utils::Downcast<TriggerQuery>(parsed_query.query) ||
-              utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-              utils::Downcast<IndexQuery>(parsed_query.query) ||
-              utils::Downcast<DatabaseInfoQuery>(parsed_query.query);  // TODO: add stream+index
+    bool t1 =
+        utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
+        utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
+        utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query);  // TODO: add stream+index
     //    auto t2 = UsesDatabases(parsed_query.query);
     // some visitor to get this from parsed_query.query
     // use DB     R/W
@@ -3689,7 +3638,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // analysis on parsed_query.query to figure out if db_access required
       // for now assume that is the current db (which either bolt set of is the default or using statement changed to)
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr;
+      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr;
       SetupDatabaseTransaction(could_commit, unique);
     }
     if (!t1) {

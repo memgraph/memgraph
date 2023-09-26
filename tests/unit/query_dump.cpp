@@ -612,9 +612,11 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto res = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
-                                                              this->db->storage()->NameToProperty("prop"), {});
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
+                                                     this->db->storage()->NameToProperty("prop"));
     ASSERT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -643,11 +645,13 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto res = this->db->storage()->CreateUniqueConstraint(
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(
         this->db->storage()->NameToLabel("Label"),
-        {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")}, {});
+        {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -765,15 +769,19 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto ret = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
-                                                              this->db->storage()->NameToProperty("name"), {});
+    auto unique_acc = this->db->UniqueAccess();
+    auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
+                                                     this->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(ret.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ret = this->db->storage()->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
-                                                           {this->db->storage()->NameToProperty("name")}, {});
+    auto unique_acc = this->db->UniqueAccess();
+    auto ret = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
+                                                  {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -967,28 +975,36 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
     // Create existence constraints
     {
-      auto res = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                                this->db->storage()->NameToProperty("name"), {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                       this->db->storage()->NameToProperty("name"));
       ASSERT_FALSE(res.HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto res = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                                this->db->storage()->NameToProperty("surname"), {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                       this->db->storage()->NameToProperty("surname"));
       ASSERT_FALSE(res.HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create unique constraints
     {
-      auto res = this->db->storage()->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                             {this->db->storage()->NameToProperty("name")}, {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                    {this->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto res = this->db->storage()->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                             {this->db->storage()->NameToProperty("surname")}, {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                    {this->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     auto dba = this->db->storage()->Access();

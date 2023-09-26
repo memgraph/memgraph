@@ -230,6 +230,18 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
 
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                           const std::set<PropertyId> &properties) override;
+
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                         std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
@@ -286,18 +298,6 @@ class DiskStorage final : public Storage {
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
-
-  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 

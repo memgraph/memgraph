@@ -90,11 +90,18 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
-    // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id, {}).HasError());
-
-    // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}, {}).HasError());
+    {
+      // Create existence constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create unique constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
@@ -162,11 +169,19 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
-    // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count, {}).HasError());
+    {
+      // Create existence constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
-    // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count}, {}).HasError());
+    {
+      // Create unique constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     // Storage accessor.
     std::unique_ptr<memgraph::storage::Storage::Accessor> acc;
@@ -1492,11 +1507,15 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }
     auto constraints = store->ListAllConstraints();
     for (const auto &constraint : constraints.existence) {
-      ASSERT_FALSE(store->DropExistenceConstraint(constraint.first, constraint.second, {}).HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &constraint : constraints.unique) {
-      ASSERT_EQ(store->DropUniqueConstraint(constraint.first, constraint.second, {}).GetValue(),
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto acc = store->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {

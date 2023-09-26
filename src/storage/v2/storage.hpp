@@ -224,18 +224,17 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
-    // TODO: Better
-    // bool UpgradeToUnique() {
-    //   if (unique_guard_.owns_lock()) {
-    //     return true;
-    //   }
-    //   if (transaction_.deltas.use().empty() && transaction_.md_deltas.empty()) {
-    //     storage_guard_.unlock();
-    //     unique_guard_.lock();
-    //     return true;
-    //   }
-    //   return false;
-    // }
+    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+
+    virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                                   const std::set<PropertyId> &properties) = 0;
 
    protected:
     Storage *storage_;
@@ -292,20 +291,6 @@ class Storage {
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
-
-  virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                         std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  virtual utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
-  DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                       std::optional<uint64_t> desired_commit_timestamp) = 0;
 
   ConstraintsInfo ListAllConstraints() const;
 

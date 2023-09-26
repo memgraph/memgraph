@@ -36,15 +36,10 @@ using StorageIndexDefinitionError = IndexDefinitionError;
 
 struct ConstraintDefinitionError {};
 
-using StorageExistenceConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
+using StorageExistenceConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
-using StorageExistenceConstraintDroppingError =
-    std::variant<ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
+using StorageExistenceConstraintDroppingError = ConstraintDefinitionError;
 
-using StorageUniqueConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
-
-using StorageUniqueConstraintDroppingError = std::variant<ReplicationError, ConstraintsPersistenceError>;
+using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
 }  // namespace memgraph::storage
