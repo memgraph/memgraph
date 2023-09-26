@@ -25,7 +25,7 @@ inline constexpr std::array storage_mode_mappings{
     std::pair{std::string_view{"ON_DISK_TRANSACTIONAL"}, memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL}};
 
 const std::string storage_mode_help_string =
-    fmt::format("Storage mode Memgraph uses. Allowed values: {}",
+    fmt::format("Default storage mode Memgraph uses. Allowed values: {}",
                 memgraph::utils::GetAllowedEnumValuesString(storage_mode_mappings));
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)

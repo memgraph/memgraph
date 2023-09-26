@@ -22,15 +22,11 @@ namespace memgraph::dbms {
 Database::Database(const storage::Config &config)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"} {
-  auto storage_mode = memgraph::flags::ParseStorageMode();
-  if (storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+  if (config.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(config);
   } else {
-    storage_ = std::make_unique<storage::InMemoryStorage>(config);
-    if (storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      storage_->SetStorageMode(storage_mode);
-    }
+    storage_ = std::make_unique<storage::InMemoryStorage>(config, config.storage_mode);
   }
 }
 
