@@ -49,9 +49,9 @@ constraintInfo : CONSTRAINT INFO ;
 
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( storageInfo | indexInfo | constraintInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo ) ;
 
-systemInfoQuery : SHOW buildInfo ;
+systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 

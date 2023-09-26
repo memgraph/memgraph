@@ -2893,9 +2893,7 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        RWType::NONE};
 }
 
-PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                       std::optional<storage::IsolationLevel> interpreter_isolation_level,
-                                       std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
+PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -2909,29 +2907,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
 
   switch (info_query->info_type_) {
-    case DatabaseInfoQuery::InfoType::STORAGE: {
-      header = {"storage info", "value"};
-      handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
-                 next_transaction_isolation_level] {
-        auto info = storage->GetInfo();
-        std::vector<std::vector<TypedValue>> results{
-            {TypedValue("name"), TypedValue(storage->id())},
-            {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
-            {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
-            {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
-            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
-            {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
-            {TypedValue("next_session_isolation_level"),
-             TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
-        return std::pair{results, QueryHandlerResult::COMMIT};
-      };
-      break;
-    }
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
@@ -3012,7 +2987,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                        RWType::NONE};
 }
 
-PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                     std::optional<storage::IsolationLevel> interpreter_isolation_level,
+                                     std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -3022,6 +2999,29 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
 
   switch (info_query->info_type_) {
+    case SystemInfoQuery::InfoType::STORAGE: {
+      MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
+      header = {"storage info", "value"};
+      handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
+                 next_transaction_isolation_level] {
+        auto info = storage->GetInfo();
+        std::vector<std::vector<TypedValue>> results{
+            {TypedValue("name"), TypedValue(storage->id())},
+            {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
+            {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
+            {TypedValue("average_degree"), TypedValue(info.average_degree)},
+            {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
+            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
+            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
+            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+            {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
+            {TypedValue("next_session_isolation_level"),
+             TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+    } break;
     case SystemInfoQuery::InfoType::BUILD: {
       header = {"build info", "value"};
       handler = [] {
@@ -3029,8 +3029,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
-      break;
-    }
+    } break;
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -3681,10 +3680,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       /// SYSTEM (Replication) PURE
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
-                                                interpreter_isolation_level, next_transaction_isolation_level);
+      prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_);
+      prepared_query = PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
+                                              interpreter_isolation_level, next_transaction_isolation_level);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, current_db_);

@@ -2597,9 +2597,9 @@ TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
 
 TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
+  auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::STORAGE);
+  EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {

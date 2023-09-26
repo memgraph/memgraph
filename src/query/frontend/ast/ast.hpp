@@ -2902,7 +2902,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, INDEX, CONSTRAINT };
+  enum class InfoType { INDEX, CONSTRAINT };
 
   DEFVISITABLE(QueryVisitor<void>);
 
@@ -2920,7 +2920,7 @@ class SystemInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { BUILD };
+  enum class InfoType { STORAGE, BUILD };
 
   DEFVISITABLE(QueryVisitor<void>);
 

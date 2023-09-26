@@ -42,9 +42,6 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         // *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::INDEX);
         break;
-      case DatabaseInfoQuery::InfoType::STORAGE:
-        AddPrivilege(AuthQuery::Privilege::STATS);
-        break;
       case DatabaseInfoQuery::InfoType::CONSTRAINT:
         // TODO: This should be CONSTRAINT | STATS, but we don't have support
         // for *or* with privileges.
@@ -55,6 +52,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(SystemInfoQuery &info_query) override {
     switch (info_query.info_type_) {
+      case SystemInfoQuery::InfoType::STORAGE:
       case SystemInfoQuery::InfoType::BUILD:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;

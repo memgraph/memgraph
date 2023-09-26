@@ -116,10 +116,6 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
   MG_ASSERT(ctx->children.size() == 2, "DatabaseInfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<DatabaseInfoQuery>();
   query_ = info_query;
-  if (ctx->storageInfo()) {
-    info_query->info_type_ = DatabaseInfoQuery::InfoType::STORAGE;
-    return info_query;
-  }
   if (ctx->indexInfo()) {
     info_query->info_type_ = DatabaseInfoQuery::InfoType::INDEX;
     return info_query;
@@ -136,6 +132,10 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
   MG_ASSERT(ctx->children.size() == 2, "SystemInfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<SystemInfoQuery>();
   query_ = info_query;
+  if (ctx->storageInfo()) {
+    info_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
+    return info_query;
+  }
   if (ctx->buildInfo()) {
     info_query->info_type_ = SystemInfoQuery::InfoType::BUILD;
     return info_query;

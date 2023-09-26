@@ -117,8 +117,8 @@ TEST_F(TestPrivilegeExtractor, ShowIndexInfo) {
 }
 
 TEST_F(TestPrivilegeExtractor, ShowStatsInfo) {
-  auto *db_query = storage.Create<DatabaseInfoQuery>();
-  db_query->info_type_ = DatabaseInfoQuery::InfoType::STORAGE;
+  auto *db_query = storage.Create<SystemInfoQuery>();
+  db_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
   EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
 }
 
