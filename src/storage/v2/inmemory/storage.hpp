@@ -51,6 +51,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config());
+  InMemoryStorage(Config config, StorageMode storage_mode);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
