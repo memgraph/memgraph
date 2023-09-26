@@ -1,520 +1,485 @@
 /*
  * Copyright 2021 Memgraph Ltd.
  *
- * Use of this software is governed by the Business Source License included in the file
- * licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+ * Use of this software is governed by the Business Source License
+ * included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
  * License, and you may not use this file except in compliance with the Business Source License.
  *
- * As of the Change Date specified in that file, in accordance with the Business Source License, use
- * of this software will be governed by the Apache License, Version 2.0, included in the file
+ * As of the Change Date specified in that file, in accordance with
+ * the Business Source License, use of this software will be governed
+ * by the Apache License, Version 2.0, included in the file
  * licenses/APL.txt.
  */
 
 /* Memgraph specific part of Cypher grammar with enterprise features. */
 
-parser grammar MemgraphCypher;
-
-options {
-	tokenVocab = MemgraphCypherLexer;
-}
-
-import Cypher;
-
-memgraphCypherKeyword:
-	cypherKeyword
-	| ACTIVE
-	| AFTER
-	| ALTER
-	| ANALYZE
-	| ASYNC
-	| AUTH
-	| BAD
-	| BATCH_INTERVAL
-	| BATCH_LIMIT
-	| BATCH_SIZE
-	| BEFORE
-	| BOOTSTRAP_SERVERS
-	| BUILD
-	| CHECK
-	| CLEAR
-	| COMMIT
-	| COMMITTED
-	| CONFIG
-	| CONFIGS
-	| CONSUMER_GROUP
-	| CREATE_DELETE
-	| CREDENTIALS
-	| CSV
-	| DATA
-	| DELIMITER
-	| DATABASE
-	| DENY
-	| DROP
-	| DUMP
-	| EDGE
-	| EDGE_TYPES
-	| EXECUTE
-	| FOR
-	| FOREACH
-	| FREE
-	| FROM
-	| GLOBAL
-	| GRAPH
-	| GRANT
-	| HEADER
-	| IDENTIFIED
-	| NULLIF
-	| IMPORT
-	| INACTIVE
-	| IN_MEMORY_ANALYTICAL
-	| IN_MEMORY_TRANSACTIONAL
-	| ISOLATION
-	| KAFKA
-	| LABELS
-	| LEVEL
-	| LOAD
-	| LOCK
-	| MAIN
-	| MODE
-	| NEXT
-	| NO
-	| NOTHING
-	| PASSWORD
-	| PULSAR
-	| PORT
-	| PRIVILEGES
-	| READ
-	| REGISTER
-	| REPLICA
-	| REPLICAS
-	| REPLICATION
-	| REVOKE
-	| ROLE
-	| ROLES
-	| QUOTE
-	| SESSION
-	| SETTING
-	| SETTINGS
-	| SNAPSHOT
-	| START
-	| STATS
-	| STATUS
-	| STORAGE
-	| STREAM
-	| STREAMS
-	| SYNC
-	| TIMEOUT
-	| TO
-	| TOPICS
-	| TRANSACTION
-	| TRANSFORM
-	| TRIGGER
-	| TRIGGERS
-	| UNCOMMITTED
-	| UNLOCK
-	| UPDATE
-	| USE
-	| USER
-	| USERS
-	| VERSION
-	| TERMINATE
-	| TRANSACTIONS;
-
-symbolicName:
-	UnescapedSymbolicName
-	| EscapedSymbolicName
-	| memgraphCypherKeyword;
-
-query:
-	cypherQuery
-	| indexQuery
-	| explainQuery
-	| profileQuery
-	| databaseInfoQuery
-	| systemInfoQuery
-	| constraintQuery
-	| authQuery
-	| dumpQuery
-	| analyzeGraphQuery
-	| replicationQuery
-	| lockPathQuery
-	| freeMemoryQuery
-	| triggerQuery
-	| isolationLevelQuery
-	| storageModeQuery
-	| createSnapshotQuery
-	| streamQuery
-	| settingQuery
-	| versionQuery
-	| showConfigQuery
-	| transactionQueueQuery
-	| multiDatabaseQuery
-	| showDatabases
-	| edgeImportModeQuery;
-
-authQuery:
-	createRole
-	| dropRole
-	| showRoles
-	| createUser
-	| setPassword
-	| dropUser
-	| showUsers
-	| setRole
-	| clearRole
-	| grantPrivilege
-	| denyPrivilege
-	| revokePrivilege
-	| showPrivileges
-	| showRoleForUser
-	| showUsersForRole
-	| grantDatabaseToUser
-	| revokeDatabaseFromUser
-	| showDatabasePrivileges
-	| setMainDatabase;
-
-replicationQuery:
-	setReplicationRole
-	| showReplicationRole
-	| registerReplica
-	| dropReplica
-	| showReplicas;
-
-triggerQuery: createTrigger | dropTrigger | showTriggers;
-
-clause:
-	cypherMatch
-	| unwind
-	| merge
-	| create
-	| set
-	| cypherDelete
-	| remove
-	| with
-	| cypherReturn
-	| callProcedure
-	| loadCsv
-	| foreach
-	| callSubquery;
-
-updateClause:
-	set
-	| remove
-	| create
-	| merge
-	| cypherDelete
-	| foreach;
-
-foreach:
-	FOREACH '(' variable IN expression '|' updateClause+ ')';
-
-callSubquery: CALL '{' cypherQuery '}';
-
-streamQuery:
-	checkStream
-	| createStream
-	| dropStream
-	| startStream
-	| startAllStreams
-	| stopStream
-	| stopAllStreams
-	| showStreams;
-
-databaseName: symbolicName;
-
-wildcardName: ASTERISK | symbolicName;
-
-settingQuery: setSetting | showSetting | showSettings;
-
-transactionQueueQuery: showTransactions | terminateTransactions;
-
-showTransactions: SHOW TRANSACTIONS;
-
-terminateTransactions: TERMINATE TRANSACTIONS transactionIdList;
-
-loadCsv:
-	LOAD CSV FROM csvFile (WITH | NO) HEADER (IGNORE BAD)? (
-		DELIMITER delimiter
-	)? (QUOTE quote)? (NULLIF nullif)? AS rowVar;
-
-csvFile: literal;
-
-delimiter: literal;
-
-quote: literal;
-
-nullif: literal;
-
-rowVar: variable;
-
-userOrRoleName: symbolicName;
-
-createRole: CREATE ROLE role = userOrRoleName;
-
-dropRole: DROP ROLE role = userOrRoleName;
-
-showRoles: SHOW ROLES;
-
-createUser:
-	CREATE USER user = userOrRoleName (
-		IDENTIFIED BY password = literal
-	)?;
-
-setPassword:
-	SET PASSWORD FOR user = userOrRoleName TO password = literal;
-
-dropUser: DROP USER user = userOrRoleName;
-
-showUsers: SHOW USERS;
-
-setRole:
-	SET ROLE FOR user = userOrRoleName TO role = userOrRoleName;
-
-clearRole: CLEAR ROLE FOR user = userOrRoleName;
-
-grantPrivilege:
-	GRANT (ALL PRIVILEGES | privileges = grantPrivilegesList) TO userOrRole = userOrRoleName;
-
-denyPrivilege:
-	DENY (ALL PRIVILEGES | privileges = privilegesList) TO userOrRole = userOrRoleName;
-
-revokePrivilege:
-	REVOKE (ALL PRIVILEGES | privileges = revokePrivilegesList) FROM userOrRole = userOrRoleName;
-
-grantDatabaseToUser:
-	GRANT DATABASE db = wildcardName TO user = symbolicName;
-
-revokeDatabaseFromUser:
-	REVOKE DATABASE db = wildcardName FROM user = symbolicName;
-
-showDatabasePrivileges:
-	SHOW DATABASE PRIVILEGES FOR user = symbolicName;
-
-setMainDatabase:
-	SET MAIN DATABASE db = symbolicName FOR user = symbolicName;
-
-privilege:
-	CREATE
-	| DELETE
-	| MATCH
-	| MERGE
-	| SET
-	| REMOVE
-	| INDEX
-	| STATS
-	| AUTH
-	| CONSTRAINT
-	| DUMP
-	| REPLICATION
-	| READ_FILE
-	| FREE_MEMORY
-	| TRIGGER
-	| CONFIG
-	| DURABILITY
-	| STREAM
-	| MODULE_READ
-	| MODULE_WRITE
-	| WEBSOCKET
-	| TRANSACTION_MANAGEMENT
-	| STORAGE_MODE
-	| MULTI_DATABASE_EDIT
-	| MULTI_DATABASE_USE;
+parser grammar MemgraphCypher ;
+
+options { tokenVocab=MemgraphCypherLexer; }
+
+import Cypher ;
+
+memgraphCypherKeyword : cypherKeyword
+                      | ACTIVE
+                      | AFTER
+                      | ALTER
+                      | ANALYZE
+                      | ASYNC
+                      | AUTH
+                      | BAD
+                      | BATCH_INTERVAL
+                      | BATCH_LIMIT
+                      | BATCH_SIZE
+                      | BEFORE
+                      | BOOTSTRAP_SERVERS
+                      | BUILD
+                      | CHECK
+                      | CLEAR
+                      | COMMIT
+                      | COMMITTED
+                      | CONFIG
+                      | CONFIGS
+                      | CONSUMER_GROUP
+                      | CREATE_DELETE
+                      | CREDENTIALS
+                      | CSV
+                      | DATA
+                      | DELIMITER
+                      | DATABASE
+                      | DENY
+                      | DROP
+                      | DUMP
+                      | EDGE
+                      | EDGE_TYPES
+                      | EXECUTE
+                      | FOR
+                      | FOREACH
+                      | FREE
+                      | FROM
+                      | GLOBAL
+                      | GRAPH
+                      | GRANT
+                      | HEADER
+                      | IDENTIFIED
+                      | NULLIF
+                      | IMPORT
+                      | INACTIVE
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
+                      | ISOLATION
+                      | KAFKA
+                      | LABELS
+                      | LEVEL
+                      | LOAD
+                      | LOCK
+                      | MAIN
+                      | MODE
+                      | NEXT
+                      | NO
+                      | NOTHING
+                      | PASSWORD
+                      | PULSAR
+                      | PORT
+                      | PRIVILEGES
+                      | READ
+                      | REGISTER
+                      | REPLICA
+                      | REPLICAS
+                      | REPLICATION
+                      | REVOKE
+                      | ROLE
+                      | ROLES
+                      | QUOTE
+                      | SESSION
+                      | SETTING
+                      | SETTINGS
+                      | SNAPSHOT
+                      | START
+                      | STATS
+                      | STATUS
+                      | STORAGE
+                      | STREAM
+                      | STREAMS
+                      | SYNC
+                      | TIMEOUT
+                      | TO
+                      | TOPICS
+                      | TRANSACTION
+                      | TRANSFORM
+                      | TRIGGER
+                      | TRIGGERS
+                      | UNCOMMITTED
+                      | UNLOCK
+                      | UPDATE
+                      | USE
+                      | USER
+                      | USERS
+                      | VERSION
+                      | TERMINATE
+                      | TRANSACTIONS
+                      ;
+
+symbolicName : UnescapedSymbolicName
+             | EscapedSymbolicName
+             | memgraphCypherKeyword
+             ;
+
+query : cypherQuery
+      | indexQuery
+      | explainQuery
+      | profileQuery
+      | databaseInfoQuery
+      | systemInfoQuery
+      | constraintQuery
+      | authQuery
+      | dumpQuery
+      | analyzeGraphQuery
+      | replicationQuery
+      | lockPathQuery
+      | freeMemoryQuery
+      | triggerQuery
+      | isolationLevelQuery
+      | storageModeQuery
+      | createSnapshotQuery
+      | streamQuery
+      | settingQuery
+      | versionQuery
+      | showConfigQuery
+      | transactionQueueQuery
+      | multiDatabaseQuery
+      | showDatabases
+      | edgeImportModeQuery
+      ;
+
+authQuery : createRole
+          | dropRole
+          | showRoles
+          | createUser
+          | setPassword
+          | dropUser
+          | showUsers
+          | setRole
+          | clearRole
+          | grantPrivilege
+          | denyPrivilege
+          | revokePrivilege
+          | showPrivileges
+          | showRoleForUser
+          | showUsersForRole
+          | grantDatabaseToUser
+          | revokeDatabaseFromUser
+          | showDatabasePrivileges
+          | setMainDatabase
+          ;
+
+replicationQuery : setReplicationRole
+                 | showReplicationRole
+                 | registerReplica
+                 | dropReplica
+                 | showReplicas
+                 ;
+
+triggerQuery : createTrigger
+             | dropTrigger
+             | showTriggers
+             ;
+
+clause : cypherMatch
+       | unwind
+       | merge
+       | create
+       | set
+       | cypherDelete
+       | remove
+       | with
+       | cypherReturn
+       | callProcedure
+       | loadCsv
+       | foreach
+       | callSubquery
+       ;
+
+updateClause : set
+             | remove
+             | create
+             | merge
+             | cypherDelete
+             | foreach
+             ;
+
+foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
+
+callSubquery : CALL '{' cypherQuery '}' ;
+
+streamQuery : checkStream
+            | createStream
+            | dropStream
+            | startStream
+            | startAllStreams
+            | stopStream
+            | stopAllStreams
+            | showStreams
+            ;
+
+databaseName : symbolicName ;
+
+wildcardName : ASTERISK | symbolicName ;
+
+settingQuery : setSetting
+             | showSetting
+             | showSettings
+             ;
+
+transactionQueueQuery : showTransactions
+                      | terminateTransactions
+                      ;
+
+showTransactions : SHOW TRANSACTIONS ;
+
+terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
+
+loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+         ( IGNORE BAD ) ?
+         ( DELIMITER delimiter ) ?
+         ( QUOTE quote ) ?
+         ( NULLIF nullif ) ?
+         AS rowVar ;
+
+csvFile : literal ;
+
+delimiter : literal ;
+
+quote : literal ;
+
+nullif : literal ;
+
+rowVar : variable ;
+
+userOrRoleName : symbolicName ;
+
+createRole : CREATE ROLE role=userOrRoleName ;
+
+dropRole   : DROP ROLE role=userOrRoleName ;
 
-granularPrivilege: NOTHING | READ | UPDATE | CREATE_DELETE;
+showRoles  : SHOW ROLES ;
+
+createUser : CREATE USER user=userOrRoleName
+             ( IDENTIFIED BY password=literal )? ;
 
-entityType: LABELS | EDGE_TYPES;
+setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
-privilegeOrEntityPrivileges:
-	privilege
-	| entityPrivileges = entityPrivilegeList;
+dropUser : DROP USER user=userOrRoleName ;
 
-grantPrivilegesList:
-	privilegeOrEntityPrivileges (',' privilegeOrEntityPrivileges)*;
+showUsers : SHOW USERS ;
 
-entityPrivilegeList: entityPrivilege ( ',' entityPrivilege)*;
+setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
 
-entityPrivilege:
-	granularPrivilege ON entityType entities = entitiesList;
+clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
-privilegeOrEntities:
-	privilege
-	| entityType entities = entitiesList;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilegesList:
-	privilegeOrEntities (',' privilegeOrEntities)*;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-privilegesList: privilege ( ',' privilege)*;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
-entitiesList: ASTERISK | listOfColonSymbolicNames;
+grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
 
-listOfColonSymbolicNames:
-	colonSymbolicName (',' colonSymbolicName)*;
+revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
 
-colonSymbolicName: COLON symbolicName;
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
 
-showPrivileges: SHOW PRIVILEGES FOR userOrRole = userOrRoleName;
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
 
-showRoleForUser: SHOW ROLE FOR user = userOrRoleName;
+privilege : CREATE
+          | DELETE
+          | MATCH
+          | MERGE
+          | SET
+          | REMOVE
+          | INDEX
+          | STATS
+          | AUTH
+          | CONSTRAINT
+          | DUMP
+          | REPLICATION
+          | READ_FILE
+          | FREE_MEMORY
+          | TRIGGER
+          | CONFIG
+          | DURABILITY
+          | STREAM
+          | MODULE_READ
+          | MODULE_WRITE
+          | WEBSOCKET
+          | TRANSACTION_MANAGEMENT
+          | STORAGE_MODE
+          | MULTI_DATABASE_EDIT
+          | MULTI_DATABASE_USE
+          ;
 
-showUsersForRole: SHOW USERS FOR role = userOrRoleName;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
 
-dumpQuery: DUMP DATABASE;
+entityType : LABELS | EDGE_TYPES ;
 
-analyzeGraphQuery:
-	ANALYZE GRAPH (
-		ON LABELS (listOfColonSymbolicNames | ASTERISK)
-	)? (DELETE STATISTICS)?;
+privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
 
-setReplicationRole:
-	SET REPLICATION ROLE TO (MAIN | REPLICA) (
-		WITH PORT port = literal
-	)?;
+grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
-showReplicationRole: SHOW REPLICATION ROLE;
+entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-replicaName: symbolicName;
+entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
 
-socketAddress: literal;
+privilegeOrEntities : privilege | entityType entities=entitiesList ;
 
-registerReplica:
-	REGISTER REPLICA replicaName (SYNC | ASYNC) TO socketAddress;
+revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
 
-dropReplica: DROP REPLICA replicaName;
+privilegesList : privilege ( ',' privilege )* ;
 
-showReplicas: SHOW REPLICAS;
+entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
-lockPathQuery: (LOCK | UNLOCK) DATA DIRECTORY
-	| DATA DIRECTORY LOCK STATUS;
+listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
-freeMemoryQuery: FREE MEMORY;
+colonSymbolicName : COLON symbolicName ;
 
-triggerName: symbolicName;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
-triggerStatement: .*?;
+showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 
-emptyVertex: '(' ')';
+showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
-emptyEdge: dash dash rightArrowHead;
+dumpQuery: DUMP DATABASE ;
 
-createTrigger:
-	CREATE TRIGGER triggerName (
-		ON (emptyVertex | emptyEdge)? (CREATE | UPDATE | DELETE)
-	)? (AFTER | BEFORE) COMMIT EXECUTE triggerStatement;
+analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
-dropTrigger: DROP TRIGGER triggerName;
+setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
+                      ( WITH PORT port=literal ) ? ;
 
-showTriggers: SHOW TRIGGERS;
+showReplicationRole : SHOW REPLICATION ROLE ;
 
-isolationLevel:
-	SNAPSHOT ISOLATION
-	| READ COMMITTED
-	| READ UNCOMMITTED;
+replicaName : symbolicName ;
 
-isolationLevelScope: GLOBAL | SESSION | NEXT;
+socketAddress : literal ;
 
-isolationLevelQuery:
-	SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel;
+registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+                TO socketAddress ;
 
-storageMode:
-	IN_MEMORY_ANALYTICAL
-	| IN_MEMORY_TRANSACTIONAL
-	| ON_DISK_TRANSACTIONAL;
+dropReplica : DROP REPLICA replicaName ;
 
-storageModeQuery: STORAGE MODE storageMode;
+showReplicas  : SHOW REPLICAS ;
 
-createSnapshotQuery: CREATE SNAPSHOT;
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
-streamName: symbolicName;
+freeMemoryQuery : FREE MEMORY ;
 
-symbolicNameWithMinus: symbolicName ( MINUS symbolicName)*;
+triggerName : symbolicName ;
 
-symbolicNameWithDotsAndMinus:
-	symbolicNameWithMinus (DOT symbolicNameWithMinus)*;
+triggerStatement : .*? ;
 
-symbolicTopicNames:
-	symbolicNameWithDotsAndMinus (
-		COMMA symbolicNameWithDotsAndMinus
-	)*;
+emptyVertex : '(' ')' ;
 
-topicNames: symbolicTopicNames | literal;
+emptyEdge : dash dash rightArrowHead ;
 
-commonCreateStreamConfig:
-	TRANSFORM transformationName = procedureName
-	| BATCH_INTERVAL batchInterval = literal
-	| BATCH_SIZE batchSize = literal;
+createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+              ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
 
-createStream: kafkaCreateStream | pulsarCreateStream;
+dropTrigger : DROP TRIGGER triggerName ;
 
-configKeyValuePair: literal ':' literal;
+showTriggers : SHOW TRIGGERS ;
 
-configMap:
-	'{' (configKeyValuePair ( ',' configKeyValuePair)*)? '}';
+isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
-kafkaCreateStreamConfig:
-	TOPICS topicNames
-	| CONSUMER_GROUP consumerGroup = symbolicNameWithDotsAndMinus
-	| BOOTSTRAP_SERVERS bootstrapServers = literal
-	| CONFIGS configsMap = configMap
-	| CREDENTIALS credentialsMap = configMap
-	| commonCreateStreamConfig;
+isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
-kafkaCreateStream:
-	CREATE KAFKA STREAM streamName (kafkaCreateStreamConfig)*;
+isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
 
-pulsarCreateStreamConfig:
-	TOPICS topicNames
-	| SERVICE_URL serviceUrl = literal
-	| commonCreateStreamConfig;
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTIONAL ;
 
-pulsarCreateStream:
-	CREATE PULSAR STREAM streamName (pulsarCreateStreamConfig)*;
+storageModeQuery : STORAGE MODE storageMode ;
 
-dropStream: DROP STREAM streamName;
+createSnapshotQuery : CREATE SNAPSHOT ;
 
-startStream:
-	START STREAM streamName (BATCH_LIMIT batchLimit = literal)? (
-		TIMEOUT timeout = literal
-	)?;
+streamName : symbolicName ;
 
-startAllStreams: START ALL STREAMS;
+symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
 
-stopStream: STOP STREAM streamName;
+symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
 
-stopAllStreams: STOP ALL STREAMS;
+symbolicTopicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
 
-showStreams: SHOW STREAMS;
+topicNames : symbolicTopicNames | literal ;
 
-checkStream:
-	CHECK STREAM streamName (BATCH_LIMIT batchLimit = literal)? (
-		TIMEOUT timeout = literal
-	)?;
+commonCreateStreamConfig : TRANSFORM transformationName=procedureName
+                         | BATCH_INTERVAL batchInterval=literal
+                         | BATCH_SIZE batchSize=literal
+                         ;
 
-settingName: literal;
+createStream : kafkaCreateStream | pulsarCreateStream ;
 
-settingValue: literal;
+configKeyValuePair : literal ':' literal ;
 
-setSetting: SET DATABASE SETTING settingName TO settingValue;
+configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
-showSetting: SHOW DATABASE SETTING settingName;
+kafkaCreateStreamConfig : TOPICS topicNames
+                        | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
+                        | BOOTSTRAP_SERVERS bootstrapServers=literal
+                        | CONFIGS configsMap=configMap
+                        | CREDENTIALS credentialsMap=configMap
+                        | commonCreateStreamConfig
+                        ;
 
-showSettings: SHOW DATABASE SETTINGS;
+kafkaCreateStream : CREATE KAFKA STREAM streamName ( kafkaCreateStreamConfig ) * ;
 
-showConfigQuery: SHOW CONFIG;
 
-versionQuery: SHOW VERSION;
+pulsarCreateStreamConfig : TOPICS topicNames
+                         | SERVICE_URL serviceUrl=literal
+                         | commonCreateStreamConfig
+                         ;
 
-transactionIdList: transactionId ( ',' transactionId)*;
+pulsarCreateStream : CREATE PULSAR STREAM streamName ( pulsarCreateStreamConfig ) * ;
 
-transactionId: literal;
+dropStream : DROP STREAM streamName ;
 
-multiDatabaseQuery: createDatabase | useDatabase | dropDatabase;
+startStream : START STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
 
-createDatabase: CREATE DATABASE databaseName;
+startAllStreams : START ALL STREAMS ;
 
-useDatabase: USE DATABASE databaseName;
+stopStream : STOP STREAM streamName ;
 
-dropDatabase: DROP DATABASE databaseName;
+stopAllStreams : STOP ALL STREAMS ;
 
-showDatabases: SHOW DATABASES;
+showStreams : SHOW STREAMS ;
 
-edgeImportModeQuery: EDGE IMPORT MODE ( ACTIVE | INACTIVE);
+checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
+
+settingName : literal ;
+
+settingValue : literal ;
+
+setSetting : SET DATABASE SETTING settingName TO settingValue ;
+
+showSetting : SHOW DATABASE SETTING settingName ;
+
+showSettings : SHOW DATABASE SETTINGS ;
+
+showConfigQuery : SHOW CONFIG ;
+
+versionQuery : SHOW VERSION ;
+
+transactionIdList : transactionId ( ',' transactionId )* ;
+
+transactionId : literal ;
+
+multiDatabaseQuery : createDatabase
+                   | useDatabase
+                   | dropDatabase
+                   ;
+
+createDatabase : CREATE DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
+
+dropDatabase : DROP DATABASE databaseName ;
+
+showDatabases: SHOW DATABASES ;
+
+edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
