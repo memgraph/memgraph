@@ -278,6 +278,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
   MG_ASSERT(vertex->transaction_ == &transaction_,

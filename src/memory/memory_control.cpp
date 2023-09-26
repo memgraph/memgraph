@@ -39,65 +39,29 @@ extent_hooks_t *old_hooks = nullptr;
 
 extent_alloc_t *old_alloc = nullptr;
 
-// TODO: think how to solve issue of updating memory status if negative, probably we shouldn't care as it will jump to
-// positive pretty quickly
-// std::mutex m;
-
-struct ExtentHooksStats {
-  struct Alloc {
-    std::atomic<uint64_t> commited{0};
-    std::atomic<uint64_t> uncommited{0};
-  };
-
-  struct Dalloc {
-    std::atomic<uint64_t> commited{0};
-    std::atomic<uint64_t> uncommited{0};
-    std::atomic<uint64_t> error{0};
-  };
-
-  struct Destroy {
-    std::atomic<uint64_t> commited{0};
-    std::atomic<uint64_t> uncommited{0};
-  };
-
-  struct PurgeForced {
-    std::atomic<uint64_t> counter{0};
-  };
-
-  struct PurgeLazy {
-    std::atomic<uint64_t> counter{0};
-  };
-
-  struct Merge {
-    std::atomic<uint64_t> commited{0};
-    std::atomic<uint64_t> uncommited{0};
-  };
-
-  struct Split {
-    std::atomic<uint64_t> commited{0};
-    std::atomic<uint64_t> uncommited{0};
-  };
-
-  struct Commit {
-    std::atomic<uint64_t> counter{0};
-  };
-
-  struct Decommit {
-    std::atomic<uint64_t> counter{0};
-  };
-
-  Alloc alloc;
-  Dalloc dalloc;
-  Destroy destroy;
-  PurgeForced purge_forced;
-  PurgeLazy purge_lazy;
-  Merge merge;
-  Split split;
-  Commit commit;
-  Decommit decommit;
-};
+std::vector<int64_t> arena_allocations{};
+std::vector<int64_t> arena_upper_limit{};
+std::vector<int> tracking_arenas{};
 
 ExtentHooksStats extent_hook_stats;
+
+int GetArenaForThread() {
+#if USE_JEMALLOC
+  unsigned thread_arena{0};
+  size_t size_thread_arena = sizeof(thread_arena);
+  int err = mallctl("thread.arena", &thread_arena, &size_thread_arena, nullptr, 0);
+  if (err) {
+    return -1;
+  }
+  return static_cast<int>(thread_arena);
+#endif
+  return -1;
+}
+
+void TrackMemoryForThread(int arena_id, size_t size) {
+  tracking_arenas[arena_id] = true;
+  arena_upper_limit[arena_id] = arena_allocations[arena_id] + size;
+}
 
 void PrintJemallocInternalStats() {
   bool config_stats{false};
@@ -200,6 +164,8 @@ void PrintJemallocInternalStats() {
 }
 
 void PrintStats() {
+  /*
+
   std::cout << "[TOTAL] RAM:" << utils::GetReadableSize(utils::total_memory_tracker.Amount())
             << ", VIRT: " << utils::GetReadableSize(utils::total_memory_tracker.AmountVirt());
 
@@ -247,6 +213,7 @@ void PrintStats() {
   if (merge_commited || merge_uncommited) {
     std::cout << "[merge]commited: " << merge_commited << ", uncommited: " << merge_uncommited << std::endl;
   }
+  */
 }
 
 void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
@@ -260,6 +227,16 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
 
   // This needs to be before, to trow exception in case of too big alloc
   if (*commit) {
+    arena_allocations[arena_ind] += size;
+    if (tracking_arenas[arena_ind]) {
+      if (arena_allocations[arena_ind] > arena_upper_limit[arena_ind]) {
+        throw utils::OutOfMemoryException(
+            fmt::format("Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+                        "use to {}, while the maximum allowed size for allocation is set to {}.",
+                        utils::GetReadableSize(size), utils::GetReadableSize(arena_allocations[arena_ind]),
+                        utils::GetReadableSize(arena_upper_limit[arena_ind])));
+      }
+    }
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
   } else {
     memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(size));
@@ -268,6 +245,7 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   auto *ptr = original_hooks_vec[arena_ind]->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) {
     if (*commit) {
+      arena_allocations[arena_ind] -= size;
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(size));
@@ -296,7 +274,7 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
   // dangerous assert, useful for testing
   MG_ASSERT(size % 4096 == 0, "Dalloc size not multiple of page size!");
 
-  MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->dalloc);
+  // MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->dalloc);
   auto err = old_hooks->dalloc(extent_hooks, addr, size, committed, arena_ind);
 
   if (err) {
@@ -306,6 +284,7 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+    arena_allocations[arena_ind] -= size;
     extent_hook_stats.dalloc.commited.fetch_add(1, std::memory_order_relaxed);
     // spdlog::trace(fmt::format("[DALLOC][RAM] memory pages: {} ,equals to: {}", size / 4096UL,
     // utils::GetReadableSize(size)));
@@ -327,6 +306,7 @@ static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bo
     // utils::GetReadableSize(size)));
 
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+    arena_allocations[arena_ind] -= size;
     extent_hook_stats.destroy.commited.fetch_add(1, std::memory_order_relaxed);
   } else {
     // spdlog::trace(fmt::format("[DESTROY][VIRT] memory pages: {}, size: {} ", size / 4096UL,
@@ -368,16 +348,16 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->alloc);
   auto err = old_hooks->decommit(extent_hooks, addr, size, offset, length, arena_ind);
 
+  extent_hook_stats.decommit.counter.fetch_add(1, std::memory_order_relaxed);
   if (err) {
     return err;
   }
+
+  memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(length));
+  memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
   // spdlog::trace(fmt::format("[DECOMMIT][RAM] memory pages: {}, size: {} ", length / 4096UL,
   // utils::GetReadableSize(length)));
   //  TODO: check is this correct behavior
-  memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(length));
-  memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-
-  extent_hook_stats.decommit.counter.fetch_add(1, std::memory_order_relaxed);
 
   return false;
 }
@@ -389,9 +369,9 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
   MG_ASSERT(original_hooks_vec[arena_ind] && original_hooks_vec[arena_ind]->purge_forced);
   auto err = original_hooks_vec[arena_ind]->purge_forced(extent_hooks, addr, size, offset, length, arena_ind);
 
-  if (err) {
-    return err;
-  }
+  // if (err) {
+  //   return err;
+  // }
   // spdlog::trace(fmt::format("[PURGE F][RAM] memory pages: {}, size: {} ", length / 4096UL,
   // utils::GetReadableSize(length)));
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
@@ -476,6 +456,9 @@ void SetHooks() {
   original_hooks_vec.reserve(narenas + 5);
 
   for (int i = 0; i < narenas; i++) {
+    arena_allocations.emplace_back(0);
+    arena_upper_limit.emplace_back(0);
+    tracking_arenas.emplace_back(0);
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
@@ -501,6 +484,36 @@ void SetHooks() {
 
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
+    }
+  }
+
+#endif
+}
+
+// TODO this can be designed if we fail setting hooks to rollback to classic jemalloc tracker
+void UnSetHooks() {
+#if USE_JEMALLOC
+
+  uint64_t allocated{0};
+  uint64_t sz{sizeof(allocated)};
+
+  sz = sizeof(unsigned);
+  unsigned narenas{0};
+  int err = mallctl("opt.narenas", (void *)&narenas, &sz, nullptr, 0);
+
+  if (err) {
+    return;
+  }
+
+  std::cout << narenas << " : n arenas" << std::endl;
+
+  for (int i = 0; i < narenas; i++) {
+    std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
+
+    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+
+    if (err) {
+      LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
   }
 
