@@ -1304,8 +1304,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     return std::nullopt;
   }
 
-  memgraph::memory::PrintStats();
-
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
@@ -2978,7 +2976,6 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
-                         memgraph::memory::PrintStats();
                          if (pull_plan->Pull(stream, n)) {
                            return action;
                          }
