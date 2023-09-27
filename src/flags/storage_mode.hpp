@@ -10,11 +10,10 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/bolt.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/storage_mode.hpp"
+#include "storage/v2/storage_mode.hpp"
+
+namespace memgraph::flags {
+
+memgraph::storage::StorageMode ParseStorageMode();
+
+}  // namespace memgraph::flags
