@@ -5230,6 +5230,7 @@ class HashJoinCursor : public Cursor {
  public:
   HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
       : self_(self),
+        left_op_frames_(mem),
         left_op_cursor_(self.left_op_->MakeCursor(mem)),
         right_op_cursor_(self_.right_op_->MakeCursor(mem)) {
     MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
@@ -5239,6 +5240,38 @@ class HashJoinCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     // antepull
     SCOPED_PROFILE_OP("HashJoin");
+
+    if (!hash_join_initialized) {
+      bool first = true;
+      // Pull all left_op frames.
+      while (left_op_cursor_->Pull(frame, context)) {
+        left_op_frames_.emplace_back(frame.elems().begin(), frame.elems().end());
+        if (first) {
+          uint64_t join_pos_in_frame = -1;
+          int i = 0;
+          for (const auto &elem : frame.elems()) {
+            if (elem.IsVertex()) {
+              auto a = 2;
+              auto b = elem.ValueVertex();
+            }
+            i++;
+          }
+          first = false;
+        }
+      }
+
+      // We're setting the iterator to 'end' here so it pulls the right
+      // cursor.
+      // left_op_frames_it_ = left_op_frames_.end();
+      hash_join_initialized = true;
+    }
+
+    // If left operator yielded zero results there is no cartesian product.
+    if (left_op_frames_.empty()) {
+      return false;
+    }
+
+    auto a = 4;
 
     // TODO HashJoin: algorithm implementation pseudocode
     // (there is something similar in Cartesian operator for saving the frames)
@@ -5270,10 +5303,12 @@ class HashJoinCursor : public Cursor {
   void Reset() override {
     left_op_cursor_->Reset();
     right_op_cursor_->Reset();
+    left_op_frames_.clear();
   }
 
  private:
   const HashJoin &self_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>> left_op_frames_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
   bool hash_join_initialized{false};

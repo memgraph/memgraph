@@ -2530,8 +2530,18 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
 
   HashJoin() {}
   /** Construct the operator with left input branch and right input branch. */
-  HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op)
-      : left_op_(left_op), right_op_(right_op) {}
+  HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::vector<Symbol> &left_symbols,
+           const std::shared_ptr<LogicalOperator> &right_op, const std::vector<Symbol> &right_symbols,
+           const Symbol lhs_symbol, const PropertyIx lhs_property, const Symbol rhs_symbol,
+           const PropertyIx rhs_property)
+      : left_op_(left_op),
+        left_symbols_(left_symbols),
+        right_op_(right_op),
+        right_symbols_(right_symbols),
+        lhs_symbol_(lhs_symbol),
+        lhs_property_(lhs_property),
+        rhs_symbol_(rhs_symbol),
+        rhs_property_(rhs_property) {}
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2542,12 +2552,26 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator>) override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> left_op_;
+  std::vector<Symbol> left_symbols_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
+  std::vector<Symbol> right_symbols_;
+  Symbol lhs_symbol_;
+  PropertyIx lhs_property_;
+  Symbol rhs_symbol_;
+  PropertyIx rhs_property_;
+
+  std::string ToString() const override { return "HashJoin"; }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
-    auto object = std::make_unique<Cartesian>();
+    auto object = std::make_unique<HashJoin>();
     object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
+    object->left_symbols_ = left_symbols_;
     object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
+    object->right_symbols_ = right_symbols_;
+    object->lhs_symbol_ = lhs_symbol_;
+    object->lhs_property_ = storage->GetPropertyIx(lhs_property_.name);
+    object->rhs_symbol_ = rhs_symbol_;
+    object->rhs_property_ = storage->GetPropertyIx(rhs_property_.name);
     return object;
   }
 };
