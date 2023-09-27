@@ -375,8 +375,7 @@ class DiskStorage final : public Storage {
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
 
-  auto CreateReplicationClient(io::network::Endpoint endpoint, replication::ReplicationMode mode,
-                               replication::ReplicationClientConfig const &config)
+  auto CreateReplicationClient(io::network::Endpoint endpoint, replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }

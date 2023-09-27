@@ -1832,10 +1832,10 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(io::network::Endpoint endpoint, replication::ReplicationMode mode,
+auto InMemoryStorage::CreateReplicationClient(io::network::Endpoint endpoint,
                                               replication::ReplicationClientConfig const &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, std::move(endpoint), mode, config);
+  return std::make_unique<InMemoryReplicationClient>(this, std::move(endpoint), config);
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(

@@ -77,9 +77,12 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{.name = "REPLICA"})
+                                     ReplicationClientConfig{
+                                         .name = "REPLICA",
+                                         .mode = ReplicationMode::SYNC,
+                                     })
                    .HasError());
 
   // vertex create
@@ -313,17 +316,19 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[0],
+                                         .mode = ReplicationMode::SYNC,
                                      })
                    .HasError());
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[1],
+                                         .mode = ReplicationMode::SYNC,
                                      })
                    .HasError());
 
@@ -457,10 +462,11 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     });
 
     ASSERT_FALSE(main_store
-                     ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                     ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                        RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                        ReplicationClientConfig{
                                            .name = replicas[0],
+                                           .mode = ReplicationMode::SYNC,
                                        })
                      .HasError());
 
@@ -529,10 +535,11 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::ASYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = "REPLICA_ASYNC",
+                                         .mode = ReplicationMode::ASYNC,
                                      })
                    .HasError());
 
@@ -581,18 +588,20 @@ TEST_F(ReplicationTest, EpochTest) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[0],
+                                         .mode = ReplicationMode::SYNC,
                                      })
                    .HasError());
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, 10001}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, 10001},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[1],
+                                         .mode = ReplicationMode::SYNC,
                                      })
                    .HasError());
 
@@ -621,10 +630,11 @@ TEST_F(ReplicationTest, EpochTest) {
 
   replica_store1->SetMainReplicationRole();
   ASSERT_FALSE(replica_store1
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, 10001}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, 10001},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[1],
+                                         .mode = ReplicationMode::SYNC,
                                      })
 
                    .HasError());
@@ -653,10 +663,11 @@ TEST_F(ReplicationTest, EpochTest) {
       .port = ports[0],
   });
   ASSERT_TRUE(main_store
-                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = replicas[0],
+                                        .mode = ReplicationMode::SYNC,
                                     })
 
                   .HasError());
@@ -695,19 +706,21 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica1_port}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica1_port},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[0],
+                                         .mode = ReplicationMode::SYNC,
                                      })
 
                    .HasError());
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica2_port}, ReplicationMode::ASYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica2_port},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[1],
+                                         .mode = ReplicationMode::ASYNC,
                                      })
 
                    .HasError());
@@ -750,18 +763,20 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica1_port}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica1_port},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[0],
+                                         .mode = ReplicationMode::SYNC,
                                      })
                    .HasError());
 
   ASSERT_TRUE(main_store
-                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica2_port}, ReplicationMode::ASYNC,
+                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica2_port},
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = replicas[0],
+                                        .mode = ReplicationMode::ASYNC,
                                     })
                   .GetError() == RegisterReplicaError::NAME_EXISTS);
 }
@@ -783,18 +798,20 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
   });
 
   ASSERT_FALSE(main_store
-                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, common_port}, ReplicationMode::SYNC,
+                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, common_port},
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[0],
+                                         .mode = ReplicationMode::SYNC,
                                      })
                    .HasError());
 
   ASSERT_TRUE(main_store
-                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, common_port}, ReplicationMode::ASYNC,
+                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, common_port},
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = replicas[1],
+                                        .mode = ReplicationMode::ASYNC,
                                     })
                   .GetError() == RegisterReplicaError::END_POINT_EXISTS);
 }
@@ -816,16 +833,18 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       .port = ports[1],
   });
 
-  auto res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+  auto res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                          RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                          ReplicationClientConfig{
                                              .name = replicas[0],
+                                             .mode = ReplicationMode::SYNC,
                                          });
   ASSERT_FALSE(res.HasError());
-  res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
+  res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]},
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = replicas[1],
+                                        .mode = ReplicationMode::SYNC,
                                     });
   ASSERT_FALSE(res.HasError());
 
@@ -872,16 +891,18 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
       .port = ports[1],
   });
 
-  auto res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+  auto res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                          RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                          ReplicationClientConfig{
                                              .name = replicas[0],
+                                             .mode = ReplicationMode::SYNC,
                                          });
   ASSERT_FALSE(res.HasError());
-  res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
+  res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]},
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = replicas[1],
+                                        .mode = ReplicationMode::SYNC,
                                     });
   ASSERT_FALSE(res.HasError());
 
@@ -918,10 +939,11 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
 
   ASSERT_TRUE(main_store
-                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                  ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = "REPLICA",
+                                        .mode = ReplicationMode::SYNC,
                                     })
                   .GetError() == RegisterReplicaError::CONNECTION_FAILED);
 }

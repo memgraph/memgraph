@@ -371,8 +371,7 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  auto CreateReplicationClient(io::network::Endpoint endpoint, replication::ReplicationMode mode,
-                               replication::ReplicationClientConfig const &config)
+  auto CreateReplicationClient(io::network::Endpoint endpoint, replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> override;
 
   auto CreateReplicationServer(const replication::ReplicationServerConfig &config)

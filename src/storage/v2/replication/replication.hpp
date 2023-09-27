@@ -60,7 +60,6 @@ struct ReplicationState {
 
   // MAIN connecting to replicas
   utils::BasicResult<RegisterReplicaError> RegisterReplica(io::network::Endpoint endpoint,
-                                                           const replication::ReplicationMode replication_mode,
                                                            const replication::RegistrationMode registration_mode,
                                                            const replication::ReplicationClientConfig &config,
                                                            Storage *storage);

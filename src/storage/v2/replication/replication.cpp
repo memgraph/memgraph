@@ -148,9 +148,8 @@ bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
 }
 
 utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
-    io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
-    Storage *storage) {
+    io::network::Endpoint endpoint, const replication::RegistrationMode registration_mode,
+    const replication::ReplicationClientConfig &config, Storage *storage) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   auto name_existance_check = [&config](auto &clients) {
@@ -176,7 +175,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
         replication::ReplicationStatus{.name = config.name,
                                        .ip_address = endpoint.address,
                                        .port = endpoint.port,
-                                       .sync_mode = replication_mode,
+                                       .sync_mode = config.mode,
                                        .replica_check_frequency = config.replica_check_frequency,
                                        .ssl = config.ssl,
                                        .role = replication::ReplicationRole::REPLICA});
@@ -186,7 +185,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
     }
   }
 
-  auto client = storage->CreateReplicationClient(std::move(endpoint), replication_mode, config);
+  auto client = storage->CreateReplicationClient(std::move(endpoint), config);
   client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {
@@ -350,10 +349,11 @@ void ReplicationState::RestoreReplicas(Storage *storage) {
       continue;
     }
 
-    auto ret = RegisterReplica({std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
+    auto ret = RegisterReplica({std::move(replica_status.ip_address), replica_status.port},
                                replication::RegistrationMode::CAN_BE_INVALID,
                                replication::ReplicationClientConfig{
                                    .name = replica_status.name,
+                                   .mode = replica_status.sync_mode,
                                    .replica_check_frequency = replica_status.replica_check_frequency,
                                    .ssl = replica_status.ssl,
                                },

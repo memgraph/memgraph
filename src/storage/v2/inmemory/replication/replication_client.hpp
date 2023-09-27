@@ -18,7 +18,7 @@ class InMemoryStorage;
 
 class InMemoryReplicationClient : public ReplicationClient {
  public:
-  InMemoryReplicationClient(InMemoryStorage *storage, io::network::Endpoint endpoint, replication::ReplicationMode mode,
+  InMemoryReplicationClient(InMemoryStorage *storage, io::network::Endpoint endpoint,
                             const replication::ReplicationClientConfig &config);
 
  protected:
