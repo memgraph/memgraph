@@ -23,8 +23,8 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
-std::string RegisterReplicaErrorToString(ReplicationState::RegisterReplicaError error) {
-  using enum ReplicationState::RegisterReplicaError;
+std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
+  using enum RegisterReplicaError;
   switch (error) {
     case NAME_EXISTS:
       return "NAME_EXISTS";
@@ -147,7 +147,7 @@ bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::RegisterReplica(
+utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
     io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
     Storage *storage) {
@@ -197,23 +197,21 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
     spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
-  return replication_clients_.WithLock(
-      [&](auto &clients) -> utils::BasicResult<ReplicationState::RegisterReplicaError> {
-        // Another thread could have added a client with same name while
-        // we were connecting to this client.
-        if (name_existance_check(clients)) {
-          return RegisterReplicaError::NAME_EXISTS;
-        }
+  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
+    // Another thread could have added a client with same name while
+    // we were connecting to this client.
+    if (name_existance_check(clients)) {
+      return RegisterReplicaError::NAME_EXISTS;
+    }
 
-        if (std::any_of(clients.begin(), clients.end(), [&client](const auto &other_client) {
-              return client->Endpoint() == other_client->Endpoint();
-            })) {
-          return RegisterReplicaError::END_POINT_EXISTS;
-        }
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
+      return RegisterReplicaError::END_POINT_EXISTS;
+    }
 
-        clients.push_back(std::move(client));
-        return {};
-      });
+    clients.push_back(std::move(client));
+    return {};
+  });
 }
 
 bool ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
