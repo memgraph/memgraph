@@ -35,8 +35,8 @@ namespace memgraph::query::plan {
 namespace impl {
 
 struct ExpressionRemovalResult {
-  Expression *expression;
-  bool removed{false};
+  Expression *trimmed_expression;
+  bool did_remove{false};
 };
 
 // Return the new root expression after removing the given expressions from the
@@ -67,20 +67,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
     ExpressionRemovalResult removal = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
-    op.expression_ = removal.expression;
-    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
-      if (op.input()->GetTypeInfo() == Cartesian::kType) {
-        auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
-        auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-        SetOnParent(indexed_join);
-      } else {
-        SetOnParent(op.input());
-      }
-    } else if (removal.removed && op.input()->GetTypeInfo() == Cartesian::kType) {
+    op.expression_ = removal.trimmed_expression;
+    bool is_child_cartesian = op.input()->GetTypeInfo() == Cartesian::kType;
+
+    if (!removal.did_remove) {
+      // nothing to be replaced, filter will stay
+      return true;
+    }
+
+    if (is_child_cartesian) {
+      // if we removed something from filter in front of a Cartesian, then we are doing a join from
+      // 2 different branches
       auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
       auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-      op.set_input(indexed_join);
+      SetOnParent(indexed_join);
+      return true;
     }
+
+    if (!op.expression_) {
+      // if we emptied all the expressions from the filter, then we don't need this operator anymore
+      SetOnParent(op.input());
+      return true;
+    }
+
+    // still left something in the filter
     return true;
   }
 

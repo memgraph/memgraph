@@ -5211,7 +5211,7 @@ std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const
 }
 
 bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Apply");
+  SCOPED_PROFILE_OP("IndexedJoin");
 
   while (true) {
     if (pull_input_ && !left_->Pull(frame, context)) {
