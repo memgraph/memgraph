@@ -319,13 +319,12 @@ class Storage {
                                        replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> = 0;
 
-  virtual auto CreateReplicationServer(io::network::Endpoint endpoint,
-                                       replication::ReplicationServerConfig const &config)
+  virtual auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
   /// REPLICATION
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
+  bool SetReplicaRole(const replication::ReplicationServerConfig &config) {
+    return replication_state_.SetReplicaRole(config, this);
   }
   bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
 

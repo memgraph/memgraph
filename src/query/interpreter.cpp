@@ -238,9 +238,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
-      if (!db_->SetReplicaRole(
-              io::network::Endpoint(storage::replication::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)),
-              storage::replication::ReplicationServerConfig{})) {
+      if (!db_->SetReplicaRole(storage::replication::ReplicationServerConfig{
+              .ip_address = storage::replication::kDefaultReplicationServerIp,
+              .port = static_cast<uint16_t>(*port),
+          })) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }

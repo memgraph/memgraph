@@ -214,15 +214,13 @@ utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
   });
 }
 
-bool ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
-                                      const replication::ReplicationServerConfig &config, Storage *storage) {
+bool ReplicationState::SetReplicaRole(const replication::ReplicationServerConfig &config, Storage *storage) {
   // We don't want to restart the server if we're already a REPLICA
   if (GetRole() == replication::ReplicationRole::REPLICA) {
     return false;
   }
 
-  auto port = endpoint.port;  // assigning because we will move the endpoint
-  replication_server_ = storage->CreateReplicationServer(std::move(endpoint), config);
+  replication_server_ = storage->CreateReplicationServer(config);
   bool res = replication_server_->Start();
   if (!res) {
     spdlog::error("Unable to start the replication server.");
@@ -233,8 +231,8 @@ bool ReplicationState::SetReplicaRole(io::network::Endpoint endpoint,
     // Only thing that matters here is the role saved as REPLICA and the listening port
     auto data = replication::ReplicationStatusToJSON(
         replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
-                                       .ip_address = "",
-                                       .port = port,
+                                       .ip_address = config.ip_address,
+                                       .port = config.port,
                                        .sync_mode = replication::ReplicationMode::SYNC,
                                        .replica_check_frequency = std::chrono::seconds(0),
                                        .ssl = std::nullopt,
@@ -316,8 +314,10 @@ void ReplicationState::RestoreReplicationRole(Storage *storage) {
   }
 
   if (GetRole() == replication::ReplicationRole::REPLICA) {
-    io::network::Endpoint endpoint(replication::kDefaultReplicationServerIp, port);
-    replication_server_ = storage->CreateReplicationServer(std::move(endpoint), {});
+    replication_server_ = storage->CreateReplicationServer(replication::ReplicationServerConfig{
+        .ip_address = replication::kDefaultReplicationServerIp,
+        .port = port,
+    });
     bool res = replication_server_->Start();
     if (!res) {
       LOG_FATAL("Unable to start the replication server.");

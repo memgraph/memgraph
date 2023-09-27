@@ -381,7 +381,7 @@ class DiskStorage final : public Storage {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }

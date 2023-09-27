@@ -375,7 +375,7 @@ class InMemoryStorage final : public Storage {
                                replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> override;
 
-  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override;
 
  private:

@@ -35,6 +35,8 @@ struct ReplicationClientConfig {
 };
 
 struct ReplicationServerConfig {
+  std::string ip_address;
+  uint16_t port;
   struct SSL {
     std::string key_file;
     std::string cert_file;

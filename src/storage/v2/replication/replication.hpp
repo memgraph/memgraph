@@ -45,7 +45,7 @@ struct ReplicationState {
 
   bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
   // TODO: ReplicationServer/Client uses Storage* for RPC callbacks
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config,
+  bool SetReplicaRole(const replication::ReplicationServerConfig &config,
                       Storage *storage);  // Sets the instance to REPLICA
   // Generic restoration
   void RestoreReplicationRole(Storage *storage);

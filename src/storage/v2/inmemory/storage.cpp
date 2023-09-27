@@ -1839,8 +1839,8 @@ auto InMemoryStorage::CreateReplicationClient(io::network::Endpoint endpoint, re
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-  return std::make_unique<InMemoryReplicationServer>(this, std::move(endpoint), config);
+    const replication::ReplicationServerConfig &config) {
+  return std::make_unique<InMemoryReplicationServer>(this, config);
 }
 
 }  // namespace memgraph::storage
