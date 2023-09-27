@@ -78,6 +78,8 @@ constexpr const char *deserializeTimestamp = "0";
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
+constexpr const char *outEdgesHandle = "out_edges";
+constexpr const char *inEdgesHandle = "in_edges";
 constexpr const char *lastTransactionStartTimeStamp = "last_transaction_start_timestamp";
 constexpr const char *vertex_count_descr = "vertex_count";
 constexpr const char *edge_count_descr = "edge_count";
@@ -288,6 +290,8 @@ DiskStorage::DiskStorage(Config config)
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
     column_families.emplace_back(defaultHandle, kvstore_->options_);
+    column_families.emplace_back(outEdgesHandle, kvstore_->options_);
+    column_families.emplace_back(inEdgesHandle, kvstore_->options_);
 
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory, column_families,
@@ -295,6 +299,8 @@ DiskStorage::DiskStorage(Config config)
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
     kvstore_->default_chandle = column_handles[2];
+    kvstore_->out_edges_chandle = column_handles[3];
+    kvstore_->in_edges_chandle = column_handles[4];
   } else {
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory, &kvstore_->db_));
@@ -302,6 +308,10 @@ DiskStorage::DiskStorage(Config config)
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
+    logging::AssertRocksDBStatus(
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, outEdgesHandle, &kvstore_->out_edges_chandle));
+    logging::AssertRocksDBStatus(
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, inEdgesHandle, &kvstore_->in_edges_chandle));
   }
 }
 

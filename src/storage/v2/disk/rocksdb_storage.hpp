@@ -48,9 +48,12 @@ struct RocksDBStorage {
 
   rocksdb::Options options_;
   rocksdb::TransactionDB *db_;
+  /// TODO: (andi) Refactor this
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
+  rocksdb::ColumnFamilyHandle *out_edges_chandle = nullptr;
+  rocksdb::ColumnFamilyHandle *in_edges_chandle = nullptr;
 };
 
 /// RocksDB comparator that compares keys with timestamps.
