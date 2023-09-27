@@ -76,8 +76,9 @@ class RWLock {
   ~RWLock() { pthread_rwlock_destroy(&lock_); }
 
   void lock() {
-    spdlog::error("{} lock unique lock", std::this_thread::get_id());
+    spdlog::error("{} Trying to lock unique lock", std::this_thread::get_id());
     MG_ASSERT(pthread_rwlock_wrlock(&lock_) == 0, "Couldn't lock utils::RWLock!");
+    spdlog::error("{} Lock unique lock", std::this_thread::get_id());
   }
 
   bool try_lock() {
@@ -88,8 +89,9 @@ class RWLock {
   }
 
   void unlock() {
-    spdlog::error("{} unlock unique lock", std::this_thread::get_id());
+    spdlog::error("{} Trying to unlock unique lock", std::this_thread::get_id());
     MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock utils::RWLock!");
+    spdlog::error("{} Unlock unique lock", std::this_thread::get_id());
   }
 
   void lock_shared() {
@@ -125,8 +127,9 @@ class RWLock {
   }
 
   void unlock_shared() {
-    spdlog::error("{} unlock_shared lock", std::this_thread::get_id());
+    spdlog::error("{} Trying to  unlock shared lock", std::this_thread::get_id());
     MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock shared utils::RWLock!");
+    spdlog::error("{} unlock shared lock", std::this_thread::get_id());
   }
 
  private:
