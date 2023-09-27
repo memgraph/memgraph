@@ -148,8 +148,8 @@ bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
 }
 
 utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
-    io::network::Endpoint endpoint, const replication::RegistrationMode registration_mode,
-    const replication::ReplicationClientConfig &config, Storage *storage) {
+    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
+    Storage *storage) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   auto name_existance_check = [&config](auto &clients) {
@@ -160,7 +160,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
   if (replication_clients_.WithLock(name_existance_check)) {
     return RegisterReplicaError::NAME_EXISTS;
   }
-
+  auto endpoint = io::network::Endpoint{config.ip_address, config.port};
   const auto end_point_exists = replication_clients_.WithLock([&endpoint](auto &clients) {
     return std::any_of(clients.begin(), clients.end(),
                        [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
@@ -185,7 +185,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
     }
   }
 
-  auto client = storage->CreateReplicationClient(std::move(endpoint), config);
+  auto client = storage->CreateReplicationClient(config);
   client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {
@@ -349,11 +349,12 @@ void ReplicationState::RestoreReplicas(Storage *storage) {
       continue;
     }
 
-    auto ret = RegisterReplica({std::move(replica_status.ip_address), replica_status.port},
-                               replication::RegistrationMode::CAN_BE_INVALID,
+    auto ret = RegisterReplica(replication::RegistrationMode::CAN_BE_INVALID,
                                replication::ReplicationClientConfig{
                                    .name = replica_status.name,
                                    .mode = replica_status.sync_mode,
+                                   .ip_address = replica_status.ip_address,
+                                   .port = replica_status.port,
                                    .replica_check_frequency = replica_status.replica_check_frequency,
                                    .ssl = replica_status.ssl,
                                },

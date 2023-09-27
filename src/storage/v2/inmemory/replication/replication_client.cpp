@@ -102,9 +102,9 @@ uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile cons
 
 ////// ReplicationClient //////
 
-InMemoryReplicationClient::InMemoryReplicationClient(InMemoryStorage *storage, io::network::Endpoint endpoint,
+InMemoryReplicationClient::InMemoryReplicationClient(InMemoryStorage *storage,
                                                      const replication::ReplicationClientConfig &config)
-    : ReplicationClient{storage, std::move(endpoint), config} {}
+    : ReplicationClient{storage, config} {}
 
 void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
   spdlog::debug("Starting replica recover");

@@ -315,8 +315,7 @@ class Storage {
 
   virtual void EstablishNewEpoch() = 0;
 
-  virtual auto CreateReplicationClient(io::network::Endpoint endpoint,
-                                       replication::ReplicationClientConfig const &config)
+  virtual auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> = 0;
 
   virtual auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
@@ -330,9 +329,9 @@ class Storage {
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
-  auto RegisterReplica(io::network::Endpoint endpoint, const replication::RegistrationMode registration_mode,
+  auto RegisterReplica(const replication::RegistrationMode registration_mode,
                        const replication::ReplicationClientConfig &config) {
-    return replication_state_.RegisterReplica(std::move(endpoint), registration_mode, config, this);
+    return replication_state_.RegisterReplica(registration_mode, config, this);
   }
   /// @pre The instance should have a MAIN role
   bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
