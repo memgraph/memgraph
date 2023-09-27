@@ -71,15 +71,12 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   std::unique_ptr<Storage> main_store = std::make_unique<InMemoryStorage>(configuration);
   std::unique_ptr<Storage> replica_store = std::make_unique<InMemoryStorage>(configuration);
 
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store = static_cast<InMemoryStorage *>(replica_store.get());
-
-  replica_mem_store->SetReplicaRole(ReplicationServerConfig{
+  replica_store->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{.name = "REPLICA"})
@@ -293,16 +290,14 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                                .storage_directory = storage_directory,
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
 
   std::unique_ptr<Storage> replica_store1{
       new InMemoryStorage({.durability = {
                                .storage_directory = storage_directory,
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
 
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
@@ -312,20 +307,19 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                                .storage_directory = storage_directory,
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
                                          .name = replicas[0],
                                      })
                    .HasError());
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -360,7 +354,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   check_replica(replica_store1.get());
   check_replica(replica_store2.get());
 
-  main_mem_store->UnregisterReplica(replicas[1]);
+  main_store->UnregisterReplica(replicas[1]);
   {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
@@ -432,7 +426,6 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                                .recover_on_startup = true,
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
 
   static constexpr const auto *property_name = "property_name";
   static constexpr const auto property_value = 1;
@@ -457,14 +450,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     std::unique_ptr<Storage> replica_store{new InMemoryStorage(
         {.durability = {.storage_directory = replica_storage_directory,
                         .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}})};
-    auto *replica_mem_store = static_cast<InMemoryStorage *>(replica_store.get());
 
-    replica_mem_store->SetReplicaRole(ReplicationServerConfig{
+    replica_store->SetReplicaRole(ReplicationServerConfig{
         .ip_address = local_host,
         .port = ports[0],
     });
 
-    ASSERT_FALSE(main_mem_store
+    ASSERT_FALSE(main_store
                      ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
                                        RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                        ReplicationClientConfig{
@@ -472,9 +464,9 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                                        })
                      .HasError());
 
-    ASSERT_EQ(main_mem_store->GetReplicaState(replicas[0]), ReplicaState::RECOVERY);
+    ASSERT_EQ(main_store->GetReplicaState(replicas[0]), ReplicaState::RECOVERY);
 
-    while (main_mem_store->GetReplicaState(replicas[0]) != ReplicaState::READY) {
+    while (main_store->GetReplicaState(replicas[0]) != ReplicaState::READY) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -528,18 +520,15 @@ TEST_F(ReplicationTest, RecoveryProcess) {
 
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
 
   std::unique_ptr<Storage> replica_store_async{new InMemoryStorage(configuration)};
 
-  auto *replica_mem_store_async = static_cast<InMemoryStorage *>(replica_store_async.get());
-
-  replica_mem_store_async->SetReplicaRole(ReplicationServerConfig{
+  replica_store_async->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::ASYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -556,13 +545,13 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     ASSERT_FALSE(acc->Commit().HasError());
 
     if (i == 0) {
-      ASSERT_EQ(main_mem_store->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
+      ASSERT_EQ(main_store->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
     } else {
-      ASSERT_EQ(main_mem_store->GetReplicaState("REPLICA_ASYNC"), ReplicaState::RECOVERY);
+      ASSERT_EQ(main_store->GetReplicaState("REPLICA_ASYNC"), ReplicaState::RECOVERY);
     }
   }
 
-  while (main_mem_store->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
+  while (main_store->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
@@ -578,23 +567,20 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 TEST_F(ReplicationTest, EpochTest) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
 
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
 
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = 10001,
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -602,7 +588,7 @@ TEST_F(ReplicationTest, EpochTest) {
                                      })
                    .HasError());
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, 10001}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -630,11 +616,11 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  main_mem_store->UnregisterReplica(replicas[0]);
-  main_mem_store->UnregisterReplica(replicas[1]);
+  main_store->UnregisterReplica(replicas[0]);
+  main_store->UnregisterReplica(replicas[1]);
 
-  replica_mem_store1->SetMainReplicationRole();
-  ASSERT_FALSE(replica_mem_store1
+  replica_store1->SetMainReplicationRole();
+  ASSERT_FALSE(replica_store1
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, 10001}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -662,11 +648,11 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
-  ASSERT_TRUE(main_mem_store
+  ASSERT_TRUE(main_store
                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
@@ -694,24 +680,21 @@ TEST_F(ReplicationTest, EpochTest) {
 TEST_F(ReplicationTest, ReplicationInformation) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
 
   uint16_t replica1_port = 10001;
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica1_port,
   });
 
   uint16_t replica2_port = 10002;
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica2_port,
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica1_port}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -720,7 +703,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
                    .HasError());
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica2_port}, ReplicationMode::ASYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -729,11 +712,11 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
                    .HasError());
 
-  ASSERT_EQ(main_mem_store->GetReplicationRole(), ReplicationRole::MAIN);
-  ASSERT_EQ(replica_mem_store1->GetReplicationRole(), ReplicationRole::REPLICA);
-  ASSERT_EQ(replica_mem_store2->GetReplicationRole(), ReplicationRole::REPLICA);
+  ASSERT_EQ(main_store->GetReplicationRole(), ReplicationRole::MAIN);
+  ASSERT_EQ(replica_store1->GetReplicationRole(), ReplicationRole::REPLICA);
+  ASSERT_EQ(replica_store2->GetReplicationRole(), ReplicationRole::REPLICA);
 
-  const auto replicas_info = main_mem_store->ReplicasInfo();
+  const auto replicas_info = main_store->ReplicasInfo();
   ASSERT_EQ(replicas_info.size(), 2);
 
   const auto &first_info = replicas_info[0];
@@ -752,24 +735,21 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
 
   uint16_t replica1_port = 10001;
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica1_port,
   });
 
   uint16_t replica2_port = 10002;
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica2_port,
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica1_port}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -777,7 +757,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
                                      })
                    .HasError());
 
-  ASSERT_TRUE(main_mem_store
+  ASSERT_TRUE(main_store
                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, replica2_port}, ReplicationMode::ASYNC,
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
@@ -791,21 +771,18 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = common_port,
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = common_port,
   });
 
-  ASSERT_FALSE(main_mem_store
+  ASSERT_FALSE(main_store
                    ->RegisterReplica(memgraph::io::network::Endpoint{local_host, common_port}, ReplicationMode::SYNC,
                                      RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -813,7 +790,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                                      })
                    .HasError());
 
-  ASSERT_TRUE(main_mem_store
+  ASSERT_TRUE(main_store
                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, common_port}, ReplicationMode::ASYNC,
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
@@ -827,35 +804,32 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   main_config.durability.restore_replication_state_on_startup = true;
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
 
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  auto res = main_mem_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
-                                             ReplicationMode::SYNC, RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                             ReplicationClientConfig{
-                                                 .name = replicas[0],
-                                             });
+  auto res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                                         RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                         ReplicationClientConfig{
+                                             .name = replicas[0],
+                                         });
   ASSERT_FALSE(res.HasError());
-  res = main_mem_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
-                                        RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                        ReplicationClientConfig{
-                                            .name = replicas[1],
-                                        });
+  res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
+                                    RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[1],
+                                    });
   ASSERT_FALSE(res.HasError());
 
-  auto replica_infos = main_mem_store->ReplicasInfo();
+  auto replica_infos = main_store->ReplicasInfo();
 
   ASSERT_EQ(replica_infos.size(), 2);
   ASSERT_EQ(replica_infos[0].name, replicas[0]);
@@ -868,9 +842,8 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   main_store.reset();
 
   std::unique_ptr<Storage> other_main_store{new InMemoryStorage(main_config)};
-  auto *other_main_mem_store = static_cast<InMemoryStorage *>(other_main_store.get());
 
-  replica_infos = other_main_mem_store->ReplicasInfo();
+  replica_infos = other_main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 2);
   ASSERT_EQ(replica_infos[0].name, replicas[0]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
@@ -886,36 +859,33 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
 
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
-  auto *replica_mem_store1 = static_cast<InMemoryStorage *>(replica_store1.get());
 
-  replica_mem_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  auto *replica_mem_store2 = static_cast<InMemoryStorage *>(replica_store2.get());
 
-  replica_mem_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicaRole(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  auto res = main_mem_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]},
-                                             ReplicationMode::SYNC, RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                             ReplicationClientConfig{
-                                                 .name = replicas[0],
-                                             });
+  auto res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
+                                         RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                         ReplicationClientConfig{
+                                             .name = replicas[0],
+                                         });
   ASSERT_FALSE(res.HasError());
-  res = main_mem_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
-                                        RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                        ReplicationClientConfig{
-                                            .name = replicas[1],
-                                        });
+  res = main_store->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[1]}, ReplicationMode::SYNC,
+                                    RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[1],
+                                    });
   ASSERT_FALSE(res.HasError());
 
-  auto replica_infos = main_mem_store->ReplicasInfo();
+  auto replica_infos = main_store->ReplicasInfo();
 
   ASSERT_EQ(replica_infos.size(), 2);
   ASSERT_EQ(replica_infos[0].name, replicas[0]);
@@ -925,10 +895,10 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
 
-  const auto unregister_res = main_mem_store->UnregisterReplica(replicas[0]);
+  const auto unregister_res = main_store->UnregisterReplica(replicas[0]);
   ASSERT_TRUE(unregister_res);
 
-  replica_infos = main_mem_store->ReplicasInfo();
+  replica_infos = main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
   ASSERT_EQ(replica_infos[0].name, replicas[1]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
@@ -937,8 +907,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   main_store.reset();
 
   std::unique_ptr<Storage> other_main_store{new InMemoryStorage(main_config)};
-  auto *other_main_mem_store = static_cast<InMemoryStorage *>(other_main_store.get());
-  replica_infos = other_main_mem_store->ReplicasInfo();
+  replica_infos = other_main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
   ASSERT_EQ(replica_infos[0].name, replicas[1]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
@@ -947,9 +916,8 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
 
 TEST_F(ReplicationTest, AddingInvalidReplica) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
-  auto *main_mem_store = static_cast<InMemoryStorage *>(main_store.get());
 
-  ASSERT_TRUE(main_mem_store
+  ASSERT_TRUE(main_store
                   ->RegisterReplica(memgraph::io::network::Endpoint{local_host, ports[0]}, ReplicationMode::SYNC,
                                     RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
