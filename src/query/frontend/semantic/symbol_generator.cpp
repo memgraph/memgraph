@@ -518,6 +518,10 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
   }
 
+  if (scope.in_return) {
+    throw utils::NotYetImplemented("RETURN can not be used with exists, but only during matching!");
+  }
+
   scope.in_exists = true;
 
   const auto &symbol = CreateAnonymousSymbol();
