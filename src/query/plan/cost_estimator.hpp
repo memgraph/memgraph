@@ -39,7 +39,10 @@ struct Scope {
 };
 
 struct CostEstimation {
+  // expense of running the query
   double cost;
+
+  // expected number of rows
   double cardinality;
 };
 
