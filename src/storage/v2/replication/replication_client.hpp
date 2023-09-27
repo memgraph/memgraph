@@ -66,8 +66,8 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(Storage *storage, std::string name, memgraph::io::network::Endpoint endpoint,
-                    replication::ReplicationMode mode, const replication::ReplicationClientConfig &config);
+  ReplicationClient(Storage *storage, memgraph::io::network::Endpoint endpoint, replication::ReplicationMode mode,
+                    replication::ReplicationClientConfig const &config);
 
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;

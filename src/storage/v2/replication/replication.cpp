@@ -148,16 +148,17 @@ bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
 }
 
 utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
+    io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
     Storage *storage) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
 
-  const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
-  });
+  auto name_existance_check = [&config](auto &clients) {
+    return std::any_of(clients.begin(), clients.end(),
+                       [&name = config.name](const auto &client) { return client->Name() == name; });
+  };
 
-  if (name_exists) {
+  if (replication_clients_.WithLock(name_existance_check)) {
     return RegisterReplicaError::NAME_EXISTS;
   }
 
@@ -172,20 +173,20 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
 
   if (ShouldStoreAndRestoreReplicationState()) {
     auto data = replication::ReplicationStatusToJSON(
-        replication::ReplicationStatus{.name = name,
+        replication::ReplicationStatus{.name = config.name,
                                        .ip_address = endpoint.address,
                                        .port = endpoint.port,
                                        .sync_mode = replication_mode,
                                        .replica_check_frequency = config.replica_check_frequency,
                                        .ssl = config.ssl,
                                        .role = replication::ReplicationRole::REPLICA});
-    if (!durability_->Put(name, data.dump())) {
-      spdlog::error("Error when saving replica {} in settings.", name);
+    if (!durability_->Put(config.name, data.dump())) {
+      spdlog::error("Error when saving replica {} in settings.", config.name);
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
   }
 
-  auto client = storage->CreateReplicationClient(std::move(name), std::move(endpoint), replication_mode, config);
+  auto client = storage->CreateReplicationClient(std::move(endpoint), replication_mode, config);
   client->Start();
 
   if (client->State() == replication::ReplicaState::INVALID) {
@@ -200,8 +201,7 @@ utils::BasicResult<ReplicationState::RegisterReplicaError> ReplicationState::Reg
       [&](auto &clients) -> utils::BasicResult<ReplicationState::RegisterReplicaError> {
         // Another thread could have added a client with same name while
         // we were connecting to this client.
-        if (std::any_of(clients.begin(), clients.end(),
-                        [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
+        if (name_existance_check(clients)) {
           return RegisterReplicaError::NAME_EXISTS;
         }
 
@@ -352,14 +352,14 @@ void ReplicationState::RestoreReplicas(Storage *storage) {
       continue;
     }
 
-    auto ret =
-        RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
-                        replica_status.sync_mode, replication::RegistrationMode::CAN_BE_INVALID,
-                        {
-                            .replica_check_frequency = replica_status.replica_check_frequency,
-                            .ssl = replica_status.ssl,
-                        },
-                        storage);
+    auto ret = RegisterReplica({std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
+                               replication::RegistrationMode::CAN_BE_INVALID,
+                               replication::ReplicationClientConfig{
+                                   .name = replica_status.name,
+                                   .replica_check_frequency = replica_status.replica_check_frequency,
+                                   .ssl = replica_status.ssl,
+                               },
+                               storage);
 
     if (ret.HasError()) {
       MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());

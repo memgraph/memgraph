@@ -64,11 +64,10 @@ struct ReplicationState {
   bool FinalizeTransaction(uint64_t timestamp);
 
   // MAIN connecting to replicas
-  utils::BasicResult<RegisterReplicaError> RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                                                           const replication::ReplicationMode replication_mode,
-                                                           const replication::RegistrationMode registration_mode,
-                                                           const replication::ReplicationClientConfig &config,
-                                                           Storage *storage);
+  utils::BasicResult<ReplicationState::RegisterReplicaError> RegisterReplica(
+      io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
+      const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
+      Storage *storage);
   bool UnregisterReplica(std::string_view name);
 
   // MAIN reconnecting to replicas
