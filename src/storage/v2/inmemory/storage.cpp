@@ -195,6 +195,8 @@ InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   }
 
   FinalizeTransaction();
+  spdlog::error("{} InMemoryAccessor::~InMemoryAccessor deleting accessor.\n Stack: {}", std::this_thread::get_id(),
+                "" /*utils::Stacktrace().dump()*/);
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
@@ -949,7 +951,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+  spdlog::error("{} CreateIndex trying to acquire lock", std::this_thread::get_id());
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  spdlog::error("{} CreateIndex acquired lock", std::this_thread::get_id());
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -972,7 +976,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  spdlog::error("{} CreatedIndex2 trying to acquire lock", std::this_thread::get_id());
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  spdlog::error("{} CreatedIndex2 acquired lock", std::this_thread::get_id());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get());
   if (!mem_label_property_index->CreateIndex(label, property, vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1041,7 +1047,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  spdlog::error("{} CreateExistenceConstraint trying to acquire lock", std::this_thread::get_id());
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  spdlog::error("{} CreateExistenceConstraint acquired lock", std::this_thread::get_id());
 
   if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
@@ -1089,7 +1097,9 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                         const std::optional<uint64_t> desired_commit_timestamp) {
+  spdlog::error("{} CreateUniqueConstraint trying to acquire lock", std::this_thread::get_id());
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  spdlog::error("{} CreateUniqueConstraint acquired lock", std::this_thread::get_id());
   auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError()) {
@@ -1200,15 +1210,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::RWLock> main_guard)
     if constexpr (force) {
       // We take the unique lock on the main storage lock, so we can forcefully clean
       // everything we can
+      spdlog::error("{} CollectGarbage trying to acquire unique lock", std::this_thread::get_id());
       if (!main_lock_.try_lock()) {
         CollectGarbage<false>();
         return;
       }
+      spdlog::error("{} CollectGarbage acquired unique lock", std::this_thread::get_id());
     } else {
       // Because the garbage collector iterates through the indices and constraints
       // to clean them up, it must take the main lock for reading to make sure that
       // the indices and constraints aren't concurrently being modified.
+      spdlog::error("{} CollectGarbage trying to acquire shared lock", std::this_thread::get_id());
       main_lock_.lock_shared();
+      spdlog::error("{} CollectGarbage acquired shared lock", std::this_thread::get_id());
     }
   } else {
     MG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
@@ -1752,13 +1766,17 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto max_num_tries{10};
   while (max_num_tries) {
     if (should_try_shared) {
+      spdlog::error("{} CreateSnapshot trying to acquire shared lock", std::this_thread::get_id());
       std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+      spdlog::error("{} CreateSnapshot acquired shared lock", std::this_thread::get_id());
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
         snapshot_creator();
         return {};
       }
     } else {
+      spdlog::error("{} CreateSnapshot trying to acquire unique lock", std::this_thread::get_id());
       std::unique_lock main_guard{main_lock_};
+      spdlog::error("{} CreateSnapshot acquired unique lock", std::this_thread::get_id());
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
         if (is_periodic && *is_periodic) {
           return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;

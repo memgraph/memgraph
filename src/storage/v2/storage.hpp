@@ -101,7 +101,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() {}
+    virtual ~Accessor() { spdlog::error("{} Accessor::Accessor unlock shared lock", std::this_thread::get_id()); }
 
     virtual VertexAccessor CreateVertex() = 0;
 
