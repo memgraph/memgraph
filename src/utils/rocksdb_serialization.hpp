@@ -138,6 +138,10 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
   return result;
 }
 
+inline std::string SerializeEdgeAsValue(const storage::EdgeTypeId &edge_type, const storage::Edge &edge) {
+  return SerializeIdType(edge_type) + "|" + utils::SerializeProperties(edge.properties);
+}
+
 inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,
                                                               const std::vector<storage::LabelId> &vertex_labels,
                                                               const storage::PropertyStore &property_store) {

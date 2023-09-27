@@ -221,9 +221,6 @@ class DiskStorage final : public Storage {
         std::string &&key, std::string &&value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
-                                                         const rocksdb::Slice &ts);
-
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                         std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
@@ -253,6 +250,10 @@ class DiskStorage final : public Storage {
 
     bool WriteVertexToDisk(const Vertex &vertex);
     bool WriteEdgeToDisk(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
+
+    bool WriteEdgeToOutEdgesConnectivityIndex(const std::string &src_vertex_gid, const std::string &edge_gid);
+    bool WriteEdgeToInEdgesConnectivityIndex(const std::string &dst_vertex_gid, const std::string &edge_gid);
+
     bool DeleteVertexFromDisk(const std::string &vertex);
     bool DeleteEdgeFromDisk(const std::string &edge);
 
