@@ -108,7 +108,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
 
  private:
-  utils::Synchronized<std::map<LabelId, utils::SkipList<Entry>>, utils::ReadPrioritizedRWLock> index_;
+  std::map<LabelId, utils::SkipList<Entry>> index_;
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

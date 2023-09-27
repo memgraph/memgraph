@@ -137,10 +137,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                     Constraints *constraints);
 
  private:
-  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>, utils::ReadPrioritizedRWLock>
-      index_;
+  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
-  std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
+  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
+                      utils::ReadPrioritizedRWLock>
+      stats_;
 };
 
 }  // namespace memgraph::storage

@@ -13,8 +13,6 @@
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
-#include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -70,7 +68,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
       entries_for_deletion;
-  utils::Synchronized<std::set<std::pair<LabelId, PropertyId>>, utils::ReadPrioritizedRWLock> index_;
+  std::set<std::pair<LabelId, PropertyId>> index_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 

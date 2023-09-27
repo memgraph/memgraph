@@ -55,7 +55,7 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, const Config &config) : LabelIn
 }
 
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
-  if (!index_->emplace(label).second) {
+  if (!index_.emplace(label).second) {
     return false;
   }
 
@@ -86,8 +86,7 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
     }
   }
 
-  auto locked_index = index_.ReadLock();
-  for (const LabelId index_label : *locked_index) {
+  for (const LabelId index_label : index_) {
     if (!utils::Contains(vertex.labels, index_label)) {
       continue;
     }
@@ -181,7 +180,7 @@ void DiskLabelIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_b
 
 /// TODO: andi Here will come Bloom filter deletion
 bool DiskLabelIndex::DropIndex(LabelId label) {
-  if (!(index_->erase(label) > 0)) {
+  if (!(index_.erase(label) > 0)) {
     return false;
   }
   auto disk_transaction = CreateAllReadingRocksDBTransaction();
@@ -201,28 +200,21 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
-bool DiskLabelIndex::IndexExists(LabelId label) const {
-  auto locked_index = index_.ReadLock();
-  return locked_index->find(label) != locked_index->end();
-}
+bool DiskLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
 
-std::vector<LabelId> DiskLabelIndex::ListIndices() const {
-  auto locked_index = index_.ReadLock();
-  return {locked_index->begin(), locked_index->end()};
-}
+std::vector<LabelId> DiskLabelIndex::ListIndices() const { return {index_.begin(), index_.end()}; }
 
 uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const { return 10; }
 
 void DiskLabelIndex::LoadIndexInfo(const std::vector<std::string> &labels) {
-  auto locked_index = index_.Lock();
   for (const std::string &label : labels) {
     LabelId label_id = LabelId::FromString(label);
-    locked_index->insert(label_id);
+    index_.insert(label_id);
   }
 }
 
 RocksDBStorage *DiskLabelIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
-std::unordered_set<LabelId> DiskLabelIndex::GetInfo() const { return *index_.ReadLock(); }
+std::unordered_set<LabelId> DiskLabelIndex::GetInfo() const { return index_; }
 
 }  // namespace memgraph::storage

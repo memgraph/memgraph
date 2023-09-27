@@ -19,7 +19,6 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rocksdb_serialization.hpp"
-#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
 class DiskLabelIndex : public storage::LabelIndex {
@@ -60,7 +59,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<LabelId>>>> entries_for_deletion;
-  utils::Synchronized<std::unordered_set<LabelId>, utils::ReadPrioritizedRWLock> index_;
+  std::unordered_set<LabelId> index_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 
