@@ -202,6 +202,13 @@ bool PlanPrinter::PreVisit(query::plan::Apply &op) {
   op.input_->Accept(*this);
   return false;
 }
+
+bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
+  WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
+  Branch(*op.right_);
+  op.left_->Accept(*this);
+  return false;
+}
 #undef PRE_VISIT
 
 bool PlanPrinter::DefaultPreVisit() {
@@ -924,6 +931,20 @@ bool PlanToJsonVisitor::PreVisit(Apply &op) {
 
   op.subquery_->Accept(*this);
   self["subquery"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
+  json self;
+  self["name"] = "IndexedJoin";
+
+  op.left_->Accept(*this);
+  self["left"] = PopOutput();
+
+  op.right_->Accept(*this);
+  self["right"] = PopOutput();
 
   output_ = std::move(self);
   return false;
