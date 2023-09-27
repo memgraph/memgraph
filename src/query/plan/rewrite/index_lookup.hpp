@@ -180,37 +180,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // Rewriting Cartesian assumes that the input plan will have Filter operations
-  // as soon as they are possible. Therefore we do not track filters above
-  // Cartesian because they should be irrelevant.
-  //
-  // For example, the following plan is not expected to be an input to
-  // IndexLookupRewriter.
-  //
-  // Filter n.prop = 16
-  // |
-  // Cartesian
-  // |
-  // |\
-  // | ScanAll (n)
-  // |
-  // ScanAll (m)
-  //
-  // Instead, the equivalent set of operations should be done this way:
-  //
-  // Cartesian
-  // |
-  // |\
-  // | Filter n.prop = 16
-  // | |
-  // | ScanAll (n)
-  // |
-  // ScanAll (m)
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
     RewriteBranch(&op.left_op_);
 
-    cartesian_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
+    // we add the symbols that we encountered in the left part of the cartesian
+    // the reason for that is that in right part of the cartesian, we could be
+    // possibly using an indexed operation instead of a scan all
+    additional_bound_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
     op.right_op_->Accept(*this);
 
     return false;
@@ -218,7 +195,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Cartesian &) override {
     prev_ops_.pop_back();
-    cartesian_symbols_.clear();
+
+    // clear cartesian symbols as we exited the cartesian operator
+    additional_bound_symbols_.clear();
 
     return true;
   }
@@ -530,7 +509,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
-  std::unordered_set<Symbol> cartesian_symbols_;
+
+  // additional symbols that are present from other non-main branches but have influence on indexing
+  std::unordered_set<Symbol> additional_bound_symbols_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -694,7 +675,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &view = scan.view_;
 
     auto modified_symbols = scan.ModifiedSymbols(*symbol_table_);
-    modified_symbols.insert(modified_symbols.end(), cartesian_symbols_.begin(), cartesian_symbols_.end());
+    modified_symbols.insert(modified_symbols.end(), additional_bound_symbols_.begin(), additional_bound_symbols_.end());
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
