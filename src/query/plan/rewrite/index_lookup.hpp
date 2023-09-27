@@ -531,11 +531,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return;
     }
 
-    SetInput(prev_ops_.back(), input);
-    // prev_ops_.back()->set_input(input);
-  }
-
-  void SetInput(LogicalOperator *parent, const std::shared_ptr<LogicalOperator> &input) {
+    auto *parent = prev_ops_.back();
     if (parent->HasSingleInput()) {
       parent->set_input(input);
       return;
@@ -545,7 +541,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *parent_cartesian = dynamic_cast<Cartesian *>(parent);
       parent_cartesian->right_op_ = input;
       parent_cartesian->right_symbols_ = input->ModifiedSymbols(*symbol_table_);
+      return;
     }
+
+    // if we're sure that we want to set on parent, this should never happen
+    LOG_FATAL("Error during index rewriting of the query!");
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
@@ -675,9 +675,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &view = scan.view_;
 
     auto modified_symbols = scan.ModifiedSymbols(*symbol_table_);
-    modified_symbols.insert(modified_symbols.end(), additional_bound_symbols_.begin(), additional_bound_symbols_.end());
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+    bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());
+
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
