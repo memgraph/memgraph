@@ -148,4 +148,14 @@ class NotYetImplemented final : public BasicException {
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
 };
 
+class ParseException final : public BasicException {
+ public:
+  explicit ParseException(const std::string_view what) noexcept
+      : BasicException("Parsing failed for string: " + std::string(what)) {}
+
+  template <class... Args>
+  explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : ParseException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+};
+
 }  // namespace memgraph::utils

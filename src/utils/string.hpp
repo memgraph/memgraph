@@ -14,6 +14,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <iterator>
@@ -326,6 +328,13 @@ inline int64_t ParseInt(const std::string_view s) {
     throw BasicException("Couldn't parse string");
   }
   return t;
+}
+
+inline uint64_t ParseStringToUint64(const std::string_view s) {
+  if (uint64_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+    return value;
+  }
+  throw utils::ParseException(s);
 }
 
 /**

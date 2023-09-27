@@ -340,10 +340,10 @@ RocksDBStorage *DiskUniqueConstraints::GetRocksDBStorage() const { return kvstor
 void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string> &keys) {
   for (const auto &key : keys) {
     std::vector<std::string> key_parts = utils::Split(key, ",");
-    LabelId label = LabelId::FromUint(std::stoull(key_parts[0]));
+    LabelId label = LabelId::FromString(key_parts[0]);
     std::set<PropertyId> properties;
     for (int i = 1; i < key_parts.size(); i++) {
-      properties.insert(PropertyId::FromUint(std::stoull(key_parts[i])));
+      properties.insert(PropertyId::FromString(key_parts[i]));
     }
     constraints_.emplace(std::make_pair(label, properties));
   }
