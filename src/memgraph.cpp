@@ -291,7 +291,8 @@ int main(int argc, char **argv) {
                .name_id_mapper_directory = FLAGS_data_directory + "/rocksdb_name_id_mapper",
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
-               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"}};
+               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
+      .storage_mode = memgraph::flags::ParseStorageMode()};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
