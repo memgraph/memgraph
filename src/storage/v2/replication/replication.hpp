@@ -90,8 +90,8 @@ struct ReplicationState {
   void AppendEpoch(std::string new_epoch);
 
  private:
+  bool TryPersistReplicaClient(const replication::ReplicationClientConfig &config);
   bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
-
   void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
 
   // NOTE: Server is not in MAIN it is in REPLICA
