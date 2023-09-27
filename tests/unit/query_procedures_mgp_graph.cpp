@@ -96,18 +96,6 @@ size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor fu
 ;
 
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
-  if (auto dbAccessor = std::get_if<memgraph::query::DbAccessor *>(&from->graph->impl)) {
-    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
-    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
-    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
-    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
-  } else if (auto dbAccessor = std::get<memgraph::query::SubgraphDbAccessor *>(from->graph->impl)) {
-    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
-    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
-    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
-    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
-  }
-
   EXPECT_EQ(
       CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl),
                           [](const auto &edge_result) { return edge_result.edges; }),

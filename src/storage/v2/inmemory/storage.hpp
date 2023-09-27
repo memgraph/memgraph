@@ -209,10 +209,6 @@ class InMemoryStorage final : public Storage {
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
 
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override{};
-
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override{};
-
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 

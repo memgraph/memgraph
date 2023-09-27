@@ -129,7 +129,6 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
   auto acc2 = disk_storage->Access(std::nullopt);
   auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
 
-  acc2->PrefetchOutEdges(from_vertex);
   auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
   auto fetched_edge = ret.GetValue().edges[0];
 
@@ -169,7 +168,6 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
   auto acc2 = disk_storage->Access(std::nullopt);
   auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
 
-  acc2->PrefetchOutEdges(from_vertex);
   auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
   auto fetched_edge = ret.GetValue().edges[0];
 

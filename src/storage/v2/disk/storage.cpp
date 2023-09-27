@@ -1125,8 +1125,8 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
   }
 
   for (const auto &edge : deleted_edges) {
-    const DiskEdgeKey disk_edge_key(edge.from_vertex_->gid, edge.to_vertex_->gid, edge.edge_type_, edge.edge_,
-                                    config_.properties_on_edges);
+    /// TODO: (andi) Here we definitely don't need DiskEdgeKey
+    const DiskEdgeKey disk_edge_key(edge.edge_, config_.properties_on_edges);
     edges_to_delete_.emplace(disk_edge_key.GetSerializedKey());
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
@@ -1135,59 +1135,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
   }
 
   return maybe_result;
-}
-
-bool DiskStorage::DiskAccessor::PrefetchEdgeFilter(const std::string_view disk_edge_key_str,
-                                                   const VertexAccessor &vertex_acc, EdgeDirection edge_direction) {
-  bool isOutEdge = (edge_direction == EdgeDirection::OUT);
-  DiskEdgeKey disk_edge_key(disk_edge_key_str);
-  auto edges_res = (isOutEdge ? vertex_acc.OutEdges(storage::View::NEW) : vertex_acc.InEdges(storage::View::NEW));
-  const std::string disk_vertex_gid = (isOutEdge ? disk_edge_key.GetVertexOutGid() : disk_edge_key.GetVertexInGid());
-  auto edge_gid = disk_edge_key.GetEdgeGid();
-
-  if (disk_vertex_gid != utils::SerializeIdType(vertex_acc.Gid())) {
-    return false;
-  }
-
-  // We need to search in edges_to_delete_ because removed edges are not presented in edges_res
-  if (auto edgeIt = edges_to_delete_.find(disk_edge_key.GetSerializedKey()); edgeIt != edges_to_delete_.end()) {
-    return false;
-  }
-
-  MG_ASSERT(edges_res.HasValue());
-  auto edges_result = edges_res.GetValue();
-  bool isEdgeAlreadyInMemory =
-      std::any_of(edges_result.edges.begin(), edges_result.edges.end(),
-                  [edge_gid](const auto &edge_acc) { return utils::SerializeIdType(edge_acc.Gid()) == edge_gid; });
-
-  return !isEdgeAlreadyInMemory;
-}
-
-void DiskStorage::DiskAccessor::PrefetchEdges(const VertexAccessor &vertex_acc, EdgeDirection edge_direction) {
-  rocksdb::ReadOptions read_opts;
-  auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
-  rocksdb::Slice ts(strTs);
-  read_opts.timestamp = &ts;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto it = std::unique_ptr<rocksdb::Iterator>(
-      disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->edge_chandle));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const rocksdb::Slice &key = it->key();
-    auto keyStr = key.ToStringView();
-    if (PrefetchEdgeFilter(keyStr, vertex_acc, edge_direction)) {
-      // We should pass it->timestamp().ToString() instead of deserializeTimestamp
-      // This is hack until RocksDB will support timestamp() in WBWI iterator
-      DeserializeEdge(key, it->value(), deserializeTimestamp);
-    }
-  }
-}
-
-void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges(vertex_acc, EdgeDirection::IN);
-}
-
-void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges(vertex_acc, EdgeDirection::OUT);
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
@@ -1260,6 +1207,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
+  /// TODO: (andi) Refactor, why would we check if it is disk storage when adding modified edge.
   transaction_.AddModifiedEdge(gid, modified_edge);
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -1499,6 +1447,8 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
       const auto &edge = edge_acc.find(gid);
       MG_ASSERT(edge != edge_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
+
+      /// TODO: (andi) Why deletion and write both? Can't we just write?
       if (!WriteEdgeToDisk(ser_edge_key, utils::SerializeProperties(edge->properties))) {
         return StorageDataManipulationError{SerializationError{}};
       }

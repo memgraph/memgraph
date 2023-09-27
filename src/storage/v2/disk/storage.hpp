@@ -175,10 +175,6 @@ class DiskStorage final : public Storage {
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
 
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
-
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override;
-
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
     Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
@@ -231,10 +227,6 @@ class DiskStorage final : public Storage {
    private:
     VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                         std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
-
-    bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
-                            EdgeDirection edge_direction);
-    void PrefetchEdges(const VertexAccessor &vertex_acc, EdgeDirection edge_direction);
 
     Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
                                             storage::Gid gid, std::string_view properties, std::string &&old_disk_key,
