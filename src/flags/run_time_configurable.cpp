@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "flags/run_time_configurable.hpp"
+
 #include <string>
 #include <tuple>
 
@@ -17,7 +19,6 @@
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "flags/log_level.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "spdlog/cfg/helpers-inl.h"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
