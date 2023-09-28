@@ -23,7 +23,7 @@
 
 namespace {
 void *newImpl(const std::size_t size) {
-  auto *ptr = mallocx(size, MALLOCX_ALIGN(1));
+  auto *ptr = malloc(size);
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -32,7 +32,7 @@ void *newImpl(const std::size_t size) {
 }
 
 void *newImpl(const std::size_t size, const std::align_val_t align) {
-  auto *ptr = mallocx(size, MALLOCX_ALIGN(align));
+  auto *ptr = malloc(size);
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -40,10 +40,8 @@ void *newImpl(const std::size_t size, const std::align_val_t align) {
   throw std::bad_alloc{};
 }
 
-void *newNoExcept(const std::size_t size) noexcept { return mallocx(size, MALLOCX_ALIGN(1)); }
-void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
-  return mallocx(size, MALLOCX_ALIGN(align));
-}
+void *newNoExcept(const std::size_t size) noexcept { return malloc(size); }
+void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept { return malloc(size); }
 
 #if USE_JEMALLOC
 void deleteImpl(void *ptr) noexcept {

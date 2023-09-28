@@ -34,7 +34,9 @@ namespace memgraph::memory {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
 
+#if USE_JEMALLOC
 extent_hooks_t *old_hooks = nullptr;
+#endif
 
 /*
 This is for tracking per query limit
@@ -63,6 +65,7 @@ void TrackMemoryForThread(int arena_id, size_t size) {
 #endif
 }
 
+#if USE_JEMALLOC
 void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
@@ -200,6 +203,8 @@ static constexpr extent_hooks_t custom_hooks = {
 };
 
 static const extent_hooks_t *new_hooks = &custom_hooks;
+
+#endif
 
 // TODO this can be designed if we fail setting hooks to rollback to classic jemalloc tracker
 void SetHooks() {
