@@ -94,7 +94,7 @@ def parse_args():
     benchmark_parser.add_argument(
         "--single-threaded-runtime-sec",
         type=int,
-        default=1,
+        default=3,
         help="single threaded duration of each query",
     )
     benchmark_parser.add_argument(
@@ -125,13 +125,13 @@ def parse_args():
     benchmark_parser.add_argument(
         "--export-results-in-memory-analytical",
         default=None,
-        help="file path into which results for in_memory_analytical storage mode should be exported",
+        help="File path into which results for in_memory_analytical storage mode should be exported. If set, benchmarks for analytical mode will be run.",
     )
 
     benchmark_parser.add_argument(
         "--export-results-on-disk-txn",
         default=None,
-        help="file path into which results for on_disk_transactional storage mode should be exported",
+        help="File path into which results for on_disk_transactional storage mode should be exported. If set, benchmarks for disk storage will be run.",
     )
 
     benchmark_parser.add_argument(
