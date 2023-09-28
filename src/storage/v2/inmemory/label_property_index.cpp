@@ -412,7 +412,7 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIn
 void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                                                const LabelPropertyIndexStats &stats) {
   auto locked_stats = stats_.Lock();
-  stats_->insert_or_assign(key, stats);
+  locked_stats->insert_or_assign(key, stats);
 }
 
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
