@@ -238,9 +238,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
-      if (!db_->SetReplicaRole(
-              io::network::Endpoint(storage::replication::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)),
-              storage::replication::ReplicationServerConfig{})) {
+      if (!db_->SetReplicaRole(storage::replication::ReplicationServerConfig{
+              .ip_address = storage::replication::kDefaultReplicationServerIp,
+              .port = static_cast<uint16_t>(*port),
+          })) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -286,9 +287,14 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, storage::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
-                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                      {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(
+          storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+          storage::replication::ReplicationClientConfig{.name = name,
+                                                        .mode = repl_mode,
+                                                        .ip_address = ip,
+                                                        .port = port,
+                                                        .replica_check_frequency = replica_check_frequency,
+                                                        .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
