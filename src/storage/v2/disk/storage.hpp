@@ -248,11 +248,11 @@ class DiskStorage final : public Storage {
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
-    bool WriteVertexToDisk(const Vertex &vertex);
-    bool WriteEdgeToDisk(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
+    bool WriteVertexToVertexColumnFamily(const Vertex &vertex);
+    bool WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
 
-    bool WriteEdgeToOutEdgesConnectivityIndex(const std::string &src_vertex_gid, const std::string &edge_gid);
-    bool WriteEdgeToInEdgesConnectivityIndex(const std::string &dst_vertex_gid, const std::string &edge_gid);
+    bool WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                      rocksdb::ColumnFamilyHandle *handle);
 
     bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
     bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,

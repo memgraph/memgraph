@@ -80,20 +80,4 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
   const Comparator *cmp_without_ts_{nullptr};
 };
 
-/// TODO: (andi) Not sure if we need the struct.
-struct DiskEdgeKey {
-  explicit DiskEdgeKey(const std::string_view keyView) : key(keyView) {}
-
-  DiskEdgeKey(const EdgeRef &edge_ref, bool properties_on_edges);
-
-  /// TODO: (andi) Why is this constructor needed?
-  DiskEdgeKey(const ModifiedEdgeInfo &edge_info, bool properties_on_edges);
-
-  std::string GetSerializedKey() const { return key; }
-
- private:
-  // GID | commit_timestamp
-  std::string key;
-};
-
 }  // namespace memgraph::storage

@@ -81,16 +81,4 @@ int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const r
   return 0;
 }
 
-DiskEdgeKey::DiskEdgeKey(const storage::EdgeRef &edge_ref, bool properties_on_edges) {
-  key = std::invoke([&edge_ref, properties_on_edges]() {
-    if (properties_on_edges) {
-      return utils::SerializeIdType(edge_ref.ptr->gid);
-    }
-    return utils::SerializeIdType(edge_ref.gid);
-  });
-}
-
-DiskEdgeKey::DiskEdgeKey(const ModifiedEdgeInfo &edge_info, bool properties_on_edges)
-    : DiskEdgeKey(edge_info.edge_ref, properties_on_edges) {}
-
 }  // namespace memgraph::storage

@@ -1090,17 +1090,9 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
   }
 
   for (const auto &edge : deleted_edges) {
-    const std::string ser_edge_gid =
-        /// TODO: (andi) You can add Gid() function to EdgeRef
-        std::invoke([edge_ref = edge.edge_, properties_on_edges = config_.properties_on_edges]() {
-          if (properties_on_edges) {
-            return utils::SerializeIdType(edge_ref.ptr->gid);
-          }
-          return utils::SerializeIdType(edge_ref.gid);
-        });
+    const std::string ser_edge_gid = utils::SerializeIdType(edge.Gid());
     const auto src_vertex_gid = utils::SerializeIdType(edge.from_vertex_->gid);
     const auto dst_vertex_gid = utils::SerializeIdType(edge.to_vertex_->gid);
-
     edges_to_delete_.emplace(ser_edge_gid, src_vertex_gid, dst_vertex_gid);
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
@@ -1182,7 +1174,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
-  /// TODO: (andi) Refactor, why would we check if it is disk storage when adding modified edge.
   transaction_.AddModifiedEdge(gid, modified_edge);
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -1210,105 +1201,58 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*
   return Error::NONEXISTENT_OBJECT;
 }
 
-/// TODO: at which storage naming
 /// TODO: this method should also delete the old key
-bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
+bool DiskStorage::DiskAccessor::WriteVertexToVertexColumnFamily(const Vertex &vertex) {
   MG_ASSERT(commit_timestamp_.has_value(), "Writing vertex to disk but commit timestamp not set.");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto status = disk_transaction_->Put(disk_storage->kvstore_->vertex_chandle, utils::SerializeVertex(vertex),
+  const auto ser_vertex = utils::SerializeVertex(vertex);
+  auto status = disk_transaction_->Put(disk_storage->kvstore_->vertex_chandle, ser_vertex,
                                        utils::SerializeProperties(vertex.properties));
   if (status.ok()) {
-    spdlog::trace("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
-  } else if (status.IsBusy()) {
-    spdlog::error("rocksdb: Vertex with key {} and ts {} was changed and committed in another transaction",
-                  utils::SerializeVertex(vertex), *commit_timestamp_);
-    return false;
-  } else {
-    spdlog::error("rocksdb: Failed to save vertex with key {} and ts {}", utils::SerializeVertex(vertex),
+    spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex,
                   *commit_timestamp_);
-    return false;
-  }
-  return true;
-}
-
-/// TODO: at which storage naming
-bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const std::string &serialized_edge_key,
-                                                const std::string &serialized_edge_value) {
-  MG_ASSERT(commit_timestamp_.has_value(), "Writing vertex to disk but commit timestamp not set.");
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  rocksdb::Status status =
-      disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
-  if (status.ok()) {
-    spdlog::trace("rocksdb: Saved edge with key {} and ts {}", serialized_edge_key, *commit_timestamp_);
-  } else if (status.IsBusy()) {
-    spdlog::error("rocksdb: Edge with key {} and ts {} was changed and committed in another transaction",
-                  serialized_edge_key, *commit_timestamp_);
-    return false;
-  } else {
-    spdlog::error("rocksdb: Failed to save edge with key {} and ts {}", serialized_edge_key, *commit_timestamp_);
-    return false;
-  }
-  return true;
-}
-
-bool DiskStorage::DiskAccessor::WriteEdgeToOutEdgesConnectivityIndex(const std::string &src_vertex_gid,
-                                                                     const std::string &edge_gid) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-
-  /// TODO: (andi) Figure out what to do with read options.
-  std::string value;
-  const auto put_status = std::invoke([this, disk_storage,
-                                       out_edges_chandle = disk_storage->kvstore_->out_edges_chandle, &value,
-                                       &src_vertex_gid, &edge_gid]() {
-    if (disk_transaction_
-            ->Get(rocksdb::ReadOptions{}, disk_storage->kvstore_->out_edges_chandle, src_vertex_gid, &value)
-            .IsNotFound()) {
-      return disk_transaction_->Put(disk_storage->kvstore_->out_edges_chandle, src_vertex_gid, edge_gid);
-    }
-    return disk_transaction_->Put(disk_storage->kvstore_->out_edges_chandle, src_vertex_gid, value + "," + edge_gid);
-  });
-  /// TODO: (andi) Error handling in a separate method
-  if (put_status.ok()) {
-    spdlog::trace("rocksdb: Saved edge with key {} to out edges connectivity index for vertex {}", edge_gid,
-                  src_vertex_gid);
     return true;
   }
-  if (put_status.IsBusy()) {
-    spdlog::error("rocksdb: Edge with key {} was changed and committed in another transaction", edge_gid);
-    return false;
-  }
-  spdlog::error("rocksdb: Failed to save edge with key {} to out edges connectivity index for vertex {}", edge_gid,
-                src_vertex_gid);
+  spdlog::error("rocksdb: Failed to save vertex with key {} and ts {} to vertex column family", ser_vertex,
+                *commit_timestamp_);
   return false;
 }
 
-bool DiskStorage::DiskAccessor::WriteEdgeToInEdgesConnectivityIndex(const std::string &dst_vertex_gid,
-                                                                    const std::string &edge_gid) {
+bool DiskStorage::DiskAccessor::WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key,
+                                                            const std::string &serialized_edge_value) {
+  MG_ASSERT(commit_timestamp_.has_value(), "Writing edge to disk but commit timestamp not set.");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  rocksdb::Status status =
+      disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
 
-  /// TODO: (andi) Figure out what to do with read options.
+  if (status.ok()) {
+    spdlog::trace("rocksdb: Saved edge with key {} and ts {} to edge column family", serialized_edge_key,
+                  *commit_timestamp_);
+    return true;
+  }
+  spdlog::error("rocksdb: Failed to save edge with key {} and ts {} to edge column family", serialized_edge_key,
+                *commit_timestamp_);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                                             rocksdb::ColumnFamilyHandle *handle) {
   std::string value;
-  const auto put_status = std::invoke([this, disk_storage, in_edges_chandle = disk_storage->kvstore_->in_edges_chandle,
-                                       &value, &dst_vertex_gid, &edge_gid]() {
-    if (disk_transaction_->Get(rocksdb::ReadOptions{}, disk_storage->kvstore_->in_edges_chandle, dst_vertex_gid, &value)
-            .IsNotFound()) {
-      return disk_transaction_->Put(disk_storage->kvstore_->in_edges_chandle, dst_vertex_gid, edge_gid);
+  const auto put_status = std::invoke([this, handle, &value, &vertex_gid, &edge_gid]() {
+    if (disk_transaction_->Get(rocksdb::ReadOptions{}, handle, vertex_gid, &value).IsNotFound()) {
+      return disk_transaction_->Put(handle, vertex_gid, edge_gid);
     }
-    return disk_transaction_->Put(disk_storage->kvstore_->in_edges_chandle, dst_vertex_gid, value + "," + edge_gid);
+    return disk_transaction_->Put(handle, vertex_gid, value + "," + edge_gid);
   });
 
   /// TODO: (andi) Error handling in a separate method
   if (put_status.ok()) {
-    spdlog::trace("rocksdb: Saved edge with key {} to in edges connectivity index for vertex {}", edge_gid,
-                  dst_vertex_gid);
+    spdlog::trace("rocksdb: Saved edge with key {} to edges connectivity index for vertex {}", edge_gid, vertex_gid);
     return true;
   }
-  if (put_status.IsBusy()) {
-    spdlog::error("rocksdb: Edge with key {} was changed and committed in another transaction", edge_gid);
-    return false;
-  }
-  spdlog::error("rocksdb: Failed to save edge with key {} to in edges connectivity index for vertex {}", edge_gid,
-                dst_vertex_gid);
+
+  spdlog::error("rocksdb: Failed to save edge with key {} to edges connectivity index for vertex {}", edge_gid,
+                vertex_gid);
   return false;
 }
 
@@ -1355,7 +1299,6 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
                                                                 const std::string &edge_gid,
                                                                 rocksdb::ColumnFamilyHandle *handle) {
   std::string edges;
-  /// TODO: (andi) Figure out what to do with read options.
   auto edges_status = disk_transaction_->Get(rocksdb::ReadOptions{}, handle, vertex_gid, &edges);
   if (!edges_status.ok()) {
     spdlog::error("rocksdb: Failed to find edge {} in edges collection of vertex {}", edge_gid, vertex_gid);
@@ -1363,8 +1306,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
   }
 
   std::vector<std::string> edges_vec = utils::Split(edges, ",");
-  /// TODO: (andi) Check if it was deleted.
-  std::erase(edges_vec, edge_gid);
+  MG_ASSERT(std::erase(edges_vec, edge_gid) > 0U, "Edge must be in the edges collection of vertex");
   if (!disk_transaction_->Put(handle, vertex_gid, utils::Join(edges_vec, ",")).ok()) {
     spdlog::error("rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid,
                   vertex_gid);
@@ -1417,7 +1359,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       }
     }
 
-    if (!WriteVertexToDisk(vertex)) {
+    if (!WriteVertexToVertexColumnFamily(vertex)) {
       return StorageDataManipulationError{SerializationError{}};
     }
 
@@ -1489,25 +1431,22 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
   return {};
 }
 
+/// TODO: (andi) It would be much better that all operations related to edges are done based on modified src and
+/// dest_vertex. Otherwise we will be doing a lot of unnecessary deserializations of neighborhood.
+/// std::map<src_vertex_gid, ...>
+/// std::map<dst_vertex_gid, ...>
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &modified_edge : transaction_.modified_edges_) {
-    const storage::Gid &gid = modified_edge.first;
-    const Delta::Action action = modified_edge.second.delta_action;
-
-    const std::string ser_edge_gid =
-        /// TODO: (andi) You can add Gid() function to EdgeRef
-        std::invoke([edge_ref = modified_edge.second.edge_ref, properties_on_edges = config_.properties_on_edges]() {
-          if (properties_on_edges) {
-            return utils::SerializeIdType(edge_ref.ptr->gid);
-          }
-          return utils::SerializeIdType(edge_ref.gid);
-        });
+    const std::string edge_gid = utils::SerializeIdType(modified_edge.first);
+    const std::string edge_type = utils::SerializeIdType(modified_edge.second.edge_type_id);
+    const Delta::Action root_action = modified_edge.second.delta_action;
 
     if (!config_.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
-      if (action == Delta::Action::DELETE_OBJECT && !WriteEdgeToDisk(ser_edge_gid, "")) {
+      if (root_action == Delta::Action::DELETE_OBJECT && !WriteEdgeToEdgeColumnFamily(edge_gid, edge_type)) {
         return StorageDataManipulationError{SerializationError{}};
       }
     } else {
@@ -1517,23 +1456,23 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
       // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
       // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
       // so we can delete it.
-      if (action == Delta::Action::DELETE_DESERIALIZED_OBJECT &&
-          !DeleteEdgeFromDisk(ser_edge_gid, src_vertex_gid, dst_vertex_gid)) {
+      if (root_action == Delta::Action::DELETE_DESERIALIZED_OBJECT &&
+          !DeleteEdgeFromDisk(edge_gid, src_vertex_gid, dst_vertex_gid)) {
         return StorageDataManipulationError{SerializationError{}};
       }
 
-      const auto &edge = edge_acc.find(gid);
+      const auto &edge = edge_acc.find(modified_edge.first);
       MG_ASSERT(edge != edge_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
 
-      /// TODO: (andi) Why deletion and write both? Can't we just write?
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
-      if (!WriteEdgeToDisk(ser_edge_gid, utils::SerializeEdgeAsValue(modified_edge.second.edge_type_id, *edge))) {
+      if (!WriteEdgeToEdgeColumnFamily(edge_gid,
+                                       utils::SerializeEdgeAsValue(modified_edge.second.edge_type_id, *edge))) {
         return StorageDataManipulationError{SerializationError{}};
       }
 
-      if (!WriteEdgeToOutEdgesConnectivityIndex(src_vertex_gid, ser_edge_gid) ||
-          !WriteEdgeToInEdgesConnectivityIndex(dst_vertex_gid, ser_edge_gid)) {
+      if (!WriteEdgeToConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle) ||
+          !WriteEdgeToConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle)) {
         return StorageDataManipulationError{SerializationError{}};
       }
     }

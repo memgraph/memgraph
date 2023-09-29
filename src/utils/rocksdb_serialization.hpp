@@ -102,6 +102,7 @@ inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::
   return transformed_labels;
 }
 
+/// TODO: (andi) Change to utils::Join call
 inline std::string SerializeLabels(const std::vector<std::string> &labels) {
   if (labels.empty()) {
     return "";

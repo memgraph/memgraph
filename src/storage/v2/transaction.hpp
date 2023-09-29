@@ -75,11 +75,7 @@ struct Transaction {
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
 
-  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
-    if (IsDiskStorage()) {
-      modified_edges_.emplace(gid, modified_edge);
-    }
-  }
+  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) { modified_edges_.emplace(gid, modified_edge); }
 
   void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
 
