@@ -48,9 +48,6 @@ popd > /dev/null
 
 deactivate
 
-# TODO(gitbuda): Setup mgclient and pymgclient properly.
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
-
 "$DIR"/e2e/graphql/setup.sh
 
 # Check if setup needs to setup additional variables
@@ -95,3 +92,6 @@ EOF
         echo "Error: The toolchain virtual enviroonment activation is not a file."
     fi
 fi
+
+# TODO(gitbuda): Setup mgclient and pymgclient properly.
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
