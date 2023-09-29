@@ -674,7 +674,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
 
-    auto modified_symbols = scan.ModifiedSymbols(*symbol_table_);
+    const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());

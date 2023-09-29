@@ -98,7 +98,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kExpand{3.0};
     static constexpr double kExpandVariable{9.0};
     static constexpr double kFilter{0.25};
-    static constexpr double kIndexedJoin{0.25};
     static constexpr double kEdgeUniquenessFilter{0.95};
   };
 
@@ -280,8 +279,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Union &op) override {
-    auto left_estimation = EstimateCostOnBranch(&op.left_op_);
-    auto right_estimation = EstimateCostOnBranch(&op.right_op_);
+    CostEstimation left_estimation = EstimateCostOnBranch(&op.left_op_);
+    CostEstimation right_estimation = EstimateCostOnBranch(&op.right_op_);
 
     // the number of hits in the previous operator should be the joined number of results of both parts of the union
     cost_ = left_estimation.cost + right_estimation.cost;
@@ -312,7 +311,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     // Estimate cost on the subquery branch independently, use a copy
     auto &last_scope = scopes_.back();
-    auto subquery_estimation = EstimateCostOnBranch(&op.subquery_, last_scope);
+    CostEstimation subquery_estimation = EstimateCostOnBranch(&op.subquery_, last_scope);
     double subquery_cost = !utils::ApproxEqualDecimal(subquery_estimation.cost, 0.0) ? subquery_estimation.cost : 1;
     IncrementCost(subquery_cost);
 
@@ -328,10 +327,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     op.left_op_->Accept(*this);
 
     // add cost from the right branch and multiply cardinalities
-    auto cost_estimation = EstimateCostOnBranch(&op.right_op_);
-    cost_ += cost_estimation.cost;
-    auto right_cardinality =
-        !utils::ApproxEqualDecimal(cost_estimation.cardinality, 0.0) ? cost_estimation.cardinality : 1;
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_op_);
+    cost_ += right_cost_estimation.cost;
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
     cardinality_ *= right_cardinality;
 
     return false;
@@ -342,11 +341,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     op.left_->Accept(*this);
 
     // add cost from the right branch and multiply cardinalities
-    auto cost_estimation = EstimateCostOnBranch(&op.right_);
-    cost_ += cost_estimation.cost;
-    auto right_cardinality =
-        !utils::ApproxEqualDecimal(cost_estimation.cardinality, 0.0) ? cost_estimation.cardinality : 1;
-    cardinality_ *= right_cardinality * CardParam::kIndexedJoin;
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_);
+    IncrementCost(right_cost_estimation.cost);
+
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality;
 
     return false;
   }
