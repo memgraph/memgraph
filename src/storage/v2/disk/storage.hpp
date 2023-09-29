@@ -25,7 +25,9 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <map>
 #include <unordered_set>
+#include <utility>
 
 namespace memgraph::storage {
 
@@ -266,7 +268,8 @@ class DiskStorage final : public Storage {
 
     /// Main storage
     utils::SkipList<Vertex> vertices_;
-    std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+    std::map<LabelId, std::unique_ptr<utils::SkipList<Vertex>>> label_index_storage_;
+    std::map<std::pair<LabelId, PropertyId>, std::unique_ptr<utils::SkipList<Vertex>>> label_property_index_storage_;
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done

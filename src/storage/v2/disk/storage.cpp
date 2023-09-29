@@ -582,8 +582,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
         disk_storage->edge_import_mode_cache_->Vertices(label, view, &transaction_, &disk_storage->constraints_));
   }
 
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
+  if (label_index_storage_.contains(label)) {
+    return VerticesIterable(AllVerticesIterable(label_index_storage_[label]->access(), &transaction_, view,
+                                                &storage_->indices_, &storage_->constraints_, storage_->config_.items));
+  }
+
+  label_index_storage_.emplace(label, std::make_unique<utils::SkipList<storage::Vertex>>());
+  auto &indexed_vertices = label_index_storage_[label];
+
   index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
@@ -603,8 +609,16 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
         label, property, std::nullopt, std::nullopt, view, &transaction_, &disk_storage->constraints_));
   }
 
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
+  if (label_property_index_storage_.contains(std::make_pair(label, property))) {
+    return VerticesIterable(
+        AllVerticesIterable(label_property_index_storage_[std::make_pair(label, property)]->access(), &transaction_,
+                            view, &storage_->indices_, &storage_->constraints_, storage_->config_.items));
+  }
+
+  label_property_index_storage_.emplace(
+      std::make_pair(std::make_pair(label, property), std::make_unique<utils::SkipList<storage::Vertex>>()));
+  auto &indexed_vertices = label_property_index_storage_[std::make_pair(label, property)];
+
   index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
@@ -640,8 +654,16 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
         &disk_storage->constraints_));
   }
 
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
+  if (label_property_index_storage_.contains(std::make_pair(label, property))) {
+    return VerticesIterable(
+        AllVerticesIterable(label_property_index_storage_[std::make_pair(label, property)]->access(), &transaction_,
+                            view, &storage_->indices_, &storage_->constraints_, storage_->config_.items));
+  }
+
+  label_property_index_storage_.emplace(
+      std::make_pair(std::make_pair(label, property), std::make_unique<utils::SkipList<storage::Vertex>>()));
+  auto &indexed_vertices = label_property_index_storage_[std::make_pair(label, property)];
+
   index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
@@ -673,8 +695,16 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
         label, property, lower_bound, upper_bound, view, &transaction_, &disk_storage->constraints_));
   }
 
-  index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  auto &indexed_vertices = index_storage_.back();
+  if (label_property_index_storage_.contains(std::make_pair(label, property))) {
+    return VerticesIterable(
+        AllVerticesIterable(label_property_index_storage_[std::make_pair(label, property)]->access(), &transaction_,
+                            view, &storage_->indices_, &storage_->constraints_, storage_->config_.items));
+  }
+
+  label_property_index_storage_.emplace(
+      std::make_pair(std::make_pair(label, property), std::make_unique<utils::SkipList<storage::Vertex>>()));
+  auto &indexed_vertices = label_property_index_storage_[std::make_pair(label, property)];
+
   index_deltas_storage_.emplace_back();
   auto &index_deltas = index_deltas_storage_.back();
 
@@ -1061,13 +1091,25 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
     return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                   view);
   }
-  for (const auto &vec : index_storage_) {
-    acc = vec->access();
-    auto index_it = acc.find(gid);
-    if (index_it != acc.end()) {
-      return VertexAccessor::Create(&*index_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                    view);
+
+  auto find_in_indices = [&](auto &&index_storage) -> std::optional<VertexAccessor> {
+    for (const auto &[key, skip_list] : index_storage) {
+      acc = skip_list->access();
+      auto index_it = acc.find(gid);
+      if (index_it != acc.end()) {
+        return VertexAccessor::Create(&*index_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                                      view);
+      }
     }
+    return {};
+  };
+
+  if (auto vertex = find_in_indices(label_index_storage_)) {
+    return *vertex;
+  }
+
+  if (auto vertex = find_in_indices(label_property_index_storage_)) {
+    return *vertex;
   }
 
   rocksdb::ReadOptions read_opts;
@@ -1427,10 +1469,21 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushIndexCache() {
   std::vector<std::vector<PropertyValue>> unique_storage;
 
-  for (const auto &vec : index_storage_) {
-    if (auto vertices_res = FlushVertices(vec->access(), unique_storage); vertices_res.HasError()) {
-      return vertices_res.GetError();
+  auto flush_index = [&](auto &&index_storage) -> utils::BasicResult<StorageDataManipulationError, void> {
+    for (const auto &[key, skip_list] : index_storage) {
+      if (auto vertices_res = FlushVertices(skip_list->access(), unique_storage); vertices_res.HasError()) {
+        return vertices_res.GetError();
+      }
     }
+    return {};
+  };
+
+  if (auto res = flush_index(label_index_storage_); res.HasError()) {
+    return res.GetError();
+  }
+
+  if (auto res = flush_index(label_property_index_storage_); res.HasError()) {
+    return res.GetError();
   }
 
   return {};
