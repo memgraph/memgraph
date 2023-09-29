@@ -45,6 +45,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
@@ -222,11 +226,18 @@ class DeltaGenerator final {
     for (const auto &property : properties) {
       property_ids.insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
     }
-    memgraph::storage::LabelIndexStats stat{};
+    memgraph::storage::LabelIndexStats l_stats{};
+    memgraph::storage::LabelPropertyIndexStats lp_stats{};
     if (!stats.empty()) {
-      ASSERT_TRUE(FromJson(stats, stat));
+      if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET) {
+        ASSERT_TRUE(FromJson(stats, l_stats));
+      } else if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET) {
+        ASSERT_TRUE(FromJson(stats, lp_stats));
+      } else {
+        ASSERT_TRUE(false);
+      }
     }
-    wal_file_.AppendOperation(operation, label_id, property_ids, stat, timestamp_);
+    wal_file_.AppendOperation(operation, label_id, property_ids, l_stats, lp_stats, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
@@ -235,6 +246,8 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR: /* Special case
+                                                                                                         */
           data.operation_label.label = label;
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
@@ -247,6 +260,11 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
           data.operation_label_property.property = *properties.begin();
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+          data.operation_label_property_stats.label = label;
+          data.operation_label_property_stats.property = *properties.begin();
+          data.operation_label_property_stats.stats = stats;
+          break;
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
@@ -533,14 +551,24 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
   });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(LPStats, {
+  namespace ms = memgraph::storage;
+  auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
+  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
+});
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(AllGlobalOperations, {
+  namespace ms = memgraph::storage;
   OPERATION(LABEL_INDEX_CREATE, "hello");
   OPERATION(LABEL_INDEX_DROP, "hello");
-  auto stats = memgraph::storage::ToJson({12, 34});
-  OPERATION(LABEL_INDEX_STATS_SET, "hello", {}, stats);
+  auto l_stats = ms::ToJson(ms::LabelIndexStats{12, 34});
+  OPERATION(LABEL_INDEX_STATS_SET, "hello", {}, l_stats);
   OPERATION(LABEL_INDEX_STATS_CLEAR, "hello");
   OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
   OPERATION(LABEL_PROPERTY_INDEX_DROP, "hello", {"world"});
+  auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
+  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
+  OPERATION(LABEL_PROPERTY_INDEX_STATS_CLEAR, "hello");
   OPERATION(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
   OPERATION(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
   OPERATION(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});

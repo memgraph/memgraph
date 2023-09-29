@@ -165,30 +165,16 @@ class InMemoryStorage final : public Storage {
     void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                       const LabelPropertyIndexStats &stats) override {
-      SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-                            std::make_pair(label, property), stats);
-    }
+                       const LabelPropertyIndexStats &stats) override;
 
     template <typename TResult, typename TIndex>
-    std::vector<TResult> ClearIndexStatsForIndex(TIndex *index) const {
-      return index->ClearIndexStats();
+    TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {
+      return index->DeleteIndexStats(label);
     }
 
-    template <typename TResult, typename TIndex>
-    TResult DeleteIndexStatsForIndex(TIndex *index, const std::string label) {
-      return index->DeleteIndexStats(NameToLabel(label));
-    }
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(const storage::LabelId &label) override;
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(std::string label) override {
-      return DeleteIndexStatsForIndex<std::vector<std::pair<LabelId, PropertyId>>>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
-    }
-
-    bool DeleteLabelIndexStats(std::string label) override {
-      return DeleteIndexStatsForIndex<bool>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()),
-                                            label);
-    }
+    bool DeleteLabelIndexStats(const storage::LabelId &label) override;
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
@@ -380,8 +366,15 @@ class InMemoryStorage final : public Storage {
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                               LabelIndexStats stats, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                               const std::set<PropertyId> &properties,
+                                               LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                const std::set<PropertyId> &properties, LabelIndexStats stats,
-                                               uint64_t final_commit_timestamp);
+                                               LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

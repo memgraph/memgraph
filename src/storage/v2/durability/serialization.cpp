@@ -346,6 +346,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_INDEX_DROP:
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
     case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
@@ -447,6 +449,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_INDEX_DROP:
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
     case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:

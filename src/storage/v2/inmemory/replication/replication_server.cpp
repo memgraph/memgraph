@@ -511,11 +511,12 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR: {
-        spdlog::trace("       Clear label index statistics on :{}", delta.operation_label.label);
+        const auto &info = delta.operation_label;
+        spdlog::trace("       Clear label index statistics on :{}", info.label);
         // Need to send the timestamp
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
         auto access = storage->Access({});
-        access->DeleteLabelIndexStats(delta.operation_label.label);
+        access->DeleteLabelIndexStats(storage->NameToLabel(info.label));
         if (access->Commit(timestamp).HasError()) {
           throw utils::BasicException("Failed to commit!");
         }
@@ -546,6 +547,36 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
                             storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
           throw utils::BasicException("Invalid transaction!");
+        if (access->Commit(timestamp).HasError()) {
+          throw utils::BasicException("Failed to commit!");
+        }
+        break;
+      }
+      case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {
+        const auto &info = delta.operation_label_property_stats;
+        spdlog::trace("       Set label-property index statistics on :{}", info.label);
+        // Need to send the timestamp
+        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
+        auto access = storage->Access({});
+        const auto label = storage->NameToLabel(info.label);
+        const auto property = storage->NameToProperty(info.property);
+        LabelPropertyIndexStats stats{};
+        if (!FromJson(info.stats, stats)) {
+          throw utils::BasicException("Failed to read statistics!");
+        }
+        access->SetIndexStats(label, property, stats);
+        if (access->Commit(timestamp).HasError()) {
+          throw utils::BasicException("Failed to commit!");
+        }
+        break;
+      }
+      case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        const auto &info = delta.operation_label;
+        spdlog::trace("       Clear label-property index statistics on :{}", info.label);
+        // Need to send the timestamp
+        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
+        auto access = storage->Access({});
+        access->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
         if (access->Commit(timestamp).HasError()) {
           throw utils::BasicException("Failed to commit!");
         }

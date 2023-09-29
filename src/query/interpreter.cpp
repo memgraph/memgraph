@@ -1989,8 +1989,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     label_results.reserve(index_info.size());
     std::for_each(index_info.begin(), index_info.end(),
                   [execution_db_accessor, &label_results](const storage::LabelId &label_id) {
-                    const auto &label = execution_db_accessor->LabelToName(label_id);
-                    const auto res = execution_db_accessor->DeleteLabelIndexStats(label);
+                    const auto res = execution_db_accessor->DeleteLabelIndexStats(label_id);
                     if (res) label_results.emplace_back(label_id);
                   });
 
@@ -2003,8 +2002,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     std::for_each(index_info.begin(), index_info.end(),
                   [execution_db_accessor,
                    &label_property_results](const std::pair<storage::LabelId, storage::PropertyId> &label_property) {
-                    const auto &label = execution_db_accessor->LabelToName(label_property.first);
-                    const auto &res = execution_db_accessor->DeleteLabelPropertyIndexStats(label);
+                    const auto &res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
                     label_property_results.insert(label_property_results.end(), res.begin(), res.end());
                   });
 

@@ -554,11 +554,12 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(const std::string label) {
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
+      const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
   }
 
-  bool DeleteLabelIndexStats(const std::string label) { return accessor_->DeleteLabelIndexStats(label); }
+  bool DeleteLabelIndexStats(const storage::LabelId &label) { return accessor_->DeleteLabelIndexStats(label); }
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
     accessor_->SetIndexStats(label, stats);

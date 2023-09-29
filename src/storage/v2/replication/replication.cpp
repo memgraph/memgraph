@@ -86,15 +86,18 @@ bool storage::ReplicationState::SetMainReplicationRole(storage::Storage *storage
 
 bool storage::ReplicationState::AppendOperation(const uint64_t seq_num, durability::StorageMetadataOperation operation,
                                                 LabelId label, const std::set<PropertyId> &properties,
-                                                LabelIndexStats stats, uint64_t final_commit_timestamp) {
+                                                const LabelIndexStats &stats,
+                                                const LabelPropertyIndexStats &property_stats,
+                                                uint64_t final_commit_timestamp) {
   bool finalized_on_all_replicas = true;
   // TODO Should we return true if not MAIN?
   if (GetRole() == replication::ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->StartTransactionReplication(seq_num);
-        client->IfStreamingTransaction(
-            [&](auto &stream) { stream.AppendOperation(operation, label, properties, stats, final_commit_timestamp); });
+        client->IfStreamingTransaction([&](auto &stream) {
+          stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+        });
 
         const auto finalized = client->FinalizeTransactionReplication();
         if (client->Mode() == replication::ReplicationMode::SYNC) {

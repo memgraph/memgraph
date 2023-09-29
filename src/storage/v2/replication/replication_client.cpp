@@ -15,6 +15,7 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
@@ -309,9 +310,11 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
 }
 
 void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                                    const std::set<PropertyId> &properties, LabelIndexStats stats, uint64_t timestamp) {
+                                    const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                                    const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, stats, timestamp);
+  EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, stats,
+                  property_stats, timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

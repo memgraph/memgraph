@@ -18,6 +18,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 
@@ -32,6 +33,8 @@ struct MetadataDelta {
     LABEL_INDEX_STATS_CLEAR,
     LABEL_PROPERTY_INDEX_CREATE,
     LABEL_PROPERTY_INDEX_DROP,
+    LABEL_PROPERTY_INDEX_STATS_SET,
+    LABEL_PROPERTY_INDEX_STATS_CLEAR,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
@@ -50,6 +53,10 @@ struct MetadataDelta {
   } label_property_index_create;
   static constexpr struct LabelPropertyIndexDrop {
   } label_property_index_drop;
+  static constexpr struct LabelPropertyIndexStatsSet {
+  } label_property_index_stats_set;
+  static constexpr struct LabelPropertyIndexStatsClear {
+  } label_property_index_stats_clear;
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
   static constexpr struct ExistenceConstraintDrop {
@@ -73,6 +80,12 @@ struct MetadataDelta {
 
   MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
+
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property, LabelPropertyIndexStats stats)
+      : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, property, stats} {}
+
+  MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
+      : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -99,6 +112,8 @@ struct MetadataDelta {
       case Action::LABEL_INDEX_STATS_CLEAR:
       case Action::LABEL_PROPERTY_INDEX_CREATE:
       case Action::LABEL_PROPERTY_INDEX_DROP:
+      case Action::LABEL_PROPERTY_INDEX_STATS_SET:
+      case Action::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       case Action::EXISTENCE_CONSTRAINT_CREATE:
       case Action::EXISTENCE_CONSTRAINT_DROP:
         break;
@@ -128,6 +143,12 @@ struct MetadataDelta {
       LabelId label;
       LabelIndexStats stats;
     } label_stats;
+
+    struct {
+      LabelId label;
+      PropertyId property;
+      LabelPropertyIndexStats stats;
+    } label_property_stats;
   };
 };
 

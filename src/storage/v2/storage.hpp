@@ -159,9 +159,10 @@ class Storage {
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                                const LabelPropertyIndexStats &stats) = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(std::string label) = 0;
+    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
+        const storage::LabelId &label) = 0;
 
-    virtual bool DeleteLabelIndexStats(std::string label) = 0;
+    virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
     virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
 

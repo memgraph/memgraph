@@ -146,11 +146,12 @@ class DiskStorage final : public Storage {
       return {};
     }
 
-    bool DeleteLabelIndexStats(std::string /*labels*/) override {
+    bool DeleteLabelIndexStats(const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(std::string /*labels*/) override {
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
+        const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 

@@ -20,6 +20,7 @@
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -41,6 +42,7 @@ struct RecoveredIndicesAndConstraints {
     std::vector<LabelId> label;
     std::vector<std::pair<LabelId, PropertyId>> label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
+    std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
   } indices;
 
   struct {
