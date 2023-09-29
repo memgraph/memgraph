@@ -288,7 +288,7 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property.label = std::move(*label);
+        delta.operation_label_stats.label = std::move(*label);
         auto stats = decoder->ReadString();
         if (!stats) throw RecoveryFailure("Invalid WAL data!");
         delta.operation_label_stats.stats = std::move(*stats);

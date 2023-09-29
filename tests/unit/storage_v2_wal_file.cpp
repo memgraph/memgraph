@@ -39,6 +39,8 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET;
+    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
@@ -232,6 +234,7 @@ class DeltaGenerator final {
       switch (operation) {
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
           data.operation_label.label = label;
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
@@ -533,6 +536,9 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
 GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION(LABEL_INDEX_CREATE, "hello");
   OPERATION(LABEL_INDEX_DROP, "hello");
+  auto stats = memgraph::storage::ToJson({12, 34});
+  OPERATION(LABEL_INDEX_STATS_SET, "hello", {}, stats);
+  OPERATION(LABEL_INDEX_STATS_CLEAR, "hello");
   OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
   OPERATION(LABEL_PROPERTY_INDEX_DROP, "hello", {"world"});
   OPERATION(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
