@@ -1364,7 +1364,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
+void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
                     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints, const Config &config, const std::string &uuid,
@@ -1462,7 +1462,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // but that isn't an issue because we won't use that part of the API
       // here.
       auto ea = EdgeAccessor{
-          edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, config.items};
+          edge_ref,    EdgeTypeId::FromUint(0UL), nullptr, nullptr, storage, transaction, indices, constraints,
+          config.items};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -1503,7 +1504,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, config.items, View::OLD);
+      auto va = VertexAccessor::Create(&vertex, storage, transaction, indices, constraints, config.items, View::OLD);
       if (!va) continue;
 
       // Get vertex data.

@@ -67,8 +67,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, const Config &config);
+             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             Transaction *transaction, Indices *indices, Constraints *constraints, const Config &config);
 
     class Iterator {
      public:
@@ -101,6 +101,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
     bool bounds_valid_{true};
     View view_;
+    Storage *storage_;
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
@@ -132,8 +133,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void RunGC();
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-                    Constraints *constraints);
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction, Constraints *constraints);
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;

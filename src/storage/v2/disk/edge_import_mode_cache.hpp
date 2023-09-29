@@ -34,13 +34,14 @@ class EdgeImportModeCache final {
   EdgeImportModeCache &operator=(EdgeImportModeCache &&) = delete;
   ~EdgeImportModeCache() = default;
 
-  InMemoryLabelIndex::Iterable Vertices(LabelId label, View view, Transaction *transaction,
+  InMemoryLabelIndex::Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction,
                                         Constraints *constraints) const;
 
   InMemoryLabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
                                                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                View view, Transaction *transaction, Constraints *constraints) const;
+                                                View view, Storage *storage, Transaction *transaction,
+                                                Constraints *constraints) const;
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});

@@ -27,18 +27,21 @@ struct Vertex;
 class VertexAccessor;
 struct Indices;
 struct Constraints;
+class Storage;
 
 class EdgeAccessor final {
  private:
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
+               Transaction *transaction, Indices *indices, Constraints *constraints, Config::Items config,
+               bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
+        storage_(storage),
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
@@ -102,6 +105,7 @@ class EdgeAccessor final {
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
+  Storage *storage_;
   Transaction *transaction_;
   Indices *indices_;
   Constraints *constraints_;

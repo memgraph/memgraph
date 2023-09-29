@@ -60,8 +60,8 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, const Config &config);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Storage *storage,
+             Transaction *transaction, Indices *indices, Constraints *constraints, const Config &config);
 
     class Iterator {
      public:
@@ -90,6 +90,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
     View view_;
+    Storage *storage_;
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
@@ -100,7 +101,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, View view, Transaction *transaction, Constraints *constraints);
+  Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction, Constraints *constraints);
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
 

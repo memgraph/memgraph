@@ -33,17 +33,19 @@ class VertexAccessor final {
   friend class Storage;
 
  public:
-  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+  VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, Indices *indices, Constraints *constraints,
                  Config::Items config, bool for_deleted = false)
       : vertex_(vertex),
+        storage_(storage),
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
         config_(config),
         for_deleted_(for_deleted) {}
 
-  static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                              Constraints *constraints, Config::Items config, View view);
+  static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction,
+                                              Indices *indices, Constraints *constraints, Config::Items config,
+                                              View view);
 
   static bool IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
 
@@ -113,6 +115,7 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
   Vertex *vertex_;
+  Storage *storage_;
   Transaction *transaction_;
   Indices *indices_;
   Constraints *constraints_;

@@ -165,7 +165,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                          utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_.items),
+      current_vertex_accessor_(nullptr, self_->storage_, nullptr, nullptr, nullptr, self_->config_.items),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -204,7 +204,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_, self_->indices_,
                                                 self_->constraints_, self_->config_.items);
       break;
     }
@@ -228,14 +228,15 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
                                                PropertyId property,
                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                               Transaction *transaction, Indices *indices, Constraints *constraints,
-                                               const Config &config)
+                                               Storage *storage, Transaction *transaction, Indices *indices,
+                                               Constraints *constraints, const Config &config)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
       view_(view),
+      storage_(storage),
       transaction_(transaction),
       indices_(indices),
       constraints_(constraints),
@@ -428,11 +429,11 @@ void InMemoryLabelPropertyIndex::RunGC() {
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-    Constraints *constraints) {
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction, Constraints *constraints) {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), label,    property,    lower_bound, upper_bound, view,
+  return {it->second.access(), label,    property,    lower_bound, upper_bound, view, storage,
           transaction,         indices_, constraints, config_};
 }
 

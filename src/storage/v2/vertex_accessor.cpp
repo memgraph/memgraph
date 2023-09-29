@@ -75,13 +75,14 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
 }
 }  // namespace detail
 
-std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                     Constraints *constraints, Config::Items config, View view) {
+std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *storage, Transaction *transaction,
+                                                     Indices *indices, Constraints *constraints, Config::Items config,
+                                                     View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
-  return VertexAccessor{vertex, transaction, indices, constraints, config};
+  return VertexAccessor{vertex, storage, transaction, indices, constraints, config};
 }
 
 bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transaction, View view) {
@@ -439,7 +440,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     auto ret = std::vector<EdgeAccessor>{};
     ret.reserve(edges.size());
     for (auto const &[edge_type, from_vertex, edge] : edges) {
-      ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_);
+      ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_, indices_, constraints_, config_);
     }
     return ret;
   };
@@ -518,7 +519,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     auto ret = std::vector<EdgeAccessor>{};
     ret.reserve(out_edges.size());
     for (const auto &[edge_type, to_vertex, edge] : out_edges) {
-      ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_);
+      ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_, indices_, constraints_, config_);
     }
     return ret;
   };

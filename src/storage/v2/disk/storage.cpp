@@ -535,18 +535,18 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     HandleMainLoadingForEdgeImportCache();
 
-    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(),
+    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_,
                                                 &transaction_, view, &storage_->indices_, &storage_->constraints_,
                                                 storage_->config_.items));
   }
   if (scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
+    return VerticesIterable(AllVerticesIterable(vertices_.access(), storage_, &transaction_, view, &storage_->indices_,
                                                 &storage_->constraints_, storage_->config_.items));
   }
 
   LoadVerticesToMainMemoryCache();
   scanned_all_vertices_ = true;
-  return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
+  return VerticesIterable(AllVerticesIterable(vertices_.access(), storage_, &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
 
@@ -556,8 +556,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     HandleLoadingLabelForEdgeImportCache(label);
 
-    return VerticesIterable(
-        disk_storage->edge_import_mode_cache_->Vertices(label, view, &transaction_, &disk_storage->constraints_));
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(label, view, storage_, &transaction_,
+                                                                            &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
@@ -568,8 +568,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   auto gids = MergeVerticesFromMainCacheWithLabelIndexCache(label, view, index_deltas, indexed_vertices.get());
   LoadVerticesFromDiskLabelIndex(label, gids, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view,
+                                              &storage_->indices_, &storage_->constraints_, storage_->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
@@ -578,7 +578,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     HandleLoadingLabelPropertyForEdgeImportCache(label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, std::nullopt, std::nullopt, view, &transaction_, &disk_storage->constraints_));
+        label, property, std::nullopt, std::nullopt, view, storage_, &transaction_, &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
@@ -603,8 +603,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, index_deltas, indexed_vertices.get(),
                                          disk_label_property_filter);
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view,
+                                              &storage_->indices_, &storage_->constraints_, storage_->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
@@ -614,8 +614,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     HandleLoadingLabelPropertyForEdgeImportCache(label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
-        &disk_storage->constraints_));
+        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_,
+        &transaction_, &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
@@ -635,8 +635,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, index_deltas,
                                                              indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view,
+                                              &storage_->indices_, &storage_->constraints_, storage_->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
@@ -648,7 +648,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     HandleLoadingLabelPropertyForEdgeImportCache(label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, lower_bound, upper_bound, view, &transaction_, &disk_storage->constraints_));
+        label, property, lower_bound, upper_bound, view, storage_, &transaction_, &disk_storage->constraints_));
   }
 
   index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
@@ -662,8 +662,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(label, property, gids, lower_bound, upper_bound, index_deltas,
                                                           indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
+  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view,
+                                              &storage_->indices_, &storage_->constraints_, storage_->config_.items));
 }
 
 /// TODO: (andi) This should probably go into some other class not the storage. All utils methods
@@ -1012,7 +1012,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   }
 
   disk_storage->vertex_count_.fetch_add(1, std::memory_order_acq_rel);
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {&*it, storage_, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor,
@@ -1025,7 +1025,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertexFromDisk(utils::SkipList<V
   it->labels = std::move(label_ids);
   it->properties = std::move(properties);
   delta->prev.Set(&*it);
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {&*it, storage_, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
@@ -1036,15 +1036,15 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
                  : vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
-    return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                  view);
+    return VertexAccessor::Create(&*vertex_it, storage_, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                  config_, view);
   }
   for (const auto &vec : index_storage_) {
     acc = vec->access();
     auto index_it = acc.find(gid);
     if (index_it != acc.end()) {
-      return VertexAccessor::Create(&*index_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                    view);
+      return VertexAccessor::Create(&*index_it, storage_, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                    config_, view);
     }
   }
 
@@ -1120,8 +1120,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexA
   if (edge_import_mode_active) {
     auto import_mode_edge_cache_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
     if (auto it = import_mode_edge_cache_acc.find(gid); it != import_mode_edge_cache_acc.end()) {
-      return EdgeAccessor(EdgeRef(&*it), edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                          &storage_->constraints_, config_);
+      return EdgeAccessor(EdgeRef(&*it), edge_type, from_vertex, to_vertex, storage_, &transaction_,
+                          &storage_->indices_, &storage_->constraints_, config_);
     }
   }
 
@@ -1146,7 +1146,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexA
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
 }
 
@@ -1187,7 +1187,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
 
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
 }
 

@@ -364,8 +364,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       if (edge_cleared_from_both_directions) {
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                   &storage_->constraints_, storage_->config_.items, true);
+        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_,
+                                   &storage_->indices_, &storage_->constraints_, storage_->config_.items, true);
       }
 
       CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
@@ -431,8 +431,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       if (edge_cleared_from_both_directions) {
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                   &storage_->constraints_, storage_->config_.items, true);
+        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_,
+                                   &storage_->indices_, &storage_->constraints_, storage_->config_.items, true);
       }
     }
 
@@ -478,7 +478,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
     CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
     vertex_ptr->deleted = true;
 
-    deleted_vertices.emplace_back(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
+    deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, &storage_->indices_, &storage_->constraints_,
                                   storage_->config_.items, true);
   }
 
