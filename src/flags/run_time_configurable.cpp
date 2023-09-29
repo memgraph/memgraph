@@ -95,7 +95,17 @@ auto GenHandler(std::string flag, std::string key) {
 namespace memgraph::flags::run_time {
 
 void Initialize() {
-  constexpr bool kRestore = true;
+  constexpr bool kRestore = true;  //!< run-time flag is persistent between Memgraph restarts
+
+  /**
+   * @brief Helper function that registers a run-time flag
+   *
+   * @param flag - GFlag name
+   * @param key - Settings key used to store the flag
+   * @param restore - true if the flag is persistent between restarts
+   * @param post_update - user defined callback executed post flag update
+   * @param validator - user defined value correctness checker
+   */
   auto register_flag = [&](
                            const std::string &flag, const std::string &key, bool restore,
                            std::function<void(const std::string &)> post_update = [](auto) {},
@@ -107,21 +117,17 @@ void Initialize() {
     auto update = GenHandler(flag, key);
     memgraph::utils::global_settings.RegisterSetting(
         key, info.default_value,
-        [update, post_update] {
+        [update, post_update = std::move(post_update)] {
           const auto &val = update();
           post_update(val);
         },
         validator);
-    if (restore) {
-      // Override value if passed via command line argument
-      if (!info.is_default) {
-        memgraph::utils::global_settings.SetValue(key, info.current_value);
-      } else {
-        // Force read from settings (restore previously saved value)
-        update();
-      }
+
+    if (restore && info.is_default) {
+      // No input from the user, restore persistent value from settings
+      update();
     } else {
-      // No restore, just force the current value
+      // Override with current value - user defined a new value or the run-time flag is not persistent between starts
       memgraph::utils::global_settings.SetValue(key, info.current_value);
     }
   };
