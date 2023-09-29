@@ -19,6 +19,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -88,6 +89,94 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
   return expansions;
 }
 
+void AssignIsomorphicIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  IsomorphicId next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
+
+  auto assign_isomorphic_id = [&matching, &next_isomorphic_id](Symbol symbol, Expansion &expansion) {
+    IsomorphicId isomorphic_id_to_assign = next_isomorphic_id;
+    if (matching.node_symbol_to_isomorphic_id.contains(symbol)) {
+      isomorphic_id_to_assign = matching.node_symbol_to_isomorphic_id[symbol];
+    }
+
+    if (expansion.isomorphic_id.AsInt() == -1) {
+      expansion.isomorphic_id = isomorphic_id_to_assign;
+    } else if (isomorphic_id_to_assign.AsInt() < expansion.isomorphic_id.AsInt()) {
+      expansion.isomorphic_id = isomorphic_id_to_assign;
+    }
+
+    matching.node_symbol_to_isomorphic_id[symbol] = expansion.isomorphic_id;
+  };
+
+  for (auto &expansion : expansions) {
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    assign_isomorphic_id(node1_sym, expansion);
+
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+
+      assign_isomorphic_id(edge_sym, expansion);
+      assign_isomorphic_id(node2_sym, expansion);
+    }
+
+    matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.isomorphic_id.AsUint()
+                                          ? expansion.isomorphic_id.AsUint()
+                                          : matching.number_of_isomorphisms;
+    next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
+  }
+
+  // By the time we finished assigning expansions, no expansion should have its isomorphic ID unassigned
+  for (const auto &expansion : matching.expansions) {
+    MG_ASSERT(expansion.isomorphic_id.AsInt() != -1, "Expansion isomorphic ID is not assigned to the pattern!");
+  }
+}
+
+void CollectEdgeSymbols(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  std::unordered_set<Symbol> edge_symbols;
+  for (auto &expansion : expansions) {
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      // Fill edge symbols for Cyphermorphism.
+      edge_symbols.insert(edge_sym);
+    }
+  }
+
+  if (!edge_symbols.empty()) {
+    matching.edge_symbols.emplace_back(edge_symbols);
+  }
+}
+
+void CollectExpansionSymbols(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  for (auto &expansion : expansions) {
+    // Map node1 symbol to expansion
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.expansion_symbols.insert(node1_sym);
+
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      matching.expansion_symbols.insert(edge_sym);
+
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.expansion_symbols.insert(node2_sym);
+    }
+  }
+}
+
+void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  for (auto &expansion : expansions) {
+    // Matching may already have some expansions, so offset our index.
+    const size_t expansion_ix = matching.expansions.size();
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+
+    if (expansion.edge) {
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+    }
+
+    matching.expansions.push_back(expansion);
+  }
+}
 auto SplitExpressionOnAnd(Expression *expression) {
   // TODO: Think about converting all filtering expression into CNF to improve
   // the granularity of filters which can be stand alone.
@@ -491,61 +580,18 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
-  IsomorphicId next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
+  std::vector<Expansion> expansions = NormalizePatterns(symbol_table, patterns);
 
-  auto assign_isomorphic_id = [&matching, &next_isomorphic_id](Symbol symbol, Expansion &expansion) {
-    auto isomorphic_id_to_assign = next_isomorphic_id;
-    if (matching.node_symbol_to_isomorphic_id.contains(symbol)) {
-      isomorphic_id_to_assign = matching.node_symbol_to_isomorphic_id[symbol];
-    }
+  // At this point, all of the expansions have the isomorphic id of -1
+  // By the time the assigning is done, all the expansions should have their isomorphic id adjusted
+  AssignIsomorphicIds(expansions, matching, symbol_table);
 
-    if (expansion.isomorphic_id.AsInt() == -1) {
-      expansion.isomorphic_id = isomorphic_id_to_assign;
-    } else if (isomorphic_id_to_assign.AsInt() < expansion.isomorphic_id.AsInt()) {
-      expansion.isomorphic_id = isomorphic_id_to_assign;
-    }
+  // Add edge symbols for every expansion to ensure edge uniqueness
+  CollectEdgeSymbols(expansions, matching, symbol_table);
 
-    matching.node_symbol_to_isomorphic_id[symbol] = expansion.isomorphic_id;
-  };
+  CollectExpansionSymbols(expansions, matching, symbol_table);
 
-  auto expansions = NormalizePatterns(symbol_table, patterns);
-  std::unordered_set<Symbol> edge_symbols;
-  for (auto &expansion : expansions) {
-    // Matching may already have some expansions, so offset our index.
-    const size_t expansion_ix = matching.expansions.size();
-    // Map node1 symbol to expansion
-    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
-    // Add node1 to all symbols.
-    matching.expansion_symbols.insert(node1_sym);
-
-    assign_isomorphic_id(node1_sym, expansion);
-
-    if (expansion.edge) {
-      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
-      // Fill edge symbols for Cyphermorphism.
-      edge_symbols.insert(edge_sym);
-      // Map node2 symbol to expansion
-      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
-      // Add edge and node2 to all symbols
-      matching.expansion_symbols.insert(edge_sym);
-      matching.expansion_symbols.insert(node2_sym);
-
-      assign_isomorphic_id(edge_sym, expansion);
-      assign_isomorphic_id(node2_sym, expansion);
-    }
-
-    matching.expansions.push_back(expansion);
-    matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.isomorphic_id.AsUint()
-                                          ? expansion.isomorphic_id.AsUint()
-                                          : matching.number_of_isomorphisms;
-    next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
-  }
-
-  if (!edge_symbols.empty()) {
-    matching.edge_symbols.emplace_back(edge_symbols);
-  }
+  AddExpansionsToMatching(expansions, matching, symbol_table);
 
   for (auto *const pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
@@ -558,10 +604,6 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   }
   if (where) {
     matching.filters.CollectWhereFilter(*where, symbol_table);
-  }
-
-  for (const auto &expansion : matching.expansions) {
-    MG_ASSERT(expansion.isomorphic_id.AsInt() != -1, "Expansion isomorphic ID is not assigned to the pattern!");
   }
 }
 
