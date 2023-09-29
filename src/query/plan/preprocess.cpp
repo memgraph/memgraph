@@ -55,14 +55,14 @@ void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
 // want to start expanding.
 std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
-  ExpansionId unknown_expansion_id = ExpansionId::FromInt(-1);
+  IsomorphicId unknown_isomorphic_id = IsomorphicId::FromInt(-1);
   auto ignore_node = [&](auto *) {};
   for (size_t i = 0, size = patterns.size(); i < size; i++) {
     const auto &pattern = patterns[i];
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
-      expansions.emplace_back(Expansion{.node1 = node, .isomorphic_id = unknown_expansion_id});
+      expansions.emplace_back(Expansion{.node1 = node, .isomorphic_id = unknown_isomorphic_id});
     } else {
       auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
         UsedSymbolsCollector collector(symbol_table);
@@ -80,7 +80,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
           }
         }
         expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
-                                          unknown_expansion_id});
+                                          unknown_isomorphic_id});
       };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
@@ -491,7 +491,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
-  ExpansionId next_isomorphic_id = ExpansionId::FromUint(matching.number_of_isomorphisms + 1);
+  IsomorphicId next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
 
   auto assign_isomorphic_id = [&matching, &next_isomorphic_id](Symbol symbol, Expansion &expansion) {
     auto isomorphic_id_to_assign = next_isomorphic_id;
@@ -540,7 +540,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.isomorphic_id.AsUint()
                                           ? expansion.isomorphic_id.AsUint()
                                           : matching.number_of_isomorphisms;
-    next_isomorphic_id = ExpansionId::FromUint(matching.number_of_isomorphisms + 1);
+    next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
   }
 
   if (!edge_symbols.empty()) {

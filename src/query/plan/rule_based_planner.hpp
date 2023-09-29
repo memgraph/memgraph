@@ -503,7 +503,7 @@ class RuleBasedPlanner {
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
-      ExpansionId isomorphic_id) {
+      IsomorphicId isomorphic_id) {
     for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
       const auto &expansion = matching.expansions[i];
 
@@ -536,7 +536,7 @@ class RuleBasedPlanner {
       return last_op;
     }
 
-    std::set<ExpansionId> all_isomorphic_expansions;
+    std::set<IsomorphicId> all_isomorphic_expansions;
     for (const auto &expansion : matching.expansions) {
       all_isomorphic_expansions.insert(expansion.isomorphic_id);
     }
@@ -553,7 +553,7 @@ class RuleBasedPlanner {
       }
     }
 
-    std::set<ExpansionId> visited_isomorphic_expansions;
+    std::set<IsomorphicId> visited_isomorphic_expansions;
     bool added_new_expansions = true;
     while (added_new_expansions) {
       added_new_expansions = false;
