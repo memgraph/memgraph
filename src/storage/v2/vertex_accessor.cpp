@@ -22,6 +22,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/logging.hpp"
@@ -76,13 +77,12 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
 }  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *storage, Transaction *transaction,
-                                                     Indices *indices, Constraints *constraints, Config::Items config,
                                                      View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
-  return VertexAccessor{vertex, storage, transaction, indices, constraints, config};
+  return VertexAccessor{vertex, storage, transaction};
 }
 
 bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transaction, View view) {
@@ -110,8 +110,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   vertex_->labels.push_back(label);
 
   /// TODO: some by pointers, some by reference => not good, make it better
-  constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  indices_->UpdateOnAddLabel(label, vertex_, *transaction_);
+  storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
+  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
   return true;
@@ -135,8 +135,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   vertex_->labels.pop_back();
 
   /// TODO: some by pointers, some by reference => not good, make it better
-  constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  indices_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
+  storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
+  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
   return true;
@@ -259,7 +259,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
+  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
 
   return std::move(current_value);
@@ -280,7 +280,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (!vertex_->properties.InitProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-    indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
+    storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
     transaction_->manyDeltasCache.Invalidate(vertex_, property);
   }
 
@@ -303,7 +303,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   auto id_old_new_change = vertex_->properties.UpdateProperties(properties);
 
   for (auto &[id, old_value, new_value] : id_old_new_change) {
-    indices_->UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
+    storage_->indices_.UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
     transaction_->manyDeltasCache.Invalidate(vertex_, id);
   }
@@ -324,7 +324,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   auto properties = vertex_->properties.Properties();
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, value);
-    indices_->UpdateOnSetProperty(property, PropertyValue(), vertex_, *transaction_);
+    storage_->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex_, *transaction_);
     transaction_->manyDeltasCache.Invalidate(vertex_, property);
   }
 
@@ -440,7 +440,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     auto ret = std::vector<EdgeAccessor>{};
     ret.reserve(edges.size());
     for (auto const &[edge_type, from_vertex, edge] : edges) {
-      ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_, indices_, constraints_, config_);
+      ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_);
     }
     return ret;
   };
@@ -519,7 +519,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     auto ret = std::vector<EdgeAccessor>{};
     ret.reserve(out_edges.size());
     for (const auto &[edge_type, to_vertex, edge] : out_edges) {
-      ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_, indices_, constraints_, config_);
+      ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_);
     }
     return ret;
   };

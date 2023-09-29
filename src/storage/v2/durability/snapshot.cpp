@@ -24,6 +24,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/concepts.hpp"
@@ -1365,9 +1366,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 }
 
 void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-                    const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
-                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-                    Indices *indices, Constraints *constraints, const Config &config, const std::string &uuid,
+                    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
+                    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, const std::string &uuid,
                     const std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
@@ -1419,7 +1419,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   auto items_in_current_batch{0UL};
   auto batch_start_offset{0UL};
   // Store all edges.
-  if (config.items.properties_on_edges) {
+  if (storage->config_.items.properties_on_edges) {
     offset_edges = snapshot.GetPosition();
     batch_start_offset = offset_edges;
     auto acc = edges->access();
@@ -1461,9 +1461,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea = EdgeAccessor{
-          edge_ref,    EdgeTypeId::FromUint(0UL), nullptr, nullptr, storage, transaction, indices, constraints,
-          config.items};
+      auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, storage, transaction};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -1483,7 +1481,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
       ++edges_count;
       ++items_in_current_batch;
-      if (items_in_current_batch == config.durability.items_per_batch) {
+      if (items_in_current_batch == storage->config_.durability.items_per_batch) {
         edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
         batch_start_offset = snapshot.GetPosition();
         items_in_current_batch = 0;
@@ -1504,7 +1502,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&vertex, storage, transaction, indices, constraints, config.items, View::OLD);
+      auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
       if (!va) continue;
 
       // Get vertex data.
@@ -1552,7 +1550,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
       ++vertices_count;
       ++items_in_current_batch;
-      if (items_in_current_batch == config.durability.items_per_batch) {
+      if (items_in_current_batch == storage->config_.durability.items_per_batch) {
         vertex_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
         batch_start_offset = snapshot.GetPosition();
         items_in_current_batch = 0;
@@ -1571,7 +1569,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write label indices.
     {
-      auto label = indices->label_index_->ListIndices();
+      auto label = storage->indices_.label_index_->ListIndices();
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
@@ -1580,7 +1578,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write label+property indices.
     {
-      auto label_property = indices->label_property_index_->ListIndices();
+      auto label_property = storage->indices_.label_property_index_->ListIndices();
       snapshot.WriteUint(label_property.size());
       for (const auto &item : label_property) {
         write_mapping(item.first);
@@ -1596,7 +1594,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write existence constraints.
     {
-      auto existence = constraints->existence_constraints_->ListConstraints();
+      auto existence = storage->constraints_.existence_constraints_->ListConstraints();
       snapshot.WriteUint(existence.size());
       for (const auto &item : existence) {
         write_mapping(item.first);
@@ -1606,7 +1604,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write unique constraints.
     {
-      auto unique = constraints->unique_constraints_->ListConstraints();
+      auto unique = storage->constraints_.unique_constraints_->ListConstraints();
       snapshot.WriteUint(unique.size());
       for (const auto &item : unique) {
         write_mapping(item.first);
@@ -1707,13 +1705,13 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
 
     if (error_code) {
-      spdlog::error(
-          utils::MessageWithLink("Couldn't ensure that exactly {} snapshots exist because an error occurred: {}.",
-                                 snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
+      spdlog::error(utils::MessageWithLink(
+          "Couldn't ensure that exactly {} snapshots exist because an error occurred: {}.",
+          storage->config_.durability.snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
     }
     std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
-    if (old_snapshot_files.size() > snapshot_retention_count - 1) {
-      auto num_to_erase = old_snapshot_files.size() - (snapshot_retention_count - 1);
+    if (old_snapshot_files.size() > storage->config_.durability.snapshot_retention_count - 1) {
+      auto num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
       for (size_t i = 0; i < num_to_erase; ++i) {
         const auto &[start_timestamp, snapshot_path] = old_snapshot_files[i];
         file_retainer->DeleteFile(snapshot_path);
@@ -1723,7 +1721,8 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   }
 
   // Ensure that only the absolutely necessary WAL files exist.
-  if (old_snapshot_files.size() == snapshot_retention_count - 1 && utils::DirExists(wal_directory)) {
+  if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
+      utils::DirExists(wal_directory)) {
     std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
     std::error_code error_code;
     for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {

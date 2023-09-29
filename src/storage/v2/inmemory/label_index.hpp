@@ -61,7 +61,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Storage *storage,
-             Transaction *transaction, Indices *indices, Constraints *constraints, const Config &config);
+             Transaction *transaction);
 
     class Iterator {
      public:
@@ -92,16 +92,13 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    Indices *indices_;
-    Constraints *constraints_;
-    Config config_;
   };
 
   uint64_t ApproximateVertexCount(LabelId label) const override;
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction, Constraints *constraints);
+  Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
 

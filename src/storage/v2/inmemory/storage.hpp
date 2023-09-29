@@ -84,9 +84,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view,
-                                                  &mem_storage->indices_, &mem_storage->constraints_,
-                                                  mem_storage->config_.items));
+      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;

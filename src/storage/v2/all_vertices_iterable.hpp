@@ -23,9 +23,6 @@ class AllVerticesIterable final {
   Storage *storage_;
   Transaction *transaction_;
   View view_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -46,14 +43,8 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Storage *storage, Transaction *transaction,
-                      View view, Indices *indices, Constraints *constraints, Config::Items config)
-      : vertices_accessor_(std::move(vertices_accessor)),
-        storage_(storage),
-        transaction_(transaction),
-        view_(view),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config) {}
+                      View view)
+      : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }

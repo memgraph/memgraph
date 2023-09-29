@@ -33,19 +33,10 @@ class VertexAccessor final {
   friend class Storage;
 
  public:
-  VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, bool for_deleted = false)
-      : vertex_(vertex),
-        storage_(storage),
-        transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config),
-        for_deleted_(for_deleted) {}
+  VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
+      : vertex_(vertex), storage_(storage), transaction_(transaction), for_deleted_(for_deleted) {}
 
-  static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction,
-                                              Indices *indices, Constraints *constraints, Config::Items config,
-                                              View view);
+  static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction, View view);
 
   static bool IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
 
@@ -117,9 +108,6 @@ class VertexAccessor final {
   Vertex *vertex_;
   Storage *storage_;
   Transaction *transaction_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this

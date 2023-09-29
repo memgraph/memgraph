@@ -68,7 +68,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-             Transaction *transaction, Indices *indices, Constraints *constraints, const Config &config);
+             Transaction *transaction);
 
     class Iterator {
      public:
@@ -103,9 +103,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    Indices *indices_;
-    Constraints *constraints_;
-    Config config_;
   };
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
@@ -134,7 +131,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction, Constraints *constraints);
+                    Transaction *transaction);
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;

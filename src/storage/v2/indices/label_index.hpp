@@ -41,7 +41,7 @@ class LabelIndex {
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
  protected:
-  /// TODO: andi maybe no need for have those in abstract class if disk storage isn't using it
+  /// TODO: (andi) maybe no need for have those in abstract class if disk storage isn't using it
   Indices *indices_;
   Config config_;
 };

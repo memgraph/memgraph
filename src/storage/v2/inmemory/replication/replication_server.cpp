@@ -448,15 +448,8 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         // type and invalid from/to pointers because we don't know them
         // here, but that isn't an issue because we won't use that part of
         // the API here.
-        auto ea = EdgeAccessor{edge_ref,
-                               EdgeTypeId::FromUint(0UL),
-                               nullptr,
-                               nullptr,
-                               storage,
-                               &transaction->GetTransaction(),
-                               &storage->indices_,
-                               &storage->constraints_,
-                               storage->config_.items};
+        auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL),     nullptr, nullptr,
+                               storage,  &transaction->GetTransaction()};
 
         auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                   delta.vertex_edge_set_property.value);
