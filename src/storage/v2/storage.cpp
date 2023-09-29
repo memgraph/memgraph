@@ -250,7 +250,7 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
               "VertexAccessor must be from the same transaction as the storage "
               "accessor when deleting a vertex!");
     auto *vertex_ptr = vertex->vertex_;
-
+    /// TODO: (andi) This is overhead for disk storage, we should not lock the vertex here
     {
       auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
@@ -340,6 +340,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       // get the information about the last edge in the vertex collection
       auto const &[edge_type, opposing_vertex, edge_ref] = *attached_edges_to_vertex->rbegin();
 
+      /// TODO: (andi) Again here, no need to lock the edge if using on disk storage.
       std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.items.properties_on_edges) {
         auto edge_ptr = edge_ref.ptr;

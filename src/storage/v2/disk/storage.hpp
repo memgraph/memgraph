@@ -254,8 +254,11 @@ class DiskStorage final : public Storage {
     bool WriteEdgeToOutEdgesConnectivityIndex(const std::string &src_vertex_gid, const std::string &edge_gid);
     bool WriteEdgeToInEdgesConnectivityIndex(const std::string &dst_vertex_gid, const std::string &edge_gid);
 
-    bool DeleteVertexFromDisk(const std::string &vertex);
-    bool DeleteEdgeFromDisk(const std::string &edge);
+    bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
+    bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
+                            const std::string &dst_vertex_gid);
+    bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                         rocksdb::ColumnFamilyHandle *handle);
 
     /// Main storage
     utils::SkipList<Vertex> vertices_;
@@ -266,7 +269,7 @@ class DiskStorage final : public Storage {
     std::vector<std::list<Delta>> index_deltas_storage_;
     utils::SkipList<Edge> edges_;
     Config::Items config_;
-    std::unordered_set<std::string> edges_to_delete_;
+    std::set<std::tuple<std::string, std::string, std::string>> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
     bool scanned_all_vertices_ = false;
