@@ -2478,7 +2478,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   };
 };
 
-/// Applies symbols from both output branches.
+/// Applies symbols from both join branches
 class IndexedJoin : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
