@@ -144,7 +144,6 @@ constexpr auto kAlwaysFalse = false;
 
 namespace {
 template <typename T, typename K>
-
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
 }
@@ -156,13 +155,15 @@ void Sort(std::vector<TypedValue, K> &vec) {
 }
 
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const TypedValue &lv, const TypedValue &rv) {
+[[maybe_unused]] bool Same(const TypedValue &lv, const TypedValue &rv) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
+[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
+  return lv == std::string(TypedValue(rv).ValueString());
+}
 // NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
