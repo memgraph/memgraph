@@ -148,6 +148,17 @@ struct Expansion {
   /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
+  // IsomorphicId represents a distinct Cyphermorphism matching. This is necessary for having edes in the graph
+  // not duplicated in the result set
+  //
+  // Examples
+  // 1. MATCH (n)-[r1]->(m), (a)->[r2]->(b)
+  // In this example, r1 and r2 should not be the same edge in the result set.
+  // Therefore, the cardinality of this query should be of size N
+  //
+  // 2. MATCH (n)-[r1]->(m) MATCH (a)->[r2]->(b)
+  // In this example, no constraints apply to r1 and r2
+  // Therefore, the cardinality of this query should be of size N * N (cartesian product)
   IsomorphicId isomorphic_id = IsomorphicId();
 };
 
