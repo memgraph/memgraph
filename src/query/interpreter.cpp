@@ -1956,18 +1956,80 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_prop_results;
-  std::vector<storage::LabelId> label_results;
-  if (labels[0] == kAsterisk) {
-    label_prop_results = execution_db_accessor->ClearLabelPropertyIndexStats();
-    label_results = execution_db_accessor->ClearLabelIndexStats();
-  } else {
-    label_prop_results = execution_db_accessor->DeleteLabelPropertyIndexStats(labels);
-    label_results = execution_db_accessor->DeleteLabelIndexStats(labels);
-  }
+  auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
+    if (labels[0] == kAsterisk) {
+      return;
+    }
+
+    for (auto it = index_info.cbegin(); it != index_info.cend();) {
+      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(*it)) == labels.end()) {
+        it = index_info.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  };
+
+  auto erase_not_specified_label_property_indices = [&labels, execution_db_accessor](auto &index_info) {
+    if (labels[0] == kAsterisk) {
+      return;
+    }
+
+    for (auto it = index_info.cbegin(); it != index_info.cend();) {
+      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
+        it = index_info.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  };
+
+  auto populate_label_results = [execution_db_accessor](auto index_info) {
+    std::vector<storage::LabelId> label_results;
+    label_results.reserve(index_info.size());
+    std::for_each(index_info.begin(), index_info.end(),
+                  [execution_db_accessor, &label_results](const storage::LabelId &label_id) {
+                    const auto &label = execution_db_accessor->LabelToName(label_id);
+                    const auto res = execution_db_accessor->DeleteLabelIndexStats(label);
+                    if (res) label_results.emplace_back(label_id);
+                  });
+
+    return label_results;
+  };
+
+  auto populate_label_property_results = [execution_db_accessor](auto index_info) {
+    std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_property_results;
+    label_property_results.reserve(index_info.size());
+    std::for_each(index_info.begin(), index_info.end(),
+                  [execution_db_accessor,
+                   &label_property_results](const std::pair<storage::LabelId, storage::PropertyId> &label_property) {
+                    const auto &label = execution_db_accessor->LabelToName(label_property.first);
+                    const auto &res = execution_db_accessor->DeleteLabelPropertyIndexStats(label);
+                    label_property_results.insert(label_property_results.end(), res.begin(), res.end());
+                  });
+
+    return label_property_results;
+  };
+
+  auto index_info = execution_db_accessor->ListAllIndices();
+
+  std::vector<storage::LabelId> label_indices_info = index_info.label;
+  erase_not_specified_label_indices(label_indices_info);
+  auto label_results = populate_label_results(label_indices_info);
+
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_property_indices_info = index_info.label_property;
+  erase_not_specified_label_property_indices(label_property_indices_info);
+  auto label_prop_results = populate_label_property_results(label_property_indices_info);
 
   std::vector<std::vector<TypedValue>> results;
-  results.reserve(label_prop_results.size() + label_results.size());
+  results.reserve(label_results.size() + label_prop_results.size());
+
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
+
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
                    return std::vector<TypedValue>{
@@ -1975,11 +2037,6 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
                        TypedValue(execution_db_accessor->PropertyToName(label_property_index.second))};
                  });
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
   return results;
 }
 

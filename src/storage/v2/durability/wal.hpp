@@ -60,6 +60,7 @@ struct WalDeltaData {
     LABEL_INDEX_CREATE,
     LABEL_INDEX_DROP,
     LABEL_INDEX_STATS_SET,
+    LABEL_INDEX_STATS_CLEAR,
     LABEL_PROPERTY_INDEX_CREATE,
     LABEL_PROPERTY_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -139,6 +140,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_INDEX_DROP:
     case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:

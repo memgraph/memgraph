@@ -181,19 +181,16 @@ std::vector<LabelId> InMemoryLabelIndex::ClearIndexStats() {
   return deleted_indexes;
 }
 
-std::vector<LabelId> InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
-  std::vector<LabelId> deleted_indexes;
+// stats_ is a map with label as the key, so only one can exist at a time
+bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   auto locked_stats = stats_.Lock();
-  for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
+  for (auto it = locked_stats->cbegin(); it != locked_stats->cend(); ++it) {
     if (it->first == label) {
-      deleted_indexes.push_back(it->first);
-      it = locked_stats->erase(it);
-    } else {
-      ++it;
+      locked_stats->erase(it);
+      return true;
     }
   }
-
-  return deleted_indexes;
+  return false;
 }
 
 }  // namespace memgraph::storage

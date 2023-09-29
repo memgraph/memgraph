@@ -80,15 +80,15 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
 // indices/constraints object.
 // @note multiple stats can be pushed one after the other; when removing, remove from the back
 // @throw RecoveryFailure
-template <typename TObj>
-void RemoveRecoveredIndexStats(std::vector<TObj> *list, TObj obj, const char *error_message) {
-  auto it = std::find(list->rbegin(), list->rend(), obj);
-  if (it != list->rend()) {
-    std::swap(*it, list->back());
-    list->pop_back();
-  } else {
-    throw RecoveryFailure(error_message);
+template <typename TObj, typename K>
+void RemoveRecoveredIndexStats(std::vector<TObj> *list, K label, const char *error_message) {
+  for (auto it = list->rbegin(); it != list->rend(); ++it) {
+    if (it->first == label) {
+      list->erase(std::next(it).base());  // erase using a reverse iterator
+      return;
+    }
   }
+  throw RecoveryFailure(error_message);
 }
 
 }  // namespace memgraph::storage::durability

@@ -510,6 +510,17 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         }
         break;
       }
+      case durability::WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR: {
+        spdlog::trace("       Clear label index statistics on :{}", delta.operation_label.label);
+        // Need to send the timestamp
+        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
+        auto access = storage->Access({});
+        access->DeleteLabelIndexStats(delta.operation_label.label);
+        if (access->Commit(timestamp).HasError()) {
+          throw utils::BasicException("Failed to commit!");
+        }
+        break;
+      }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
         spdlog::trace("       Create label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);

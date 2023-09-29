@@ -394,6 +394,7 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearInd
   return deleted_indexes;
 }
 
+// stats_ is a map where the key is a pair of label and property, so for one label many pairs can be deleted
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;

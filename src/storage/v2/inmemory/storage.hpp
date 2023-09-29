@@ -175,36 +175,19 @@ class InMemoryStorage final : public Storage {
       return index->ClearIndexStats();
     }
 
-    std::vector<LabelId> ClearLabelIndexStats() override {
-      return ClearIndexStatsForIndex<LabelId>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()));
-    }
-
-    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() override {
-      return ClearIndexStatsForIndex<std::pair<LabelId, PropertyId>>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()));
-    }
-
     template <typename TResult, typename TIndex>
-    std::vector<TResult> DeleteIndexStatsForIndex(TIndex *index, const std::span<std::string> labels) {
-      std::vector<TResult> deleted_indexes;
-
-      for (const auto &label : labels) {
-        std::vector<TResult> loc_results = index->DeleteIndexStats(NameToLabel(label));
-        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
-                               std::make_move_iterator(loc_results.end()));
-      }
-      return deleted_indexes;
+    TResult DeleteIndexStatsForIndex(TIndex *index, const std::string label) {
+      return index->DeleteIndexStats(NameToLabel(label));
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const std::span<std::string> labels) override {
-      return DeleteIndexStatsForIndex<std::pair<LabelId, PropertyId>>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), labels);
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(std::string label) override {
+      return DeleteIndexStatsForIndex<std::vector<std::pair<LabelId, PropertyId>>>(
+          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
     }
 
-    std::vector<LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) override {
-      return DeleteIndexStatsForIndex<LabelId>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()),
-                                               labels);
+    bool DeleteLabelIndexStats(std::string label) override {
+      return DeleteIndexStatsForIndex<bool>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()),
+                                            label);
     }
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
@@ -389,6 +372,9 @@ class InMemoryStorage final : public Storage {
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                               uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);

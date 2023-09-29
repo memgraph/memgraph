@@ -13,6 +13,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
@@ -84,6 +85,8 @@ Marker OperationToMarker(StorageMetadataOperation operation) {
       return Marker::DELTA_LABEL_INDEX_DROP;
     case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
       return Marker::DELTA_LABEL_INDEX_STATS_SET;
+    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+      return Marker::DELTA_LABEL_INDEX_STATS_CLEAR;
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       return Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE;
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
@@ -155,6 +158,8 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
       return WalDeltaData::Type::LABEL_INDEX_DROP;
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
       return WalDeltaData::Type::LABEL_INDEX_STATS_SET;
+    case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
+      return WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR;
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
       return WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
@@ -268,7 +273,8 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
     case WalDeltaData::Type::TRANSACTION_END:
       break;
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_INDEX_DROP: {
+    case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
@@ -462,6 +468,7 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
 
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
       return a.operation_label.label == b.operation_label.label;
 
     case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
@@ -612,7 +619,8 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
   encoder->WriteUint(timestamp);
   switch (operation) {
     case StorageMetadataOperation::LABEL_INDEX_CREATE:
-    case StorageMetadataOperation::LABEL_INDEX_DROP: {
+    case StorageMetadataOperation::LABEL_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR: {
       MG_ASSERT(properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
@@ -836,6 +844,12 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
             throw RecoveryFailure("Failed to read statistics!");
           }
           indices_constraints->indices.label_stats.emplace_back(label_id, stats);
+          break;
+        }
+        case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR: {
+          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
+          RemoveRecoveredIndexStats(&indices_constraints->indices.label_stats, label_id,
+                                    "The label index stats doesn't exist!");
           break;
         }
         case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {

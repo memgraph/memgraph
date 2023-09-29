@@ -105,7 +105,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   std::vector<LabelId> ClearIndexStats();
 
-  std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
+  bool DeleteIndexStats(const storage::LabelId &label);
 
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;

@@ -29,6 +29,7 @@ struct MetadataDelta {
     LABEL_INDEX_CREATE,
     LABEL_INDEX_DROP,
     LABEL_INDEX_STATS_SET,
+    LABEL_INDEX_STATS_CLEAR,
     LABEL_PROPERTY_INDEX_CREATE,
     LABEL_PROPERTY_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -43,6 +44,8 @@ struct MetadataDelta {
   } label_index_drop;
   static constexpr struct LabelIndexStatsSet {
   } label_index_stats_set;
+  static constexpr struct LabelIndexStatsClear {
+  } label_index_stats_clear;
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
   static constexpr struct LabelPropertyIndexDrop {
@@ -62,6 +65,8 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexStatsSet /*tag*/, LabelId label, LabelIndexStats stats)
       : action(Action::LABEL_INDEX_STATS_SET), label_stats{label, stats} {}
+
+  MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
@@ -91,6 +96,7 @@ struct MetadataDelta {
       case Action::LABEL_INDEX_CREATE:
       case Action::LABEL_INDEX_DROP:
       case Action::LABEL_INDEX_STATS_SET:
+      case Action::LABEL_INDEX_STATS_CLEAR:
       case Action::LABEL_PROPERTY_INDEX_CREATE:
       case Action::LABEL_PROPERTY_INDEX_DROP:
       case Action::EXISTENCE_CONSTRAINT_CREATE:
