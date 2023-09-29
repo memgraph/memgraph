@@ -32,7 +32,7 @@ void *newImpl(const std::size_t size) {
 }
 
 void *newImpl(const std::size_t size, const std::align_val_t align) {
-  auto *ptr = malloc(size);
+  auto *ptr = aligned_alloc(static_cast<std::size_t>(align), size);
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -41,7 +41,9 @@ void *newImpl(const std::size_t size, const std::align_val_t align) {
 }
 
 void *newNoExcept(const std::size_t size) noexcept { return malloc(size); }
-void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept { return malloc(size); }
+void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
+  return aligned_alloc(size, static_cast<std::size_t>(align));
+}
 
 #if USE_JEMALLOC
 void deleteImpl(void *ptr) noexcept {
@@ -89,7 +91,7 @@ void TrackMemory(std::size_t size) {
   if (size != 0) [[likely]] {
     size = nallocx(size, 0);
   }
-  // memgraph::utils::old_jemalloc_total_memory_tracker.Alloc(static_cast<int64_t>(size));
+  memgraph::utils::old_jemalloc_total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #else
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
@@ -100,7 +102,7 @@ void TrackMemory(std::size_t size, const std::align_val_t align) {
   if (size != 0) [[likely]] {
     size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
   }
-  // memgraph::utils::old_jemalloc_total_memory_tracker.Alloc(static_cast<int64_t>(size));
+  memgraph::utils::old_jemalloc_total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #else
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
@@ -130,7 +132,7 @@ void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size
   try {
 #if USE_JEMALLOC
     if (ptr != nullptr) [[likely]] {
-      // memgraph::utils::old_jemalloc_total_memory_tracker.Free(sallocx(ptr, 0));
+      memgraph::utils::old_jemalloc_total_memory_tracker.Free(sallocx(ptr, 0));
     }
 #else
     if (size) {
@@ -148,8 +150,8 @@ void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std
   try {
 #if USE_JEMALLOC
     if (ptr != nullptr) [[likely]] {
-      // memgraph::utils::old_jemalloc_total_memory_tracker.Free(
-      //     sallocx(ptr, MALLOCX_ALIGN(align)));  // NOLINT(hicpp-signed-bitwise)
+      memgraph::utils::old_jemalloc_total_memory_tracker.Free(
+          sallocx(ptr, MALLOCX_ALIGN(align)));  // NOLINT(hicpp-signed-bitwise)
     }
 #else
     if (size) {
