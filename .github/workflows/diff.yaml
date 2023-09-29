@@ -250,7 +250,7 @@ jobs:
       - name: Run GQL Behave tests
         run: |
           cd tests/gql_behave
-          ./run.sh
+          ./continuous_integration
 
       - name: Save quality assurance status
         uses: actions/upload-artifact@v3

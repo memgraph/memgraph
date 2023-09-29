@@ -23,15 +23,6 @@ from behave.__main__ import main as behave_main
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
-def execute_setup_queries(host, port, username, password, setup_queries):
-    conn = mgclient.connect(host=host, port=int(port), username=username, password=password)
-    conn.autocommit = True
-    cursor = conn.cursor()
-    for query in setup_queries:
-        cursor.execute(query)
-    conn.close()
-
-
 def add_config(option, **kwargs):
     found = False
     for config in configuration.options:
@@ -94,24 +85,6 @@ def main():
             behave_args.append(arg_name)
     behave_args.extend(["--test-suite", parsed_args.test_suite])
     behave_args.extend(["--test-directory", test_directory])
-
-    # Setup database
-    if parsed_args.storage_mode == "in_memory":
-        execute_setup_queries(
-            parsed_args.db_host,
-            parsed_args.db_port,
-            parsed_args.db_user,
-            parsed_args.db_pass,
-            ["STORAGE MODE IN_MEMORY_TRANSACTIONAL"],
-        )
-    elif parsed_args.storage_mode == "on_disk":
-        execute_setup_queries(
-            parsed_args.db_host,
-            parsed_args.db_port,
-            parsed_args.db_user,
-            parsed_args.db_pass,
-            ["STORAGE MODE ON_DISK_TRANSACTIONAL"],
-        )
 
     # Run Behave tests
     return behave_main(behave_args)

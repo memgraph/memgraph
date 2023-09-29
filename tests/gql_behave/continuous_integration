@@ -159,7 +159,7 @@ def main():
         suite_storage_mode = suite["storage_mode"]
         if old_storage_mode != suite_storage_mode:
             memgraph.stop()
-            memgraph.start()
+            memgraph.start(["--storage-mode", suite_storage_mode])
             old_storage_mode = suite_storage_mode
 
         suite["stats_file"] = os.path.join(output_dir.name, suite["name"] + ".json")
@@ -169,8 +169,6 @@ def main():
             os.path.join(SCRIPT_DIR, "run.py"),
             "--stats-file",
             suite["stats_file"],
-            "--storage-mode",
-            suite_storage_mode,
             suite["test_suite"],
         ]
 

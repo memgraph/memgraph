@@ -1,8 +1,6 @@
 #!/bin/bash
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
-# TODO(gitbuda): Setup mgclient and pymgclient properly.
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
 
 print_help() {
   echo -e "$0 ["workload name string"]"

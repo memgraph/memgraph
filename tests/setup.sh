@@ -48,6 +48,9 @@ popd > /dev/null
 
 deactivate
 
+# TODO(gitbuda): Setup mgclient and pymgclient properly.
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
+
 "$DIR"/e2e/graphql/setup.sh
 
 # Check if setup needs to setup additional variables
