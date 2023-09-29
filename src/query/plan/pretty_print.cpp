@@ -101,6 +101,7 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
+PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
