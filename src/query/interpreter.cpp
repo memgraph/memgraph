@@ -3628,6 +3628,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
       memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       auto &db_acc = *db_acc_;
+      spdlog::error("{} Creating Accessor in interpreter. db_accessor_ {}", std::this_thread::get_id(),
+                    (db_accessor_ ? "has value" : "nullptr"));
       db_accessor_ = db_acc->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
@@ -3668,6 +3670,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         memory_resource);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
+      spdlog::error("{} PrepareIndexQuery in interpreter.", std::this_thread::get_id());
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, db->storage(), get_plan_cache());
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
@@ -4005,6 +4008,7 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_repplicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
+  db_accessor_.reset();
 }
 
 void Interpreter::AdvanceCommand() {

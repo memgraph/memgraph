@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include <thread>
 
 #include <cerrno>
 
@@ -74,7 +75,11 @@ class RWLock {
 
   ~RWLock() { pthread_rwlock_destroy(&lock_); }
 
-  void lock() { MG_ASSERT(pthread_rwlock_wrlock(&lock_) == 0, "Couldn't lock utils::RWLock!"); }
+  void lock() {
+    spdlog::error("{} Trying to lock unique lock", std::this_thread::get_id());
+    MG_ASSERT(pthread_rwlock_wrlock(&lock_) == 0, "Couldn't lock utils::RWLock!");
+    spdlog::error("{} Lock unique lock", std::this_thread::get_id());
+  }
 
   bool try_lock() {
     int err = pthread_rwlock_trywrlock(&lock_);
@@ -83,13 +88,19 @@ class RWLock {
     return false;
   }
 
-  void unlock() { MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock utils::RWLock!"); }
+  void unlock() {
+    spdlog::error("{} Trying to unlock unique lock", std::this_thread::get_id());
+    MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock utils::RWLock!");
+    spdlog::error("{} Unlock unique lock", std::this_thread::get_id());
+  }
 
   void lock_shared() {
     int err;
     while (true) {
+      spdlog::error("{} Trying to acquire lock_shared lock", std::this_thread::get_id());
       err = pthread_rwlock_rdlock(&lock_);
       if (err == 0) {
+        spdlog::error("{} Acquired lock_shared lock", std::this_thread::get_id());
         return;
       } else if (err == EAGAIN) {
         continue;
@@ -115,7 +126,11 @@ class RWLock {
     }
   }
 
-  void unlock_shared() { MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock shared utils::RWLock!"); }
+  void unlock_shared() {
+    spdlog::error("{} Trying to  unlock shared lock", std::this_thread::get_id());
+    MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock shared utils::RWLock!");
+    spdlog::error("{} unlock shared lock", std::this_thread::get_id());
+  }
 
  private:
   pthread_rwlock_t lock_ = PTHREAD_RWLOCK_INITIALIZER;

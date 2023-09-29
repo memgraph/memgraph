@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <thread>
 #include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
@@ -21,6 +22,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/stacktrace.hpp"
 #include "utils/stat.hpp"
 #include "utils/timer.hpp"
 #include "utils/typeinfo.hpp"
@@ -64,7 +66,10 @@ Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, St
       storage_guard_(storage_->main_lock_),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  spdlog::error("{} Accessor::Accessor acquired shared lock.\nStack: {}", std::this_thread::get_id(),
+                "" /*utils::Stacktrace().dump()*/);
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
@@ -74,23 +79,30 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
       is_transaction_active_(other.is_transaction_active_),
       creation_storage_mode_(other.creation_storage_mode_) {
   // Don't allow the other accessor to abort our transaction in destructor.
+  spdlog::error("{} move Accessor::Accessor acquired shared lock", std::this_thread::get_id());
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
 }
 
 IndicesInfo Storage::ListAllIndices() const {
+  spdlog::error("{} ListAllIndices trying to acquire shared lock", std::this_thread::get_id());
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  spdlog::error("{} ListAllIndices acquired shared lock", std::this_thread::get_id());
   return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {
+  spdlog::error("{} ListAllConstraints trying to acquire shared lock", std::this_thread::get_id());
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  spdlog::error("{} ListAllConstraints acquired shared lock", std::this_thread::get_id());
   return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
 }
 
 /// Main lock is taken by the caller.
 void Storage::SetStorageMode(StorageMode storage_mode) {
+  spdlog::error("{} SetStorageMode trying to acquire lock", std::this_thread::get_id());
   std::unique_lock main_guard{main_lock_};
+  spdlog::error("{} SetStorageMode acquired lock", std::this_thread::get_id());
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
@@ -105,7 +117,9 @@ StorageMode Storage::GetStorageMode() const { return storage_mode_; }
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+  spdlog::error("{} SetIsolationLevel trying to acquire lock", std::this_thread::get_id());
   std::unique_lock main_guard{main_lock_};
+  spdlog::error("{} SetIsolationLevel acquired lock", std::this_thread::get_id());
   if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
     return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
   }
