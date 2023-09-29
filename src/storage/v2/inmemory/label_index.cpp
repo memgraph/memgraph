@@ -15,8 +15,6 @@
 
 namespace memgraph::storage {
 
-InMemoryLabelIndex::InMemoryLabelIndex(Indices *indices, Config config) : LabelIndex(indices, config) {}
-
 void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
   auto it = index_.find(added_label);
   if (it == index_.end()) return;

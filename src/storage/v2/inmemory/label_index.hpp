@@ -38,7 +38,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   };
 
  public:
-  InMemoryLabelIndex(Indices *indices, Config config);
+  InMemoryLabelIndex() = default;
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;

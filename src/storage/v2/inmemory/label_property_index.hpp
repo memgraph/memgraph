@@ -40,7 +40,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
-  InMemoryLabelPropertyIndex(Indices *indices, const Config &config);
+  InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,

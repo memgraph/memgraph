@@ -33,9 +33,6 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, const Config &config)
-    : LabelPropertyIndex(indices, config) {}
-
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
                                              const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {

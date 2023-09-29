@@ -19,8 +19,7 @@ namespace memgraph::storage {
 
 class LabelPropertyIndex {
  public:
-  LabelPropertyIndex(Indices *indices, const Config &config) : indices_(indices), config_(config) {}
-
+  LabelPropertyIndex() = default;
   LabelPropertyIndex(const LabelPropertyIndex &) = delete;
   LabelPropertyIndex(LabelPropertyIndex &&) = delete;
   LabelPropertyIndex &operator=(const LabelPropertyIndex &) = delete;
@@ -30,6 +29,7 @@ class LabelPropertyIndex {
 
   virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
+  // Not used for in-memory
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
@@ -48,10 +48,6 @@ class LabelPropertyIndex {
   virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
-
- protected:
-  Indices *indices_;
-  Config config_;
 };
 
 }  // namespace memgraph::storage
