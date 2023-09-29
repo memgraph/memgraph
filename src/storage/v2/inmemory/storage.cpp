@@ -1833,16 +1833,14 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(std::string name, io::network::Endpoint endpoint,
-                                              replication::ReplicationMode mode,
-                                              replication::ReplicationClientConfig const &config)
+auto InMemoryStorage::CreateReplicationClient(replication::ReplicationClientConfig const &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, std::move(name), std::move(endpoint), mode, config);
+  return std::make_unique<InMemoryReplicationClient>(this, config);
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-  return std::make_unique<InMemoryReplicationServer>(this, std::move(endpoint), config);
+    const replication::ReplicationServerConfig &config) {
+  return std::make_unique<InMemoryReplicationServer>(this, config);
 }
 
 }  // namespace memgraph::storage
