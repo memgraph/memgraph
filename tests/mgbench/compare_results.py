@@ -335,7 +335,7 @@ if __name__ == "__main__":
                 continue
             else:
                 cleaned.append(field)
-    fields = cleaned
+        fields = cleaned
 
     if args.difference_threshold > 0.01:
         for field in fields:
