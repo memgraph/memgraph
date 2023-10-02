@@ -90,6 +90,9 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage);
 
+Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table);
+Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table);
+
 /// Utility function for iterating pattern atoms and accumulating a result.
 ///
 /// Each pattern is of the form `NodeAtom (, EdgeAtom, NodeAtom)*`. Therefore,
@@ -503,38 +506,10 @@ class RuleBasedPlanner {
     }
 
     std::set<IsomorphicId> visited_isomorphic_expansions;
-    bool added_new_expansions = true;
-    while (added_new_expansions) {
-      added_new_expansions = false;
-      for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
-        const auto &expansion = matching.expansions[i];
 
-        // We want to create separate matching branch operators for each isomorphic group of patterns
-        if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
-          continue;
-        }
-
-        const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-        if (bound_symbols.contains(node1_symbol)) {
-          last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                                new_symbols, named_paths, filters, view, expansion.isomorphic_id);
-          visited_isomorphic_expansions.insert(expansion.isomorphic_id);
-          added_new_expansions = true;
-          break;
-        }
-        if (expansion.edge) {
-          const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
-          const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
-          if (bound_symbols.contains(node2_symbol) || bound_symbols.contains(edge_symbol)) {
-            last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                                  new_symbols, named_paths, filters, view, expansion.isomorphic_id);
-            visited_isomorphic_expansions.insert(expansion.isomorphic_id);
-            added_new_expansions = true;
-            break;
-          }
-        }
-      }
-    }
+    last_op =
+        GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_isomorphic_expansions, symbol_table,
+                                              storage, bound_symbols, new_symbols, named_paths, filters, view);
 
     std::vector<Symbol> cross_new_symbols;
     std::unordered_set<Symbol> initial_bound_symbols = bound_symbols;
@@ -573,6 +548,41 @@ class RuleBasedPlanner {
 
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       cross_new_symbols = new_isomorphic_symbols;
+    }
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> GenerateExpansionOnAlreadySeenSymbols(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
+      std::set<IsomorphicId> &visited_isomorphic_expansions, SymbolTable symbol_table, AstStorage &storage,
+      std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
+      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
+    bool added_new_expansions = true;
+    while (added_new_expansions) {
+      added_new_expansions = false;
+      for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
+        const auto &expansion = matching.expansions[i];
+
+        // We want to create separate matching branch operators for each isomorphic group of patterns
+        if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
+          continue;
+        }
+
+        bool src_node_already_seen = bound_symbols.contains(impl::GetSymbol(expansion.node1, symbol_table));
+        bool edge_already_seen =
+            expansion.edge && bound_symbols.contains(impl::GetSymbol(expansion.edge, symbol_table));
+        bool dest_node_already_seen =
+            expansion.edge && bound_symbols.contains(impl::GetSymbol(expansion.node2, symbol_table));
+
+        if (src_node_already_seen || edge_already_seen || dest_node_already_seen) {
+          last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                                new_symbols, named_paths, filters, view, expansion.isomorphic_id);
+          visited_isomorphic_expansions.insert(expansion.isomorphic_id);
+          added_new_expansions = true;
+          break;
+        }
+      }
     }
 
     return last_op;

@@ -606,6 +606,9 @@ std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::
                                  right_op->OutputSymbols(symbol_table));
 }
 
+Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
+Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
+
 }  // namespace impl
 
 }  // namespace memgraph::query::plan
