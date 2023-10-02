@@ -2532,16 +2532,12 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   /** Construct the operator with left input branch and right input branch. */
   HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::vector<Symbol> &left_symbols,
            const std::shared_ptr<LogicalOperator> &right_op, const std::vector<Symbol> &right_symbols,
-           const Symbol lhs_symbol, const PropertyIx lhs_property, const Symbol rhs_symbol,
-           const PropertyIx rhs_property)
+           EqualOperator *hash_join_condition)
       : left_op_(left_op),
         left_symbols_(left_symbols),
         right_op_(right_op),
         right_symbols_(right_symbols),
-        lhs_symbol_(lhs_symbol),
-        lhs_property_(lhs_property),
-        rhs_symbol_(rhs_symbol),
-        rhs_property_(rhs_property) {}
+        hash_join_condition_(hash_join_condition) {}
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2555,10 +2551,7 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> left_symbols_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
   std::vector<Symbol> right_symbols_;
-  Symbol lhs_symbol_;
-  PropertyIx lhs_property_;
-  Symbol rhs_symbol_;
-  PropertyIx rhs_property_;
+  EqualOperator *hash_join_condition_;
 
   std::string ToString() const override { return "HashJoin"; }
 
@@ -2568,10 +2561,7 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
     object->left_symbols_ = left_symbols_;
     object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
     object->right_symbols_ = right_symbols_;
-    object->lhs_symbol_ = lhs_symbol_;
-    object->lhs_property_ = storage->GetPropertyIx(lhs_property_.name);
-    object->rhs_symbol_ = rhs_symbol_;
-    object->rhs_property_ = storage->GetPropertyIx(rhs_property_.name);
+    object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
     return object;
   }
 };

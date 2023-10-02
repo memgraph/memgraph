@@ -4350,7 +4350,6 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // antepull
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!cartesian_pull_initialized_) {
@@ -5238,25 +5237,20 @@ class HashJoinCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // antepull
     SCOPED_PROFILE_OP("HashJoin");
 
     if (!hash_join_initialized) {
-      bool first = true;
       // Pull all left_op frames.
       while (left_op_cursor_->Pull(frame, context)) {
-        left_op_frames_.emplace_back(frame.elems().begin(), frame.elems().end());
-        if (first) {
-          uint64_t join_pos_in_frame = -1;
-          int i = 0;
-          for (const auto &elem : frame.elems()) {
-            if (elem.IsVertex()) {
-              auto a = 2;
-              auto b = elem.ValueVertex();
-            }
-            i++;
-          }
-          first = false;
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::View::NEW);
+        std::cout << self_.hash_join_condition_->GetTypeInfo().name << std::endl;
+        std::cout << self_.hash_join_condition_->expression1_->GetTypeInfo().name << std::endl;
+        auto x = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        // auto x = evaluator.Visit(*static_cast<PropertyLookup *>(self_.hash_join_condition_->expression1_));
+        auto a = x;
+        if (x.type() != TypedValue::Type::Null) {
+          left_op_frames_[x].emplace_back(frame.elems().begin(), frame.elems().end());
         }
       }
 
@@ -5271,7 +5265,29 @@ class HashJoinCursor : public Cursor {
       return false;
     }
 
-    auto a = 4;
+    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
+      for (const auto &symbol : symbols) {
+        frame[symbol] = restore_from[symbol.position()];
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
+      }
+    };
+
+    while (right_op_cursor_->Pull(frame, context)) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::NEW);
+      auto x = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      if (!left_op_frames_.contains(x)) {
+        continue;
+      }
+
+      for (auto frame : left_op_frames_.at(x)) {
+        restore_frame(self_.right_symbols_, frame);
+      }
+    }
+
+    return false;
 
     // TODO HashJoin: algorithm implementation pseudocode
     // (there is something similar in Cartesian operator for saving the frames)
@@ -5308,7 +5324,9 @@ class HashJoinCursor : public Cursor {
 
  private:
   const HashJoin &self_;
-  utils::pmr::vector<utils::pmr::vector<TypedValue>> left_op_frames_;
+  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
+                            TypedValue::BoolEqual>
+      left_op_frames_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
   bool hash_join_initialized{false};

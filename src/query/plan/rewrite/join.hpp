@@ -529,14 +529,14 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       auto rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
 
+      auto join_condition = static_cast<EqualOperator *>(filter.expression);
       auto lhs_symbol = filter.property_filter->symbol_;
       auto lhs_property = filter.property_filter->property_;
       auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
       auto rhs_property = rhs_lookup->property_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
-      return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, lhs_symbol, lhs_property,
-                                        rhs_symbol, rhs_property);
+      return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
     }
 
     return nullptr;
