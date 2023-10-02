@@ -69,6 +69,8 @@ if [ $# == 1 ]; then
 # Function to set the environment variable
 set_env_variable() {
     export LD_LIBRARY_PATH=$NEW_LD_LIBRARY_PATH
+    # TODO(gitbuda): Setup mgclient and pymgclient properly.
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
 }
 
 # Function to activate the virtual environment and set the environment variable
@@ -92,6 +94,3 @@ EOF
         echo "Error: The toolchain virtual enviroonment activation is not a file."
     fi
 fi
-
-# TODO(gitbuda): Setup mgclient and pymgclient properly.
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
