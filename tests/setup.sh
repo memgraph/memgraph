@@ -44,7 +44,10 @@ export MGCLIENT_INCLUDE_DIR="$DIR/../libs/mgclient/include"
 export MGCLIENT_LIB_DIR="$DIR/../libs/mgclient/lib"
 CFLAGS="-std=c99" python3 setup.py build
 CFLAGS="-std=c99" python3 setup.py install
+# TODO(gitbuda): Setup mgclient and pymgclient properly.
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$MGCLIENT_LIB_DIR
 popd > /dev/null
+
 
 deactivate
 
@@ -69,8 +72,6 @@ if [ $# == 1 ]; then
 # Function to set the environment variable
 set_env_variable() {
     export LD_LIBRARY_PATH=$NEW_LD_LIBRARY_PATH
-    # TODO(gitbuda): Setup mgclient and pymgclient properly.
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib
 }
 
 # Function to activate the virtual environment and set the environment variable
