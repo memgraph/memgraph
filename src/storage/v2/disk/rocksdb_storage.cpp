@@ -32,9 +32,13 @@ inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key
 
 // Extracts global id from user key. User key must be without timestamp.
 std::string_view ExtractGidFromUserKey(const rocksdb::Slice &key) {
-  assert(key.size() >= 2);
   auto keyStrView = key.ToStringView();
-  return keyStrView.substr(keyStrView.find_last_of('|') + 1);
+  auto res = keyStrView.substr(keyStrView.find_last_of('|') + 1);
+  if (res.empty()) {
+    spdlog::trace("Key: {} {}", key.ToString(), key.size());
+    spdlog::trace("Extracted gid from user key is empty");
+  }
+  return res;
 }
 
 }  // namespace

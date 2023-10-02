@@ -247,6 +247,8 @@ class DiskStorage final : public Storage {
                                       rocksdb::ColumnFamilyHandle *handle);
 
     bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
+
+    bool DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid);
     bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
                             const std::string &dst_vertex_gid);
     bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
