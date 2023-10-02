@@ -1865,12 +1865,14 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     // Iterate over all label property indexed vertices
     std::for_each(
         index_info.begin(), index_info.end(),
-        [execution_db_accessor, &label_property_counter, &vertex_degree_counter, view](const LPIndex &index_info) {
-          auto vertices = execution_db_accessor->Vertices(view, index_info.first, index_info.second);
+        [execution_db_accessor, &label_property_counter, &vertex_degree_counter, view](const LPIndex &index_element) {
+          auto &lp_counter = label_property_counter[index_element];
+          auto &vd_counter = vertex_degree_counter[index_element];
+          auto vertices = execution_db_accessor->Vertices(view, index_element.first, index_element.second);
           std::for_each(vertices.begin(), vertices.end(),
-                        [&index_info, &label_property_counter, &vertex_degree_counter, &view](const auto &vertex) {
-                          label_property_counter[index_info][*vertex.GetProperty(view, index_info.second)]++;
-                          vertex_degree_counter[index_info] += *vertex.OutDegree(view) + *vertex.InDegree(view);
+                        [&index_element, &lp_counter, &vd_counter, &view](const auto &vertex) {
+                          lp_counter[*vertex.GetProperty(view, index_element.second)]++;
+                          vd_counter += *vertex.OutDegree(view) + *vertex.InDegree(view);
                         });
         });
 

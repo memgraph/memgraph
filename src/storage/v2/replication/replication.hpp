@@ -51,7 +51,7 @@ struct ReplicationState {
   void RestoreReplicationRole(Storage *storage);
 
   // MAIN actually doing the replication
-  bool AppendOperation(uint64_t seq_num, durability::StorageMetadataOperation operation, LabelId label,
+  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
   void InitializeTransaction(uint64_t seq_num);

@@ -21,6 +21,7 @@
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
 #include <storage/v2/replication/enums.hpp>
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -229,6 +230,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *label = "label";
   const auto *property = "property";
   const auto *property_extra = "property_extra";
+  const memgraph::storage::LabelIndexStats l_stats{12, 34};
+  const memgraph::storage::LabelPropertyIndexStats lp_stats{98, 76, 5.4, 3.2, 1.0};
 
   {
     auto unique_acc = main_store->UniqueAccess();
@@ -237,8 +240,18 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     auto unique_acc = main_store->UniqueAccess();
+    unique_acc->SetIndexStats(main_store->NameToLabel(label), l_stats);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
     ASSERT_FALSE(
         unique_acc->CreateIndex(main_store->NameToLabel(label), main_store->NameToProperty(property)).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
+    unique_acc->SetIndexStats(main_store->NameToLabel(label), main_store->NameToProperty(property), lp_stats);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
@@ -263,7 +276,18 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica_store->NameToLabel(label)));
     ASSERT_THAT(indices.label_property, UnorderedElementsAre(std::make_pair(replica_store->NameToLabel(label),
                                                                             replica_store->NameToProperty(property))));
-
+    const auto &l_stats_rep = replica_store->Access()->GetIndexStats(replica_store->NameToLabel(label));
+    ASSERT_TRUE(l_stats_rep);
+    ASSERT_EQ(l_stats_rep->count, l_stats.count);
+    ASSERT_EQ(l_stats_rep->avg_degree, l_stats.avg_degree);
+    const auto &lp_stats_rep = replica_store->Access()->GetIndexStats(replica_store->NameToLabel(label),
+                                                                      replica_store->NameToProperty(property));
+    ASSERT_TRUE(lp_stats_rep);
+    ASSERT_EQ(lp_stats_rep->count, lp_stats.count);
+    ASSERT_EQ(lp_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
+    ASSERT_EQ(lp_stats_rep->statistic, lp_stats.statistic);
+    ASSERT_EQ(lp_stats_rep->avg_group_size, lp_stats.avg_group_size);
+    ASSERT_EQ(lp_stats_rep->avg_degree, lp_stats.avg_degree);
     const auto constraints = replica_store->Access()->ListAllConstraints();
     ASSERT_THAT(constraints.existence, UnorderedElementsAre(std::make_pair(replica_store->NameToLabel(label),
                                                                            replica_store->NameToProperty(property))));
@@ -279,7 +303,17 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // unique constriant drop
   {
     auto unique_acc = main_store->UniqueAccess();
+    unique_acc->DeleteLabelIndexStats(main_store->NameToLabel(label));
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(main_store->NameToLabel(label)).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = main_store->UniqueAccess();
+    unique_acc->DeleteLabelPropertyIndexStats(main_store->NameToLabel(label));
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
@@ -308,6 +342,12 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto indices = replica_store->Access()->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
+
+    const auto &l_stats_rep = replica_store->Access()->GetIndexStats(replica_store->NameToLabel(label));
+    ASSERT_FALSE(l_stats_rep);
+    const auto &lp_stats_rep = replica_store->Access()->GetIndexStats(replica_store->NameToLabel(label),
+                                                                      replica_store->NameToProperty(property));
+    ASSERT_FALSE(lp_stats_rep);
 
     const auto constraints = replica_store->Access()->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);

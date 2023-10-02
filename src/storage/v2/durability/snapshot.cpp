@@ -1577,6 +1577,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       }
     }
 
+    // TODO: Write stats
+
     // Write label+property indices.
     {
       auto label_property = indices->label_property_index_->ListIndices();

@@ -286,10 +286,18 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
+  constexpr bool kUniqueAccess = true;
+
   std::optional<std::pair<uint64_t, InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto get_transaction = [storage, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
+  auto get_transaction = [storage, &commit_timestamp_and_accessor](uint64_t commit_timestamp,
+                                                                   bool unique = !kUniqueAccess) {
     if (!commit_timestamp_and_accessor) {
-      auto acc = storage->Access(std::nullopt);
+      std::unique_ptr<Storage::Accessor> acc = nullptr;
+      if (unique) {
+        acc = storage->UniqueAccess(std::nullopt);
+      } else {
+        acc = storage->Access(std::nullopt);
+      }
       auto inmem_acc = std::unique_ptr<InMemoryStorage::InMemoryAccessor>(
           static_cast<InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
@@ -307,8 +315,6 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
     if (timestamp > max_commit_timestamp) {
       max_commit_timestamp = timestamp;
     }
-
-    transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
 
     if (timestamp < storage->timestamp_) {
       continue;
@@ -467,140 +473,108 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
       case durability::WalDeltaData::Type::TRANSACTION_END: {
         spdlog::trace("       Transaction end");
         if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != timestamp)
-          throw utils::BasicException("Invalid data!");
+          throw utils::BasicException("Invalid commit data!");
         auto ret = commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         commit_timestamp_and_accessor = std::nullopt;
+        transaction_complete = true;
         break;
       }
 
       case durability::WalDeltaData::Type::LABEL_INDEX_CREATE: {
         spdlog::trace("       Create label index on :{}", delta.operation_label.label);
         // Need to send the timestamp
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->UniqueAccess({});
-        if (access->CreateIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction->CreateIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction!");
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
         spdlog::trace("       Drop label index on :{}", delta.operation_label.label);
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->UniqueAccess({});
-        if (access->DropIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction->DropIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction!");
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
         spdlog::trace("       Set label index statistics on :{}", delta.operation_label_stats.label);
         // Need to send the timestamp
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->Access({});
+        auto *transaction = get_transaction(timestamp);
         const auto label = storage->NameToLabel(delta.operation_label_stats.label);
         LabelIndexStats stats{};
         if (!FromJson(delta.operation_label_stats.stats, stats)) {
           throw utils::BasicException("Failed to read statistics!");
         }
-        access->SetIndexStats(label, stats);
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
+        transaction->SetIndexStats(label, stats);
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR: {
         const auto &info = delta.operation_label;
         spdlog::trace("       Clear label index statistics on :{}", info.label);
         // Need to send the timestamp
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->Access({});
-        access->DeleteLabelIndexStats(storage->NameToLabel(info.label));
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
+        auto *transaction = get_transaction(timestamp);
+        transaction->DeleteLabelIndexStats(storage->NameToLabel(info.label));
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
         spdlog::trace("       Create label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->UniqueAccess({});
-        if (access
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction
                 ->CreateIndex(storage->NameToLabel(delta.operation_label_property.label),
                               storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
           throw utils::BasicException("Invalid transaction!");
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
         spdlog::trace("       Drop label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->UniqueAccess({});
-        if (access
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction
                 ->DropIndex(storage->NameToLabel(delta.operation_label_property.label),
                             storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
           throw utils::BasicException("Invalid transaction!");
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {
         const auto &info = delta.operation_label_property_stats;
         spdlog::trace("       Set label-property index statistics on :{}", info.label);
         // Need to send the timestamp
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->Access({});
+        auto *transaction = get_transaction(timestamp);
         const auto label = storage->NameToLabel(info.label);
         const auto property = storage->NameToProperty(info.property);
         LabelPropertyIndexStats stats{};
         if (!FromJson(info.stats, stats)) {
           throw utils::BasicException("Failed to read statistics!");
         }
-        access->SetIndexStats(label, property, stats);
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
+        transaction->SetIndexStats(label, property, stats);
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
         const auto &info = delta.operation_label;
         spdlog::trace("       Clear label-property index statistics on :{}", info.label);
         // Need to send the timestamp
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->Access({});
-        access->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
+        auto *transaction = get_transaction(timestamp);
+        transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
         break;
       }
       case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
         spdlog::trace("       Create existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->UniqueAccess({});
-        auto ret = access->CreateExistenceConstraint(storage->NameToLabel(delta.operation_label_property.label),
-                                                     storage->NameToProperty(delta.operation_label_property.property));
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        auto ret =
+            transaction->CreateExistenceConstraint(storage->NameToLabel(delta.operation_label_property.label),
+                                                   storage->NameToProperty(delta.operation_label_property.property));
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
         break;
       }
       case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
         spdlog::trace("       Drop existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto access = storage->UniqueAccess({});
-        if (access
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction
                 ->DropExistenceConstraint(storage->NameToLabel(delta.operation_label_property.label),
                                           storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
@@ -611,45 +585,37 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         std::stringstream ss;
         utils::PrintIterable(ss, delta.operation_label_properties.properties);
         spdlog::trace("       Create unique constraint on :{} ({})", delta.operation_label_properties.label, ss.str());
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
         std::set<PropertyId> properties;
         for (const auto &prop : delta.operation_label_properties.properties) {
           properties.emplace(storage->NameToProperty(prop));
         }
-        auto access = storage->UniqueAccess({});
-        auto ret =
-            access->CreateUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label), properties);
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label),
+                                                       properties);
         if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
           throw utils::BasicException("Invalid transaction!");
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
-        }
         break;
       }
       case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
         std::stringstream ss;
         utils::PrintIterable(ss, delta.operation_label_properties.properties);
         spdlog::trace("       Drop unique constraint on :{} ({})", delta.operation_label_properties.label, ss.str());
-        if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
         std::set<PropertyId> properties;
         for (const auto &prop : delta.operation_label_properties.properties) {
           properties.emplace(storage->NameToProperty(prop));
         }
-        auto access = storage->UniqueAccess({});
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
         auto ret =
-            access->DropUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label), properties);
+            transaction->DropUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label), properties);
         if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
           throw utils::BasicException("Invalid transaction!");
-        }
-        if (access->Commit(timestamp).HasError()) {
-          throw utils::BasicException("Failed to commit!");
         }
         break;
       }
     }
   }
 
-  if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid data!");
+  if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
 
   storage->replication_state_.last_commit_timestamp_ = max_commit_timestamp;
 

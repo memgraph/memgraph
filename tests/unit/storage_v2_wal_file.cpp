@@ -194,6 +194,17 @@ class DeltaGenerator final {
       }
     }
 
+    void FinalizeOperationTx() {
+      auto timestamp = gen_->timestamp_;
+      gen_->wal_file_.AppendTransactionEnd(timestamp);
+      if (gen_->valid_) {
+        gen_->UpdateStats(timestamp, 1);
+        memgraph::storage::durability::WalDeltaData data{
+            .type = memgraph::storage::durability::WalDeltaData::Type::TRANSACTION_END};
+        gen_->data_.emplace_back(timestamp, data);
+      }
+    }
+
    private:
     DeltaGenerator *gen_;
     memgraph::storage::Transaction transaction_;
@@ -234,7 +245,7 @@ class DeltaGenerator final {
       } else if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET) {
         ASSERT_TRUE(FromJson(stats, lp_stats));
       } else {
-        ASSERT_TRUE(false);
+        ASSERT_TRUE(false) << "Unexpected statistics operation!";
       }
     }
     wal_file_.AppendOperation(operation, label_id, property_ids, l_stats, lp_stats, timestamp_);
@@ -333,6 +344,14 @@ class DeltaGenerator final {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define OPERATION(op, ...) gen.AppendOperation(memgraph::storage::durability::StorageMetadataOperation::op, __VA_ARGS__)
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define OPERATION_TX(op, ...)          \
+  {                                    \
+    auto tx = gen.CreateTransaction(); \
+    OPERATION(op, __VA_ARGS__);        \
+    tx.FinalizeOperationTx();          \
+  }
+
 void AssertWalInfoEqual(const memgraph::storage::durability::WalInfo &a,
                         const memgraph::storage::durability::WalInfo &b) {
   ASSERT_EQ(a.uuid, b.uuid);
@@ -424,7 +443,7 @@ GENERATE_SIMPLE_TEST(TransactionWithEnd, { TRANSACTION(true, { tx.CreateVertex()
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionWithoutEnd, { TRANSACTION(false, { tx.CreateVertex(); }); });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SIMPLE_TEST(OperationSingle, { OPERATION(LABEL_INDEX_CREATE, "hello"); });
+GENERATE_SIMPLE_TEST(OperationSingle, { OPERATION_TX(LABEL_INDEX_CREATE, "hello"); });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsEnd00, {
@@ -449,25 +468,25 @@ GENERATE_SIMPLE_TEST(TransactionsEnd11, {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation_00, {
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(false, { tx.CreateVertex(); });
   TRANSACTION(false, { tx.CreateVertex(); });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation_01, {
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(false, { tx.CreateVertex(); });
   TRANSACTION(true, { tx.CreateVertex(); });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation_10, {
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(true, { tx.CreateVertex(); });
   TRANSACTION(false, { tx.CreateVertex(); });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation_11, {
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(true, { tx.CreateVertex(); });
   TRANSACTION(true, { tx.CreateVertex(); });
 });
@@ -475,25 +494,25 @@ GENERATE_SIMPLE_TEST(TransactionsWithOperation_11, {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation0_0, {
   TRANSACTION(false, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(false, { tx.CreateVertex(); });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation0_1, {
   TRANSACTION(false, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(true, { tx.CreateVertex(); });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation1_0, {
   TRANSACTION(true, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(false, { tx.CreateVertex(); });
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation1_1, {
   TRANSACTION(true, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
   TRANSACTION(true, { tx.CreateVertex(); });
 });
 
@@ -501,25 +520,25 @@ GENERATE_SIMPLE_TEST(TransactionsWithOperation1_1, {
 GENERATE_SIMPLE_TEST(TransactionsWithOperation00_, {
   TRANSACTION(false, { tx.CreateVertex(); });
   TRANSACTION(false, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation01_, {
   TRANSACTION(false, { tx.CreateVertex(); });
   TRANSACTION(true, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation10_, {
   TRANSACTION(true, { tx.CreateVertex(); });
   TRANSACTION(false, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation11_, {
   TRANSACTION(true, { tx.CreateVertex(); });
   TRANSACTION(true, { tx.CreateVertex(); });
-  OPERATION(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -550,29 +569,37 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
     tx.DeleteVertex(vertex1);
   });
 });
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SIMPLE_TEST(LPStats, {
+GENERATE_SIMPLE_TEST(MultiOpTransaction, {
   namespace ms = memgraph::storage;
+  auto l_stats = ms::ToJson(ms::LabelIndexStats{12, 34});
   auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
+  auto tx = gen.CreateTransaction();
   OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
+  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"and"}, lp_stats);
+  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"universe"}, lp_stats);
+  OPERATION(LABEL_INDEX_STATS_SET, "hello", {}, l_stats);
+  tx.FinalizeOperationTx();
 });
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   namespace ms = memgraph::storage;
-  OPERATION(LABEL_INDEX_CREATE, "hello");
-  OPERATION(LABEL_INDEX_DROP, "hello");
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
+  OPERATION_TX(LABEL_INDEX_DROP, "hello");
   auto l_stats = ms::ToJson(ms::LabelIndexStats{12, 34});
-  OPERATION(LABEL_INDEX_STATS_SET, "hello", {}, l_stats);
-  OPERATION(LABEL_INDEX_STATS_CLEAR, "hello");
-  OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
-  OPERATION(LABEL_PROPERTY_INDEX_DROP, "hello", {"world"});
+  OPERATION_TX(LABEL_INDEX_STATS_SET, "hello", {}, l_stats);
+  OPERATION_TX(LABEL_INDEX_STATS_CLEAR, "hello");
+  OPERATION_TX(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
+  OPERATION_TX(LABEL_PROPERTY_INDEX_DROP, "hello", {"world"});
   auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
-  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
-  OPERATION(LABEL_PROPERTY_INDEX_STATS_CLEAR, "hello");
-  OPERATION(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
-  OPERATION(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
-  OPERATION(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
-  OPERATION(UNIQUE_CONSTRAINT_DROP, "hello", {"world", "and", "universe"});
+  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
+  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_CLEAR, "hello");
+  OPERATION_TX(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
+  OPERATION_TX(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
+  OPERATION_TX(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
+  OPERATION_TX(UNIQUE_CONSTRAINT_DROP, "hello", {"world", "and", "universe"});
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -632,7 +659,7 @@ TEST_P(WalFileTest, PartialData) {
       tx.AddLabel(vertex, "hello");
     });
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
-    OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
+    OPERATION_TX(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
     TRANSACTION(true, {
       auto vertex1 = tx.CreateVertex();
