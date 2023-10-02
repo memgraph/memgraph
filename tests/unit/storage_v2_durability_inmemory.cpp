@@ -28,6 +28,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -84,10 +85,24 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
+      // Create label index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
+      ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
+    {
       // Create label+property index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label+property index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_indexed, property_id, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_id));
+      ASSERT_FALSE(acc->Commit().HasError());
     }
 
     {
@@ -163,10 +178,25 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
+      // Create label index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
+      ASSERT_TRUE(acc->GetIndexStats(label_unused));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
+    {
       // Create label+property index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label+property index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_indexed, property_count,
+                         memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_count));
+      ASSERT_FALSE(acc->Commit().HasError());
     }
 
     {
@@ -266,6 +296,68 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_id),
                                            std::make_pair(extended_label_indexed, property_count)));
           break;
+      }
+    }
+
+    // Verify index statistics
+    {
+      switch (type) {
+        case DatasetType::ONLY_BASE: {
+          const auto l_stats = acc->GetIndexStats(base_label_unindexed);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 1);
+          ASSERT_EQ(l_stats->avg_degree, 2);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 1);
+          ASSERT_EQ(lp_stats->distinct_values_count, 2);
+          ASSERT_EQ(lp_stats->statistic, 3.4);
+          ASSERT_EQ(lp_stats->avg_group_size, 5.6);
+          ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          break;
+        }
+        case DatasetType::ONLY_EXTENDED: {
+          const auto l_stats = acc->GetIndexStats(extended_label_unused);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 123);
+          ASSERT_EQ(l_stats->avg_degree, 9.87);
+          const auto lp_stats = acc->GetIndexStats(extended_label_indexed, property_count);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 456798);
+          ASSERT_EQ(lp_stats->distinct_values_count, 312345);
+          ASSERT_EQ(lp_stats->statistic, 12312312.2);
+          ASSERT_EQ(lp_stats->avg_group_size, 123123.2);
+          ASSERT_EQ(lp_stats->avg_degree, 67876.9);
+          break;
+        }
+        case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
+        case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
+        case DatasetType::BASE_WITH_EXTENDED: {
+          const auto &i = acc->ListAllIndices();
+          const auto l_stats = acc->GetIndexStats(base_label_unindexed);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 1);
+          ASSERT_EQ(l_stats->avg_degree, 2);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 1);
+          ASSERT_EQ(lp_stats->distinct_values_count, 2);
+          ASSERT_EQ(lp_stats->statistic, 3.4);
+          ASSERT_EQ(lp_stats->avg_group_size, 5.6);
+          ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          const auto l_stats_ex = acc->GetIndexStats(extended_label_unused);
+          ASSERT_TRUE(l_stats_ex);
+          ASSERT_EQ(l_stats_ex->count, 123);
+          ASSERT_EQ(l_stats_ex->avg_degree, 9.87);
+          const auto lp_stats_ex = acc->GetIndexStats(extended_label_indexed, property_count);
+          ASSERT_TRUE(lp_stats_ex);
+          ASSERT_EQ(lp_stats_ex->count, 456798);
+          ASSERT_EQ(lp_stats_ex->distinct_values_count, 312345);
+          ASSERT_EQ(lp_stats_ex->statistic, 12312312.2);
+          ASSERT_EQ(lp_stats_ex->avg_group_size, 123123.2);
+          ASSERT_EQ(lp_stats_ex->avg_degree, 67876.9);
+          break;
+        }
       }
     }
 
