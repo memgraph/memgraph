@@ -20,8 +20,7 @@ class InMemoryStorage;
 
 class InMemoryReplicationServer : public ReplicationServer {
  public:
-  explicit InMemoryReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
-                                     const replication::ReplicationServerConfig &config);
+  explicit InMemoryReplicationServer(InMemoryStorage *storage, const replication::ReplicationServerConfig &config);
 
  private:
   // RPC handlers

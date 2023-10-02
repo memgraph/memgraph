@@ -32,9 +32,9 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
 };
 }  // namespace
 
-InMemoryReplicationServer::InMemoryReplicationServer(InMemoryStorage *storage, memgraph::io::network::Endpoint endpoint,
+InMemoryReplicationServer::InMemoryReplicationServer(InMemoryStorage *storage,
                                                      const replication::ReplicationServerConfig &config)
-    : ReplicationServer{std::move(endpoint), config}, storage_(storage) {
+    : ReplicationServer{config}, storage_(storage) {
   rpc_server_.Register<replication::HeartbeatRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received HeartbeatRpc");
     this->HeartbeatHandler(req_reader, res_builder);

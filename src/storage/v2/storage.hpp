@@ -315,29 +315,23 @@ class Storage {
 
   virtual void EstablishNewEpoch() = 0;
 
-  virtual auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint,
-                                       replication::ReplicationMode mode,
-                                       replication::ReplicationClientConfig const &config)
+  virtual auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> = 0;
 
-  virtual auto CreateReplicationServer(io::network::Endpoint endpoint,
-                                       replication::ReplicationServerConfig const &config)
+  virtual auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
   /// REPLICATION
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-    return replication_state_.SetReplicaRole(std::move(endpoint), config, this);
+  bool SetReplicaRole(const replication::ReplicationServerConfig &config) {
+    return replication_state_.SetReplicaRole(config, this);
   }
   bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
-  auto RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       const replication::ReplicationMode replication_mode,
-                       const replication::RegistrationMode registration_mode,
+  auto RegisterReplica(const replication::RegistrationMode registration_mode,
                        const replication::ReplicationClientConfig &config) {
-    return replication_state_.RegisterReplica(std::move(name), std::move(endpoint), replication_mode, registration_mode,
-                                              config, this);
+    return replication_state_.RegisterReplica(registration_mode, config, this);
   }
   /// @pre The instance should have a MAIN role
   bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
