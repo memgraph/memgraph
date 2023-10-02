@@ -70,6 +70,10 @@ inline std::string_view GetViewOfThirdPartOfSplit(const std::string_view src, co
   return FindPartOfStringView(src, delimiter, 3);
 }
 
+inline std::string_view GetViewOfFourthPartOfSplit(const std::string_view src, const char delimiter) {
+  return FindPartOfStringView(src, delimiter, 4);
+}
+
 }  // namespace
 
 /// TODO: try to move this to hpp files so that we can follow jump on readings
@@ -139,8 +143,20 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
   return result;
 }
 
-inline std::string SerializeEdgeAsValue(const storage::EdgeTypeId &edge_type, const storage::Edge &edge) {
-  return SerializeIdType(edge_type) + "|" + utils::SerializeProperties(edge.properties);
+inline storage::Gid ExtractDstVertexGidFromValue(const std::string value) {
+  const std::string_view dst_vertex_gid_str = GetViewOfSecondPartOfSplit(value, '|');
+  return storage::Gid::FromString(dst_vertex_gid_str);
+}
+
+inline storage::EdgeTypeId ExtractEdgeTypeIdFromValue(const std::string_view value) {
+  const std::string_view edge_type_str = GetViewOfThirdPartOfSplit(value, '|');
+  return storage::EdgeTypeId::FromString(edge_type_str);
+}
+
+inline std::string SerializeEdgeAsValue(const std::string &src_vertex_gid, const std::string &dst_vertex_gid,
+                                        const storage::EdgeTypeId &edge_type, const storage::Edge &edge) {
+  return src_vertex_gid + "|" + dst_vertex_gid + "|" + SerializeIdType(edge_type) + "|" +
+         utils::SerializeProperties(edge.properties);
 }
 
 inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,

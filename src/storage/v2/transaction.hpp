@@ -31,6 +31,8 @@
 #include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
 
+#include <rocksdb/utilities/transaction.h>
+
 namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
@@ -100,7 +102,17 @@ struct Transaction {
   mutable VertexInfoCache manyDeltasCache;
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
+  // Only for disk storage
   ModifiedEdgesMap modified_edges_;
+  rocksdb::Transaction *disk_transaction_;
+  /// Main storage
+  utils::SkipList<Vertex> vertices_;
+  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+
+  /// We need them because query context for indexed reading is cleared after the query is done not after the
+  /// transaction is done
+  std::vector<std::list<Delta>> index_deltas_storage_;
+  utils::SkipList<Edge> edges_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

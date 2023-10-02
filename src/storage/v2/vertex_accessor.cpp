@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "query/exceptions.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -512,6 +513,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+
+  if (transaction_->IsDiskStorage()) {
+    auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    auto res = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
+    return EdgesVertexAccessorResult{.edges = res, .expanded_count = static_cast<int64_t>(res.size())};
+  }
 
   using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 

@@ -212,22 +212,14 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value,
-                                                                       std::string &&ts);
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
    private:
-    VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                        std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
-
-    Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
-                                            storage::Gid gid, std::string_view properties, std::string &&old_disk_key,
-                                            std::string &&ts);
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
@@ -260,18 +252,9 @@ class DiskStorage final : public Storage {
     bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
                                          rocksdb::ColumnFamilyHandle *handle);
 
-    /// Main storage
-    utils::SkipList<Vertex> vertices_;
-    std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
-
-    /// We need them because query context for indexed reading is cleared after the query is done not after the
-    /// transaction is done
-    std::vector<std::list<Delta>> index_deltas_storage_;
-    utils::SkipList<Edge> edges_;
     Config::Items config_;
     std::set<std::tuple<std::string, std::string, std::string>> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
-    rocksdb::Transaction *disk_transaction_;
     bool scanned_all_vertices_ = false;
   };
 
@@ -282,6 +265,34 @@ class DiskStorage final : public Storage {
     }
     return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
   }
+
+  /// TODO: (andi) Methods working with rocksdb are scattered around DiskStorage and DiskStorage::DiskAccessor
+  /// Two options:
+  /// 1. move everything under DiskStorage level
+  /// 2. propagate DiskStorage::DiskAccessor to vertex and edge accessor.
+  /// Out of scope of this PR
+  VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
+                                      storage::Gid gid, std::vector<LabelId> label_ids, PropertyStore properties,
+                                      Delta *delta);
+
+  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,
+                                                                     const std::string &value, std::string &&ts);
+
+  /// TODO: (andi) I don't think View is necessary
+  std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
+
+  Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
+                                          Transaction *transaction, EdgeTypeId edge_type, storage::Gid gid,
+                                          std::string_view properties, const std::string &old_disk_key,
+                                          std::string &&ts);
+
+  /// TODO: (andi) Maybe const
+  std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex, const std::vector<EdgeTypeId> &edge_types,
+                                     const VertexAccessor *destination, Transaction *transaction, View view);
+
+  /// TODO: (andi) Maybe const
+  std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex, const std::vector<EdgeTypeId> &edge_types,
+                                    const VertexAccessor *source, Transaction *transaction, View view);
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
