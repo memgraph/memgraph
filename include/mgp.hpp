@@ -1408,6 +1408,8 @@ class Record {
   void Insert(const char *field_name, const Duration &duration);
   /// @brief Inserts a @ref Value value under field `field_name`, and then call appropriate insert.
   void Insert(const char *field_name, const Value &value);
+  /// @brief Inserts a @ref null value under field `field_name`.
+  void Insert(const char *field_name);
 
  private:
   mgp_result_record *record_;
@@ -1535,6 +1537,99 @@ enum class ProcedureType : uint8_t {
   Write,
 };
 
+enum class StreamSourceType : uint8_t { Kafka, Pulsar };
+
+class Message {
+ public:
+  explicit Message(mgp_message *ptr);
+  explicit Message(const mgp_message *const_ptr);
+
+  Message(const Message &other) noexcept;
+  Message(Message &&other) noexcept;
+
+  Message &operator=(const Message &other) noexcept;
+  Message &operator=(Message &&other) noexcept;
+
+  ~Message();
+
+  StreamSourceType SourceType() const;
+  std::string Payload() const;
+  size_t PayloadSize() const;
+  std::string TopicName() const;
+  std::string Key() const;
+  size_t KeySize() const;
+  int64_t Timestamp() const;
+  int64_t Offset() const;
+
+ private:
+  mgp_message *ptr_;
+};
+
+class Messages {
+ public:
+  explicit Messages(mgp_messages *ptr);
+  explicit Messages(const mgp_messages *const_ptr);
+
+  Messages(const Messages &other) noexcept;
+  Messages(Messages &&other) noexcept;
+
+  Messages &operator=(const Messages &other) noexcept;
+  Messages &operator=(Messages &&other) noexcept;
+
+  ~Messages();
+
+  /// @brief Returns the size of the list.
+  size_t Size() const;
+  /// @brief Returns whether the list is empty.
+  bool Empty() const;
+
+  /// @brief Returns the value at the given `index`.
+  const Message operator[](size_t index) const;
+
+  ///@brief Same as above, but non const value
+  Message operator[](size_t index);
+
+  class Iterator {
+   private:
+    friend class Messages;
+
+   public:
+    using value_type = Messages;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const Messages *;
+    using reference = const Messages &;
+    using iterator_category = std::forward_iterator_tag;
+
+    bool operator==(const Iterator &other) const;
+
+    bool operator!=(const Iterator &other) const;
+
+    Iterator &operator++();
+
+    const Message operator*() const;
+
+   private:
+    Iterator(const Messages *iterable, size_t index);
+
+    const Messages *iterable_;
+    size_t index_;
+  };
+
+  Iterator begin() const;
+  Iterator end() const;
+
+  Iterator cbegin() const;
+  Iterator cend() const;
+
+  /// @exception std::runtime_error List contains value of unknown type.
+  bool operator==(const Messages &other) const;
+  /// @exception std::runtime_error List contains value of unknown type.
+  bool operator!=(const Messages &other) const;
+
+ private:
+  mgp_messages *ptr_;
+};
+
 /// @brief Adds a procedure to the query module.
 /// @param callback - procedure callback
 /// @param name - procedure name
@@ -1569,6 +1664,8 @@ inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initial
 /// @param memory - access to memory
 inline void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters,
                         mgp_module *module, mgp_memory *memory);
+
+inline void AddTransformation(mgp_trans_cb callback, std::string_view name, mgp_module *module);
 
 /* #endregion */
 
@@ -1794,6 +1891,34 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::DurationsEqual(mgp::value_get_duration(value1), mgp::value_get_duration(value2));
   }
   throw ValueException("Invalid value; does not match any Memgraph type.");
+}
+
+inline bool MessageEqual(mgp_message *message1, mgp_message *message2) {
+  if (mgp::message_source_type(message1) != mgp::message_source_type(message2)) {
+    return false;
+  }
+
+  if (mgp::message_payload_size(message1) != mgp::message_payload_size(message2)) {
+    return false;
+  }
+
+  return mgp::message_payload(message1) == mgp::message_payload(message2);
+}
+
+inline bool MessagesEqual(mgp_messages *messages1, mgp_messages *messages2) {
+  if (messages1 == messages2) {
+    return true;
+  }
+  if (mgp::messages_size(messages1) != mgp::messages_size(messages2)) {
+    return false;
+  }
+  const size_t len = mgp::messages_size(messages1);
+  for (size_t i = 0; i < len; ++i) {
+    if (!util::MessageEqual(mgp::messages_at(messages1, i), mgp::messages_at(messages2, i))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// @brief Converts C++ API types to their MGP API equivalents.
@@ -3952,6 +4077,12 @@ inline const std::string Value::ToString() const {
 
 inline Record::Record(mgp_result_record *record) : record_(record) {}
 
+inline void Record::Insert(const char *field_name) {
+  auto null_value = mgp::MemHandlerCallback(value_make_null);
+  { mgp::result_record_insert(record_, field_name, null_value); }
+  mgp::value_destroy(null_value);
+}
+
 inline void Record::Insert(const char *field_name, bool value) {
   auto mgp_val = mgp::MemHandlerCallback(value_make_bool, value);
   { mgp::result_record_insert(record_, field_name, mgp_val); }
@@ -4038,6 +4169,8 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
 
 inline void Record::Insert(const char *field_name, const Value &value) {
   switch (value.Type()) {
+    case Type::Null:
+      return Insert(field_name);
     case Type::Bool:
       return Insert(field_name, value.ValueBool());
     case Type::Int:
@@ -4245,6 +4378,78 @@ inline mgp_type *Return::GetMGPType() const {
   return util::ToMGPType(type_);
 }
 
+// Message
+
+inline Message::Message(mgp_message *ptr) : ptr_(ptr) {}
+inline Message::Message(const mgp_message *const_ptr) : ptr_(const_cast<mgp_message *>(const_ptr)) {}
+inline Message::Message(const Message &other) noexcept : Message(other.ptr_) {}
+inline Message::Message(Message &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
+inline Message &Message::operator=(Message &&other) noexcept {
+  if (this != &other) {
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+inline Message &Message::operator=(const Message &other) noexcept { return *this; }
+inline Message::~Message() { ptr_ = nullptr; }
+inline StreamSourceType Message::SourceType() const {
+  auto result = mgp::message_source_type(ptr_);
+  switch (result) {
+    case mgp_source_type::KAFKA:
+      return StreamSourceType::Kafka;
+    case mgp_source_type::PULSAR:
+      return StreamSourceType::Pulsar;
+  }
+}
+inline std::string Message::Payload() const { return std::string{mgp::message_payload(ptr_)}; }
+inline size_t Message::PayloadSize() const { return Payload().size(); }
+inline std::string Message::TopicName() const { return std::string{mgp::message_topic_name(ptr_)}; }
+inline std::string Message::Key() const { return std::string{mgp::message_key(ptr_)}; }
+inline size_t Message::KeySize() const { return Key().size(); }
+inline int64_t Message::Timestamp() const { return mgp::message_timestamp(ptr_); }
+inline int64_t Message::Offset() const { return mgp::message_offset(ptr_); }
+
+// Messages
+
+inline Messages::Messages(mgp_messages *ptr) : ptr_(ptr) {}
+inline Messages::Messages(const mgp_messages *const_ptr) : ptr_(const_cast<mgp_messages *>(const_ptr)) {}
+inline Messages::Messages(const Messages &other) noexcept : Messages(other.ptr_) {}
+inline Messages::Messages(Messages &&other) noexcept : Messages(other.ptr_) { other.ptr_ = nullptr; }
+inline Messages &Messages::operator=(const Messages &other) noexcept { return *this; }
+inline Messages &Messages::operator=(Messages &&other) noexcept {
+  if (this != &other) {
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+inline Messages::~Messages() { ptr_ = nullptr; }
+inline size_t Messages::Size() const { return mgp::messages_size(ptr_); }
+inline bool Messages::Empty() const { return mgp::messages_size(ptr_) == 0; }
+inline const Message Messages::operator[](size_t index) const { return Message(mgp::messages_at(ptr_, index)); }
+inline Message Messages::operator[](size_t index) { return Message(mgp::messages_at(ptr_, index)); }
+
+inline Messages::Iterator Messages::begin() const { return Messages::Iterator(this, 0); }
+inline Messages::Iterator Messages::end() const { return Messages::Iterator(this, Size()); }
+inline Messages::Iterator Messages::cbegin() const { return Messages::Iterator(this, 0); }
+inline Messages::Iterator Messages::cend() const { return Messages::Iterator(this, Size()); }
+
+inline bool Messages::operator==(const Messages &other) const { return util::MessagesEqual(ptr_, other.ptr_); }
+
+inline bool Messages::operator!=(const Messages &other) const { return !(*this == other); }
+
+inline bool Messages::Iterator::operator==(const Messages::Iterator &other) const {
+  return this->iterable_ == other.iterable_ && this->index_ == other.index_;
+}
+inline bool Messages::Iterator::operator!=(const Messages::Iterator &other) const { return !(*this == other); }
+inline Messages::Iterator &Messages::Iterator::operator++() {
+  index_++;
+  return *this;
+}
+inline const Message Messages::Iterator::operator*() const { return (*iterable_)[index_]; }
+inline Messages::Iterator::Iterator(const Messages *iterable, size_t index) : iterable_(iterable), index_(index) {}
+
 // do not enter
 namespace detail {
 inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &parameters,
@@ -4295,6 +4500,10 @@ void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parame
       mgp::func_add_opt_arg(func, parameter_name, parameter.GetMGPType(), parameter.default_value.ptr());
     }
   }
+}
+
+void AddTransformation(mgp_trans_cb callback, std::string_view name, mgp_module *module) {
+  mgp::module_add_transformation(module, name.data(), callback);
 }
 
 /* #endregion */
