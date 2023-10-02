@@ -276,3 +276,22 @@ Feature: Cartesian
             MATCH (a)-->(b), (c)-->(d), (e)-->(f) RETURN a, b, c, d, e, f
             """
         Then the result should be empty
+
+    Scenario: Triple match with Cyphermorphism yields result
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1})-[:TYPE]->(:B {id: 1}), (:A {id: 2})-[:TYPE]->(:B {id: 2}), (:A {id: 3})-[:TYPE]->(:B {id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a)-->(b), (c)-->(d), (e)-->(f) RETURN a, b, c, d, e, f
+            """
+        Then the result should be:
+            | a            | b            | c            | d            | e            | f            |
+            | (:A {id: 1}) | (:B {id: 1}) | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 3}) | (:B {id: 3}) |
+            | (:A {id: 1}) | (:B {id: 1}) | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 2}) | (:B {id: 2}) |
+            | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 1}) | (:B {id: 1}) | (:A {id: 3}) | (:B {id: 3}) |
+            | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 1}) | (:B {id: 1}) |
+            | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 1}) | (:B {id: 1}) |
+            | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 1}) | (:B {id: 1}) | (:A {id: 2}) | (:B {id: 2}) |
