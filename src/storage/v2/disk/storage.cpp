@@ -391,7 +391,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   const auto edge_parts = utils::Split(key.ToStringView(), "|");
   const Gid edge_gid = Gid::FromString(edge_parts[4]);
 
-  auto edge_acc = edges_.access();
+  auto edge_acc = transaction_.edges_.access();
   auto res = edge_acc.find(edge_gid);
   if (res != edge_acc.end()) {
     return std::nullopt;
@@ -1203,7 +1203,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdgeFromDisk(const VertexA
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
+    auto acc =
+        edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : transaction_.edges_.access();
     auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, std::move(old_disk_key), std::move(read_ts));
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1240,7 +1241,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (config_.properties_on_edges) {
-    auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : edges_.access();
+    auto acc =
+        edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : transaction_.edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -1574,7 +1576,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
         return vertices_flush_res.GetError();
       }
 
-      if (auto modified_edges_res = FlushModifiedEdges(edges_.access()); modified_edges_res.HasError()) {
+      if (auto modified_edges_res = FlushModifiedEdges(transaction_.edges_.access()); modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();
       }

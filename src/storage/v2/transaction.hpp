@@ -105,6 +105,7 @@ struct Transaction {
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   ModifiedEdgesMap modified_edges_;
+  utils::SkipList<Edge> edges_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

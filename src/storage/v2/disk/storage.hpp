@@ -271,7 +271,6 @@ class DiskStorage final : public Storage {
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
     std::vector<std::list<Delta>> index_deltas_storage_;
-    utils::SkipList<Edge> edges_;
     Config::Items config_;
     std::unordered_set<std::string> edges_to_delete_;
     std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
