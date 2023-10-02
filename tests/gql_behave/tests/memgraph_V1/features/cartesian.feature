@@ -249,3 +249,30 @@ Feature: Cartesian
             | a            | b            |
             | (:A {id: 1}) | (:B {id: 1}) |
             | (:A {id: 2}) | (:B {id: 2}) |
+
+    Scenario: Double match with Cyphermorphism
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1})-[:TYPE]->(:B {id: 1}), (:A {id: 2})-[:TYPE]->(:B {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a)-->(b), (c)-->(d) RETURN a, b, c, d
+            """
+        Then the result should be:
+            | a            | b            | c            | d            |
+            | (:A {id: 1}) | (:B {id: 1}) | (:A {id: 2}) | (:B {id: 2}) |
+            | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 1}) | (:B {id: 1}) |
+
+    Scenario: Triple match with Cyphermorphism empty result
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1})-[:TYPE]->(:B {id: 1}), (:A {id: 2})-[:TYPE]->(:B {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a)-->(b), (c)-->(d), (e)-->(f) RETURN a, b, c, d, e, f
+            """
+        Then the result should be empty

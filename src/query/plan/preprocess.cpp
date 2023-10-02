@@ -177,6 +177,7 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
     matching.expansions.push_back(expansion);
   }
 }
+
 auto SplitExpressionOnAnd(Expression *expression) {
   // TODO: Think about converting all filtering expression into CNF to improve
   // the granularity of filters which can be stand alone.
@@ -589,8 +590,10 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   // Add edge symbols for every expansion to ensure edge uniqueness
   CollectEdgeSymbols(expansions, matching, symbol_table);
 
+  // Add all the symbols found in these expansions
   CollectExpansionSymbols(expansions, matching, symbol_table);
 
+  // Matching is of reference type and needs to append the expansions
   AddExpansionsToMatching(expansions, matching, symbol_table);
 
   for (auto *const pattern : patterns) {

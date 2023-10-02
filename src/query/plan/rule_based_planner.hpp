@@ -493,36 +493,26 @@ class RuleBasedPlanner {
       all_isomorphic_expansions.insert(expansion.isomorphic_id);
     }
 
-    if (!last_op) {
-      if (matching.expansions.size() == 1) {
-        return GenerateExpansion(std::move(last_op), matching, matching.expansions[0], symbol_table, storage,
-                                 bound_symbols, new_symbols, named_paths, filters, view);
-      }
-      if (all_isomorphic_expansions.size() == 1) {
-        return GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                           new_symbols, named_paths, filters, view,
-                                           matching.expansions[0].isomorphic_id);
-      }
-    }
-
     std::set<IsomorphicId> visited_isomorphic_expansions;
 
     last_op =
         GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_isomorphic_expansions, symbol_table,
                                               storage, bound_symbols, new_symbols, named_paths, filters, view);
 
-    std::vector<Symbol> cross_new_symbols;
-    std::unordered_set<Symbol> initial_bound_symbols = bound_symbols;
-    for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
-      const auto &expansion = matching.expansions[i];
+    // We want to create separate branches of scan operators for each isomorphic group of patterns
+    // Whenever there are 2 scan branches, they will be joined with a Cartesian operator
 
-      // We want to create separate matching branch operators for each isomorphic group of patterns
+    // New symbols from the opposite branch
+    // We need to see what are cross new symbols in order to check for edge uniqueness for cross branch of same matching
+    // Since one matching needs to comfort to Cyphermorphism
+    std::vector<Symbol> cross_branch_new_symbols;
+    for (const auto &expansion : matching.expansions) {
       if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
         continue;
       }
 
-      std::vector<Symbol> new_isomorphic_symbols{};
-      std::unordered_set<Symbol> new_bound_symbols{};
+      std::vector<Symbol> new_isomorphic_symbols;
+      std::unordered_set<Symbol> new_bound_symbols;
       std::unique_ptr<LogicalOperator> isomorphic_expansion =
           GenerateIsomorphicExpansion(std::make_unique<Once>(), matching, symbol_table, storage, new_bound_symbols,
                                       new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
@@ -532,23 +522,31 @@ class RuleBasedPlanner {
       new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
       bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
 
+      // If we just started and have no beginning operator, make the beginning operator and transfer cross symbols
+      // for next iteration
       if (!last_op) {
         last_op = std::move(isomorphic_expansion);
-        cross_new_symbols = new_isomorphic_symbols;
+        cross_branch_new_symbols = new_isomorphic_symbols;
         continue;
       }
 
+      // if there is already a last operator, then we have 2 branches that we can merge into cartesian
       last_op = GenerateCartesian(std::move(last_op), std::move(isomorphic_expansion), symbol_table);
 
-      for (const auto &new_symbol : cross_new_symbols) {
+      // additionally, check for Cyphermorphism of the previous branch with new bound symbols
+      for (const auto &new_symbol : cross_branch_new_symbols) {
         if (new_symbol.type_ == Symbol::Type::EDGE) {
           last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, new_bound_symbols);
         }
       }
 
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-      cross_new_symbols = new_isomorphic_symbols;
+      cross_branch_new_symbols.insert(cross_branch_new_symbols.end(), new_isomorphic_symbols.begin(),
+                                      new_isomorphic_symbols.end());
     }
+
+    MG_ASSERT(visited_isomorphic_expansions.size() == all_isomorphic_expansions.size(),
+              "Did not create expansions for all isomorphic expansions in the planner!");
 
     return last_op;
   }
@@ -561,9 +559,7 @@ class RuleBasedPlanner {
     bool added_new_expansions = true;
     while (added_new_expansions) {
       added_new_expansions = false;
-      for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
-        const auto &expansion = matching.expansions[i];
-
+      for (const auto &expansion : matching.expansions) {
         // We want to create separate matching branch operators for each isomorphic group of patterns
         if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
           continue;

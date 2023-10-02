@@ -101,7 +101,6 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
-PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
@@ -186,6 +185,15 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   }
   op.input_->Accept(*this);
   return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
+  WithPrintLn([&](auto &out) {
+    out << "* EdgeUniquenessFilter [";
+    utils::PrintIterable(out, op.previous_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
+    out << " != " << op.expand_symbol_.name() << "]";
+  });
+  return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Apply &op) {
