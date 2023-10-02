@@ -422,11 +422,11 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 
   // Read deltas.
   info.num_deltas = 0;
-  auto validate_delta = [&wal]() -> std::optional<std::pair<uint64_t, bool>> {
+  auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto type = SkipWalDeltaData(&wal);
-      return {{timestamp, IsWalDeltaDataTypeTransactionEnd(type)}};
+      return {{timestamp, IsWalDeltaDataTypeTransactionEnd(type, version)}};
     } catch (const RecoveryFailure &) {
       return std::nullopt;
     }

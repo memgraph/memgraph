@@ -105,7 +105,8 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
     while (!transaction_complete) {
       SPDLOG_INFO("Skipping delta");
       const auto [timestamp, delta] = ReadDelta(&decoder);
-      transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
+      transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(
+          delta.type, durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
     replication::AppendDeltasRes res{false, storage_->replication_state_.last_commit_timestamp_.load()};
@@ -113,7 +114,8 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
     return;
   }
 
-  ReadAndApplyDelta(storage_, &decoder);
+  ReadAndApplyDelta(storage_, &decoder,
+                    durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
   replication::AppendDeltasRes res{true, storage_->replication_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -265,7 +267,7 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, replication::D
     wal.SetPosition(wal_info.offset_deltas);
 
     for (size_t i = 0; i < wal_info.num_deltas;) {
-      i += ReadAndApplyDelta(storage, &wal);
+      i += ReadAndApplyDelta(storage, &wal, *version);
     }
 
     spdlog::debug("Replication from current WAL successful!");
@@ -282,7 +284,8 @@ void InMemoryReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::B
   slk::Save(res, res_builder);
 }
 
-uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder) {
+uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder,
+                                                      const uint64_t version) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -315,6 +318,8 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
     if (timestamp > max_commit_timestamp) {
       max_commit_timestamp = timestamp;
     }
+
+    transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type, version);
 
     if (timestamp < storage->timestamp_) {
       continue;
@@ -477,7 +482,6 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         auto ret = commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         commit_timestamp_and_accessor = std::nullopt;
-        transaction_complete = true;
         break;
       }
 

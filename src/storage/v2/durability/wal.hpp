@@ -21,6 +21,7 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -125,7 +126,47 @@ struct WalDeltaData {
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
 
-constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
+constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Type type) {
+  switch (type) {
+    // These delta actions are all found inside transactions so they don't
+    // indicate a transaction end.
+    case WalDeltaData::Type::VERTEX_CREATE:
+    case WalDeltaData::Type::VERTEX_DELETE:
+    case WalDeltaData::Type::VERTEX_ADD_LABEL:
+    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
+    case WalDeltaData::Type::EDGE_CREATE:
+    case WalDeltaData::Type::EDGE_DELETE:
+    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
+    case WalDeltaData::Type::EDGE_SET_PROPERTY:
+      return false;
+
+    // This delta explicitly indicates that a transaction is done.
+    case WalDeltaData::Type::TRANSACTION_END:
+      return true;
+
+    // These operations aren't transactional and they are encoded only using
+    // a single delta, so they each individually mark the end of their
+    // 'transaction'.
+    case WalDeltaData::Type::LABEL_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
+      return true;  // TODO: Still true?
+  }
+}
+
+constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
+  if (version < 16U) {
+    return IsWalDeltaDataTypeTransactionEndVersion15(type);
+  }
   // All deltas are now handled in a transactional scope
   return type == WalDeltaData::Type::TRANSACTION_END;
 }
