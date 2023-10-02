@@ -600,6 +600,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
+  if (transaction_->IsDiskStorage()) {
+    auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    return disk_storage->InEdges(this, {}, nullptr, transaction_, view).size();
+  }
+
   bool exists = true;
   bool deleted = false;
   size_t degree = 0;
@@ -648,6 +653,11 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
 }
 
 Result<size_t> VertexAccessor::OutDegree(View view) const {
+  if (transaction_->IsDiskStorage()) {
+    auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    return disk_storage->OutEdges(this, {}, nullptr, transaction_, view).size();
+  }
+
   bool exists = true;
   bool deleted = false;
   size_t degree = 0;

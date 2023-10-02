@@ -1520,7 +1520,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 
     MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
 
-    auto edge_type_id = utils::ExtractEdgeTypeIdFromValue(edge_val_str);
+    auto edge_type_id = utils::ExtractEdgeTypeIdFromEdgeValue(edge_val_str);
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
@@ -1529,7 +1529,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
     const auto edge = std::invoke([this, destination, &edge_val_str, transaction, view, src_vertex, edge_type_id,
                                    edge_gid, &properties_str, &edge_gid_str]() {
       if (!destination) {
-        auto dst_vertex_gid = utils::ExtractDstVertexGidFromValue(edge_val_str);
+        auto dst_vertex_gid = utils::ExtractDstVertexGidFromEdgeValue(edge_val_str);
         auto dst_vertex = FindVertex(dst_vertex_gid, transaction, view);
         MG_ASSERT(dst_vertex.has_value(), "rocksdb: Failed to find destination vertex in vertex column family");
         return CreateEdgeFromDisk(src_vertex, &*dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
@@ -1586,7 +1586,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
 
     MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
 
-    auto edge_type_id = utils::ExtractEdgeTypeIdFromValue(edge_val_str);
+    auto edge_type_id = utils::ExtractEdgeTypeIdFromEdgeValue(edge_val_str);
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
@@ -1595,7 +1595,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
     const auto edge = std::invoke([this, source, &edge_val_str, transaction, view, dst_vertex, edge_type_id, edge_gid,
                                    &properties_str, &edge_gid_str]() {
       if (!source) {
-        auto src_vertex_gid = utils::ExtractSrcVertexGidFromValue(edge_val_str);
+        auto src_vertex_gid = utils::ExtractSrcVertexGidFromEdgeValue(edge_val_str);
         auto src_vertex = FindVertex(src_vertex_gid, transaction, view);
         MG_ASSERT(src_vertex.has_value(), "rocksdb: Failed to find source vertex in vertex column family");
         return CreateEdgeFromDisk(&*src_vertex, dst_vertex, transaction, edge_type_id, edge_gid, properties_str,

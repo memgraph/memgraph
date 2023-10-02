@@ -287,12 +287,14 @@ class DiskStorage final : public Storage {
                                           std::string &&ts);
 
   /// TODO: (andi) Maybe const
-  std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex, const std::vector<EdgeTypeId> &edge_types,
+  std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
+                                     const std::vector<EdgeTypeId> &possible_edge_types,
                                      const VertexAccessor *destination, Transaction *transaction, View view);
 
   /// TODO: (andi) Maybe const
-  std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex, const std::vector<EdgeTypeId> &edge_types,
-                                    const VertexAccessor *source, Transaction *transaction, View view);
+  std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex,
+                                    const std::vector<EdgeTypeId> &possible_edge_types, const VertexAccessor *source,
+                                    Transaction *transaction, View view);
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
