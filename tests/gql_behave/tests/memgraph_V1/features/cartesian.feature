@@ -295,3 +295,17 @@ Feature: Cartesian
             | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 1}) | (:B {id: 1}) |
             | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 2}) | (:B {id: 2}) | (:A {id: 1}) | (:B {id: 1}) |
             | (:A {id: 3}) | (:B {id: 3}) | (:A {id: 1}) | (:B {id: 1}) | (:A {id: 2}) | (:B {id: 2}) |
+
+    Scenario: Same cyphermorphism group in 3 matches
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A)-[:TYPE]->(:B)-[:TYPE]->(:C)-[:TYPE]->(:D)-[:TYPE]->(:E)
+            """
+        When executing query:
+            """
+            MATCH (a:A)-->(b), (d)-->(e), (c)<--(b), (d)<--(c) RETURN a, b, c, d, e
+            """
+        Then the result should be:
+            | a    | b    | c    | d    | e    |
+            | (:A) | (:B) | (:C) | (:D) | (:E) |
