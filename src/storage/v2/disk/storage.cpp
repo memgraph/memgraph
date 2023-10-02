@@ -1564,7 +1564,67 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
                                                Transaction *transaction, View view) {
-  return {};
+  const std::string dst_vertex_gid = utils::SerializeIdType(dst_vertex->Gid());
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+
+  std::string in_edges_str;
+  auto conn_index_res =
+      transaction->disk_transaction_->Get(ro, kvstore_->in_edges_chandle, dst_vertex_gid, &in_edges_str);
+
+  if (!conn_index_res.ok()) {
+    return {};
+  }
+
+  auto in_edges = utils::Split(in_edges_str, ",");
+  std::vector<EdgeAccessor> result;
+  for (const std::string &edge_gid_str : in_edges) {
+    std::string edge_val_str;
+    auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
+
+    MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
+
+    auto edge_type_id = utils::ExtractEdgeTypeIdFromValue(edge_val_str);
+    if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
+
+    auto edge_gid = Gid::FromString(edge_gid_str);
+    auto properties_str = utils::GetViewOfFourthPartOfSplit(edge_val_str, '|');
+
+    const auto edge = std::invoke([this, source, &edge_val_str, transaction, view, dst_vertex, edge_type_id, edge_gid,
+                                   &properties_str, &edge_gid_str]() {
+      if (!source) {
+        auto src_vertex_gid = utils::ExtractSrcVertexGidFromValue(edge_val_str);
+        auto src_vertex = FindVertex(src_vertex_gid, transaction, view);
+        MG_ASSERT(src_vertex.has_value(), "rocksdb: Failed to find source vertex in vertex column family");
+        return CreateEdgeFromDisk(&*src_vertex, dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
+                                  edge_gid_str, deserializeTimestamp);
+      }
+      return CreateEdgeFromDisk(source, dst_vertex, transaction, edge_type_id, edge_gid, properties_str, edge_gid_str,
+                                deserializeTimestamp);
+    });
+
+    auto from = edge->FromVertex();
+    MG_ASSERT(edge.HasValue(), "Edge must be created here!");
+    spdlog::trace("Source vertex acc");
+    spdlog::trace("     gid: {}", from.Gid().AsUint());
+    spdlog::trace("     vertex labels: {}", name_id_mapper_->IdToName(from.vertex_->labels[0].AsUint()));
+
+    auto to = edge->ToVertex();
+    spdlog::trace("Destination vertex acc");
+    spdlog::trace("     gid: {}", to.Gid().AsUint());
+    spdlog::trace("     vertex labels: {}", name_id_mapper_->IdToName(to.vertex_->labels[0].AsUint()));
+
+    spdlog::trace("EdgeAccessor:");
+    spdlog::trace("     gid: {}", edge->Gid().AsUint());
+    spdlog::trace("     edge_type: {}", name_id_mapper_->IdToName(edge->edge_type_.AsUint()));
+    spdlog::trace("     from_vertex: {}", edge->from_vertex_->gid.AsUint());
+    spdlog::trace("     to_vertex: {}", edge->to_vertex_->gid.AsUint());
+    result.emplace_back(*edge);
+  }
+
+  return result;
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(

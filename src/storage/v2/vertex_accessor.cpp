@@ -434,6 +434,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
+  if (transaction_->IsDiskStorage()) {
+    auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    auto res = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
+    return EdgesVertexAccessorResult{.edges = res, .expanded_count = static_cast<int64_t>(res.size())};
+  }
+
   using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
   // We return EdgeAccessors, this method with wrap the results in EdgeAccessors

@@ -143,6 +143,11 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
   return result;
 }
 
+inline storage::Gid ExtractSrcVertexGidFromValue(const std::string value) {
+  const std::string_view src_vertex_gid_str = GetViewOfFirstPartOfSplit(value, '|');
+  return storage::Gid::FromString(src_vertex_gid_str);
+}
+
 inline storage::Gid ExtractDstVertexGidFromValue(const std::string value) {
   const std::string_view dst_vertex_gid_str = GetViewOfSecondPartOfSplit(value, '|');
   return storage::Gid::FromString(dst_vertex_gid_str);
