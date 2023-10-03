@@ -2488,12 +2488,12 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
 
   IndexedJoin(std::shared_ptr<LogicalOperator> left, std::shared_ptr<LogicalOperator> right);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource * /*unused*/) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable & /*unused*/) const override;
 
   bool HasSingleInput() const override;
   std::shared_ptr<LogicalOperator> input() const override;
-  void set_input(std::shared_ptr<LogicalOperator>) override;
+  void set_input(std::shared_ptr<LogicalOperator> /*unused*/) override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> left_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> right_;
@@ -2509,7 +2509,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   class IndexedJoinCursor : public Cursor {
    public:
     IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
     void Shutdown() override;
     void Reset() override;
 

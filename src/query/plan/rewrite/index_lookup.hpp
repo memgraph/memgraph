@@ -214,7 +214,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(IndexedJoin &) override {
+  bool PostVisit(IndexedJoin & /*unused*/) override {
     prev_ops_.pop_back();
     return true;
   }

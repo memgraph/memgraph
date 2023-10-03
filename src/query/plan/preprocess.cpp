@@ -58,8 +58,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
   std::vector<Expansion> expansions;
   IsomorphicId unknown_isomorphic_id = IsomorphicId::FromInt(-1);
   auto ignore_node = [&](auto *) {};
-  for (size_t i = 0, size = patterns.size(); i < size; i++) {
-    const auto &pattern = patterns[i];
+  for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
@@ -98,9 +97,7 @@ void AssignIsomorphicIds(std::vector<Expansion> &expansions, Matching &matching,
       isomorphic_id_to_assign = matching.node_symbol_to_isomorphic_id[symbol];
     }
 
-    if (expansion.isomorphic_id.AsInt() == -1) {
-      expansion.isomorphic_id = isomorphic_id_to_assign;
-    } else if (isomorphic_id_to_assign.AsInt() < expansion.isomorphic_id.AsInt()) {
+    if (expansion.isomorphic_id.AsInt() == -1 || isomorphic_id_to_assign.AsInt() < expansion.isomorphic_id.AsInt()) {
       expansion.isomorphic_id = isomorphic_id_to_assign;
     }
 
