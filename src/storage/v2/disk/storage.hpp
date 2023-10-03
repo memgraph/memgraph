@@ -244,7 +244,7 @@ class DiskStorage final : public Storage {
     bool WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
 
     bool WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                      rocksdb::ColumnFamilyHandle *handle);
+                                      rocksdb::ColumnFamilyHandle *handle, std::string mode);
 
     bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
 
@@ -252,12 +252,7 @@ class DiskStorage final : public Storage {
     bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
                             const std::string &dst_vertex_gid);
     bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                         rocksdb::ColumnFamilyHandle *handle);
-
-    Config::Items config_;
-    std::set<std::tuple<std::string, std::string, std::string>> edges_to_delete_;
-    std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
-    bool scanned_all_vertices_ = false;
+                                         rocksdb::ColumnFamilyHandle *handle, std::string mode);
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {

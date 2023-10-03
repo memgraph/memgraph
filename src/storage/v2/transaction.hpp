@@ -113,6 +113,9 @@ struct Transaction {
   /// transaction is done
   std::vector<std::list<Delta>> index_deltas_storage_;
   utils::SkipList<Edge> edges_;
+  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_;
+  std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
+  bool scanned_all_vertices_ = false;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

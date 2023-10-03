@@ -28,6 +28,7 @@
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/rocksdb_serialization.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
@@ -435,6 +436,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
+
+  /// TODO: (andi) I think that here should be another check:
+  /// in memory storage should be checked only if something exists before loading from the disk.
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
@@ -466,7 +470,10 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     for (const auto &in_mem_edge_acc : ret) in_mem_edges_set.insert(in_mem_edge_acc.Gid());
 
     for (const auto &disk_edge_acc : disk_edges) {
-      if (in_mem_edges_set.contains(disk_edge_acc.Gid())) continue;
+      auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
+      if (in_mem_edges_set.contains(disk_edge_acc.Gid()) || transaction_->edges_to_delete_.contains(edge_gid_str)) {
+        continue;
+      }
       ret.emplace_back(disk_edge_acc);
     }
     return ret;
@@ -546,6 +553,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
                                                            const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
+  /// TODO: (andi) I think that here should be another check:
+  /// in memory storage should be checked only if something exists before loading from the disk.
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
@@ -575,7 +584,10 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     for (const auto &in_mem_edge_acc : ret) in_mem_edges_set.insert(in_mem_edge_acc.Gid());
 
     for (const auto &disk_edge_acc : disk_edges) {
-      if (in_mem_edges_set.contains(disk_edge_acc.Gid())) continue;
+      auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
+      if (in_mem_edges_set.contains(disk_edge_acc.Gid()) || transaction_->edges_to_delete_.contains(edge_gid_str)) {
+        continue;
+      }
       ret.emplace_back(disk_edge_acc);
     }
     return ret;

@@ -334,15 +334,14 @@ DiskStorage::~DiskStorage() {
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
-    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
+    : Accessor(storage, isolation_level, storage_mode) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
   transaction_.disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
 }
 
-DiskStorage::DiskAccessor::DiskAccessor(DiskAccessor &&other) noexcept
-    : Accessor(std::move(other)), config_(other.config_) {
+DiskStorage::DiskAccessor::DiskAccessor(DiskAccessor &&other) noexcept : Accessor(std::move(other)) {
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
 }
@@ -530,12 +529,12 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     return VerticesIterable(
         AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_, &transaction_, view));
   }
-  if (scanned_all_vertices_) {
+  if (transaction_.scanned_all_vertices_) {
     return VerticesIterable(AllVerticesIterable(transaction_.vertices_.access(), storage_, &transaction_, view));
   }
 
   LoadVerticesToMainMemoryCache();
-  scanned_all_vertices_ = true;
+  transaction_.scanned_all_vertices_ = true;
   return VerticesIterable(AllVerticesIterable(transaction_.vertices_.access(), storage_, &transaction_, view));
 }
 
@@ -1022,8 +1021,8 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &vertex : deleted_vertices) {
-    vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex.vertex_->gid),
-                                     utils::SerializeVertex(*vertex.vertex_));
+    transaction_.vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex.vertex_->gid),
+                                                  utils::SerializeVertex(*vertex.vertex_));
     transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
     disk_storage->vertex_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
@@ -1032,7 +1031,8 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
     const std::string ser_edge_gid = utils::SerializeIdType(edge.Gid());
     const auto src_vertex_gid = utils::SerializeIdType(edge.from_vertex_->gid);
     const auto dst_vertex_gid = utils::SerializeIdType(edge.to_vertex_->gid);
-    edges_to_delete_.emplace(ser_edge_gid, src_vertex_gid, dst_vertex_gid);
+    spdlog::trace("Src vertex gid: {} Dst vertex gid: {}", src_vertex_gid, dst_vertex_gid);
+    transaction_.edges_to_delete_.emplace(ser_edge_gid, std::make_pair(src_vertex_gid, dst_vertex_gid));
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
@@ -1056,7 +1056,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (config_.properties_on_edges) {
+  if (storage_->config_.items.properties_on_edges) {
     auto acc =
         edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : transaction_.edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -1068,6 +1068,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
+  /// TODO: (andi) Not sure if here should be modified edge.
   transaction_.AddModifiedEdge(gid, modified_edge);
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -1119,17 +1120,16 @@ bool DiskStorage::DiskAccessor::WriteEdgeToEdgeColumnFamily(const std::string &s
                                                                serialized_edge_key, serialized_edge_value);
 
   if (status.ok()) {
-    spdlog::trace("rocksdb: Saved edge with key {} and ts {} to edge column family", serialized_edge_key,
-                  *commit_timestamp_);
+    spdlog::trace("rocksdb: Saved edge {} with ts {} to edge column family", serialized_edge_key, *commit_timestamp_);
     return true;
   }
-  spdlog::error("rocksdb: Failed to save edge with key {} and ts {} to edge column family", serialized_edge_key,
+  spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family", serialized_edge_key,
                 *commit_timestamp_);
   return false;
 }
 
 bool DiskStorage::DiskAccessor::WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                                             rocksdb::ColumnFamilyHandle *handle) {
+                                                             rocksdb::ColumnFamilyHandle *handle, std::string mode) {
   MG_ASSERT(commit_timestamp_.has_value(), "Writing edge to disk but commit timestamp not set.");
   std::string value;
   const auto put_status = std::invoke([this, handle, &value, &vertex_gid, &edge_gid]() {
@@ -1146,11 +1146,11 @@ bool DiskStorage::DiskAccessor::WriteEdgeToConnectivityIndex(const std::string &
 
   /// TODO: (andi) Error handling in a separate method
   if (put_status.ok()) {
-    spdlog::trace("rocksdb: Saved edge with key {} to edges connectivity index for vertex {}", edge_gid, vertex_gid);
+    spdlog::trace("rocksdb: Saved edge {} to {} edges connectivity index for vertex {}", edge_gid, mode, vertex_gid);
     return true;
   }
 
-  spdlog::error("rocksdb: Failed to save edge with key {} to edges connectivity index for vertex {}", edge_gid,
+  spdlog::error("rocksdb: Failed to save edge {} to {} edges connectivity index for vertex {}", edge_gid, mode,
                 vertex_gid);
   return false;
 }
@@ -1175,10 +1175,10 @@ bool DiskStorage::DiskAccessor::DeleteVertexFromDisk(const std::string &vertex_g
 bool DiskStorage::DiskAccessor::DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (!transaction_.disk_transaction_->Delete(disk_storage->kvstore_->edge_chandle, edge_gid).ok()) {
-    spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
+    spdlog::error("rocksdb: Failed to delete edge {}", edge_gid);
     return false;
   }
-  spdlog::trace("rocksdb: Deleted edge with key {} from edge column family", edge_gid);
+  spdlog::trace("rocksdb: Deleted edge from edge column family", edge_gid);
   return true;
 }
 
@@ -1194,9 +1194,9 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge_gid, 
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool out_edges_res =
-      DeleteEdgeFromConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle);
+      DeleteEdgeFromConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle, "OUT");
   bool in_edges_res =
-      DeleteEdgeFromConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle);
+      DeleteEdgeFromConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle, "IN");
   if (!out_edges_res || !in_edges_res) {
     spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
     return false;
@@ -1208,7 +1208,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge_gid, 
 
 bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid,
                                                                 const std::string &edge_gid,
-                                                                rocksdb::ColumnFamilyHandle *handle) {
+                                                                rocksdb::ColumnFamilyHandle *handle, std::string mode) {
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
@@ -1217,7 +1217,8 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
   std::string edges;
   auto edges_status = transaction_.disk_transaction_->Get(ro, handle, vertex_gid, &edges);
   if (!edges_status.ok()) {
-    spdlog::error("rocksdb: Failed to find edge {} in edges collection of vertex {}", edge_gid, vertex_gid);
+    spdlog::error("rocksdb: Failed to find {} edges collection of vertex {}. Status: {}", mode, vertex_gid,
+                  edges_status.ToString());
     return false;
   }
 
@@ -1259,6 +1260,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
     const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
+  spdlog::trace("Flushing vertices");
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1300,6 +1302,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
 DiskStorage::DiskAccessor::ClearDanglingVertices() {
+  spdlog::trace("Clear dangling vertices");
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1329,13 +1332,15 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 }
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedVertices() {
+  spdlog::trace("Flushing deleted vertices");
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
-  for (const auto &[vertex_gid, serialized_vertex_to_delete] : vertices_to_delete_) {
+  for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction_.vertices_to_delete_) {
+    spdlog::trace("Deleting vertex: {}", vertex_gid);
     if (!DeleteVertexFromDisk(vertex_gid, serialized_vertex_to_delete) ||
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
         !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
@@ -1348,7 +1353,10 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 }
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
-  for (const auto &[edge_to_delete, src_vertex_id, dst_vertex_id] : edges_to_delete_) {
+  spdlog::trace("Flushing deleted edges");
+  for (const auto &[edge_to_delete, vertices] : transaction_.edges_to_delete_) {
+    spdlog::trace("Started deletion of edge: {}", edge_to_delete);
+    const auto &[src_vertex_id, dst_vertex_id] = vertices;
     if (!DeleteEdgeFromDisk(edge_to_delete, src_vertex_id, dst_vertex_id)) {
       return StorageDataManipulationError{SerializationError{}};
     }
@@ -1362,6 +1370,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 /// std::map<dst_vertex_gid, ...>
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
+  spdlog::trace("Flushing modified edges");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &modified_edge : transaction_.modified_edges_) {
     const std::string edge_gid = utils::SerializeIdType(modified_edge.first);
@@ -1370,7 +1379,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
     const auto src_vertex_gid = utils::SerializeIdType(modified_edge.second.src_vertex_gid);
     const auto dst_vertex_gid = utils::SerializeIdType(modified_edge.second.dest_vertex_gid);
 
-    if (!config_.properties_on_edges) {
+    if (!storage_->config_.items.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
@@ -1399,8 +1408,8 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
       }
     }
     if (root_action == Delta::Action::DELETE_OBJECT &&
-        (!WriteEdgeToConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle) ||
-         !WriteEdgeToConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle))) {
+        (!WriteEdgeToConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle, "OUT") ||
+         !WriteEdgeToConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle, "IN"))) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }
@@ -1500,8 +1509,10 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     delta->prev.Set(&*it);
     edge.ptr->properties.SetBuffer(properties);
     if (inserted) {
-      spdlog::trace("Edge added to out edges of vertex with gid {}", from_vertex->gid.AsUint());
-      spdlog::trace("Edge added to in edges of vertex with gid {}", to_vertex->gid.AsUint());
+      spdlog::trace("Edge {} added to out edges of vertex with gid {}", utils::SerializeIdType(gid),
+                    from_vertex->gid.AsUint());
+      spdlog::trace("Edge {} added to in edges of vertex with gid {}", utils::SerializeIdType(gid),
+                    to_vertex->gid.AsUint());
       from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
       to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
       transaction->manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -1511,6 +1522,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type,
                                  edge);
+  /// TODO: (andi) Not sure if here should be modified edge.
   transaction->AddModifiedEdge(gid, modified_edge);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, this, transaction);
@@ -1531,19 +1543,14 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       transaction->disk_transaction_->Get(ro, kvstore_->out_edges_chandle, src_vertex_gid, &out_edges_str);
 
   if (!conn_index_res.ok()) {
-    spdlog::trace("rocksdb: Couldn't find vertex with gid {} in out edges collection. Status: {}", src_vertex_gid,
+    spdlog::trace("rocksdb: Couldn't find out edges of vertex {}. Status: {}", src_vertex_gid,
                   conn_index_res.ToString());
     return {};
   }
 
-  auto out_edges = utils::Split(out_edges_str, ",");
-  spdlog::trace("Printing edges from collection");
-  for (const auto &edge_gid_str : out_edges) {
-    spdlog::trace("***Edge gid: {}***", edge_gid_str);
-  }
   std::vector<EdgeAccessor> result;
+  auto out_edges = utils::Split(out_edges_str, ",");
   for (const std::string &edge_gid_str : out_edges) {
-    spdlog::trace("Edge gid: {}", edge_gid_str);
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
@@ -1571,27 +1578,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       return CreateEdgeFromDisk(src_vertex, destination, transaction, edge_type_id, edge_gid, properties_str,
                                 edge_gid_str, deserializeTimestamp);
     });
-    if (!edge.has_value()) continue;
-    auto from = edge->FromVertex();
-    spdlog::trace("Source vertex acc");
-    spdlog::trace("     gid: {}", from.Gid().AsUint());
-    if (!from.vertex_->labels.empty()) {
-      spdlog::trace("     vertex labels: {}", name_id_mapper_->IdToName(from.vertex_->labels[0].AsUint()));
-    }
-
-    auto to = edge->ToVertex();
-    spdlog::trace("Destination vertex acc");
-    spdlog::trace("     gid: {}", to.Gid().AsUint());
-    if (!to.vertex_->labels.empty()) {
-      spdlog::trace("     vertex labels: {}", name_id_mapper_->IdToName(to.vertex_->labels[0].AsUint()));
-    }
-
-    spdlog::trace("EdgeAccessor:");
-    spdlog::trace("     gid: {}", edge->Gid().AsUint());
-    spdlog::trace("     edge_type: {}", name_id_mapper_->IdToName(edge->edge_type_.AsUint()));
-    spdlog::trace("     from_vertex: {}", edge->from_vertex_->gid.AsUint());
-    spdlog::trace("     to_vertex: {}", edge->to_vertex_->gid.AsUint());
-    result.emplace_back(*edge);
+    if (edge.has_value()) result.emplace_back(*edge);
   }
 
   return result;
@@ -1611,7 +1598,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
       transaction->disk_transaction_->Get(ro, kvstore_->in_edges_chandle, dst_vertex_gid, &in_edges_str);
 
   if (!conn_index_res.ok()) {
-    spdlog::trace("rocksdb: Couldn't find vertex with gid {} in in edges collection. Status: {}", dst_vertex_gid,
+    spdlog::trace("rocksdb: Couldn't find in edges of vertex {}. Status: {}", dst_vertex_gid,
                   conn_index_res.ToString());
     return {};
   }
@@ -1646,27 +1633,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                 deserializeTimestamp);
     });
 
-    if (!edge.has_value()) continue;
-    auto from = edge->FromVertex();
-    spdlog::trace("Source vertex acc");
-    spdlog::trace("     gid: {}", from.Gid().AsUint());
-    if (!from.vertex_->labels.empty()) {
-      spdlog::trace("     vertex labels: {}", name_id_mapper_->IdToName(from.vertex_->labels[0].AsUint()));
-    }
-
-    auto to = edge->ToVertex();
-    spdlog::trace("Destination vertex acc");
-    spdlog::trace("     gid: {}", to.Gid().AsUint());
-    if (!to.vertex_->labels.empty()) {
-      spdlog::trace("     vertex labels: {}", name_id_mapper_->IdToName(to.vertex_->labels[0].AsUint()));
-    }
-
-    spdlog::trace("EdgeAccessor:");
-    spdlog::trace("     gid: {}", edge->Gid().AsUint());
-    spdlog::trace("     edge_type: {}", name_id_mapper_->IdToName(edge->edge_type_.AsUint()));
-    spdlog::trace("     from_vertex: {}", edge->from_vertex_->gid.AsUint());
-    spdlog::trace("     to_vertex: {}", edge->to_vertex_->gid.AsUint());
-    result.emplace_back(*edge);
+    if (edge.has_value()) result.emplace_back(*edge);
   }
 
   return result;

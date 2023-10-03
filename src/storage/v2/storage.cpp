@@ -428,8 +428,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
       bool const edge_cleared_from_both_directions = !was_inserted;
       if (edge_cleared_from_both_directions) {
-        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
       }
     }
