@@ -676,7 +676,7 @@ FMT_VERSION=9.1.0
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
-JEMALLOC_VERSION=5.3.0
+JEMALLOC_VERSION=5.2.1 # Some people complained about 5.3.0 performance.
 LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.18
@@ -932,11 +932,19 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     git clone https://github.com/jemalloc/jemalloc.git jemalloc
     pushd jemalloc
     git checkout $JEMALLOC_VERSION
-    ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-    env \
-        EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
-        ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
+    ./autogen.sh
+    MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:0" \
+    ./configure \
+         --disable-cxx \
+         $COMMON_CONFIGURE_FLAGS \
+         --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:0"
     make -j$CPUS install
+    # NOTE: Old jmalloc config.
+    # ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
+    # env \
+    #     EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
+    #     ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
+    # make -j$CPUS install
     popd
 fi
 
