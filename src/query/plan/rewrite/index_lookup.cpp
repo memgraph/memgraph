@@ -22,8 +22,11 @@ DEFINE_VALIDATED_int64(query_vertex_count_to_expand_existing, 10,
 
 namespace memgraph::query::plan::impl {
 
-ExpressionRemovalResult RemoveAndExpressions(Expression *expr,
-                                             const std::unordered_set<Expression *> &exprs_to_remove) {
+ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove) {
+  if (utils::Contains(exprs_to_remove, expr)) {
+    return ExpressionRemovalResult{.trimmed_expression = nullptr, .did_remove = true};
+  }
+
   auto *and_op = utils::Downcast<AndOperator>(expr);
 
   // currently we are processing expressions by dividing them into and disjoint expressions
@@ -45,11 +48,11 @@ ExpressionRemovalResult RemoveAndExpressions(Expression *expr,
     did_remove = true;
   }
 
-  auto removal1 = RemoveAndExpressions(and_op->expression1_, exprs_to_remove);
+  auto removal1 = RemoveExpressions(and_op->expression1_, exprs_to_remove);
   and_op->expression1_ = removal1.trimmed_expression;
   did_remove = did_remove || removal1.did_remove;
 
-  auto removal2 = RemoveAndExpressions(and_op->expression2_, exprs_to_remove);
+  auto removal2 = RemoveExpressions(and_op->expression2_, exprs_to_remove);
   and_op->expression2_ = removal2.trimmed_expression;
   did_remove = did_remove || removal2.did_remove;
 

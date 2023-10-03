@@ -41,7 +41,7 @@ struct ExpressionRemovalResult {
 
 // Return the new root expression after removing the given expressions from the
 // given expression tree.
-ExpressionRemovalResult RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
+ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
@@ -66,33 +66,29 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
-    ExpressionRemovalResult removal = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
     op.expression_ = removal.trimmed_expression;
-    bool is_child_cartesian = op.input()->GetTypeInfo() == Cartesian::kType;
-
-    if (utils::Contains(filter_exprs_for_removal_, op.expression_)) {
-      SetOnParent(op.input());
-      return true;
-    }
-
-    if (!removal.did_remove) {
-      // nothing to be replaced, filter will stay
-      return true;
-    }
-
-    if (is_child_cartesian) {
-      // if we removed something from filter in front of a Cartesian, then we are doing a join from
-      // 2 different branches
-      auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
-      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-      SetOnParent(indexed_join);
-      return true;
-    }
 
     if (!op.expression_) {
       // if we emptied all the expressions from the filter, then we don't need this operator anymore
       SetOnParent(op.input());
-      return true;
+    }
+
+    // edge uniqueness filter comes always before filter in plan generation
+    LogicalOperator *input = &*op.input();
+    LogicalOperator *parent = op.expression_ ? &op : prev_ops_.back();
+    while (input->GetTypeInfo() == EdgeUniquenessFilter::kType) {
+      parent = input;
+      input = &*input->input();
+    }
+    bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+
+    if (is_child_cartesian && removal.did_remove) {
+      // if we removed something from filter in front of a Cartesian, then we are doing a join from
+      // 2 different branches
+      auto *cartesian = dynamic_cast<Cartesian *>(input);
+      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
+      parent->set_input(indexed_join);
     }
 
     // still left something in the filter
