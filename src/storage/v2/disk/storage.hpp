@@ -283,10 +283,10 @@ class DiskStorage final : public Storage {
   /// TODO: (andi) I don't think View is necessary
   std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
 
-  Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
-                                          Transaction *transaction, EdgeTypeId edge_type, storage::Gid gid,
-                                          std::string_view properties, const std::string &old_disk_key,
-                                          std::string &&ts);
+  std::optional<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
+                                                 Transaction *transaction, EdgeTypeId edge_type, storage::Gid gid,
+                                                 std::string_view properties, const std::string &old_disk_key,
+                                                 std::string &&ts);
 
   /// TODO: (andi) Maybe const
   std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,

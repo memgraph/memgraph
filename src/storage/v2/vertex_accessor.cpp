@@ -434,13 +434,19 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
+  std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    auto res = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
-    return EdgesVertexAccessorResult{.edges = res, .expanded_count = static_cast<int64_t>(res.size())};
+    disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
+    /// DiskStorage & View::OLD
+    if (view == View::OLD) {
+      return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
+    }
   }
 
   using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+
+  /// TODO: (andi) Deduplicate the code
 
   // We return EdgeAccessors, this method with wrap the results in EdgeAccessors
   auto const build_result = [this](edge_store const &edges) -> std::vector<EdgeAccessor> {
@@ -448,6 +454,20 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     ret.reserve(edges.size());
     for (auto const &[edge_type, from_vertex, edge] : edges) {
       ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_);
+    }
+    return ret;
+  };
+
+  auto const build_result_with_disk = [&](edge_store const &in_memory_edges,
+                                          std::vector<EdgeAccessor> const &disk_edges) {
+    auto ret = build_result(in_memory_edges);
+    std::unordered_set<storage::Gid> in_mem_edges_set;
+    in_mem_edges_set.reserve(in_memory_edges.size());
+    for (const auto &in_mem_edge_acc : ret) in_mem_edges_set.insert(in_mem_edge_acc.Gid());
+
+    for (const auto &disk_edge_acc : disk_edges) {
+      if (in_mem_edges_set.contains(disk_edge_acc.Gid())) continue;
+      ret.emplace_back(disk_edge_acc);
     }
     return ret;
   };
@@ -513,6 +533,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
 
+  /// DiskStorage & View::NEW
+  if (transaction_->IsDiskStorage()) {
+    return EdgesVertexAccessorResult{.edges = build_result_with_disk(in_edges, disk_edges),
+                                     .expanded_count = expanded_count};
+  }
+
   return EdgesVertexAccessorResult{.edges = build_result(in_edges), .expanded_count = expanded_count};
 }
 
@@ -520,10 +546,14 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
                                                            const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
+  std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    auto res = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
-    return EdgesVertexAccessorResult{.edges = res, .expanded_count = static_cast<int64_t>(res.size())};
+    disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
+    /// DiskStorage & View::OLD
+    if (view == View::OLD) {
+      return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
+    }
   }
 
   using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
@@ -533,6 +563,20 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     ret.reserve(out_edges.size());
     for (const auto &[edge_type, to_vertex, edge] : out_edges) {
       ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_);
+    }
+    return ret;
+  };
+
+  auto const build_result_with_disk = [&](edge_store const &in_memory_edges,
+                                          std::vector<EdgeAccessor> const &disk_edges) {
+    auto ret = build_result(in_memory_edges);
+    std::unordered_set<storage::Gid> in_mem_edges_set;
+    in_mem_edges_set.reserve(in_memory_edges.size());
+    for (const auto &in_mem_edge_acc : ret) in_mem_edges_set.insert(in_mem_edge_acc.Gid());
+
+    for (const auto &disk_edge_acc : disk_edges) {
+      if (in_mem_edges_set.contains(disk_edge_acc.Gid())) continue;
+      ret.emplace_back(disk_edge_acc);
     }
     return ret;
   };
@@ -596,13 +640,23 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
 
+  /// DiskStorage & View::NEW
+  if (transaction_->IsDiskStorage()) {
+    return EdgesVertexAccessorResult{.edges = build_result_with_disk(out_edges, disk_edges),
+                                     .expanded_count = expanded_count};
+  }
+  /// InMemoryStorage
   return EdgesVertexAccessorResult{.edges = build_result(out_edges), .expanded_count = expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
+  std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
-    auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    return disk_storage->InEdges(this, {}, nullptr, transaction_, view).size();
+    auto res = InEdges(view);
+    if (res.HasValue()) {
+      return res->expanded_count;
+    }
+    return res.GetError();
   }
 
   bool exists = true;
@@ -654,8 +708,11 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
 
 Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (transaction_->IsDiskStorage()) {
-    auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    return disk_storage->OutEdges(this, {}, nullptr, transaction_, view).size();
+    auto res = OutEdges(view);
+    if (res.HasValue()) {
+      return res->expanded_count;
+    }
+    return res.GetError();
   }
 
   bool exists = true;
