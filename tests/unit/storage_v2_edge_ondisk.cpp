@@ -5356,6 +5356,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
+    spdlog::trace("Created vertex with gid: {}", gid.AsInt());
     auto et = acc->NameToEdgeType("et5");
     auto edge = acc->CreateEdge(&vertex, &vertex, et).GetValue();
     ASSERT_EQ(edge.EdgeType(), et);

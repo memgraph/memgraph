@@ -159,9 +159,12 @@ inline storage::EdgeTypeId ExtractEdgeTypeIdFromEdgeValue(const std::string_view
 }
 
 inline std::string SerializeEdgeAsValue(const std::string &src_vertex_gid, const std::string &dst_vertex_gid,
-                                        const storage::EdgeTypeId &edge_type, const storage::Edge &edge) {
-  return src_vertex_gid + "|" + dst_vertex_gid + "|" + SerializeIdType(edge_type) + "|" +
-         utils::SerializeProperties(edge.properties);
+                                        const storage::EdgeTypeId &edge_type, const storage::Edge *edge = nullptr) {
+  auto tmp = src_vertex_gid + "|" + dst_vertex_gid + "|" + SerializeIdType(edge_type) + "|";
+  if (edge) {
+    return tmp + utils::SerializeProperties(edge->properties);
+  }
+  return tmp;
 }
 
 inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,

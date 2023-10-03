@@ -1365,19 +1365,19 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &modified_edge : transaction_.modified_edges_) {
     const std::string edge_gid = utils::SerializeIdType(modified_edge.first);
-    const std::string edge_type = utils::SerializeIdType(modified_edge.second.edge_type_id);
     const Delta::Action root_action = modified_edge.second.delta_action;
+    const auto src_vertex_gid = utils::SerializeIdType(modified_edge.second.src_vertex_gid);
+    const auto dst_vertex_gid = utils::SerializeIdType(modified_edge.second.dest_vertex_gid);
 
     if (!config_.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
-      if (root_action == Delta::Action::DELETE_OBJECT && !WriteEdgeToEdgeColumnFamily(edge_gid, edge_type)) {
+      if (root_action == Delta::Action::DELETE_OBJECT &&
+          !WriteEdgeToEdgeColumnFamily(edge_gid, utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid,
+                                                                             modified_edge.second.edge_type_id))) {
         return StorageDataManipulationError{SerializationError{}};
       }
     } else {
-      const auto src_vertex_gid = utils::SerializeIdType(modified_edge.second.src_vertex_gid);
-      const auto dst_vertex_gid = utils::SerializeIdType(modified_edge.second.dest_vertex_gid);
-
       // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
       // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
       // so we can delete it.
@@ -1393,14 +1393,13 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
       if (!WriteEdgeToEdgeColumnFamily(
               edge_gid,
-              utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, *edge))) {
+              utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, &*edge))) {
         return StorageDataManipulationError{SerializationError{}};
       }
-
-      if (!WriteEdgeToConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle) ||
-          !WriteEdgeToConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle)) {
-        return StorageDataManipulationError{SerializationError{}};
-      }
+    }
+    if (!WriteEdgeToConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle) ||
+        !WriteEdgeToConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle)) {
+      return StorageDataManipulationError{SerializationError{}};
     }
   }
   return {};
@@ -1528,6 +1527,8 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       transaction->disk_transaction_->Get(ro, kvstore_->out_edges_chandle, src_vertex_gid, &out_edges_str);
 
   if (!conn_index_res.ok()) {
+    spdlog::trace("rocksdb: Couldn't find vertex with gid {} in out edges collection. Status: {}", src_vertex_gid,
+                  conn_index_res.ToString());
     return {};
   }
 
@@ -1548,7 +1549,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
-    auto properties_str = utils::GetViewOfFourthPartOfSplit(edge_val_str, '|');
+    auto properties_str = config_.items.properties_on_edges ? utils::GetViewOfFourthPartOfSplit(edge_val_str, '|') : "";
 
     const auto edge = std::invoke([this, destination, &edge_val_str, transaction, view, src_vertex, edge_type_id,
                                    edge_gid, &properties_str, &edge_gid_str]() {
