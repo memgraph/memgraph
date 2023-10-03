@@ -18,7 +18,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl4-openssl-dev # for cmake
     libreadline-dev # for cmake and llvm
     libffi-dev libxml2-dev # for llvm
-    libedit-dev libpcre3-dev automake bison # for swig
+    libedit-dev libpcre2-dev libpcre3-dev automake bison # for swig
     curl # snappy
     file # for libunwind
     libssl-dev # for libevent
