@@ -506,16 +506,26 @@ class RuleBasedPlanner {
     // We need to see what are cross new symbols in order to check for edge uniqueness for cross branch of same matching
     // Since one matching needs to comfort to Cyphermorphism
     std::vector<Symbol> cross_branch_new_symbols;
+    bool initial_expansion_done = false;
     for (const auto &expansion : matching.expansions) {
       if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
         continue;
       }
 
+      std::unique_ptr<LogicalOperator> starting_expansion_operator = nullptr;
+      if (!initial_expansion_done) {
+        starting_expansion_operator = std::move(last_op);
+        initial_expansion_done = true;
+      }
+      std::vector<Symbol> starting_symbols{};
+      if (starting_expansion_operator) {
+        starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
+      }
       std::vector<Symbol> new_isomorphic_symbols;
-      std::unordered_set<Symbol> new_bound_symbols;
-      std::unique_ptr<LogicalOperator> isomorphic_expansion =
-          GenerateIsomorphicExpansion(std::make_unique<Once>(), matching, symbol_table, storage, new_bound_symbols,
-                                      new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
+      std::unordered_set<Symbol> new_bound_symbols{starting_symbols.begin(), starting_symbols.end()};
+      std::unique_ptr<LogicalOperator> isomorphic_expansion = GenerateIsomorphicExpansion(
+          std::move(starting_expansion_operator), matching, symbol_table, storage, new_bound_symbols,
+          new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
 
       visited_isomorphic_expansions.insert(expansion.isomorphic_id);
 

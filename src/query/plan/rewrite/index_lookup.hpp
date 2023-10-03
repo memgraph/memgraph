@@ -70,6 +70,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     bool is_child_cartesian = op.input()->GetTypeInfo() == Cartesian::kType;
 
+    if (utils::Contains(filter_exprs_for_removal_, op.expression_)) {
+      SetOnParent(op.input());
+      return true;
+    }
+
     if (!removal.did_remove) {
       // nothing to be replaced, filter will stay
       return true;

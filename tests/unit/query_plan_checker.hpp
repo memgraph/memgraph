@@ -114,6 +114,11 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(IndexedJoin &op) override {
+    CheckOp(op);
+    return false;
+  }
+
   bool PreVisit(Apply &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -405,8 +410,7 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
 
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
-  ExpectCartesian(const std::list<std::unique_ptr<BaseOpChecker>> &left,
-                  const std::list<std::unique_ptr<BaseOpChecker>> &right)
+  ExpectCartesian(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
       : left_(left), right_(right) {}
 
   void ExpectOp(Cartesian &op, const SymbolTable &symbol_table) override {
@@ -419,8 +423,27 @@ class ExpectCartesian : public OpChecker<Cartesian> {
   }
 
  private:
-  const std::list<std::unique_ptr<BaseOpChecker>> &left_;
-  const std::list<std::unique_ptr<BaseOpChecker>> &right_;
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
+};
+
+class ExpectIndexedJoin : public OpChecker<IndexedJoin> {
+ public:
+  ExpectIndexedJoin(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(IndexedJoin &op, const SymbolTable &symbol_table) override {
+    ASSERT_TRUE(op.left_);
+    PlanChecker left_checker(left_, symbol_table);
+    op.left_->Accept(left_checker);
+    ASSERT_TRUE(op.right_);
+    PlanChecker right_checker(right_, symbol_table);
+    op.right_->Accept(right_checker);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
 };
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
