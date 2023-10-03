@@ -30,7 +30,7 @@ jobs:
 
           # Build only memgraph release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
           make -j$THREADS
 
       - name: Get branch name (merge)

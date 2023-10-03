@@ -8,7 +8,7 @@ mkdir -p ${script_dir}/build
 cd ${script_dir}/build
 
 # Setup cmake
-cmake -DCMAKE_BUILD_TYPE=Release \
+cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
       -DTOOLS=ON \
       -DCMAKE_INSTALL_PREFIX=${script_dir} \
       ${script_dir}/..

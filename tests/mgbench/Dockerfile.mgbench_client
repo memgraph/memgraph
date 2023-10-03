@@ -27,7 +27,7 @@ RUN source /opt/toolchain-v4/activate && \
     rm -r build && \
     mkdir build && \
     cd build && \
-    cmake -DCMAKE_BUILD_TYPE=release .. && \
+    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && \
     make -j$(nproc) memgraph__mgbench__client && \
     make .
 

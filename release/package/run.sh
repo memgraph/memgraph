@@ -89,9 +89,9 @@ make_package () {
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
     # TODO(gitbuda): cmake fails locally if remote is clone via ssh because of the key -> FIX
     if [[ "$os" =~ "-arm" ]]; then
-        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
+        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
     else
-        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
+        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo $telemetry_id_override_flag .."
     fi
     # ' is used instead of " because we need to run make within the allowed
     # container resources.

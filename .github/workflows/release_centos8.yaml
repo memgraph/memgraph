@@ -33,7 +33,7 @@ jobs:
 
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -190,7 +190,7 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
           make -j$THREADS
 
       - name: Create enterprise RPM package
