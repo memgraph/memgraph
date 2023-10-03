@@ -1021,8 +1021,9 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &vertex : deleted_vertices) {
-    transaction_.vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex.vertex_->gid),
-                                                  utils::SerializeVertex(*vertex.vertex_));
+    transaction_.vertices_to_delete_.emplace(utils::SerializeIdType(vertex.vertex_->gid),
+                                             utils::SerializeVertex(*vertex.vertex_));
+    spdlog::trace("");
     transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
     disk_storage->vertex_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
@@ -1193,15 +1194,20 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge_gid, 
   }
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  bool out_edges_res =
-      DeleteEdgeFromConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle, "OUT");
-  bool in_edges_res =
-      DeleteEdgeFromConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle, "IN");
-  if (!out_edges_res || !in_edges_res) {
-    spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
-    return false;
+  if (!transaction_.vertices_to_delete_.contains(src_vertex_gid)) {
+    if (!DeleteEdgeFromConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle, "OUT")) {
+      spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
+      return false;
+    }
+    spdlog::trace("rocksdb: Deleted edge with key {} from out edges of vertex", edge_gid, src_vertex_gid);
   }
-  spdlog::trace("rocksdb: Deleted edge with key {} from edges connectivity index", edge_gid);
+  if (!transaction_.vertices_to_delete_.contains(dst_vertex_gid)) {
+    if (!DeleteEdgeFromConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle, "IN")) {
+      spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
+      return false;
+    }
+    spdlog::trace("rocksdb: Deleted edge with key {} from in edges of vertex", edge_gid, dst_vertex_gid);
+  }
 
   return true;
 }
@@ -1217,8 +1223,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
   std::string edges;
   auto edges_status = transaction_.disk_transaction_->Get(ro, handle, vertex_gid, &edges);
   if (!edges_status.ok()) {
-    spdlog::error("rocksdb: Failed to find {} edges collection of vertex {}. Status: {}", mode, vertex_gid,
-                  edges_status.ToString());
+    spdlog::error("rocksdb: Failed to find {} edges collection of vertex {}.", mode, vertex_gid);
     return false;
   }
 
@@ -1488,7 +1493,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  if (from_vertex->deleted || to_vertex->deleted) return {};
+  // if (from_vertex->deleted || to_vertex->deleted) return {};
 
   bool edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
 
@@ -1532,6 +1537,9 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
                                                 const std::vector<EdgeTypeId> &edge_types,
                                                 const VertexAccessor *destination, Transaction *transaction,
                                                 View view) {
+  /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
+  if (view == View::NEW && src_vertex->vertex_->deleted) return {};
+
   const std::string src_vertex_gid = utils::SerializeIdType(src_vertex->Gid());
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
@@ -1543,8 +1551,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       transaction->disk_transaction_->Get(ro, kvstore_->out_edges_chandle, src_vertex_gid, &out_edges_str);
 
   if (!conn_index_res.ok()) {
-    spdlog::trace("rocksdb: Couldn't find out edges of vertex {}. Status: {}", src_vertex_gid,
-                  conn_index_res.ToString());
+    spdlog::trace("rocksdb: Couldn't find out edges of vertex {}.", src_vertex_gid);
     return {};
   }
 
@@ -1567,11 +1574,17 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       auto dst_vertex_gid = utils::ExtractDstVertexGidFromEdgeValue(edge_val_str);
       if (!destination) {
         auto dst_vertex = FindVertex(dst_vertex_gid, transaction, view);
-        MG_ASSERT(dst_vertex.has_value(), "rocksdb: Failed to find destination vertex in vertex column family");
+        /// TODO: (andi) I think dst_vertex->deleted should be unnecessary
+        /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
+        if (!dst_vertex.has_value() || (view == View::NEW && dst_vertex->vertex_->deleted))
+          return std::optional<EdgeAccessor>{};
+
         return CreateEdgeFromDisk(src_vertex, &*dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
                                   edge_gid_str, deserializeTimestamp);
       }
-      if (dst_vertex_gid != destination->Gid()) {
+      /// This is needed for filtering
+      /// Second check not needed I think
+      if (dst_vertex_gid != destination->Gid() || destination->vertex_->deleted) {
         return std::optional<EdgeAccessor>{};
       }
 
@@ -1587,6 +1600,9 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
                                                Transaction *transaction, View view) {
+  /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
+  if (view == View::NEW && dst_vertex->vertex_->deleted) return {};
+
   const std::string dst_vertex_gid = utils::SerializeIdType(dst_vertex->Gid());
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
@@ -1598,8 +1614,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
       transaction->disk_transaction_->Get(ro, kvstore_->in_edges_chandle, dst_vertex_gid, &in_edges_str);
 
   if (!conn_index_res.ok()) {
-    spdlog::trace("rocksdb: Couldn't find in edges of vertex {}. Status: {}", dst_vertex_gid,
-                  conn_index_res.ToString());
+    spdlog::trace("rocksdb: Couldn't find in edges of vertex {}.", dst_vertex_gid);
     return {};
   }
 
@@ -1622,11 +1637,16 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
       auto src_vertex_gid = utils::ExtractSrcVertexGidFromEdgeValue(edge_val_str);
       if (!source) {
         auto src_vertex = FindVertex(src_vertex_gid, transaction, view);
-        MG_ASSERT(src_vertex.has_value(), "rocksdb: Failed to find source vertex in vertex column family");
+        /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
+        /// TODO: (andi) Second check I think isn't necessary
+        if (!src_vertex.has_value() || (view == View::NEW && src_vertex->vertex_->deleted))
+          return std::optional<EdgeAccessor>{};
+
         return CreateEdgeFromDisk(&*src_vertex, dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
                                   edge_gid_str, deserializeTimestamp);
       }
-      if (src_vertex_gid != source->Gid()) {
+      /// TODO: (andi) 2nd check not needed I think
+      if (src_vertex_gid != source->Gid() || source->vertex_->deleted) {
         return std::optional<EdgeAccessor>{};
       }
       return CreateEdgeFromDisk(source, dst_vertex, transaction, edge_type_id, edge_gid, properties_str, edge_gid_str,

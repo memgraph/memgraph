@@ -129,6 +129,12 @@ void Storage::Accessor::AdvanceCommand() {
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
+  /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
+  /// Loading edges is done through VertexAccessor so we do it here.
+  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL &&
+      (vertex->OutEdges(View::OLD)->expanded_count > 0 || vertex->InEdges(View::OLD)->expanded_count > 0)) {
+    return Error::VERTEX_HAS_EDGES;
+  }
   auto res = DetachDelete({vertex}, {}, false);
 
   if (res.HasError()) {
