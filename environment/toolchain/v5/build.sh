@@ -1213,6 +1213,10 @@ if [ ! -f $PREFIX/include/FlexLexer.h ]; then
 fi
 
 popd
+# NOTE: It's important/clean (e.g., easier upload to S3) to have a separated
+# folder to the output archive.
+mkdir -p output
+pushd output
 
 # create toolchain archive
 # TODO(gitbuda): Add flag to skip packaging (by default package).
@@ -1247,7 +1251,7 @@ echo "All tools have been built. They are installed in '$PREFIX'."
 echo "In order to distribute the tools to someone else, an archive with the toolchain was created in the 'build' directory."
 echo "If you want to install the packed tools you should execute the following command:"
 echo
-echo "    tar -xvzf build/$NAME-binaries.tar.gz -C /opt"
+echo "    tar -xvzf output/$NAME-binaries.tar.gz -C /opt"
 echo
 echo "Because the tools were built on this machine, you should probably change the permissions of the installation directory using:"
 echo
