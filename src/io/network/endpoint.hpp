@@ -33,7 +33,7 @@ struct Endpoint {
   Endpoint &operator=(Endpoint &&) noexcept = default;
   ~Endpoint() = default;
 
-  enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
+  enum class IpFamily : std::uint8_t { NONE, IP4, IP6, DNS_ALIAS };
 
   std::string SocketAddress() const;
 
@@ -61,6 +61,8 @@ struct Endpoint {
                                                                       const std::optional<uint16_t> default_port);
 
   static IpFamily GetIpFamily(const std::string &ip_address);
+
+  bool ValidReplicaAddress();
 };
 
 }  // namespace memgraph::io::network

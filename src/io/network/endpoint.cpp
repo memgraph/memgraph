@@ -15,6 +15,7 @@
 
 #include <algorithm>
 
+#include "endpoint.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
@@ -129,11 +130,12 @@ std::string Endpoint::SocketAddress() const {
 
 Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
   IpFamily ip_family = GetIpFamily(address);
-  /*
   if (ip_family == IpFamily::NONE) {
-    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
+    if (!ValidReplicaAddress()) {
+      throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
+    }
+    ip_family = IpFamily::DNS_ALIAS;
   }
-  */
   family = ip_family;
 }
 
@@ -145,6 +147,17 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
               << ":" << endpoint.port;
   }
   return os << endpoint.address << ":" << endpoint.port;
+}
+
+bool Endpoint::ValidReplicaAddress() {
+  addrinfo hints{
+      .ai_flags = AI_PASSIVE,
+      .ai_family = AF_UNSPEC,     // IPv4 and IPv6
+      .ai_socktype = SOCK_STREAM  // TCP socket
+  };
+  addrinfo *info = nullptr;
+  auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
+  return status == 0;
 }
 
 }  // namespace memgraph::io::network
