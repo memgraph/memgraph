@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -136,6 +136,8 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
 
 void Session::DoRead() {
   ExecuteForWebsocket([this](auto &&ws) {
+    // TODO(gitbuda): Session::DoRead is implemented differently compared to the Boost example ->
+    // https://www.boost.org/doc/libs/1_80_0/libs/beast/example/websocket/server/async/websocket_server_async.cpp
     ws.async_read(buffer_, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
   });
   ;
