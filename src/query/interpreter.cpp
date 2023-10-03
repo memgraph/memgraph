@@ -332,7 +332,21 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
     } else {
-      throw QueryRuntimeException("Invalid socket address!");
+      auto address_and_port =
+          io::network::Endpoint::ParseAddress(socket_address, storage::replication::kDefaultReplicationPort);
+      if (address_and_port) {
+        auto [address, port] = *address_and_port;
+        auto ret = db_->RegisterReplica(
+            storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+            storage::replication::ReplicationClientConfig{.name = name,
+                                                          .mode = repl_mode,
+                                                          .ip_address = address,
+                                                          .port = port,
+                                                          .replica_check_frequency = replica_check_frequency,
+                                                          .ssl = std::nullopt});
+      } else {
+        throw QueryRuntimeException("Invalid socket address!");
+      }
     }
   }
 

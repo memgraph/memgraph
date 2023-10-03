@@ -57,6 +57,9 @@ struct Endpoint {
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
       const std::string &address, const std::optional<uint16_t> default_port);
 
+  static std::optional<std::pair<std::string, uint16_t>> ParseAddress(const std::string &address,
+                                                                      const std::optional<uint16_t> default_port);
+
   static IpFamily GetIpFamily(const std::string &ip_address);
 };
 

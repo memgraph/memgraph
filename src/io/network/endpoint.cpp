@@ -86,6 +86,42 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
   return std::nullopt;
 }
 
+std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseAddress(
+    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+  const std::string delimiter = ":";
+  std::string replica_address;
+  std::vector<std::string> parts = utils::Split(address, delimiter);
+  if (parts.size() == 1) {
+    if (default_port) {
+      return std::pair{address, *default_port};
+    }
+    return std::nullopt;
+  } else if (parts.size() == 2) {
+    replica_address = std::move(parts[0]);
+    int64_t int_port{0};
+    try {
+      int_port = utils::ParseInt(parts[1]);
+    } catch (utils::BasicException &e) {
+      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
+      return std::nullopt;
+    }
+    if (int_port < 0) {
+      spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
+                                           int_port, "https://memgr.ph/ports"));
+      return std::nullopt;
+    }
+    if (int_port > std::numeric_limits<uint16_t>::max()) {
+      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
+                                           "https://memgr.ph/ports"));
+      return std::nullopt;
+    }
+
+    return std::pair{replica_address, static_cast<uint16_t>(int_port)};
+  }
+
+  return std::nullopt;
+}
+
 std::string Endpoint::SocketAddress() const {
   auto ip_address = address.empty() ? "EMPTY" : address;
   return ip_address + ":" + std::to_string(port);
@@ -93,9 +129,11 @@ std::string Endpoint::SocketAddress() const {
 
 Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
   IpFamily ip_family = GetIpFamily(address);
+  /*
   if (ip_family == IpFamily::NONE) {
     throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
   }
+  */
   family = ip_family;
 }
 
