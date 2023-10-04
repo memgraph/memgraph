@@ -86,7 +86,7 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
     // }
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
   } else {
-    memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(size));
+    // memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(size));
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
@@ -95,7 +95,7 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
       // arena_allocations[arena_ind] -= size;
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
-      memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(size));
+      // memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(size));
     }
     return ptr;
   }
@@ -114,7 +114,7 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     // arena_allocations[arena_ind] -= size;
   } else {
-    memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(size));
+    // memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(size));
   }
 
   return false;
@@ -139,7 +139,7 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
     return err;
   }
 
-  memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(length));
+  // memgraph::utils::total_memory_tracker.FreeVirt(static_cast<int64_t>(length));
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
 
   return false;
@@ -154,7 +154,7 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
     return err;
   }
 
-  memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(length));
+  // memgraph::utils::total_memory_tracker.AllocVirt(static_cast<int64_t>(length));
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
 
   return false;
@@ -177,6 +177,7 @@ static bool my_purge_lazy(extent_hooks_t *extent_hooks, void *addr, size_t size,
                           unsigned arena_ind) {
   // If memory is purged lazily, it will not be cleaned immediatelly if we are not using MADVISE_DONTNEED (muzzy=0 and
   // decay=0)
+  // memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
   MG_ASSERT(old_hooks && old_hooks->purge_lazy);
   return old_hooks->purge_lazy(extent_hooks, addr, size, offset, length, arena_ind);
 }
