@@ -41,26 +41,24 @@ Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &ip_address) {
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
     const std::string &address, const std::optional<uint16_t> default_port = {}) {
   /// expected address format:
-  ///   - "ip_address:port_number"
-  ///   - "ip_address"
+  ///   - "address:port_number"
+  ///   - "address"
+  /// An address can be either an IP address or a DNS-associated name with an IP address.
   /// We parse the address first. If it's an IP address, a default port must
   // be given, or we return nullopt. If it's a socket address, we try to parse
   // it into an ip address and a port number; even if a default port is given,
   // it won't be used, as we expect that it is given in the address string.
   const std::string delimiter = ":";
-  std::string ip_address;
+  std::string parsed_address;
 
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
     if (default_port) {
-      if (GetIpFamily(address) == IpFamily::NONE) {
-        return std::nullopt;
-      }
-      return std::pair{address, *default_port};
+      return std::pair{parsed_address, *default_port};
     }
   } else if (parts.size() == 2) {
-    ip_address = std::move(parts[0]);
-    if (GetIpFamily(ip_address) == IpFamily::NONE) {
+    parsed_address = std::move(parts[0]);
+    if (GetIpFamily(parsed_address) == IpFamily::NONE) {
       return std::nullopt;
     }
     int64_t int_port{0};
@@ -81,43 +79,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
       return std::nullopt;
     }
 
-    return std::pair{ip_address, static_cast<uint16_t>(int_port)};
-  }
-
-  return std::nullopt;
-}
-
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
-  const std::string delimiter = ":";
-  std::string replica_address;
-  std::vector<std::string> parts = utils::Split(address, delimiter);
-  if (parts.size() == 1) {
-    if (default_port) {
-      return std::pair{address, *default_port};
-    }
-    return std::nullopt;
-  } else if (parts.size() == 2) {
-    replica_address = std::move(parts[0]);
-    int64_t int_port{0};
-    try {
-      int_port = utils::ParseInt(parts[1]);
-    } catch (utils::BasicException &e) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-    if (int_port < 0) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
-                                           int_port, "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-    if (int_port > std::numeric_limits<uint16_t>::max()) {
-      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
-                                           "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-
-    return std::pair{replica_address, static_cast<uint16_t>(int_port)};
+    return std::pair{parsed_address, static_cast<uint16_t>(int_port)};
   }
 
   return std::nullopt;

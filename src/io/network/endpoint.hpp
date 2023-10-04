@@ -47,8 +47,9 @@ struct Endpoint {
   /**
    * Tries to parse the given string as either a socket address or ip address.
    * Expected address format:
-   *   - "ip_address:port_number"
-   *   - "ip_address"
+   *   - "address:port_number"
+   *   - "address"
+   * An address can be either an IP address or a DNS-associated name with an IP address.
    * We parse the address first. If it's an IP address, a default port must
    * be given, or we return nullopt. If it's a socket address, we try to parse
    * it into an ip address and a port number; even if a default port is given,
@@ -56,9 +57,6 @@ struct Endpoint {
    */
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
       const std::string &address, const std::optional<uint16_t> default_port);
-
-  static std::optional<std::pair<std::string, uint16_t>> ParseAddress(const std::string &address,
-                                                                      const std::optional<uint16_t> default_port);
 
   static IpFamily GetIpFamily(const std::string &ip_address);
 
