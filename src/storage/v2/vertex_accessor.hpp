@@ -27,6 +27,7 @@ class Storage;
 struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
+using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
 class VertexAccessor final {
  private:
@@ -81,6 +82,13 @@ class VertexAccessor final {
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+
+  auto BuildResultOutEdges(edge_store const &out_edges) const;
+
+  auto BuildResultInEdges(edge_store const &out_edges) const;
+
+  auto BuildResultWithDisk(edge_store const &in_memory_edges, std::vector<EdgeAccessor> const &disk_edges, View view,
+                           const std::string &mode) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds

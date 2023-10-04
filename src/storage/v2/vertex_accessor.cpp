@@ -431,6 +431,55 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
+auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {
+  auto ret = std::vector<EdgeAccessor>{};
+  ret.reserve(out_edges.size());
+  for (const auto &[edge_type, to_vertex, edge] : out_edges) {
+    ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_);
+  }
+  return ret;
+};
+
+auto VertexAccessor::BuildResultInEdges(edge_store const &out_edges) const {
+  auto ret = std::vector<EdgeAccessor>{};
+  ret.reserve(out_edges.size());
+  for (const auto &[edge_type, from_vertex, edge] : out_edges) {
+    ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_);
+  }
+  return ret;
+};
+
+auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std::vector<EdgeAccessor> const &disk_edges,
+                                         View view, const std::string &mode) const {
+  /// TODO: (andi) Better mode handling
+  auto ret = std::invoke([this, &mode, &in_memory_edges]() {
+    if (mode == "OUT") {
+      return BuildResultOutEdges(in_memory_edges);
+    }
+    return BuildResultInEdges(in_memory_edges);
+  });
+  /// TODO: (andi) Maybe this check can be done in build_result without damaging anything else.
+  std::erase_if(ret, [transaction = this->transaction_, view](const EdgeAccessor &edge_acc) {
+    return !edge_acc.IsVisible(view) || !edge_acc.FromVertex().IsVisible(view) ||
+           !edge_acc.ToVertex().IsVisible(view) ||
+           transaction->edges_to_delete_.contains(utils::SerializeIdType(edge_acc.Gid()));
+  });
+  std::unordered_set<storage::Gid> in_mem_edges_set;
+  in_mem_edges_set.reserve(in_memory_edges.size());
+  for (const auto &in_mem_edge_acc : ret) {
+    in_mem_edges_set.insert(in_mem_edge_acc.Gid());
+  }
+
+  for (const auto &disk_edge_acc : disk_edges) {
+    auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
+    if (in_mem_edges_set.contains(disk_edge_acc.Gid()) || transaction_->edges_to_delete_.contains(edge_gid_str)) {
+      continue;
+    }
+    ret.emplace_back(disk_edge_acc);
+  }
+  return ret;
+};
+
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
@@ -447,37 +496,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
     }
   }
-
-  using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
-
-  /// TODO: (andi) Deduplicate the code
-
-  // We return EdgeAccessors, this method with wrap the results in EdgeAccessors
-  auto const build_result = [this](edge_store const &edges) -> std::vector<EdgeAccessor> {
-    auto ret = std::vector<EdgeAccessor>{};
-    ret.reserve(edges.size());
-    for (auto const &[edge_type, from_vertex, edge] : edges) {
-      ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_);
-    }
-    return ret;
-  };
-
-  auto const build_result_with_disk = [&](edge_store const &in_memory_edges,
-                                          std::vector<EdgeAccessor> const &disk_edges) {
-    auto ret = build_result(in_memory_edges);
-    std::unordered_set<storage::Gid> in_mem_edges_set;
-    in_mem_edges_set.reserve(in_memory_edges.size());
-    for (const auto &in_mem_edge_acc : ret) in_mem_edges_set.insert(in_mem_edge_acc.Gid());
-
-    for (const auto &disk_edge_acc : disk_edges) {
-      auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
-      if (in_mem_edges_set.contains(disk_edge_acc.Gid()) || transaction_->edges_to_delete_.contains(edge_gid_str)) {
-        continue;
-      }
-      ret.emplace_back(disk_edge_acc);
-    }
-    return ret;
-  };
 
   auto const *destination_vertex = destination ? destination->vertex_ : nullptr;
 
@@ -514,7 +532,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
       if (auto resInEdges = cache.GetInEdges(view, vertex_, destination_vertex, edge_types); resInEdges)
-        return EdgesVertexAccessorResult{.edges = build_result(*resInEdges), .expanded_count = expanded_count};
+        return EdgesVertexAccessorResult{.edges = BuildResultInEdges(*resInEdges), .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -542,11 +560,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
   /// DiskStorage & View::NEW
   if (transaction_->IsDiskStorage()) {
-    return EdgesVertexAccessorResult{.edges = build_result_with_disk(in_edges, disk_edges),
+    return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(in_edges, disk_edges, view, "IN"),
                                      .expanded_count = expanded_count};
   }
 
-  return EdgesVertexAccessorResult{.edges = build_result(in_edges), .expanded_count = expanded_count};
+  return EdgesVertexAccessorResult{.edges = BuildResultInEdges(in_edges), .expanded_count = expanded_count};
 }
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
@@ -564,34 +582,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
     }
   }
-
-  using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
-
-  auto const build_result = [this](edge_store const &out_edges) {
-    auto ret = std::vector<EdgeAccessor>{};
-    ret.reserve(out_edges.size());
-    for (const auto &[edge_type, to_vertex, edge] : out_edges) {
-      ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_);
-    }
-    return ret;
-  };
-
-  auto const build_result_with_disk = [&](edge_store const &in_memory_edges,
-                                          std::vector<EdgeAccessor> const &disk_edges) {
-    auto ret = build_result(in_memory_edges);
-    std::unordered_set<storage::Gid> in_mem_edges_set;
-    in_mem_edges_set.reserve(in_memory_edges.size());
-    for (const auto &in_mem_edge_acc : ret) in_mem_edges_set.insert(in_mem_edge_acc.Gid());
-
-    for (const auto &disk_edge_acc : disk_edges) {
-      auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
-      if (in_mem_edges_set.contains(disk_edge_acc.Gid()) || transaction_->edges_to_delete_.contains(edge_gid_str)) {
-        continue;
-      }
-      ret.emplace_back(disk_edge_acc);
-    }
-    return ret;
-  };
 
   auto const *dst_vertex = destination ? destination->vertex_ : nullptr;
 
@@ -627,7 +617,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
       if (auto resOutEdges = cache.GetOutEdges(view, vertex_, dst_vertex, edge_types); resOutEdges)
-        return EdgesVertexAccessorResult{.edges = build_result(*resOutEdges), .expanded_count = expanded_count};
+        return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(*resOutEdges), .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -654,11 +644,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
 
   /// DiskStorage & View::NEW
   if (transaction_->IsDiskStorage()) {
-    return EdgesVertexAccessorResult{.edges = build_result_with_disk(out_edges, disk_edges),
+    return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(out_edges, disk_edges, view, "OUT"),
                                      .expanded_count = expanded_count};
   }
   /// InMemoryStorage
-  return EdgesVertexAccessorResult{.edges = build_result(out_edges), .expanded_count = expanded_count};
+  return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(out_edges), .expanded_count = expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {

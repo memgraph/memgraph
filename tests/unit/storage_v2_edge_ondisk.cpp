@@ -1332,6 +1332,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::trace("");
   }
 
   // Create edge
@@ -1400,6 +1401,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::trace("");
   }
 
   // Check whether the edge exists
@@ -1487,6 +1489,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::trace("");
   }
 
   // Delete edge
@@ -1554,6 +1557,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::trace("");
   }
 
   // Check whether the edge exists
@@ -1583,6 +1587,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::trace("");
   }
   disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
@@ -3574,6 +3579,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     }
 
     ASSERT_FALSE(acc->Commit().HasError());
+    spdlog::trace("");
   }
 
   // Detach delete vertex

@@ -77,7 +77,9 @@ struct Transaction {
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
 
-  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) { modified_edges_.emplace(gid, modified_edge); }
+  bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
+    return modified_edges_.emplace(gid, modified_edge).second;
+  }
 
   void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
 
