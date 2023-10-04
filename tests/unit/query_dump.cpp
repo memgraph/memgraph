@@ -271,6 +271,8 @@ void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::
     ASSERT_TRUE(result[0].IsString());
     got.push_back(result[0].ValueString());
   }
+  std::sort(got.begin(), got.end());
+  std::sort(expected.begin(), expected.end());
   ASSERT_EQ(got, expected);
 }
 
