@@ -656,7 +656,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   if (transaction_->IsDiskStorage()) {
     auto res = InEdges(view);
     if (res.HasValue()) {
-      return res->expanded_count;
+      return res->edges.size();
     }
     return res.GetError();
   }
@@ -712,7 +712,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (transaction_->IsDiskStorage()) {
     auto res = OutEdges(view);
     if (res.HasValue()) {
-      return res->expanded_count;
+      return res->edges.size();
     }
     return res.GetError();
   }
