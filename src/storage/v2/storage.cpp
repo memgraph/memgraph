@@ -134,16 +134,16 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
-    if (out_edges_res.HasError()) {
+    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
       return out_edges_res.GetError();
     }
-    if (!out_edges_res->edges.empty()) {
+    if (!out_edges_res.HasError() && !out_edges_res->edges.empty()) {
       return Error::VERTEX_HAS_EDGES;
     }
-    if (in_edges_res.HasError()) {
+    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
       return in_edges_res.GetError();
     }
-    if (!in_edges_res->edges.empty()) {
+    if (!in_edges_res.HasError() && !in_edges_res->edges.empty()) {
       return Error::VERTEX_HAS_EDGES;
     }
   }
