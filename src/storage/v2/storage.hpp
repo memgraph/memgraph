@@ -71,7 +71,34 @@ struct StorageInfo {
   double average_degree;
   uint64_t memory_usage;
   uint64_t disk_usage;
+  uint64_t label_indices;
+  uint64_t label_property_indices;
+  uint64_t existence_constraints;
+  uint64_t unique_constraints;
+  StorageMode storage_mode;
+  IsolationLevel isolation_level;
+  bool durability_snapshot_enabled;
+  bool durability_wal_enabled;
 };
+
+static inline nlohmann::json ToJson(const StorageInfo &info) {
+  nlohmann::json res;
+
+  res["edges"] = info.edge_count;
+  res["vertices"] = info.vertex_count;
+  res["ram_usage"] = info.memory_usage;
+  res["disk_usage"] = info.disk_usage;
+  res["label_indices"] = info.label_indices;
+  res["label_prop_indices"] = info.label_property_indices;
+  res["existence_constraints"] = info.existence_constraints;
+  res["unique_constraints"] = info.unique_constraints;
+  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
+  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
+  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
+                       {"WAL_enabled", info.durability_wal_enabled}};
+
+  return res;
+}
 
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};

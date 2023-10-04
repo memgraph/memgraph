@@ -26,6 +26,8 @@ class JStringFormatException final : public BasicException {
   template <class... Args>
   explicit JStringFormatException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : JStringFormatException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  std::string name() const override { return "JStringFormatException"; }
 };
 
 template <typename T>

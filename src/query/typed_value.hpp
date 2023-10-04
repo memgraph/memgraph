@@ -566,6 +566,7 @@ class TypedValue {
 class TypedValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  std::string name() const override { return "TypedValueException"; }
 };
 
 // binary bool operators

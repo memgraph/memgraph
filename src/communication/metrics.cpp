@@ -9,16 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "metrics.hpp"
 
-#include <json/json.hpp>
+namespace memgraph::communication {
 
-namespace memgraph::telemetry {
+BoltMetrics bolt_metrics;
 
-/**
- * This function returs a dictionary containing resource usage information
- * (total cpu usage and current memory usage).
- */
-const nlohmann::json GetResourceUsage(std::filesystem::path root_directory);
-
-}  // namespace memgraph::telemetry
+}  // namespace memgraph::communication

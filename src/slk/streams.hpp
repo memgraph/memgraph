@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,6 +67,7 @@ class Builder {
 class SlkReaderException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  std::string name() const override { return "SlkReaderException"; }
 };
 
 /// Reader used to read data from a SLK segment stream.

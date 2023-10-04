@@ -48,6 +48,7 @@ enum class SetForResult : uint8_t {
 class UnknownSessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  std::string name() const override { return "UnknownSessionException"; }
 };
 
 /**
@@ -58,6 +59,7 @@ class UnknownSessionException : public utils::BasicException {
 class UnknownDatabaseException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  std::string name() const override { return "UnknownDatabaseException"; }
 };
 
 }  // namespace memgraph::dbms

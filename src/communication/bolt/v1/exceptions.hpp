@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,7 @@ namespace memgraph::communication::bolt {
 class ClientError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  std::string name() const override { return "ClientError"; }
 };
 
 /**
@@ -67,6 +68,7 @@ class VerboseError : public utils::BasicException {
         code_(fmt::format("Memgraph.{}.{}.{}", ClassificationToString(classification), category, title)) {}
 
   const std::string &code() const noexcept { return code_; }
+  std::string name() const override { return "VerboseError"; }
 
  private:
   std::string ClassificationToString(Classification classification) {

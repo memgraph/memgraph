@@ -69,6 +69,8 @@ class BasicException : public std::exception {
    */
   const char *what() const noexcept override { return msg_.c_str(); }
 
+  virtual std::string name() const { return "BasicException"; }
+
  protected:
   /**
    * @brief Error message.
@@ -146,6 +148,8 @@ class NotYetImplemented final : public BasicException {
   template <class... Args>
   explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  std::string name() const override { return "NotYetImplemented"; }
 };
 
 class ParseException final : public BasicException {
@@ -156,6 +160,14 @@ class ParseException final : public BasicException {
   template <class... Args>
   explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : ParseException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  std::string name() const override { return "ParseException"; }
 };
+
+inline std::string GetExceptionName(const std::exception &e) { return typeid(e).name(); }
+inline std::string GetExceptionName(const utils::BasicException &be) { return be.name(); }
+
+#define SPECIALIZE_GET_EXCEPTION_NAME(exep) \
+  std::string name() const override { return #exep; }
 
 }  // namespace memgraph::utils

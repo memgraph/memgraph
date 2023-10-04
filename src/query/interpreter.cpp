@@ -62,6 +62,7 @@
 #include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
+#include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
@@ -3836,7 +3837,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
+    // Trigger first failed query
+    metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -3862,10 +3866,12 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  bool decrement = true;
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
       transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
+      decrement = false;
       break;
     }
     expected = TransactionStatus::ACTIVE;
@@ -3881,7 +3887,10 @@ void Interpreter::Abort() {
   current_timeout_timer_.reset();
   current_transaction_.reset();
 
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  if (decrement) {
+    // Decrement only if the transaction was active when we started to Abort
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  }
 
   // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);

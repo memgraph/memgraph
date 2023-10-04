@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,31 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::communication::bolt {
+
+inline std::vector<std::string> StringifySupportedVersions(uint8_t *data) {
+  std::vector<std::string> res;
+  uint8_t range_i = 1;
+  uint8_t minor_i = 2;
+  uint8_t major_i = 3;
+  uint8_t chunk_size = 4;
+  uint8_t n_chunks = 4;
+  auto stringify_version = [](uint8_t major, uint8_t minor) { return fmt::format("{}.{}", major, minor); };
+  for (uint8_t i = 0; i < n_chunks; ++i) {
+    const uint32_t full_version = *((uint32_t *)data);
+    if (full_version == 0) break;
+    if (data[1] != 0) {  // Supports a range of versions
+      uint8_t range = data[range_i];
+      auto max_minor = data[minor_i];
+      for (uint8_t r = 0; r <= range; ++r) {
+        res.push_back(stringify_version(data[major_i], max_minor - r));
+      }
+    } else {
+      res.push_back(stringify_version(data[major_i], data[minor_i]));
+    }
+    data += chunk_size;
+  }
+  return res;
+}
 
 inline bool CopyProtocolInformationIfSupported(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
@@ -70,6 +95,8 @@ State StateHandshakeRun(TSession &session) {
 
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
   uint8_t protocol[4] = {0x00};
+
+  session.client_supported_bolt_versions_ = std::move(StringifySupportedVersions(dataPosition));
 
   for (int i = 0; i < 4 && !protocol[3]; ++i) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte

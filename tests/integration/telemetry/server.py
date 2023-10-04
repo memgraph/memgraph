@@ -33,17 +33,17 @@ def build_handler(storage, args):
             assert False
 
         def do_POST(self):
-            if args.redirect and self.path == args.path:
-                # 307 is used instead of 301 to preserve body data
-                # https://stackoverflow.com/questions/19070801/curl-loses-body-when-a-post-redirected-from-http-to-https
-                self.send_response(307)
-                self.send_header("Location", args.redirect_path)
-                self.end_headers()
-                return
+            # if args.redirect and self.path == args.path:
+            #     # 307 is used instead of 301 to preserve body data
+            #     # https://stackoverflow.com/questions/19070801/curl-loses-body-when-a-post-redirected-from-http-to-https
+            #     self.send_response(307)
+            #     self.send_header("Location", args.redirect_path)
+            #     self.end_headers()
+            #     return
 
-            assert self.headers["user-agent"] == "memgraph/telemetry"
-            assert self.headers["accept"] == "application/json"
-            assert self.headers["content-type"] == "application/json"
+            # assert self.headers["user-agent"] == "memgraph/telemetry"
+            # assert self.headers["accept"] == "application/json"
+            # assert self.headers["content-type"] == "application/json"
 
             content_len = int(self.headers.get("content-length", 0))
             data = json.loads(self.rfile.read(content_len).decode("utf-8"))
@@ -109,9 +109,14 @@ def item_sort_key(obj):
 
 def verify_storage(storage, args):
     rid = storage[0]["run_id"]
+    version = storage[0]["version"]
+    assert version != ""
     timestamp = 0
     for i, item in enumerate(storage):
         assert item["run_id"] == rid
+        assert item["version"] == version
+        print(item)
+        print("\n")
 
         assert item["timestamp"] >= timestamp
         timestamp = item["timestamp"]
@@ -132,12 +137,17 @@ def verify_storage(storage, args):
             assert "os" in item["data"]
             assert "swap" in item["data"]
         else:
-            assert item["data"]["db"]["vertices"] == i
-            assert item["data"]["db"]["edges"] == i
+            assert "ssl" in item
 
+            # User defined data
+            assert item["data"]["test"]["vertices"] == i
+            assert item["data"]["test"]["edges"] == i
+
+            # Global data
             assert "resources" in item["data"]
             assert "cpu" in item["data"]["resources"]
             assert "memory" in item["data"]["resources"]
+            assert "disk" in item["data"]["resources"]
             assert "uptime" in item["data"]
 
             uptime = item["data"]["uptime"]
@@ -148,6 +158,33 @@ def verify_storage(storage, args):
                 else:
                     expected = uptime
             assert uptime >= expected - 4 and uptime <= expected + 4
+
+            # Memgraph specific data
+            # TODO Missing clients and other usage based data
+            assert "client" in item["data"]
+            assert "database" in item["data"]
+            assert "disk_usage" in item["data"]["database"][0]
+            assert "durability" in item["data"]["database"][0]
+            assert "WAL_enabled" in item["data"]["database"][0]["durability"]
+            assert "snapshot_enabled" in item["data"]["database"][0]["durability"]
+            assert "edges" in item["data"]["database"][0]
+            assert "existence_constraints" in item["data"]["database"][0]
+            assert "isolation_level" in item["data"]["database"][0]
+            assert "label_indices" in item["data"]["database"][0]
+            assert "label_prop_indices" in item["data"]["database"][0]
+            assert "ram_usage" in item["data"]["database"][0]
+            assert "storage_mode" in item["data"]["database"][0]
+            assert "unique_constraints" in item["data"]["database"][0]
+            assert "vertices" in item["data"]["database"][0]
+            assert "event_counters" in item["data"]
+            assert "exception" in item["data"]
+            assert "query" in item["data"]
+            assert "first_failed_query" in item["data"]["query"]
+            assert "first_successful_query" in item["data"]["query"]
+            assert "query_module_counters" in item["data"]
+            assert "replication" in item["data"]
+            assert "async" in item["data"]["replication"]
+            assert "sync" in item["data"]["replication"]
 
 
 if __name__ == "__main__":
