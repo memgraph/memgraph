@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -1609,18 +1610,29 @@ TYPED_TEST(FunctionTest, StartNode) {
 TYPED_TEST(FunctionTest, Degree) {
   ASSERT_THROW(this->EvaluateFunction("DEGREE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("DEGREE", TypedValue()).IsNull());
-  auto v1 = this->dba.InsertVertex();
-  auto v2 = this->dba.InsertVertex();
-  auto v3 = this->dba.InsertVertex();
+  memgraph::query::VertexAccessor v1 = this->dba.InsertVertex();
+  memgraph::query::VertexAccessor v2 = this->dba.InsertVertex();
+  memgraph::query::VertexAccessor v3 = this->dba.InsertVertex();
   auto e12 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("t"));
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).HasValue());
   this->dba.AdvanceCommand();
-  ASSERT_EQ(this->EvaluateFunction("DEGREE", v1).ValueInt(), 1);
-  ASSERT_EQ(this->EvaluateFunction("DEGREE", v2).ValueInt(), 2);
-  ASSERT_EQ(this->EvaluateFunction("DEGREE", v3).ValueInt(), 1);
   ASSERT_THROW(this->EvaluateFunction("DEGREE", 2), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("DEGREE", *e12), QueryRuntimeException);
+
+  /// NOTE: Disk storage require separate testing because OutDegree and InDegree must be called
+  /// with the View::NEW if the transaction didn't commit, like in this case. And EvaluateFunction
+  /// will call OutDegree and InDegree with View::OLD.
+  if (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    ASSERT_EQ(this->EvaluateFunction("DEGREE", v1).ValueInt(), 1);
+    ASSERT_EQ(this->EvaluateFunction("DEGREE", v2).ValueInt(), 2);
+    ASSERT_EQ(this->EvaluateFunction("DEGREE", v3).ValueInt(), 1);
+
+  } else {
+    ASSERT_EQ(*v1.OutDegree(memgraph::storage::View::NEW) + *v1.InDegree(memgraph::storage::View::NEW), 1);
+    ASSERT_EQ(*v2.OutDegree(memgraph::storage::View::NEW) + *v2.InDegree(memgraph::storage::View::NEW), 2);
+    ASSERT_EQ(*v3.OutDegree(memgraph::storage::View::NEW) + *v3.InDegree(memgraph::storage::View::NEW), 1);
+  }
 }
 
 TYPED_TEST(FunctionTest, InDegree) {
@@ -1633,11 +1645,22 @@ TYPED_TEST(FunctionTest, InDegree) {
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).HasValue());
   this->dba.AdvanceCommand();
-  ASSERT_EQ(this->EvaluateFunction("INDEGREE", v1).ValueInt(), 0);
-  ASSERT_EQ(this->EvaluateFunction("INDEGREE", v2).ValueInt(), 2);
-  ASSERT_EQ(this->EvaluateFunction("INDEGREE", v3).ValueInt(), 0);
+
   ASSERT_THROW(this->EvaluateFunction("INDEGREE", 2), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("INDEGREE", *e12), QueryRuntimeException);
+
+  /// NOTE: Disk storage require separate testing because OutDegree and InDegree must be called
+  /// with the View::NEW if the transaction didn't commit, like in this case. And EvaluateFunction
+  /// will call OutDegree and InDegree with View::OLD.
+  if (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    ASSERT_EQ(this->EvaluateFunction("INDEGREE", v1).ValueInt(), 0);
+    ASSERT_EQ(this->EvaluateFunction("INDEGREE", v2).ValueInt(), 2);
+    ASSERT_EQ(this->EvaluateFunction("INDEGREE", v3).ValueInt(), 0);
+  } else {
+    ASSERT_EQ(*v1.InDegree(memgraph::storage::View::NEW), 0);
+    ASSERT_EQ(*v2.InDegree(memgraph::storage::View::NEW), 2);
+    ASSERT_EQ(*v3.InDegree(memgraph::storage::View::NEW), 0);
+  }
 }
 
 TYPED_TEST(FunctionTest, OutDegree) {
@@ -1650,11 +1673,21 @@ TYPED_TEST(FunctionTest, OutDegree) {
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(this->dba.InsertEdge(&v3, &v2, this->dba.NameToEdgeType("t")).HasValue());
   this->dba.AdvanceCommand();
-  ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v1).ValueInt(), 1);
-  ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v2).ValueInt(), 0);
-  ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v3).ValueInt(), 1);
   ASSERT_THROW(this->EvaluateFunction("OUTDEGREE", 2), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("OUTDEGREE", *e12), QueryRuntimeException);
+
+  /// NOTE: Disk storage require separate testing because OutDegree and InDegree must be called
+  /// with the View::NEW if the transaction didn't commit, like in this case. And EvaluateFunction
+  /// will call OutDegree and InDegree with View::OLD.
+  if (std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v1).ValueInt(), 1);
+    ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v2).ValueInt(), 0);
+    ASSERT_EQ(this->EvaluateFunction("OUTDEGREE", v3).ValueInt(), 1);
+  } else {
+    ASSERT_EQ(*v1.OutDegree(memgraph::storage::View::NEW), 1);
+    ASSERT_EQ(*v2.OutDegree(memgraph::storage::View::NEW), 0);
+    ASSERT_EQ(*v3.OutDegree(memgraph::storage::View::NEW), 1);
+  }
 }
 
 TYPED_TEST(FunctionTest, ToBoolean) {
