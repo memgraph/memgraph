@@ -1513,22 +1513,20 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
     edge.ptr->properties.SetBuffer(properties);
-    if (inserted) {
-      spdlog::trace("Edge {} added to out edges of vertex with gid {}", utils::SerializeIdType(gid),
-                    from_vertex->gid.AsUint());
-      spdlog::trace("Edge {} added to in edges of vertex with gid {}", utils::SerializeIdType(gid),
-                    to_vertex->gid.AsUint());
-      from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-      to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-      transaction->manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-      transaction->manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
-    }
   }
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type,
                                  edge);
-  /// TODO: (andi) Not sure if here should be modified edge.
-  transaction->AddModifiedEdge(gid, modified_edge);
+  if (transaction->AddModifiedEdge(gid, modified_edge)) {
+    spdlog::trace("Edge {} added to out edges of vertex with gid {}", utils::SerializeIdType(gid),
+                  from_vertex->gid.AsUint());
+    spdlog::trace("Edge {} added to in edges of vertex with gid {}", utils::SerializeIdType(gid),
+                  to_vertex->gid.AsUint());
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    transaction->manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction->manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+  }
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, this, transaction);
 }
