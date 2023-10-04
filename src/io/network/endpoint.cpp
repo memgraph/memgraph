@@ -111,7 +111,7 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   return os << endpoint.address << ":" << endpoint.port;
 }
 
-bool Endpoint::ValidReplicaAddress() {
+bool Endpoint::ValidReplicaAddress() const {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
       .ai_family = AF_UNSPEC,     // IPv4 and IPv6

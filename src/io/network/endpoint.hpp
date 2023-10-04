@@ -60,7 +60,7 @@ struct Endpoint {
 
   static IpFamily GetIpFamily(const std::string &ip_address);
 
-  bool ValidReplicaAddress();
+  bool ValidReplicaAddress() const;
 };
 
 }  // namespace memgraph::io::network
