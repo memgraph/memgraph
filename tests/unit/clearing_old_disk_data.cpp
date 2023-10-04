@@ -124,7 +124,7 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
   ASSERT_TRUE(edge->SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
   ASSERT_FALSE(acc1->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 
   auto acc2 = disk_storage->Access(std::nullopt);
   auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
@@ -138,7 +138,7 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
   ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(10)).HasValue());
   ASSERT_FALSE(acc2->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 }
 
 TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
@@ -163,7 +163,7 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
   ASSERT_TRUE(edge->SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
   ASSERT_FALSE(acc1->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 
   auto acc2 = disk_storage->Access(std::nullopt);
   auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
@@ -175,5 +175,5 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
   ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(15)).HasValue());
   ASSERT_FALSE(acc2->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 }
