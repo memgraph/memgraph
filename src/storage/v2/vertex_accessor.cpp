@@ -490,6 +490,10 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   /// in memory storage should be checked only if something exists before loading from the disk.
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+    if (!exists) return Error::NONEXISTENT_OBJECT;
+    if (deleted) return Error::DELETED_OBJECT;
+
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
     /// DiskStorage & View::OLD
     if (view == View::OLD) {
@@ -576,6 +580,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
+    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+    if (!exists) return Error::NONEXISTENT_OBJECT;
+    if (deleted) return Error::DELETED_OBJECT;
     disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
     /// DiskStorage & View::OLD
     if (view == View::OLD) {
