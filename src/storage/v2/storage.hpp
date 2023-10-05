@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <chrono>
+#include <semaphore>
 #include <span>
+#include <thread>
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
@@ -35,6 +38,7 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
@@ -94,7 +98,13 @@ class Storage {
 
   class Accessor {
    public:
-    Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    static constexpr struct SharedAccess {
+    } shared_access;
+    static constexpr struct UniqueAccess {
+    } unique_access;
+
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -149,14 +159,10 @@ class Storage {
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                                const LabelPropertyIndexStats &stats) = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() = 0;
-
-    virtual std::vector<LabelId> ClearLabelIndexStats() = 0;
-
     virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        std::span<std::string> labels) = 0;
+        const storage::LabelId &label) = 0;
 
-    virtual std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> labels) = 0;
+    virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
     virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
 
@@ -179,7 +185,7 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageDataManipulationError, void> Commit(
+    virtual utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
 
     virtual void Abort() = 0;
@@ -206,9 +212,30 @@ class Storage {
 
     const std::string &id() const { return storage_->id(); }
 
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+
+    virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                                   const std::set<PropertyId> &properties) = 0;
+
    protected:
     Storage *storage_;
-    std::shared_lock<utils::RWLock> storage_guard_;
+    std::shared_lock<utils::ResourceLock> storage_guard_;
+    std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
@@ -251,58 +278,15 @@ class Storage {
 
   StorageMode GetStorageMode() const;
 
-  virtual void FreeMemory(std::unique_lock<utils::RWLock> main_guard) = 0;
+  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
 
   void FreeMemory() { FreeMemory({}); }
 
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) {
-    return CreateIndex(label, std::optional<uint64_t>{});
-  }
-
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) {
-    return CreateIndex(label, property, std::optional<uint64_t>{});
-  }
-
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) {
-    return DropIndex(label, std::optional<uint64_t>{});
-  }
-
-  virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) {
-    return DropIndex(label, property, std::optional<uint64_t>{});
-  }
-
-  IndicesInfo ListAllIndices() const;
-
-  virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                         std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  virtual utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
-  DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                       std::optional<uint64_t> desired_commit_timestamp) = 0;
-
-  ConstraintsInfo ListAllConstraints() const;
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -351,7 +335,7 @@ class Storage {
   // creation of new accessors by taking a unique lock. This is used when doing
   // operations on storage that affect the global state, for example index
   // creation.
-  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
+  mutable utils::ResourceLock main_lock_;
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
