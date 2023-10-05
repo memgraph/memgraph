@@ -161,9 +161,6 @@ struct CurrentDB {
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
-  // This cannot be std::optional because we need to move this accessor later on into a lambda capture
-  // which is assigned to std::function. std::function requires every object to be copyable, so we
-  // move this unique_ptr into a shrared_ptr.
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;

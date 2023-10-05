@@ -28,7 +28,7 @@ struct timestamp {
  private:
   friend struct LamportClock<Tag>;
 
-  timestamp(uint64_t value) : value_{value} {}
+  explicit timestamp(uint64_t value) : value_{value} {}
   uint64_t value_;
 };
 
@@ -43,14 +43,14 @@ template <typename Tag>
 struct LamportClock {
   using timestamp_t = timestamp<Tag>;
 
-  auto get_timestamp(internal_t) -> timestamp_t { return ++internal; };
-  auto get_timestamp(send_t) -> timestamp_t { return ++internal; };
+  auto get_timestamp(internal_t) -> timestamp_t { return timestamp_t{++internal}; };
+  auto get_timestamp(send_t) -> timestamp_t { return timestamp_t{++internal}; };
   auto get_timestamp(receive_t, timestamp_t received_timestamp) -> timestamp_t {
     while (true) {
       auto local_current = internal.load(std::memory_order_acquire);
       auto next = std::max(received_timestamp.value_, local_current) + 1;
       bool res = internal.compare_exchange_weak(local_current, next, std::memory_order_acq_rel);
-      if (res) return next;
+      if (res) return timestamp_t{next};
     }
   };
 

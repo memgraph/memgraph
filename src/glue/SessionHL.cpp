@@ -132,10 +132,11 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
     auto locked_auth = auth_->Lock();
     if (locked_auth->HasUsers()) {
       user_ = locked_auth->Authenticate(username, password);
-      if (user_) {
+      if (user_.has_value()) {
         interpreter_.SetUser(user_->username());
+      } else {
+        res = false;
       }
-      res = user_.has_value();
     }
   }
 #ifdef MG_ENTERPRISE

@@ -97,7 +97,6 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "query/auth_query_handler.hpp"
-#include "query/frontend/semantic/uses_database.hpp"
 #include "query/interpreter_context.hpp"
 
 namespace memgraph::metrics {
@@ -3678,34 +3677,26 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     // Some queries require an active transaction in order to be prepared.
-    bool t1 =
+    // TODO: make a better analysis visitor over the `parsed_query.query`
+    bool requires_db_transaction =
         utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query);  // TODO: add stream+index
-    //    auto t2 = UsesDatabases(parsed_query.query);
-    // some visitor to get this from parsed_query.query
-    // use DB     R/W
-    // use system R/W
-    // regardless of R/W, if used we clock, if W we replicate
+        utils::Downcast<ConstraintQuery>(parsed_query.query);
 
-    if (!in_explicit_transaction_ && t1) {
-      // analysis on parsed_query.query to figure out if db_access required
-      // for now assume that is the current db (which either bolt set of is the default or using statement changed to)
+    if (!in_explicit_transaction_ && requires_db_transaction) {
+      // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr;
       SetupDatabaseTransaction(could_commit, unique);
     }
-    if (!t1) {
-      // system clock....maybe not observable
 
-      // interpreter transaction -> UX friendly ID for show/terminate
-
-      // storage transaction -> storage durability + part of vector clock
-      // system/process/instance transaction/event/observable  -> durability? + part of vector clock
-    }
+    // TODO: none database transaction (assuming mutually exclusive from DB transactions)
+    // if (!requires_db_transaction) {
+    //   /* something */
+    // }
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
