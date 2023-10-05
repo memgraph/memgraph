@@ -720,7 +720,7 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
       this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
-  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter", " * ScanAll (n)", " * Once"};
+  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter {n.id}", " * ScanAll (n)", " * Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -803,6 +803,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
+  // TODO ante
   EXPECT_EQ(this->interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream =
