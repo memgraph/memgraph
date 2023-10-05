@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,15 @@ class Bound {
 
   Bound &operator=(const Bound &other) = default;
   Bound &operator=(Bound &&other) = default;
+
+  bool operator<(const Bound &other) const {
+    if (value_ != other.value_) {
+      return value_ < other.value_;
+    }
+    return type_ < other.type_;
+  }
+
+  bool operator==(const Bound &other) const { return value_ = other.value_ && type_ == other.type_; }
 
   /** Value for the bound. */
   const auto &value() const { return value_; }
