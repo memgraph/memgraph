@@ -472,7 +472,8 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 
   for (const auto &disk_edge_acc : disk_edges) {
     auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
-    if (in_mem_edges_set.contains(disk_edge_acc.Gid()) || transaction_->edges_to_delete_.contains(edge_gid_str)) {
+    if (in_mem_edges_set.contains(disk_edge_acc.Gid()) ||
+        (view == View::NEW && transaction_->edges_to_delete_.contains(edge_gid_str))) {
       continue;
     }
     ret.emplace_back(disk_edge_acc);
@@ -493,10 +494,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
+    bool edges_modified_in_tx = !vertex_->in_edges.empty();
 
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
     /// DiskStorage & View::OLD
-    if (view == View::OLD) {
+    if (view == View::OLD && !edges_modified_in_tx) {
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
     }
   }
@@ -583,9 +585,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
+    bool edges_modified_in_tx = !vertex_->out_edges.empty();
+
     disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
     /// DiskStorage & View::OLD
-    if (view == View::OLD) {
+    if (view == View::OLD && !edges_modified_in_tx) {
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
     }
   }

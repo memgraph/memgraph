@@ -1373,6 +1373,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 /// dest_vertex. Otherwise we will be doing a lot of unnecessary deserializations of neighborhood.
 /// std::map<src_vertex_gid, ...>
 /// std::map<dst_vertex_gid, ...>
+/// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
   spdlog::trace("Flushing modified edges");
