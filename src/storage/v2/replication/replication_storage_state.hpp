@@ -18,6 +18,7 @@
 #include "utils/result.hpp"
 
 /// REPLICATION ///
+#include "replication/replication_state.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
@@ -25,7 +26,6 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
-// TODO use replication namespace
 namespace memgraph::storage {
 
 class Storage;
@@ -34,14 +34,12 @@ class ReplicationClient;
 
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 
-struct ReplicationStorageState {
+struct ReplicationStorageState : memgraph::replication::ReplicationState {
   // TODO: This mirrors the logic in InMemoryConstructor; make it independent
   ReplicationStorageState(bool restore, std::filesystem::path durability_dir);
 
   // Generic API
   void Reset();
-  // TODO: Just check if server exists -> you are REPLICA
-  replication::ReplicationRole GetRole() const { return replication_role_.load(); }
 
   bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
   // TODO: ReplicationServer/Client uses Storage* for RPC callbacks
@@ -93,7 +91,6 @@ struct ReplicationStorageState {
  private:
   bool TryPersistReplicaClient(const replication::ReplicationClientConfig &config);
   bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
-  void SetRole(replication::ReplicationRole role) { return replication_role_.store(role); }
 
   // NOTE: Server is not in MAIN it is in REPLICA
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
@@ -110,8 +107,6 @@ struct ReplicationStorageState {
   // failed.
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
-
-  std::atomic<replication::ReplicationRole> replication_role_{replication::ReplicationRole::MAIN};
 
   std::unique_ptr<kvstore::KVStore> durability_;
 

@@ -307,27 +307,29 @@ class Storage {
 
   /// REPLICATION
   bool SetReplicaRole(const replication::ReplicationServerConfig &config) {
-    return replication_state_.SetReplicaRole(config, this);
+    return replication_storage_state_.SetReplicaRole(config, this);
   }
-  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
+  bool SetMainReplicationRole() { return replication_storage_state_.SetMainReplicationRole(this); }
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
   auto RegisterReplica(const replication::RegistrationMode registration_mode,
                        const replication::ReplicationClientConfig &config) {
-    return replication_state_.RegisterReplica(registration_mode, config, this);
+    return replication_storage_state_.RegisterReplica(registration_mode, config, this);
   }
   /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
-  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
-  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
+  bool UnregisterReplica(const std::string &name) { return replication_storage_state_.UnregisterReplica(name); }
+  auto ReplicasInfo() { return replication_storage_state_.ReplicasInfo(); }
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
-    return replication_state_.GetReplicaState(name);
+    return replication_storage_state_.GetReplicaState(name);
   }
 
+  // TODO: make non-public
+  ReplicationStorageState replication_storage_state_;
+
  protected:
-  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
-  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
+  void RestoreReplicas() { return replication_storage_state_.RestoreReplicas(this); }
+  void RestoreReplicationRole() { return replication_storage_state_.RestoreReplicationRole(this); }
 
  public:
   // Main storage lock.
@@ -360,9 +362,6 @@ class Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   const std::string id_;  //!< High-level assigned ID
-
- protected:
-  ReplicationStorageState replication_state_;
 };
 
 }  // namespace memgraph::storage

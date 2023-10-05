@@ -79,7 +79,7 @@ std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) 
     }
 
     if (data.find(kReplicationRole) != data.end()) {
-      replica_status.role = replication::ReplicationRole::MAIN;
+      replica_status.role = memgraph::replication::ReplicationRole::MAIN;
       data.at(kReplicationRole).get_to(replica_status.role.value());
     }
   } catch (const nlohmann::json::type_error &exception) {

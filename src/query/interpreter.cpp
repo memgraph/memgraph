@@ -98,6 +98,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
+#include "replication/replication_state.hpp"
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -274,10 +275,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
-    switch (db_->GetReplicationRole()) {
-      case storage::replication::ReplicationRole::MAIN:
+    switch (db_->replication_storage_state_.GetRole()) {
+      case memgraph::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::replication::ReplicationRole::REPLICA:
+      case memgraph::replication::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -287,7 +288,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
-    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (db_->replication_storage_state_.IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
@@ -330,7 +331,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void DropReplica(const std::string &replica_name) override {
-    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (db_->replication_storage_state_.IsReplica()) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
@@ -341,7 +342,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (db_->replication_storage_state_.IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -1371,18 +1372,17 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
                                      const query::plan::ReadWriteTypeChecker::RWType query_type) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return (storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) &&
-           (query_type == RWType::W || query_type == RWType::RW);
+    return (storage->replication_storage_state_.IsReplica()) && (query_type == RWType::W || query_type == RWType::RW);
   }
   return false;
 }
 
-storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) {
+bool IsReplica(storage::Storage *storage) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return storage->GetReplicationRole();
+    return storage->replication_storage_state_.IsReplica();
   }
-  return storage::replication::ReplicationRole::MAIN;
+  return false;
 }
 
 }  // namespace
@@ -3329,7 +3329,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   }
   // TODO: Remove once replicas support multi-tenant replication
   if (!current_db.db_acc_) throw DatabaseContextRequiredException("Multi database queries require a defined database.");
-  if (GetReplicaRole(current_db.db_acc_->get()->storage()) == storage::replication::ReplicationRole::REPLICA) {
+  if (IsReplica(current_db.db_acc_->get()->storage())) {
     throw QueryException("Query forbidden on the replica!");
   }
 
@@ -3472,7 +3472,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(storage) == storage::replication::ReplicationRole::REPLICA) {
+  if (storage->replication_storage_state_.IsReplica()) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 

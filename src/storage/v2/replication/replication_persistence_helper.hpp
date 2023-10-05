@@ -18,6 +18,7 @@
 
 #include <json/json.hpp>
 
+#include "replication/replication_state.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 
@@ -34,7 +35,7 @@ struct ReplicationStatus {
   ReplicationMode sync_mode;
   std::chrono::seconds replica_check_frequency;
   std::optional<ReplicationClientConfig::SSL> ssl;
-  std::optional<ReplicationRole> role;
+  std::optional<memgraph::replication::ReplicationRole> role;
 
   friend bool operator==(const ReplicationStatus &, const ReplicationStatus &) = default;
 };

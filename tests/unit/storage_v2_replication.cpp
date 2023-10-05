@@ -28,6 +28,7 @@
 
 using testing::UnorderedElementsAre;
 
+using memgraph::replication::ReplicationRole;
 using memgraph::storage::Config;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::Gid;
@@ -40,7 +41,6 @@ using memgraph::storage::replication::RegistrationMode;
 using memgraph::storage::replication::ReplicaState;
 using memgraph::storage::replication::ReplicationClientConfig;
 using memgraph::storage::replication::ReplicationMode;
-using memgraph::storage::replication::ReplicationRole;
 using memgraph::storage::replication::ReplicationServerConfig;
 
 class ReplicationTest : public ::testing::Test {
@@ -803,9 +803,9 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
                    .HasError());
 
-  ASSERT_EQ(main_store->GetReplicationRole(), ReplicationRole::MAIN);
-  ASSERT_EQ(replica_store1->GetReplicationRole(), ReplicationRole::REPLICA);
-  ASSERT_EQ(replica_store2->GetReplicationRole(), ReplicationRole::REPLICA);
+  ASSERT_TRUE(main_store->replication_storage_state_.IsMain());
+  ASSERT_TRUE(replica_store1->replication_storage_state_.IsReplica());
+  ASSERT_TRUE(replica_store2->replication_storage_state_.IsReplica());
 
   const auto replicas_info = main_store->ReplicasInfo();
   ASSERT_EQ(replicas_info.size(), 2);

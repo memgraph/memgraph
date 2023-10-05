@@ -42,7 +42,7 @@ add_library(mg-storage-v2 STATIC
         inmemory/replication/replication_server.cpp
         inmemory/replication/replication_client.cpp
 )
-target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk)
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk)
 
 # Until we get LTO there is an advantage to do some unity builds
 set_target_properties(mg-storage-v2

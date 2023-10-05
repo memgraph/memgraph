@@ -11,6 +11,7 @@
 
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "formatters.hpp"
+#include "replication/replication_state.hpp"
 #include "utils/logging.hpp"
 
 #include <gtest/gtest.h>
@@ -20,6 +21,7 @@
 #include <string>
 
 using namespace memgraph::storage::replication;
+using memgraph::replication::ReplicationRole;
 
 class ReplicationPersistanceHelperTest : public testing::Test {
  protected:

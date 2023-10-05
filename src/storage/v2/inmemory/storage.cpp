@@ -59,16 +59,16 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto &epoch = replication_state_.GetEpoch();
+    auto &epoch = replication_storage_state_.GetEpoch();
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id,
-                                        &replication_state_.history, &vertices_, &edges_, &edge_count_,
+                                        &replication_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
-        replication_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
+        replication_storage_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -133,7 +133,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     RestoreReplicationRole();
 
-    if (replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
+    if (replication_storage_state_.IsMain()) {
       RestoreReplicas();
     }
   } else {
@@ -143,7 +143,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
 
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
+      replication_storage_state_.IsMain()) {
     spdlog::warn(
         "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
@@ -159,7 +159,7 @@ InMemoryStorage::~InMemoryStorage() {
   }
   {
     // Clear replication data
-    replication_state_.Reset();
+    replication_storage_state_.Reset();
   }
   if (wal_file_) {
     wal_file_->FinalizeWal();
@@ -672,8 +672,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-        desired_commit_timestamp.has_value()) {
+    if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
       could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);
       // Take committed_transactions lock while holding the engine lock to
       // make sure that committed transactions are sorted by the commit
@@ -685,10 +684,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-            desired_commit_timestamp.has_value()) {
+        if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
           // Update the last commit timestamp
-          mem_storage->replication_state_.last_commit_timestamp_.store(*commit_timestamp_);
+          mem_storage->replication_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
         }
         // Release engine lock because we don't have to hold it anymore
         // and emplace back could take a long time.
@@ -772,8 +770,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-            desired_commit_timestamp.has_value()) {
+        if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
@@ -788,10 +785,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-              desired_commit_timestamp.has_value()) {
+          if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
-            mem_storage->replication_state_.last_commit_timestamp_.store(*commit_timestamp_);
+            mem_storage->replication_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
           }
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
@@ -1159,7 +1155,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_state_.GetRole() == replication::ReplicationRole::REPLICA) {
+    if (replication_storage_state_.IsReplica()) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
@@ -1498,8 +1494,8 @@ bool InMemoryStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, replication_state_.GetEpoch().id, config_.items, name_id_mapper_.get(),
-                      wal_seq_num_++, &file_retainer_);
+    wal_file_.emplace(wal_directory_, uuid_, replication_storage_state_.GetEpoch().id, config_.items,
+                      name_id_mapper_.get(), wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -1531,7 +1527,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  replication_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  replication_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -1682,7 +1678,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 
   append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
     wal_file_->AppendDelta(delta, parent, timestamp);
-    replication_state_.AppendDelta(delta, parent, timestamp);
+    replication_storage_state_.AppendDelta(delta, parent, timestamp);
   });
 
   // Add a delta that indicates that the transaction is fully written to the WAL
@@ -1690,7 +1686,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return replication_state_.FinalizeTransaction(final_commit_timestamp);
+  return replication_storage_state_.FinalizeTransaction(final_commit_timestamp);
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
@@ -1698,7 +1694,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
     return true;
   }
 
-  replication_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  replication_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
 
   for (const auto &md_delta : transaction.md_deltas) {
     switch (md_delta.action) {
@@ -1769,7 +1765,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return replication_state_.FinalizeTransaction(final_commit_timestamp);
+  return replication_storage_state_.FinalizeTransaction(final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1777,7 +1773,8 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
   wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-  replication_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+  replication_storage_state_.AppendOperation(operation, label, properties, stats, property_stats,
+                                             final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1805,18 +1802,18 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     std::optional<bool> is_periodic) {
-  if (replication_state_.GetRole() != replication::ReplicationRole::MAIN) {
+  if (replication_storage_state_.IsReplica()) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
   auto snapshot_creator = [this]() {
     utils::Timer timer;
-    const auto &epoch = replication_state_.GetEpoch();
+    const auto &epoch = replication_storage_state_.GetEpoch();
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                                config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
-                               &indices_, &constraints_, config_, uuid_, epoch.id, replication_state_.history,
+                               &indices_, &constraints_, config_, uuid_, epoch.id, replication_storage_state_.history,
                                &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
@@ -1879,7 +1876,7 @@ void InMemoryStorage::EstablishNewEpoch() {
     wal_file_.reset();
   }
   // TODO: Move out of storage (no need for the lock) <- missing commit_timestamp at a higher level
-  replication_state_.NewEpoch();
+  replication_storage_state_.NewEpoch();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {

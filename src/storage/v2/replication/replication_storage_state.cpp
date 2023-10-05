@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_storage_state.hpp"
+
+#include "replication/replication_state.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -53,7 +55,7 @@ void storage::ReplicationStorageState::Reset() {
 bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *storage) {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
-  if (GetRole() == replication::ReplicationRole::MAIN) {
+  if (IsMain()) {
     return false;
   }
 
@@ -72,7 +74,7 @@ bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *
                                        .sync_mode = replication::ReplicationMode::SYNC,
                                        .replica_check_frequency = std::chrono::seconds(0),
                                        .ssl = std::nullopt,
-                                       .role = replication::ReplicationRole::MAIN});
+                                       .role = memgraph::replication::ReplicationRole::MAIN});
 
     if (!durability_->Put(replication::kReservedReplicationRoleName, data.dump())) {
       spdlog::error("Error when saving MAIN replication role in settings.");
@@ -80,7 +82,7 @@ bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *
     }
   }
 
-  SetRole(replication::ReplicationRole::MAIN);
+  SetRole(memgraph::replication::ReplicationRole::MAIN);
   return true;
 }
 
@@ -89,7 +91,7 @@ void storage::ReplicationStorageState::AppendOperation(durability::StorageMetada
                                                        const LabelIndexStats &stats,
                                                        const LabelPropertyIndexStats &property_stats,
                                                        uint64_t final_commit_timestamp) {
-  if (GetRole() == replication::ReplicationRole::MAIN) {
+  if (IsMain()) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->IfStreamingTransaction([&](auto &stream) {
@@ -101,7 +103,7 @@ void storage::ReplicationStorageState::AppendOperation(durability::StorageMetada
 }
 
 void storage::ReplicationStorageState::InitializeTransaction(uint64_t seq_num) {
-  if (GetRole() == replication::ReplicationRole::MAIN) {
+  if (IsMain()) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->StartTransactionReplication(seq_num);
@@ -144,7 +146,7 @@ bool storage::ReplicationStorageState::FinalizeTransaction(uint64_t timestamp) {
 utils::BasicResult<RegisterReplicaError> ReplicationStorageState::RegisterReplica(
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
     Storage *storage) {
-  MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
+  MG_ASSERT(IsMain(), "Only main instance can register a replica!");
 
   auto name_check = [&config](auto &clients) {
     auto name_matches = [&name = config.name](const auto &client) { return client->Name() == name; };
@@ -197,7 +199,7 @@ bool ReplicationStorageState::TryPersistReplicaClient(const replication::Replica
                                      .sync_mode = config.mode,
                                      .replica_check_frequency = config.replica_check_frequency,
                                      .ssl = config.ssl,
-                                     .role = replication::ReplicationRole::REPLICA});
+                                     .role = memgraph::replication::ReplicationRole::REPLICA});
   if (durability_->Put(config.name, data.dump())) return true;
   spdlog::error("Error when saving replica {} in settings.", config.name);
   return false;
@@ -205,7 +207,7 @@ bool ReplicationStorageState::TryPersistReplicaClient(const replication::Replica
 
 bool ReplicationStorageState::SetReplicaRole(const replication::ReplicationServerConfig &config, Storage *storage) {
   // We don't want to restart the server if we're already a REPLICA
-  if (GetRole() == replication::ReplicationRole::REPLICA) {
+  if (IsReplica()) {
     return false;
   }
 
@@ -225,7 +227,7 @@ bool ReplicationStorageState::SetReplicaRole(const replication::ReplicationServe
                                        .sync_mode = replication::ReplicationMode::SYNC,
                                        .replica_check_frequency = std::chrono::seconds(0),
                                        .ssl = std::nullopt,
-                                       .role = replication::ReplicationRole::REPLICA});
+                                       .role = memgraph::replication::ReplicationRole::REPLICA});
 
     if (!durability_->Put(replication::kReservedReplicationRoleName, data.dump())) {
       spdlog::error("Error when saving REPLICA replication role in settings.");
@@ -233,12 +235,12 @@ bool ReplicationStorageState::SetReplicaRole(const replication::ReplicationServe
     }
   }
 
-  SetRole(replication::ReplicationRole::REPLICA);
+  SetRole(memgraph::replication::ReplicationRole::REPLICA);
   return true;
 }
 
 bool ReplicationStorageState::UnregisterReplica(std::string_view name) {
-  MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can unregister a replica!");
+  MG_ASSERT(IsMain(), "Only main instance can unregister a replica!");
   if (ShouldStoreAndRestoreReplicationState()) {
     if (!durability_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
@@ -296,13 +298,13 @@ void ReplicationStorageState::RestoreReplicationRole(Storage *storage) {
 
   const auto replication_status = *maybe_replication_status;
   if (!replication_status.role.has_value()) {
-    SetRole(replication::ReplicationRole::MAIN);
+    SetRole(memgraph::replication::ReplicationRole::MAIN);
   } else {
     SetRole(*replication_status.role);
     port = replication_status.port;
   }
 
-  if (GetRole() == replication::ReplicationRole::REPLICA) {
+  if (IsReplica()) {
     replication_server_ = storage->CreateReplicationServer(replication::ReplicationServerConfig{
         .ip_address = replication::kDefaultReplicationServerIp,
         .port = port,
@@ -313,8 +315,7 @@ void ReplicationStorageState::RestoreReplicationRole(Storage *storage) {
     }
   }
 
-  spdlog::info("Replication role restored to {}.",
-               GetRole() == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
+  spdlog::info("Replication role restored to {}.", IsMain() ? "MAIN" : "REPLICA");
 }
 
 void ReplicationStorageState::RestoreReplicas(Storage *storage) {
