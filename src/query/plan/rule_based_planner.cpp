@@ -21,8 +21,6 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-DEFINE_bool(cartesian_expansion_enabled, true, "Set to true to enable cartesian operator.");
-
 namespace memgraph::query::plan {
 
 namespace {
@@ -607,6 +605,9 @@ std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::
   return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_, left_op->OutputSymbols(symbol_table),
                                  right_op->OutputSymbols(symbol_table));
 }
+
+Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
+Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
 
 }  // namespace impl
 

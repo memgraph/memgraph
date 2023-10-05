@@ -22,6 +22,7 @@
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
+#include "query/interpreter_context.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -38,14 +39,39 @@ class TransactionQueueMultipleTest : public ::testing::Test {
   const std::string testSuite = "transactin_queue_multiple";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
-  memgraph::query::InterpreterContext interpreter_context{
-      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {}, data_directory};
-  InterpreterFaker main_interpreter{&interpreter_context};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
+
+  memgraph::dbms::DatabaseAccess db{
+      [&]() {
+        auto db_acc_opt = db_gk.access();
+        MG_ASSERT(db_acc_opt, "Failed to access db");
+        auto &db_acc = *db_acc_opt;
+        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+                  "Wrong storage mode!");
+        return db_acc;
+      }()  // iile
+  };
+
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  InterpreterFaker main_interpreter{&interpreter_context, db};
   std::vector<InterpreterFaker *> running_interpreters;
 
   TransactionQueueMultipleTest() {
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
-      InterpreterFaker *faker = new InterpreterFaker(&interpreter_context);
+      InterpreterFaker *faker = new InterpreterFaker(&interpreter_context, db);
       running_interpreters.push_back(faker);
     }
   }
@@ -55,6 +81,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
       delete running_interpreters[i];
     }
     disk_test_utils::RemoveRocksDbDirs(testSuite);
+    std::filesystem::remove_all(data_directory);
   }
 };
 

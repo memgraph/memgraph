@@ -24,8 +24,6 @@
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
-DECLARE_bool(cartesian_expansion_enabled);
-
 namespace memgraph::query::plan {
 
 /// @brief Context which contains variables commonly used during planning.
@@ -91,6 +89,9 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 // used in the subquery.
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage);
+
+Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table);
+Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table);
 
 /// Utility function for iterating pattern atoms and accumulating a result.
 ///
@@ -438,13 +439,8 @@ class RuleBasedPlanner {
     // regular match.
     auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
 
-    if (FLAGS_cartesian_expansion_enabled) {
-      last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                         match_context.new_symbols, named_paths, filters, match_context.view);
-    } else {
-      last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                match_context.new_symbols, named_paths, filters, match_context.view);
-    }
+    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                               match_context.new_symbols, named_paths, filters, match_context.view);
 
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
@@ -482,12 +478,155 @@ class RuleBasedPlanner {
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
   }
 
-  std::unique_ptr<LogicalOperator> GenerateExpansion(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
-                                                     const Expansion &expansion, const SymbolTable &symbol_table,
-                                                     AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
-                                                     std::vector<Symbol> &new_symbols,
-                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
-                                                     Filters &filters, storage::View view) {
+  std::unique_ptr<LogicalOperator> HandleExpansions(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
+                                                    const SymbolTable &symbol_table, AstStorage &storage,
+                                                    std::unordered_set<Symbol> &bound_symbols,
+                                                    std::vector<Symbol> &new_symbols,
+                                                    std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
+                                                    Filters &filters, storage::View view) {
+    if (matching.expansions.empty()) {
+      return last_op;
+    }
+
+    std::set<IsomorphicId> all_isomorphic_expansions;
+    for (const auto &expansion : matching.expansions) {
+      all_isomorphic_expansions.insert(expansion.isomorphic_id);
+    }
+
+    std::set<IsomorphicId> visited_isomorphic_expansions;
+
+    last_op =
+        GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_isomorphic_expansions, symbol_table,
+                                              storage, bound_symbols, new_symbols, named_paths, filters, view);
+
+    // We want to create separate branches of scan operators for each isomorphic group of patterns
+    // Whenever there are 2 scan branches, they will be joined with a Cartesian operator
+
+    // New symbols from the opposite branch
+    // We need to see what are cross new symbols in order to check for edge uniqueness for cross branch of same matching
+    // Since one matching needs to comfort to Cyphermorphism
+    std::vector<Symbol> cross_branch_new_symbols;
+    bool initial_expansion_done = false;
+    for (const auto &expansion : matching.expansions) {
+      if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
+        continue;
+      }
+
+      std::unique_ptr<LogicalOperator> starting_expansion_operator = nullptr;
+      if (!initial_expansion_done) {
+        starting_expansion_operator = std::move(last_op);
+        initial_expansion_done = true;
+      }
+      std::vector<Symbol> starting_symbols{};
+      if (starting_expansion_operator) {
+        starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
+      }
+      std::vector<Symbol> new_isomorphic_symbols;
+      std::unordered_set<Symbol> new_bound_symbols{starting_symbols.begin(), starting_symbols.end()};
+      std::unique_ptr<LogicalOperator> isomorphic_expansion = GenerateIsomorphicExpansion(
+          std::move(starting_expansion_operator), matching, symbol_table, storage, new_bound_symbols,
+          new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
+
+      visited_isomorphic_expansions.insert(expansion.isomorphic_id);
+
+      new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
+      bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
+
+      // If we just started and have no beginning operator, make the beginning operator and transfer cross symbols
+      // for next iteration
+      bool started_matching_operators = !last_op;
+      bool has_more_expansions = visited_isomorphic_expansions.size() < all_isomorphic_expansions.size();
+      if (started_matching_operators) {
+        last_op = std::move(isomorphic_expansion);
+        if (has_more_expansions) {
+          cross_branch_new_symbols = new_isomorphic_symbols;
+        }
+        continue;
+      }
+
+      // if there is already a last operator, then we have 2 branches that we can merge into cartesian
+      last_op = GenerateCartesian(std::move(last_op), std::move(isomorphic_expansion), symbol_table);
+
+      // additionally, check for Cyphermorphism of the previous branch with new bound symbols
+      for (const auto &new_symbol : cross_branch_new_symbols) {
+        if (new_symbol.type_ == Symbol::Type::EDGE) {
+          last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, new_bound_symbols);
+        }
+      }
+
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+
+      // we aggregate all the so far new symbols so we can test them in the next iteration against the new isomorphic
+      // expansion
+      if (has_more_expansions) {
+        cross_branch_new_symbols.insert(cross_branch_new_symbols.end(), new_isomorphic_symbols.begin(),
+                                        new_isomorphic_symbols.end());
+      }
+    }
+
+    MG_ASSERT(visited_isomorphic_expansions.size() == all_isomorphic_expansions.size(),
+              "Did not create expansions for all isomorphic expansions in the planner!");
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> GenerateExpansionOnAlreadySeenSymbols(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
+      std::set<IsomorphicId> &visited_isomorphic_expansions, SymbolTable symbol_table, AstStorage &storage,
+      std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
+      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
+    bool added_new_expansions = true;
+    while (added_new_expansions) {
+      added_new_expansions = false;
+      for (const auto &expansion : matching.expansions) {
+        // We want to create separate matching branch operators for each isomorphic group of patterns
+        if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
+          continue;
+        }
+
+        bool src_node_already_seen = bound_symbols.contains(impl::GetSymbol(expansion.node1, symbol_table));
+        bool edge_already_seen =
+            expansion.edge && bound_symbols.contains(impl::GetSymbol(expansion.edge, symbol_table));
+        bool dest_node_already_seen =
+            expansion.edge && bound_symbols.contains(impl::GetSymbol(expansion.node2, symbol_table));
+
+        if (src_node_already_seen || edge_already_seen || dest_node_already_seen) {
+          last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                                new_symbols, named_paths, filters, view, expansion.isomorphic_id);
+          visited_isomorphic_expansions.insert(expansion.isomorphic_id);
+          added_new_expansions = true;
+          break;
+        }
+      }
+    }
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> GenerateIsomorphicExpansion(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
+      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
+      IsomorphicId isomorphic_id) {
+    for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
+      const auto &expansion = matching.expansions[i];
+
+      if (expansion.isomorphic_id != isomorphic_id) {
+        continue;
+      }
+
+      // When we picked a pattern to expand, we expand it through the end
+      last_op = GenerateOperatorsForExpansion(std::move(last_op), matching, expansion, symbol_table, storage,
+                                              bound_symbols, new_symbols, named_paths, filters, view);
+    }
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> GenerateOperatorsForExpansion(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const Expansion &expansion,
+      const SymbolTable &symbol_table, AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
+      std::vector<Symbol> &new_symbols, std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters,
+      storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
     if (bound_symbols.insert(node1_symbol).second) {
       // We have just bound this symbol, so generate ScanAll which fills it.
@@ -502,161 +641,6 @@ class RuleBasedPlanner {
     if (expansion.edge) {
       last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
                           named_paths, new_symbols, view);
-    }
-
-    return last_op;
-  }
-
-  std::unique_ptr<LogicalOperator> GenerateIsomorphicExpansion(
-      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
-      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
-      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
-      ExpansionId isomorphic_id) {
-    for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
-      const auto &expansion = matching.expansions[i];
-
-      if (expansion.isomorphic_id != isomorphic_id) {
-        continue;
-      }
-
-      // When we picked a pattern to expand, we expand it through the end
-      last_op = GenerateExpansion(std::move(last_op), matching, expansion, symbol_table, storage, bound_symbols,
-                                  new_symbols, named_paths, filters, view);
-    }
-    return last_op;
-  }
-
-  std::unique_ptr<LogicalOperator> GenerateCartesian(std::unique_ptr<LogicalOperator> left,
-                                                     std::unique_ptr<LogicalOperator> right,
-                                                     const SymbolTable &symbol_table) {
-    auto left_symbols = left->ModifiedSymbols(symbol_table);
-    auto right_symbols = right->ModifiedSymbols(symbol_table);
-    return std::make_unique<Cartesian>(std::move(left), left_symbols, std::move(right), right_symbols);
-  }
-
-  std::unique_ptr<LogicalOperator> HandleExpansionCartesian(
-      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
-      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
-      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
-    if (matching.expansions.empty()) {
-      return last_op;
-    }
-
-    std::set<ExpansionId> all_isomorphic_expansions;
-    for (const auto &expansion : matching.expansions) {
-      all_isomorphic_expansions.insert(expansion.isomorphic_id);
-    }
-
-    if (!last_op) {
-      if (matching.expansions.size() == 1) {
-        return GenerateExpansion(std::move(last_op), matching, matching.expansions[0], symbol_table, storage,
-                                 bound_symbols, new_symbols, named_paths, filters, view);
-      }
-      if (all_isomorphic_expansions.size() == 1) {
-        return GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                           new_symbols, named_paths, filters, view,
-                                           matching.expansions[0].isomorphic_id);
-      }
-    }
-
-    std::set<ExpansionId> visited_isomorphic_expansions;
-    bool added_new_expansions = true;
-    while (added_new_expansions) {
-      added_new_expansions = false;
-      for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
-        const auto &expansion = matching.expansions[i];
-
-        // We want to create separate matching branch operators for each isomorphic group of patterns
-        if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
-          continue;
-        }
-
-        const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-        if (bound_symbols.contains(node1_symbol)) {
-          last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                                new_symbols, named_paths, filters, view, expansion.isomorphic_id);
-          visited_isomorphic_expansions.insert(expansion.isomorphic_id);
-          added_new_expansions = true;
-          break;
-        }
-        if (expansion.edge) {
-          const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
-          const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
-          if (bound_symbols.contains(node2_symbol) || bound_symbols.contains(edge_symbol)) {
-            last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                                  new_symbols, named_paths, filters, view, expansion.isomorphic_id);
-            visited_isomorphic_expansions.insert(expansion.isomorphic_id);
-            added_new_expansions = true;
-            break;
-          }
-        }
-      }
-    }
-
-    std::vector<Symbol> cross_new_symbols;
-    std::unordered_set<Symbol> initial_bound_symbols = bound_symbols;
-    for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
-      const auto &expansion = matching.expansions[i];
-
-      // We want to create separate matching branch operators for each isomorphic group of patterns
-      if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
-        continue;
-      }
-
-      std::vector<Symbol> new_isomorphic_symbols{};
-      std::unordered_set<Symbol> new_bound_symbols{};
-      std::unique_ptr<LogicalOperator> isomorphic_expansion =
-          GenerateIsomorphicExpansion(std::make_unique<Once>(), matching, symbol_table, storage, new_bound_symbols,
-                                      new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
-
-      visited_isomorphic_expansions.insert(expansion.isomorphic_id);
-
-      new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
-      bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
-
-      if (!last_op) {
-        last_op = std::move(isomorphic_expansion);
-        cross_new_symbols = new_isomorphic_symbols;
-        continue;
-      }
-
-      last_op = GenerateCartesian(std::move(last_op), std::move(isomorphic_expansion), symbol_table);
-
-      for (const auto &new_symbol : cross_new_symbols) {
-        if (new_symbol.type_ == Symbol::Type::EDGE) {
-          last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, new_bound_symbols);
-        }
-      }
-
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-      cross_new_symbols = new_isomorphic_symbols;
-    }
-
-    return last_op;
-  }
-
-  std::unique_ptr<LogicalOperator> HandleExpansion(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
-                                                   const SymbolTable &symbol_table, AstStorage &storage,
-                                                   std::unordered_set<Symbol> &bound_symbols,
-                                                   std::vector<Symbol> &new_symbols,
-                                                   std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
-                                                   Filters &filters, storage::View view) {
-    for (const auto &expansion : matching.expansions) {
-      const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-      if (bound_symbols.insert(node1_symbol).second) {
-        // We have just bound this symbol, so generate ScanAll which fills it.
-        last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
-        new_symbols.emplace_back(node1_symbol);
-
-        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-        last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-      }
-
-      if (expansion.edge) {
-        last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
-                            named_paths, new_symbols, view);
-      }
     }
 
     return last_op;
@@ -763,6 +747,7 @@ class RuleBasedPlanner {
     // different edges).
     for (const auto &edge_symbols : matching.edge_symbols) {
       if (edge_symbols.size() <= 1) {
+        // nothing to test edge uniqueness with
         continue;
       }
       if (edge_symbols.find(edge_symbol) == edge_symbols.end()) {
@@ -834,6 +819,14 @@ class RuleBasedPlanner {
     return last_op;
   }
 
+  std::unique_ptr<LogicalOperator> GenerateCartesian(std::unique_ptr<LogicalOperator> left,
+                                                     std::unique_ptr<LogicalOperator> right,
+                                                     const SymbolTable &symbol_table) {
+    auto left_symbols = left->ModifiedSymbols(symbol_table);
+    auto right_symbols = right->ModifiedSymbols(symbol_table);
+    return std::make_unique<Cartesian>(std::move(left), left_symbols, std::move(right), right_symbols);
+  }
+
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
@@ -861,13 +854,8 @@ class RuleBasedPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    if (FLAGS_cartesian_expansion_enabled) {
-      last_op = HandleExpansionCartesian(std::move(last_op), matching, symbol_table, storage, expand_symbols,
-                                         new_symbols, named_paths, filters, storage::View::OLD);
-    } else {
-      last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
-                                named_paths, filters, storage::View::OLD);
-    }
+    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
+                               named_paths, filters, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 

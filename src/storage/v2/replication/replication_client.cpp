@@ -30,14 +30,12 @@ static auto CreateClientContext(const replication::ReplicationClientConfig &conf
                       : communication::ClientContext{};
 }
 
-ReplicationClient::ReplicationClient(Storage *storage, std::string name, memgraph::io::network::Endpoint endpoint,
-                                     replication::ReplicationMode mode,
-                                     replication::ReplicationClientConfig const &config)
-    : name_{std::move(name)},
+ReplicationClient::ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config)
+    : name_{config.name},
       rpc_context_{CreateClientContext(config)},
-      rpc_client_{std::move(endpoint), &rpc_context_},
+      rpc_client_{io::network::Endpoint(config.ip_address, config.port), &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
-      mode_{mode},
+      mode_{config.mode},
       storage_{storage} {}
 
 ReplicationClient::~ReplicationClient() {

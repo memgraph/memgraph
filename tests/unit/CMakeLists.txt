@@ -257,9 +257,6 @@ target_link_libraries(${test_prefix}utils_signals mg-utils)
 add_unit_test(utils_string.cpp)
 target_link_libraries(${test_prefix}utils_string mg-utils)
 
-add_unit_test(utils_sync_ptr.cpp)
-target_link_libraries(${test_prefix}utils_sync_ptr)
-
 add_unit_test(utils_synchronized.cpp)
 target_link_libraries(${test_prefix}utils_synchronized mg-utils)
 
@@ -404,17 +401,9 @@ target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
 
 # Test multi-database
 if(MG_ENTERPRISE)
-  # add_unit_test(dbms_storage.cpp)
-  # target_link_libraries(${test_prefix}dbms_storage mg-storage-v2 mg-query mg-glue)
+  add_unit_test(dbms_database.cpp)
+  target_link_libraries(${test_prefix}dbms_database mg-storage-v2 mg-query mg-glue mg-dbms)
 
-  add_unit_test(dbms_interp.cpp)
-  target_link_libraries(${test_prefix}dbms_interp mg-query)
-endif()
-
-# add_unit_test(dbms_auth.cpp)
-# target_link_libraries(${test_prefix}dbms_auth mg-glue)
-
-if(MG_ENTERPRISE)
-  add_unit_test_with_custom_main(dbms_sc_handler.cpp)
-  target_link_libraries(${test_prefix}dbms_sc_handler mg-query mg-audit mg-glue)
+  add_unit_test_with_custom_main(dbms_handler.cpp)
+  target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
 endif()

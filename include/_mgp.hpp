@@ -477,6 +477,8 @@ inline void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
 
 inline void path_expand(mgp_path *path, mgp_edge *edge) { MgInvokeVoid(mgp_path_expand, path, edge); }
 
+inline void path_pop(mgp_path *path) { MgInvokeVoid(mgp_path_pop, path); }
+
 inline size_t path_size(mgp_path *path) { return MgInvoke<size_t>(mgp_path_size, path); }
 
 inline mgp_vertex *path_vertex_at(mgp_path *path, size_t index) {

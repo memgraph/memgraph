@@ -3416,7 +3416,10 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
 class AggregateCursor : public Cursor {
  public:
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), aggregation_(mem) {}
+      : self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem)),
+        aggregation_(mem),
+        reused_group_by_(self.group_by_.size(), mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP_BY_REF(self_);
@@ -3509,6 +3512,8 @@ class AggregateCursor : public Cursor {
                             // custom equality
                             TypedValueVectorEqual>
       aggregation_;
+  // this is a for object reuse, to avoid re-allocating this buffer
+  utils::pmr::vector<TypedValue> reused_group_by_;
   // iterator over the accumulated cache
   decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
   // this LogicalOp pulls all from the input on it's first pull
@@ -3531,16 +3536,36 @@ class AggregateCursor : public Cursor {
       ProcessOne(*frame, &evaluator);
     }
 
-    // calculate AVG aggregations (so far they have only been summed)
+    // post processing
     for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
-      if (self_.aggregations_[pos].op != Aggregation::Op::AVG) continue;
-      for (auto &kv : aggregation_) {
-        AggregationValue &agg_value = kv.second;
-        auto count = agg_value.counts_[pos];
-        auto *pull_memory = context->evaluation_context.memory;
-        if (count > 0) {
-          agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+      switch (self_.aggregations_[pos].op) {
+        case Aggregation::Op::AVG: {
+          // calculate AVG aggregations (so far they have only been summed)
+          for (auto &kv : aggregation_) {
+            AggregationValue &agg_value = kv.second;
+            auto count = agg_value.counts_[pos];
+            auto *pull_memory = context->evaluation_context.memory;
+            if (count > 0) {
+              agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+            }
+          }
+          break;
         }
+        case Aggregation::Op::COUNT: {
+          // Copy counts to be the value
+          for (auto &kv : aggregation_) {
+            AggregationValue &agg_value = kv.second;
+            agg_value.values_[pos] = agg_value.counts_[pos];
+          }
+          break;
+        }
+        case Aggregation::Op::MIN:
+        case Aggregation::Op::MAX:
+        case Aggregation::Op::SUM:
+        case Aggregation::Op::COLLECT_LIST:
+        case Aggregation::Op::COLLECT_MAP:
+        case Aggregation::Op::PROJECT:
+          break;
       }
     }
   }
@@ -3549,14 +3574,16 @@ class AggregateCursor : public Cursor {
    * Performs a single accumulation.
    */
   void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
-    auto *mem = aggregation_.get_allocator().GetMemoryResource();
-    utils::pmr::vector<TypedValue> group_by(mem);
-    group_by.reserve(self_.group_by_.size());
+    // Preallocated group_by, since most of the time the aggregation key won't be unique
+    reused_group_by_.clear();
+
     for (Expression *expression : self_.group_by_) {
-      group_by.emplace_back(expression->Accept(*evaluator));
+      reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
-    auto &agg_value = aggregation_.try_emplace(std::move(group_by), mem).first->second;
-    EnsureInitialized(frame, &agg_value);
+    auto *mem = aggregation_.get_allocator().GetMemoryResource();
+    auto res = aggregation_.try_emplace(reused_group_by_, mem);
+    auto &agg_value = res.first->second;
+    if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
   }
 
@@ -3567,14 +3594,21 @@ class AggregateCursor : public Cursor {
   void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
     if (!agg_value->values_.empty()) return;
 
+    const auto num_of_aggregations = self_.aggregations_.size();
+    agg_value->values_.reserve(num_of_aggregations);
+    agg_value->unique_values_.reserve(num_of_aggregations);
+
+    auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
     for (const auto &agg_elem : self_.aggregations_) {
-      auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
       agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
-    agg_value->counts_.resize(self_.aggregations_.size(), 0);
+    agg_value->counts_.resize(num_of_aggregations, 0);
 
-    for (const Symbol &remember_sym : self_.remember_) agg_value->remember_.push_back(frame[remember_sym]);
+    agg_value->remember_.reserve(self_.remember_.size());
+    for (const Symbol &remember_sym : self_.remember_) {
+      agg_value->remember_.push_back(frame[remember_sym]);
+    }
   }
 
   /** Updates the given AggregationValue with new data. Assumes that
@@ -3591,13 +3625,14 @@ class AggregateCursor : public Cursor {
     auto value_it = agg_value->values_.begin();
     auto unique_values_it = agg_value->unique_values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
-    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, unique_values_it++, agg_elem_it++) {
+    const auto counts_end = agg_value->counts_.end();
+    for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto input_expr_ptr = agg_elem_it->value;
       if (!input_expr_ptr) {
         *count_it += 1;
-        *value_it = *count_it;
+        // value is deferred to post-processing
         continue;
       }
 
@@ -3609,7 +3644,7 @@ class AggregateCursor : public Cursor {
       if (agg_elem_it->distinct) {
         auto insert_result = unique_values_it->insert(input_value);
         if (!insert_result.second) {
-          break;
+          continue;
         }
       }
       *count_it += 1;
@@ -3618,19 +3653,19 @@ class AggregateCursor : public Cursor {
         switch (agg_op) {
           case Aggregation::Op::MIN:
           case Aggregation::Op::MAX:
-            *value_it = input_value;
             EnsureOkForMinMax(input_value);
+            *value_it = std::move(input_value);
             break;
           case Aggregation::Op::SUM:
           case Aggregation::Op::AVG:
-            *value_it = input_value;
             EnsureOkForAvgSum(input_value);
+            *value_it = std::move(input_value);
             break;
           case Aggregation::Op::COUNT:
-            *value_it = 1;
+            // value is deferred to post-processing
             break;
           case Aggregation::Op::COLLECT_LIST:
-            value_it->ValueList().push_back(input_value);
+            value_it->ValueList().push_back(std::move(input_value));
             break;
           case Aggregation::Op::PROJECT: {
             EnsureOkForProject(input_value);
@@ -3640,7 +3675,7 @@ class AggregateCursor : public Cursor {
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem_it->key->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-            value_it->ValueMap().emplace(key.ValueString(), input_value);
+            value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
             break;
         }
         continue;
@@ -3649,7 +3684,7 @@ class AggregateCursor : public Cursor {
       // aggregation of existing values
       switch (agg_op) {
         case Aggregation::Op::COUNT:
-          *value_it = *count_it;
+          // value is deferred to post-processing
           break;
         case Aggregation::Op::MIN: {
           EnsureOkForMinMax(input_value);
@@ -3658,7 +3693,7 @@ class AggregateCursor : public Cursor {
             // since we skip nulls we either have a valid comparison, or
             // an exception was just thrown above
             // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) *value_it = input_value;
+            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
           } catch (const TypedValueException &) {
             throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(), value_it->type());
           }
@@ -3669,7 +3704,7 @@ class AggregateCursor : public Cursor {
           EnsureOkForMinMax(input_value);
           try {
             TypedValue comparison_result = input_value > *value_it;
-            if (comparison_result.ValueBool()) *value_it = input_value;
+            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
           } catch (const TypedValueException &) {
             throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(), value_it->type());
           }
@@ -3683,7 +3718,7 @@ class AggregateCursor : public Cursor {
           *value_it = *value_it + input_value;
           break;
         case Aggregation::Op::COLLECT_LIST:
-          value_it->ValueList().push_back(input_value);
+          value_it->ValueList().push_back(std::move(input_value));
           break;
         case Aggregation::Op::PROJECT: {
           EnsureOkForProject(input_value);
@@ -3693,7 +3728,7 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem_it->key->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-          value_it->ValueMap().emplace(key.ValueString(), input_value);
+          value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
     }    // end loop over all aggregations
@@ -5186,7 +5221,7 @@ std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const
 }
 
 bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Apply");
+  SCOPED_PROFILE_OP("IndexedJoin");
 
   while (true) {
     if (pull_input_ && !left_->Pull(frame, context)) {

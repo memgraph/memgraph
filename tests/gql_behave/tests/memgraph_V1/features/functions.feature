@@ -1135,3 +1135,26 @@ Feature: Functions
             | 0  |
             | 1  |
             | 2  |
+
+    Scenario: Aggregate distinct does not impact other aggregates:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Node_A {id:1})
+            CREATE (:Node_A {id:2})
+            CREATE (:Node_A {id:3})
+            CREATE (:Node_B {id:1})
+            CREATE (:Node_B {id:2})
+            CREATE (:Node_B {id:3})
+            CREATE (:Node_B {id:4})
+            CREATE (:Node_B {id:4})
+            """
+        When executing query:
+            """
+            MATCH (a:Node_A), (b:Node_B)
+            RETURN COUNT(DISTINCT a.id) AS A_COUNT,
+                   COUNT(b.id) AS B_COUNT;
+            """
+        Then the result should be:
+            | A_COUNT | B_COUNT |
+            | 3       | 15      |

@@ -105,15 +105,6 @@ PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 
-bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* EdgeUniquenessFilter [";
-    utils::PrintIterable(out, op.previous_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << " != " << op.expand_symbol_.name() << "]";
-  });
-  return true;
-}
-
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
   return true;
@@ -203,10 +194,26 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
+  WithPrintLn([&](auto &out) {
+    out << "* EdgeUniquenessFilter [";
+    utils::PrintIterable(out, op.previous_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
+    out << " != " << op.expand_symbol_.name() << "]";
+  });
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Apply &op) {
   WithPrintLn([](auto &out) { out << "* Apply"; });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
+  WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
+  Branch(*op.right_);
+  op.left_->Accept(*this);
   return false;
 }
 #undef PRE_VISIT
@@ -945,6 +952,20 @@ bool PlanToJsonVisitor::PreVisit(Apply &op) {
 
   op.subquery_->Accept(*this);
   self["subquery"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
+  json self;
+  self["name"] = "IndexedJoin";
+
+  op.left_->Accept(*this);
+  self["left"] = PopOutput();
+
+  op.right_->Accept(*this);
+  self["right"] = PopOutput();
 
   output_ = std::move(self);
   return false;

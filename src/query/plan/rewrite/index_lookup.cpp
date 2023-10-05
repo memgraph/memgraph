@@ -22,45 +22,53 @@ DEFINE_VALIDATED_int64(query_vertex_count_to_expand_existing, 10,
 
 namespace memgraph::query::plan::impl {
 
-ExpressionRemovalResult RemoveAndExpressions(Expression *expr,
-                                             const std::unordered_set<Expression *> &exprs_to_remove) {
-  auto *and_op = utils::Downcast<AndOperator>(expr);
-  if (!and_op) return ExpressionRemovalResult{.expression = expr};
-  if (utils::Contains(exprs_to_remove, and_op)) {
-    return ExpressionRemovalResult{.expression = nullptr, .removed = true};
+ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove) {
+  if (utils::Contains(exprs_to_remove, expr)) {
+    return ExpressionRemovalResult{.trimmed_expression = nullptr, .did_remove = true};
   }
 
-  bool removed = false;
+  auto *and_op = utils::Downcast<AndOperator>(expr);
+
+  // currently we are processing expressions by dividing them into and disjoint expressions
+  // no work needed if there is no multiple and expressions
+  if (!and_op) return ExpressionRemovalResult{.trimmed_expression = expr};
+
+  // and operation is fully contained inside the expressions to remove
+  if (utils::Contains(exprs_to_remove, and_op)) {
+    return ExpressionRemovalResult{.trimmed_expression = nullptr, .did_remove = true};
+  }
+
+  bool did_remove = false;
   if (utils::Contains(exprs_to_remove, and_op->expression1_)) {
     and_op->expression1_ = nullptr;
-    removed = true;
+    did_remove = true;
   }
   if (utils::Contains(exprs_to_remove, and_op->expression2_)) {
     and_op->expression2_ = nullptr;
-    removed = true;
+    did_remove = true;
   }
 
-  auto removal1 = RemoveAndExpressions(and_op->expression1_, exprs_to_remove);
-  and_op->expression1_ = removal1.expression;
-  removed = removed || removal1.removed;
+  auto removal1 = RemoveExpressions(and_op->expression1_, exprs_to_remove);
+  and_op->expression1_ = removal1.trimmed_expression;
+  did_remove = did_remove || removal1.did_remove;
 
-  auto removal2 = RemoveAndExpressions(and_op->expression2_, exprs_to_remove);
-  and_op->expression2_ = removal2.expression;
-  removed = removed || removal2.removed;
+  auto removal2 = RemoveExpressions(and_op->expression2_, exprs_to_remove);
+  and_op->expression2_ = removal2.trimmed_expression;
+  did_remove = did_remove || removal2.did_remove;
 
   if (!and_op->expression1_ && !and_op->expression2_) {
-    return ExpressionRemovalResult{.expression = nullptr, .removed = removed};
+    return ExpressionRemovalResult{.trimmed_expression = nullptr, .did_remove = did_remove};
   }
 
   if (and_op->expression1_ && !and_op->expression2_) {
-    return ExpressionRemovalResult{.expression = and_op->expression1_, .removed = removed};
+    return ExpressionRemovalResult{.trimmed_expression = and_op->expression1_, .did_remove = did_remove};
   }
 
   if (and_op->expression2_ && !and_op->expression1_) {
-    return ExpressionRemovalResult{.expression = and_op->expression2_, .removed = removed};
+    return ExpressionRemovalResult{.trimmed_expression = and_op->expression2_, .did_remove = did_remove};
   }
 
-  return ExpressionRemovalResult{.expression = and_op, .removed = removed};
+  return ExpressionRemovalResult{.trimmed_expression = and_op, .did_remove = did_remove};
 }
 
 }  // namespace memgraph::query::plan::impl

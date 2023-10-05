@@ -188,6 +188,7 @@ def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkCont
             raise Exception("Invalid benchmark description '" + pattern + "'!")
         pattern.extend(["", "*", "*"][len(pattern) - 1 :])
         patterns[i] = pattern
+
     filtered = []
     for workload in sorted(available_workloads.keys()):
         generator, queries = available_workloads[workload]

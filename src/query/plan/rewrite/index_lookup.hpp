@@ -35,13 +35,13 @@ namespace memgraph::query::plan {
 namespace impl {
 
 struct ExpressionRemovalResult {
-  Expression *expression;
-  bool removed{false};
+  Expression *trimmed_expression;
+  bool did_remove{false};
 };
 
 // Return the new root expression after removing the given expressions from the
 // given expression tree.
-ExpressionRemovalResult RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
+ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
@@ -66,21 +66,31 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
-    ExpressionRemovalResult removal = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
-    op.expression_ = removal.expression;
-    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
-      if (op.input()->GetTypeInfo() == Cartesian::kType) {
-        auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
-        auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-        SetOnParent(indexed_join);
-      } else {
-        SetOnParent(op.input());
-      }
-    } else if (removal.removed && op.input()->GetTypeInfo() == Cartesian::kType) {
-      auto cartesian = std::dynamic_pointer_cast<Cartesian>(op.input());
-      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-      op.set_input(indexed_join);
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    op.expression_ = removal.trimmed_expression;
+
+    // edge uniqueness filter comes always before filter in plan generation
+    LogicalOperator *input = op.input().get();
+    LogicalOperator *parent = &op;
+    while (input->GetTypeInfo() == EdgeUniquenessFilter::kType) {
+      parent = input;
+      input = input->input().get();
     }
+    bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+
+    if (is_child_cartesian && removal.did_remove) {
+      // if we removed something from filter in front of a Cartesian, then we are doing a join from
+      // 2 different branches
+      auto *cartesian = dynamic_cast<Cartesian *>(input);
+      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
+      parent->set_input(indexed_join);
+    }
+
+    if (!op.expression_) {
+      // if we emptied all the expressions from the filter, then we don't need this operator anymore
+      SetOnParent(op.input());
+    }
+
     return true;
   }
 
@@ -170,37 +180,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // Rewriting Cartesian assumes that the input plan will have Filter operations
-  // as soon as they are possible. Therefore we do not track filters above
-  // Cartesian because they should be irrelevant.
-  //
-  // For example, the following plan is not expected to be an input to
-  // IndexLookupRewriter.
-  //
-  // Filter n.prop = 16
-  // |
-  // Cartesian
-  // |
-  // |\
-  // | ScanAll (n)
-  // |
-  // ScanAll (m)
-  //
-  // Instead, the equivalent set of operations should be done this way:
-  //
-  // Cartesian
-  // |
-  // |\
-  // | Filter n.prop = 16
-  // | |
-  // | ScanAll (n)
-  // |
-  // ScanAll (m)
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
     RewriteBranch(&op.left_op_);
 
-    cartesian_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
+    // we add the symbols that we encountered in the left part of the cartesian
+    // the reason for that is that in right part of the cartesian, we could be
+    // possibly using an indexed operation instead of a scan all
+    additional_bound_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
     op.right_op_->Accept(*this);
 
     return false;
@@ -208,7 +195,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Cartesian &) override {
     prev_ops_.pop_back();
-    cartesian_symbols_.clear();
+
+    // clear cartesian symbols as we exited the cartesian operator
+    additional_bound_symbols_.clear();
 
     return true;
   }
@@ -220,7 +209,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(IndexedJoin &) override {
+  bool PostVisit(IndexedJoin & /*unused*/) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -520,7 +509,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
-  std::unordered_set<Symbol> cartesian_symbols_;
+
+  // additional symbols that are present from other non-main branches but have influence on indexing
+  std::unordered_set<Symbol> additional_bound_symbols_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -540,11 +531,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return;
     }
 
-    SetInput(prev_ops_.back(), input);
-    // prev_ops_.back()->set_input(input);
-  }
-
-  void SetInput(LogicalOperator *parent, const std::shared_ptr<LogicalOperator> &input) {
+    auto *parent = prev_ops_.back();
     if (parent->HasSingleInput()) {
       parent->set_input(input);
       return;
@@ -554,7 +541,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *parent_cartesian = dynamic_cast<Cartesian *>(parent);
       parent_cartesian->right_op_ = input;
       parent_cartesian->right_symbols_ = input->ModifiedSymbols(*symbol_table_);
+      return;
     }
+
+    // if we're sure that we want to set on parent, this should never happen
+    LOG_FATAL("Error during index rewriting of the query!");
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
@@ -683,10 +674,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
 
-    auto modified_symbols = scan.ModifiedSymbols(*symbol_table_);
-    modified_symbols.insert(modified_symbols.end(), cartesian_symbols_.begin(), cartesian_symbols_.end());
+    const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+    bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());
+
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
