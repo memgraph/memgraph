@@ -109,10 +109,8 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    /// NOTE: DiskStorage doesn't use command id for implementing View semantic. To get correct results for DiskStorage
-    /// View must be here NEW. For InMemoryStorage both OLD and NEW are OK.
     auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m", false,
-                          memgraph::storage::View::NEW);
+                          memgraph::storage::View::OLD);
 
     auto one = LITERAL(1);
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
