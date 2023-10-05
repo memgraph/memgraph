@@ -69,17 +69,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
     op.expression_ = removal.trimmed_expression;
 
-    if (!op.expression_) {
-      // if we emptied all the expressions from the filter, then we don't need this operator anymore
-      SetOnParent(op.input());
-    }
-
     // edge uniqueness filter comes always before filter in plan generation
-    LogicalOperator *input = &*op.input();
-    LogicalOperator *parent = op.expression_ ? &op : prev_ops_.back();
+    LogicalOperator *input = op.input().get();
+    LogicalOperator *parent = &op;
     while (input->GetTypeInfo() == EdgeUniquenessFilter::kType) {
       parent = input;
-      input = &*input->input();
+      input = input->input().get();
     }
     bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
 
@@ -91,7 +86,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       parent->set_input(indexed_join);
     }
 
-    // still left something in the filter
+    if (!op.expression_) {
+      // if we emptied all the expressions from the filter, then we don't need this operator anymore
+      SetOnParent(op.input());
+    }
+
     return true;
   }
 
