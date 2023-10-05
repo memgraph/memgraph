@@ -1223,8 +1223,9 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
   std::string edges;
   auto edges_status = transaction_.disk_transaction_->Get(ro, handle, vertex_gid, &edges);
   if (!edges_status.ok()) {
+    /// NOTE: Edge could be created and deleted in the same txn, so no need to fail explicitly.
     spdlog::error("rocksdb: Failed to find {} edges collection of vertex {}.", mode, vertex_gid);
-    return false;
+    return true;
   }
 
   std::vector<std::string> edges_vec = utils::Split(edges, ",");
