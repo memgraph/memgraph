@@ -267,11 +267,6 @@ class DiskStorage final : public Storage {
     /// Main storage
     utils::SkipList<Vertex> vertices_;
 
-    struct VerticesWithFlag {
-      utils::SkipList<Vertex> vertices;
-      bool already_in_memory{false};
-    };
-
     using LabelIndex = LabelId;
     using LabelPropertyIndex = std::pair<LabelId, PropertyId>;
     using LabelPropertyValIndex = std::tuple<LabelId, PropertyId, PropertyValue>;
@@ -279,28 +274,28 @@ class DiskStorage final : public Storage {
     using LabelPropertyRangeIndex = std::tuple<LabelId, PropertyId, RangeBoundary, RangeBoundary>;
 
     // TODO rename these.
-    std::map<LabelId, VerticesWithFlag> label_index_old_;
+    std::map<LabelId, utils::SkipList<Vertex>> label_index_old_;
     uint64_t label_index_old_ci_{transaction_.command_id};
 
-    std::map<LabelId, VerticesWithFlag> label_index_new_;
+    std::map<LabelId, utils::SkipList<Vertex>> label_index_new_;
     uint64_t label_index_new_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyIndex, VerticesWithFlag> label_property_index_old_;
+    std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_old_;
     uint64_t label_property_index_old_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyIndex, VerticesWithFlag> label_property_index_new_;
+    std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_new_;
     uint64_t label_property_index_new_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyValIndex, VerticesWithFlag> label_property_val_index_old_;
+    std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_old_;
     uint64_t label_property_val_index_old_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyValIndex, VerticesWithFlag> label_property_val_index_new_;
+    std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_new_;
     uint64_t label_property_val_index_new_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyRangeIndex, VerticesWithFlag> label_property_range_index_old_;
+    std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_old_;
     uint64_t label_property_range_index_old_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyRangeIndex, VerticesWithFlag> label_property_range_index_new_;
+    std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_new_;
     uint64_t label_property_range_index_new_ci_{transaction_.command_id};
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the

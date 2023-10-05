@@ -587,8 +587,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   std::list<storage::Delta> *index_deltas{nullptr};
 
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
-    index[cache_key] = VerticesWithFlag();
-    indexed_vertices = &index[cache_key].vertices;
+    index[cache_key] = utils::SkipList<Vertex>();
+    indexed_vertices = &index[cache_key];
     index_deltas_storage_.emplace_back();
     index_deltas = &index_deltas_storage_.back();
 
@@ -640,8 +640,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   std::list<storage::Delta> *index_deltas{nullptr};
 
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
-    index[cache_key] = VerticesWithFlag();
-    indexed_vertices = &index[cache_key].vertices;
+    index[cache_key] = utils::SkipList<Vertex>();
+    indexed_vertices = &index[cache_key];
     index_deltas_storage_.emplace_back();
     index_deltas = &index_deltas_storage_.back();
 
@@ -743,8 +743,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   std::list<storage::Delta> *index_deltas{nullptr};
 
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
-    index[cache_key] = VerticesWithFlag();
-    indexed_vertices = &index[cache_key].vertices;
+    index[cache_key] = utils::SkipList<Vertex>();
+    indexed_vertices = &index[cache_key];
     index_deltas_storage_.emplace_back();
     index_deltas = &index_deltas_storage_.back();
 
@@ -830,8 +830,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   std::list<storage::Delta> *index_deltas{nullptr};
 
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
-    index[cache_key] = VerticesWithFlag();
-    indexed_vertices = &index[cache_key].vertices;
+    index[cache_key] = utils::SkipList<Vertex>();
+    indexed_vertices = &index[cache_key];
     index_deltas_storage_.emplace_back();
     index_deltas = &index_deltas_storage_.back();
 
@@ -1246,7 +1246,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 
   auto find_in_indices = [&](auto &index_storage) -> std::optional<VertexAccessor> {
     for (auto &[k, v] : index_storage) {
-      acc = v.vertices.access();
+      acc = v.access();
       auto index_it = acc.find(gid);
       if (index_it != acc.end()) {
         return VertexAccessor::Create(&*index_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
@@ -1647,7 +1647,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
 
   auto flush_index = [&](auto &index_storage) -> utils::BasicResult<StorageDataManipulationError, void> {
     for (const auto &[k, v] : index_storage) {
-      if (auto vertices_res = FlushVertices(v.vertices.access(), unique_storage); vertices_res.HasError()) {
+      if (auto vertices_res = FlushVertices(v.access(), unique_storage); vertices_res.HasError()) {
         return vertices_res.GetError();
       }
     }
