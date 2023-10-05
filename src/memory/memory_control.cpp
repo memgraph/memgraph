@@ -11,6 +11,7 @@
 
 #include "memory_control.hpp"
 #include <fmt/core.h>
+#include <unistd.h>
 #include <atomic>
 #include <cstdint>
 #include <ios>
@@ -99,6 +100,17 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
     }
     return ptr;
   }
+
+  /*
+  TEST OF MEMORY TRACKER
+  long page_size = sysconf(_SC_PAGESIZE);
+  char *mem = (char*)ptr;
+  int i=0;
+  do{
+    mem[i*page_size]=0;
+    i++;
+  }while(i*page_size < size);
+  */
 
   return ptr;
 }
