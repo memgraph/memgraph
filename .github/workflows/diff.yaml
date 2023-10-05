@@ -436,9 +436,6 @@ jobs:
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
                     --benchmark-results "../../tests/mgbench/benchmark_result.json" \
-                    # If you want to run mgbench on disk mode and analytical, uncomment these lines.
-                    # --benchmark-results-in-memory-analytical-path "../../tests/mgbench/results_in_memory_analytical.json"
-                    # --benchmark-results-on-disk-txn-path "../../tests/mgbench/results_on_disk_txn.json"
-                    --github-run-id "${{ github.run_id }}"
+                    --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
