@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -38,19 +38,19 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 }
 }  // namespace
 
-storage::ReplicationState::ReplicationState(bool restore, std::filesystem::path durability_dir) {
+storage::ReplicationStorageState::ReplicationStorageState(bool restore, std::filesystem::path durability_dir) {
   if (restore) {
     utils::EnsureDirOrDie(durability_dir / durability::kReplicationDirectory);
     durability_ = std::make_unique<kvstore::KVStore>(durability_dir / durability::kReplicationDirectory);
   }
 }
 
-void storage::ReplicationState::Reset() {
+void storage::ReplicationStorageState::Reset() {
   replication_server_.reset();
   replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
 }
 
-bool storage::ReplicationState::SetMainReplicationRole(storage::Storage *storage) {
+bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *storage) {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
   if (GetRole() == replication::ReplicationRole::MAIN) {
@@ -84,10 +84,11 @@ bool storage::ReplicationState::SetMainReplicationRole(storage::Storage *storage
   return true;
 }
 
-void storage::ReplicationState::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                                                const LabelPropertyIndexStats &property_stats,
-                                                uint64_t final_commit_timestamp) {
+void storage::ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
+                                                       const std::set<PropertyId> &properties,
+                                                       const LabelIndexStats &stats,
+                                                       const LabelPropertyIndexStats &property_stats,
+                                                       uint64_t final_commit_timestamp) {
   if (GetRole() == replication::ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
@@ -99,7 +100,7 @@ void storage::ReplicationState::AppendOperation(durability::StorageMetadataOpera
   }
 }
 
-void storage::ReplicationState::InitializeTransaction(uint64_t seq_num) {
+void storage::ReplicationStorageState::InitializeTransaction(uint64_t seq_num) {
   if (GetRole() == replication::ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
@@ -109,7 +110,7 @@ void storage::ReplicationState::InitializeTransaction(uint64_t seq_num) {
   }
 }
 
-void storage::ReplicationState::AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp) {
+void storage::ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
@@ -117,7 +118,7 @@ void storage::ReplicationState::AppendDelta(const Delta &delta, const Edge &pare
   });
 }
 
-void storage::ReplicationState::AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp) {
+void storage::ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
@@ -125,7 +126,7 @@ void storage::ReplicationState::AppendDelta(const Delta &delta, const Vertex &pa
   });
 }
 
-bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
+bool storage::ReplicationStorageState::FinalizeTransaction(uint64_t timestamp) {
   bool finalized_on_all_replicas = true;
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
@@ -140,7 +141,7 @@ bool storage::ReplicationState::FinalizeTransaction(uint64_t timestamp) {
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
+utils::BasicResult<RegisterReplicaError> ReplicationStorageState::RegisterReplica(
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config,
     Storage *storage) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can register a replica!");
@@ -187,7 +188,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationState::RegisterReplica(
   return replication_clients_.WithLock(task);
 }
 
-bool ReplicationState::TryPersistReplicaClient(const replication::ReplicationClientConfig &config) {
+bool ReplicationStorageState::TryPersistReplicaClient(const replication::ReplicationClientConfig &config) {
   if (!ShouldStoreAndRestoreReplicationState()) return true;
   auto data = replication::ReplicationStatusToJSON(
       replication::ReplicationStatus{.name = config.name,
@@ -202,7 +203,7 @@ bool ReplicationState::TryPersistReplicaClient(const replication::ReplicationCli
   return false;
 }
 
-bool ReplicationState::SetReplicaRole(const replication::ReplicationServerConfig &config, Storage *storage) {
+bool ReplicationStorageState::SetReplicaRole(const replication::ReplicationServerConfig &config, Storage *storage) {
   // We don't want to restart the server if we're already a REPLICA
   if (GetRole() == replication::ReplicationRole::REPLICA) {
     return false;
@@ -236,7 +237,7 @@ bool ReplicationState::SetReplicaRole(const replication::ReplicationServerConfig
   return true;
 }
 
-bool ReplicationState::UnregisterReplica(std::string_view name) {
+bool ReplicationStorageState::UnregisterReplica(std::string_view name) {
   MG_ASSERT(GetRole() == replication::ReplicationRole::MAIN, "Only main instance can unregister a replica!");
   if (ShouldStoreAndRestoreReplicationState()) {
     if (!durability_->Delete(name)) {
@@ -250,7 +251,7 @@ bool ReplicationState::UnregisterReplica(std::string_view name) {
   });
 }
 
-std::optional<replication::ReplicaState> ReplicationState::GetReplicaState(const std::string_view name) {
+std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(const std::string_view name) {
   return replication_clients_.WithLock([&](auto &clients) -> std::optional<replication::ReplicaState> {
     const auto client_it =
         std::find_if(clients.cbegin(), clients.cend(), [name](auto &client) { return client->Name() == name; });
@@ -261,7 +262,7 @@ std::optional<replication::ReplicaState> ReplicationState::GetReplicaState(const
   });
 }
 
-std::vector<ReplicaInfo> ReplicationState::ReplicasInfo() {
+std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
@@ -273,7 +274,7 @@ std::vector<ReplicaInfo> ReplicationState::ReplicasInfo() {
   });
 }
 
-void ReplicationState::RestoreReplicationRole(Storage *storage) {
+void ReplicationStorageState::RestoreReplicationRole(Storage *storage) {
   if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
@@ -316,7 +317,7 @@ void ReplicationState::RestoreReplicationRole(Storage *storage) {
                GetRole() == replication::ReplicationRole::MAIN ? "MAIN" : "REPLICA");
 }
 
-void ReplicationState::RestoreReplicas(Storage *storage) {
+void ReplicationStorageState::RestoreReplicas(Storage *storage) {
   if (!ShouldStoreAndRestoreReplicationState()) {
     return;
   }
@@ -359,7 +360,7 @@ void ReplicationState::RestoreReplicas(Storage *storage) {
 
 constexpr uint16_t kEpochHistoryRetention = 1000;
 
-void ReplicationState::NewEpoch() {
+void ReplicationStorageState::NewEpoch() {
   // Generate new epoch id and save the last one to the history.
   if (history.size() == kEpochHistoryRetention) {
     history.pop_front();
@@ -368,7 +369,7 @@ void ReplicationState::NewEpoch() {
   history.emplace_back(std::move(prevEpoch), last_commit_timestamp_);
 }
 
-void ReplicationState::AppendEpoch(std::string new_epoch) {
+void ReplicationStorageState::AppendEpoch(std::string new_epoch) {
   auto prevEpoch = epoch_.SetEpoch(std::move(new_epoch));
   history.emplace_back(std::move(prevEpoch), last_commit_timestamp_);
 }

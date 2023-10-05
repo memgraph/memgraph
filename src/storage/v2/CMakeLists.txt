@@ -38,7 +38,7 @@ add_library(mg-storage-v2 STATIC
         replication/slk.cpp
         replication/replication_persistence_helper.cpp
         replication/rpc.cpp
-        replication/replication.cpp
+        replication/replication_storage_state.cpp
         inmemory/replication/replication_server.cpp
         inmemory/replication/replication_client.cpp
 )

@@ -29,9 +29,9 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
@@ -362,7 +362,7 @@ class Storage {
   const std::string id_;  //!< High-level assigned ID
 
  protected:
-  ReplicationState replication_state_;
+  ReplicationStorageState replication_state_;
 };
 
 }  // namespace memgraph::storage

@@ -34,9 +34,9 @@ class ReplicationClient;
 
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 
-struct ReplicationState {
+struct ReplicationStorageState {
   // TODO: This mirrors the logic in InMemoryConstructor; make it independent
-  ReplicationState(bool restore, std::filesystem::path durability_dir);
+  ReplicationStorageState(bool restore, std::filesystem::path durability_dir);
 
   // Generic API
   void Reset();
