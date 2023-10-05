@@ -94,7 +94,7 @@ def parse_args():
     benchmark_parser.add_argument(
         "--single-threaded-runtime-sec",
         type=int,
-        default=3,
+        default=10,
         help="single threaded duration of each query",
     )
     benchmark_parser.add_argument(
