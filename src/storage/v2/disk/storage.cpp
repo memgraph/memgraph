@@ -1495,8 +1495,6 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  // if (from_vertex->deleted || to_vertex->deleted) return {};
-
   bool edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (edge_import_mode_active) {
@@ -1729,6 +1727,10 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
         Abort();
         return res;
       }
+      if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
+        Abort();
+        return del_edges_res.GetError();
+      }
     } else {
       std::vector<std::vector<PropertyValue>> unique_storage;
       if (auto vertices_flush_res = FlushVertices(transaction_.vertices_.access(), unique_storage);
@@ -1737,14 +1739,14 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
         return vertices_flush_res.GetError();
       }
 
-      if (auto modified_edges_res = FlushModifiedEdges(transaction_.edges_.access()); modified_edges_res.HasError()) {
-        Abort();
-        return modified_edges_res.GetError();
-      }
-
       if (auto del_vertices_res = FlushDeletedVertices(); del_vertices_res.HasError()) {
         Abort();
         return del_vertices_res.GetError();
+      }
+
+      if (auto modified_edges_res = FlushModifiedEdges(transaction_.edges_.access()); modified_edges_res.HasError()) {
+        Abort();
+        return modified_edges_res.GetError();
       }
 
       if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
