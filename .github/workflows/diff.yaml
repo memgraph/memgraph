@@ -101,7 +101,7 @@ jobs:
             echo ${file}
             if [[ ${file} == *.py ]]; then
               python3 -m black --check --diff ${file}
-              python3 -m isort --check-only --diff ${file}
+              python3 -m isort --profile black --check-only --diff ${file}
             fi
           done
 
@@ -229,6 +229,11 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Check e2e service dependencies
+        run: |
+          cd tests/e2e
+          ./dependency_check.sh
+
       - name: Build release binaries
         run: |
           # Activate toolchain.
@@ -275,11 +280,13 @@ jobs:
       - name: Run stress test (plain)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration
 
       - name: Run stress test (SSL)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration --use-ssl
 
       - name: Run durability test
@@ -410,11 +417,12 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
       - name: Run mgbench
         run: |
           cd tests/mgbench
@@ -427,7 +435,7 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"

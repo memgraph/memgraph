@@ -63,6 +63,7 @@ add_subdirectory(analytical_mode)
 add_subdirectory(batched_procedures)
 add_subdirectory(import_mode)
 add_subdirectory(concurrent_query_modules)
+add_subdirectory(show_index_info)
 add_subdirectory(set_properties)
 add_subdirectory(transaction_rollback)
 

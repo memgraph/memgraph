@@ -20,8 +20,7 @@ class InMemoryStorage;
 
 class InMemoryReplicationServer : public ReplicationServer {
  public:
-  explicit InMemoryReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
-                                     const replication::ReplicationServerConfig &config);
+  explicit InMemoryReplicationServer(InMemoryStorage *storage, const replication::ReplicationServerConfig &config);
 
  private:
   // RPC handlers
@@ -39,7 +38,7 @@ class InMemoryReplicationServer : public ReplicationServer {
 
   static void LoadWal(InMemoryStorage *storage, replication::Decoder *decoder);
 
-  static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder);
+  static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder, uint64_t version);
 
   InMemoryStorage *storage_;
 };

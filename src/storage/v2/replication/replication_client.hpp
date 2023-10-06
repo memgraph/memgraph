@@ -14,6 +14,8 @@
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
@@ -50,8 +52,9 @@ class ReplicaStream {
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, uint64_t timestamp);
+  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
+                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
@@ -66,8 +69,7 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(Storage *storage, std::string name, memgraph::io::network::Endpoint endpoint,
-                    replication::ReplicationMode mode, const replication::ReplicationClientConfig &config);
+  ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config);
 
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;

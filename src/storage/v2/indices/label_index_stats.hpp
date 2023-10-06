@@ -9,26 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "isolation_level.hpp"
+#pragma once
+
+#include <fmt/core.h>
+#include "utils/simple_json.hpp"
 
 namespace memgraph::storage {
 
-std::string_view IsolationLevelToString(IsolationLevel isolation_level) {
-  switch (isolation_level) {
-    case IsolationLevel::READ_COMMITTED:
-      return "READ_COMMITTED";
-    case IsolationLevel::READ_UNCOMMITTED:
-      return "READ_UNCOMMITTED";
-    case IsolationLevel::SNAPSHOT_ISOLATION:
-      return "SNAPSHOT_ISOLATION";
-  }
+struct LabelIndexStats {
+  uint64_t count;
+  double avg_degree;
+};
+
+static inline std::string ToJson(const LabelIndexStats &in) {
+  return fmt::format(R"({{"count":{}, "avg_degree":{}}})", in.count, in.avg_degree);
 }
 
-std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level) {
-  if (isolation_level) {
-    return IsolationLevelToString(*isolation_level);
-  }
-  return "";
+static inline bool FromJson(const std::string &json, LabelIndexStats &out) {
+  bool res = true;
+  res &= utils::GetJsonValue(json, "count", out.count);
+  res &= utils::GetJsonValue(json, "avg_degree", out.avg_degree);
+  return res;
 }
 
 }  // namespace memgraph::storage

@@ -346,6 +346,9 @@ TYPED_TEST(CppApiTestFixture, TestPath) {
   auto value_x = mgp::Value(path);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::Path(node_0));
+
+  path.Pop();
+  ASSERT_EQ(path.Length(), 0);
 }
 
 TYPED_TEST(CppApiTestFixture, TestDate) {

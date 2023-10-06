@@ -78,7 +78,7 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
 };
 
 struct DiskEdgeKey {
-  DiskEdgeKey(const std::string_view keyView) : key(keyView) {}
+  explicit DiskEdgeKey(const std::string_view keyView) : key(keyView) {}
 
   /// @tparam src_vertex_gid, dest_vertex_gid: Gid of the source and destination vertices
   /// @tparam edge_type_id: EdgeTypeId of the edge

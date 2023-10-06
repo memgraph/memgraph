@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
@@ -79,6 +79,8 @@ struct Config {
   } disk;
 
   std::string name;
+  bool force_on_disk{false};
+  StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
 };
 
 static inline void UpdatePaths(Config &config, const std::filesystem::path &storage_dir) {

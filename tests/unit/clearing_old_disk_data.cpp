@@ -131,7 +131,7 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
 
   acc2->PrefetchOutEdges(from_vertex);
   auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
-  auto fetched_edge = ret.GetValue()[0];
+  auto fetched_edge = ret.GetValue().edges[0];
 
   /// This is the same property as in the first transaction, we just want to test
   /// the number of entries inside RocksDB when the timestamp changes
@@ -171,7 +171,7 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
 
   acc2->PrefetchOutEdges(from_vertex);
   auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
-  auto fetched_edge = ret.GetValue()[0];
+  auto fetched_edge = ret.GetValue().edges[0];
 
   auto property2 = acc2->NameToProperty("DiskProperty");
   ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(15)).HasValue());

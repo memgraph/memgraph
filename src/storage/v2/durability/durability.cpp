@@ -133,14 +133,23 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_constraints.indices.label) {
-    auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
     if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
+
+  spdlog::info("Recreating index statistics from metadata.");
+  // Recover label indices statistics.
+  spdlog::info("Recreating {} label index statistics from metadata.", indices_constraints.indices.label_stats.size());
+  for (const auto &item : indices_constraints.indices.label_stats) {
+    mem_label_index->SetIndexStats(item.first, item.second);
+    spdlog::info("A label index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label indices statistics are recreated.");
 
   // Recover label+property indices.
   spdlog::info("Recreating {} label+property indices from metadata.",
@@ -152,6 +161,19 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     spdlog::info("A label+property index is recreated from metadata.");
   }
   spdlog::info("Label+property indices are recreated.");
+
+  // Recover label+property indices statistics.
+  spdlog::info("Recreating {} label+property indices statistics from metadata.",
+               indices_constraints.indices.label_property_stats.size());
+  for (const auto &item : indices_constraints.indices.label_property_stats) {
+    const auto label_id = item.first;
+    const auto property_id = item.second.first;
+    const auto &stats = item.second.second;
+    mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+    spdlog::info("A label+property index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label+property indices statistics are recreated.");
+
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");

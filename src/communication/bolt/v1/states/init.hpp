@@ -174,7 +174,7 @@ State SendSuccessMessage(TSession &session) {
   // we send a hardcoded value for now.
   std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
   if (auto server_name = session.GetServerNameForInit(); server_name) {
-    metadata.insert({"server", *server_name});
+    metadata.insert({"server", std::move(*server_name)});
   }
   bool success_sent = session.encoder_.MessageSuccess(metadata);
   if (!success_sent) {

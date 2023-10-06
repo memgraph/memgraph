@@ -487,12 +487,16 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       edge_v = std::visit(
           memgraph::utils::Overloaded{
               [&tv, graph, &allocator](memgraph::query::DbAccessor *) {
-                return allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
+                return allocator.new_object<mgp_edge>(tv.ValueEdge(), tv.ValueEdge().DeletedEdgeFromVertex(),
+                                                      tv.ValueEdge().DeletedEdgeToVertex(), graph);
               },
               [&tv, graph, &allocator](memgraph::query::SubgraphDbAccessor *db_impl) {
                 return allocator.new_object<mgp_edge>(
-                    tv.ValueEdge(), memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().From(), db_impl->getGraph()),
-                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().To(), db_impl->getGraph()), graph);
+                    tv.ValueEdge(),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().DeletedEdgeFromVertex(),
+                                                            db_impl->getGraph()),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().DeletedEdgeToVertex(), db_impl->getGraph()),
+                    graph);
               }},
           graph->impl);
       break;
@@ -849,11 +853,16 @@ mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
   return std::visit(
       memgraph::utils::Overloaded{
-          [&](memgraph::query::DbAccessor *) { return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph); },
+          [&](memgraph::query::DbAccessor *) {
+            return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.impl.DeletedEdgeFromVertex(),
+                                             edge.impl.DeletedEdgeToVertex(), edge.from.graph);
+          },
           [&](memgraph::query::SubgraphDbAccessor *db_impl) {
             return NewRawMgpObject<mgp_edge>(
-                &memory, edge.impl, memgraph::query::SubgraphVertexAccessor(edge.impl.From(), db_impl->getGraph()),
-                memgraph::query::SubgraphVertexAccessor(edge.impl.To(), db_impl->getGraph()), edge.to.graph);
+                &memory, edge.impl,
+                memgraph::query::SubgraphVertexAccessor(edge.impl.DeletedEdgeFromVertex(), db_impl->getGraph()),
+                memgraph::query::SubgraphVertexAccessor(edge.impl.DeletedEdgeToVertex(), db_impl->getGraph()),
+                edge.to.graph);
           }},
       edge.to.graph->impl);
 }
@@ -1168,6 +1177,17 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
 
     path->edges.push_back(*edge);
     path->vertices.push_back(*dst_vertex);
+  });
+}
+
+mgp_error mgp_path_pop(struct mgp_path *path) {
+  return WrapExceptions([path] {
+    if (path->edges.empty()) {
+      throw std::out_of_range("Path contains no relationships.");
+    }
+
+    path->vertices.pop_back();
+    path->edges.pop_back();
   });
 }
 
@@ -2120,7 +2140,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
               LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
           }
         }
-        it->in.emplace(std::move(*maybe_edges));
+        it->in.emplace(std::move(maybe_edges->edges));
         it->in_it.emplace(it->in->begin());
 #ifdef MG_ENTERPRISE
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -2180,7 +2200,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
           }
         }
 
-        it->out.emplace(std::move(*maybe_edges));
+        it->out.emplace(std::move(maybe_edges->edges));
         it->out_it.emplace(it->out->begin());
 
 #ifdef MG_ENTERPRISE

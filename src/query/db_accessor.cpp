@@ -129,10 +129,10 @@ query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
-auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view)) {
+storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
-  auto edges = std::move(*maybe_edges);
+  auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
@@ -143,13 +143,18 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl
     }
   }
 
-  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
+  std::vector<EdgeAccessor> resulting_edges;
+  resulting_edges.reserve(filteredOutEdges.size());
+  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
+                         [](auto const &edge) { return VertexAccessor::MakeEdgeAccessor(edge); });
+
+  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
 
-auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_.InEdges(view)) {
+storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.InEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
-  auto edges = std::move(*maybe_edges);
+  auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
@@ -160,7 +165,12 @@ auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_
     }
   }
 
-  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
+  std::vector<EdgeAccessor> resulting_edges;
+  resulting_edges.reserve(filteredOutEdges.size());
+  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
+                         [](auto const &edge) { return VertexAccessor::MakeEdgeAccessor(edge); });
+
+  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
 
 }  // namespace memgraph::query

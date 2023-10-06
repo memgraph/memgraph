@@ -18,21 +18,21 @@
 #include <unordered_map>
 
 #include "global.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/gatekeeper.hpp"
 #include "utils/result.hpp"
-#include "utils/sync_ptr.hpp"
 
 namespace memgraph::dbms {
 
 /**
  * @brief Generic multi-database content handler.
  *
- * @tparam TContext
- * @tparam TConfig
+ * @tparam T
  */
-template <typename TContext, typename TConfig>
+template <typename T>
 class Handler {
  public:
-  using NewResult = utils::BasicResult<NewError, std::shared_ptr<TContext>>;
+  using NewResult = utils::BasicResult<NewError, typename utils::Gatekeeper<T>::Accessor>;
 
   /**
    * @brief Empty Handler constructor.
@@ -43,67 +43,65 @@ class Handler {
   /**
    * @brief Generate a new context and corresponding configuration.
    *
-   * @tparam T1 Variadic template of context constructor arguments
-   * @tparam T2 Variadic template of config constructor arguments
-   * @param name Name associated with the new context/config pair
-   * @param args1 Arguments passed (as a tuple) to the context constructor
-   * @param args2 Arguments passed (as a tuple) to the config constructor
+   * @tparam Args Variadic template of constructor arguments of T
+   * @param name Name associated with the new T
+   * @param args Arguments passed to the constructor of T
    * @return NewResult
    */
-  template <typename... T1, typename... T2>
-  NewResult New(std::string name, std::tuple<T1...> args1, std::tuple<T2...> args2) {
-    return New_(name, args1, args2, std::make_index_sequence<sizeof...(T1)>{},
-                std::make_index_sequence<sizeof...(T2)>{});
+  template <typename... Args>
+  NewResult New(std::piecewise_construct_t /* marker */, std::string_view name, Args... args) {
+    // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
+    if (!Has(name)) {
+      auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+                                     std::forward_as_tuple(std::forward<Args>(args)...));
+      auto db_acc = itr->second.access();
+      if (db_acc) return std::move(*db_acc);
+      return NewError::DEFUNCT;
+    }
+    spdlog::info("Item with name \"{}\" already exists.", name);
+    return NewError::EXISTS;
   }
 
   /**
    * @brief Get pointer to context.
    *
    * @param name Name associated with the wanted context
-   * @return std::optional<std::shared_ptr<TContext>>
+   * @return std::optional<typename utils::Gatekeeper<T>::Accessor>
    */
-  std::optional<std::shared_ptr<TContext>> Get(const std::string &name) {
+  std::optional<typename utils::Gatekeeper<T>::Accessor> Get(std::string_view name) {
     if (auto search = items_.find(name); search != items_.end()) {
-      return search->second.get();
+      return search->second.access();
     }
-    return {};
+    return std::nullopt;
   }
 
   /**
-   * @brief Get the config.
+   * @brief Delete the context associated with the name.
    *
-   * @param name Name associated with the wanted config
-   * @return std::optional<TConfig>
-   */
-  std::optional<TConfig> GetConfig(const std::string &name) const {
-    if (auto search = items_.find(name); search != items_.end()) {
-      return search->second.config();
-    }
-    return {};
-  }
-
-  /**
-   * @brief Delete the context/config pair associated with the name.
-   *
-   * @param name Name associated with the context/config pair to delete
+   * @param name Name associated with the context to delete
    * @return true on success
+   * @throw BasicException
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
-      itr->second.DestroyAndSync();
-      items_.erase(itr);
-      return true;
+      auto db_acc = itr->second.access();
+      if (db_acc && db_acc->try_delete()) {
+        db_acc->reset();
+        items_.erase(itr);
+        return true;
+      }
+      return false;
     }
-    return false;
+    throw utils::BasicException("Unknown item \"{}\".", name);
   }
 
   /**
    * @brief Check if a name is already used.
    *
    * @param name Name to check
-   * @return true if a context/config pair is already associated with the name
+   * @return true if a T is already associated with the name
    */
-  bool Has(const std::string &name) const { return items_.find(name) != items_.end(); }
+  bool Has(std::string_view name) const { return items_.find(name) != items_.end(); }
 
   auto begin() { return items_.begin(); }
   auto end() { return items_.end(); }
@@ -112,31 +110,16 @@ class Handler {
   auto cbegin() const { return items_.cbegin(); }
   auto cend() const { return items_.cend(); }
 
- private:
-  /**
-   * @brief Lower level handler that hides some ugly code.
-   *
-   * @tparam T1 Variadic template of context constructor arguments
-   * @tparam T2 Variadic template of config constructor arguments
-   * @tparam I1 List of indexes associated with the first tuple
-   * @tparam I2 List of indexes associated with the second tuple
-   */
-  template <typename... T1, typename... T2, std::size_t... I1, std::size_t... I2>
-  NewResult New_(std::string name, std::tuple<T1...> &args1, std::tuple<T2...> &args2,
-                 std::integer_sequence<std::size_t, I1...> /*not-used*/,
-                 std::integer_sequence<std::size_t, I2...> /*not-used*/) {
-    // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
-    if (!Has(name)) {
-      auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                     std::forward_as_tuple(TConfig{std::forward<T1>(std::get<I1>(args1))...},
-                                                           std::forward<T2>(std::get<I2>(args2))...));
-      return itr->second.get();
-    }
-    spdlog::info("Item with name \"{}\" already exists.", name);
-    return NewError::EXISTS;
-  }
+  struct string_hash {
+    using is_transparent = void;
+    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+  };
 
-  std::unordered_map<std::string, utils::SyncPtr<TContext, TConfig>> items_;  //!< map to all active items
+ private:
+  std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>
+      items_;  //!< map to all active items
 };
 
 }  // namespace memgraph::dbms

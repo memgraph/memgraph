@@ -12,8 +12,6 @@
 #pragma once
 
 #include "query/config.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"

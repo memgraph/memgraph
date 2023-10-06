@@ -208,7 +208,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
         auto out_edges = vertex.OutEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
 
-        for (auto edge : *out_edges) {
+        for (auto edge : out_edges->edges) {
           trigger_context_collector.RegisterSetObjectProperty(edge, dba.NameToProperty("PROPERTY1"),
                                                               memgraph::query::TypedValue("Value"),
                                                               memgraph::query::TypedValue("ValueNew"));

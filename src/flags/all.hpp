@@ -16,3 +16,5 @@
 #include "flags/isolation_level.hpp"
 #include "flags/log_level.hpp"
 #include "flags/memory_limit.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "flags/storage_mode.hpp"

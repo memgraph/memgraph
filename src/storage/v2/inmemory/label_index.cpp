@@ -159,11 +159,13 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View vi
 }
 
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
-  stats_[label] = stats;
+  auto locked_stats = stats_.Lock();
+  locked_stats->insert_or_assign(label, stats);
 }
 
 std::optional<LabelIndexStats> InMemoryLabelIndex::GetIndexStats(const storage::LabelId &label) const {
-  if (auto it = stats_.find(label); it != stats_.end()) {
+  auto locked_stats = stats_.ReadLock();
+  if (auto it = locked_stats->find(label); it != locked_stats->end()) {
     return it->second;
   }
   return {};
@@ -171,25 +173,24 @@ std::optional<LabelIndexStats> InMemoryLabelIndex::GetIndexStats(const storage::
 
 std::vector<LabelId> InMemoryLabelIndex::ClearIndexStats() {
   std::vector<LabelId> deleted_indexes;
-  deleted_indexes.reserve(stats_.size());
-  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+  auto locked_stats = stats_.Lock();
+  deleted_indexes.reserve(locked_stats->size());
+  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
                  [](const auto &elem) { return elem.first; });
-  stats_.clear();
+  locked_stats->clear();
   return deleted_indexes;
 }
 
-std::vector<LabelId> InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
-  std::vector<LabelId> deleted_indexes;
-  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+// stats_ is a map with label as the key, so only one can exist at a time
+bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
+  auto locked_stats = stats_.Lock();
+  for (auto it = locked_stats->cbegin(); it != locked_stats->cend(); ++it) {
     if (it->first == label) {
-      deleted_indexes.push_back(it->first);
-      it = stats_.erase(it);
-    } else {
-      ++it;
+      locked_stats->erase(it);
+      return true;
     }
   }
-
-  return deleted_indexes;
+  return false;
 }
 
 }  // namespace memgraph::storage

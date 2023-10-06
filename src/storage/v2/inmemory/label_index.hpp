@@ -13,14 +13,11 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_index.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
-
-struct LabelIndexStats {
-  uint64_t count;
-  double avg_degree;
-};
 
 using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
@@ -67,7 +64,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      VertexAccessor operator*() const { return current_vertex_accessor_; }
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -108,11 +105,11 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   std::vector<LabelId> ClearIndexStats();
 
-  std::vector<LabelId> DeleteIndexStats(const storage::LabelId &label);
+  bool DeleteIndexStats(const storage::LabelId &label);
 
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
-  std::map<LabelId, storage::LabelIndexStats> stats_;
+  utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
 }  // namespace memgraph::storage

@@ -14,14 +14,13 @@
 #include <regex>
 
 #include "auth/auth.hpp"
+#include "auth_global.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
-#include "query/interpreter.hpp"
+#include "query/auth_query_handler.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
-
-inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
@@ -46,6 +45,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) override;
 
   bool SetMainDatabase(const std::string &db, const std::string &username) override;
+
+  void DeleteDatabase(std::string_view db) override;
 #endif
 
   bool CreateRole(const std::string &rolename) override;

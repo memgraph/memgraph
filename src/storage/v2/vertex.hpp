@@ -30,7 +30,7 @@ struct Vertex {
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  Gid gid;
+  const Gid gid;
 
   std::vector<LabelId> labels;
   PropertyStore properties;

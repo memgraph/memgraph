@@ -47,10 +47,9 @@ struct MetricsResponse {
   std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 };
 
-template <typename TSessionContext>
 class MetricsService {
  public:
-  explicit MetricsService(TSessionContext *session_context) : db_(session_context->interpreter_context->db.get()) {}
+  explicit MetricsService(storage::Storage *storage) : db_(storage) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -98,7 +97,7 @@ class MetricsService {
     return metrics_response;
   }
 
-  auto GetEventCounters() {
+  inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventCounters() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
     event_counters.reserve(memgraph::metrics::CounterEnd());
@@ -111,7 +110,7 @@ class MetricsService {
     return event_counters;
   }
 
-  auto GetEventGauges() {
+  inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventGauges() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
     event_gauges.reserve(memgraph::metrics::GaugeEnd());
@@ -124,7 +123,7 @@ class MetricsService {
     return event_gauges;
   }
 
-  auto GetEventHistograms() {
+  inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventHistograms() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 
@@ -143,10 +142,11 @@ class MetricsService {
   }
 };
 
-template <typename TSessionContext>
+// TODO: Should this be inside Database?
+// Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(TSessionContext *session_context) : service_(session_context) {
+  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {
     spdlog::info("Basic request handler started!");
   }
 
@@ -208,6 +208,6 @@ class MetricsRequestHandler final {
   }
 
  private:
-  MetricsService<TSessionContext> service_;
+  MetricsService service_;
 };
 }  // namespace memgraph::http

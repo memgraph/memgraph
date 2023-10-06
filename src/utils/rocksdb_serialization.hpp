@@ -97,7 +97,7 @@ inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::
   std::vector<storage::LabelId> transformed_labels;
   transformed_labels.reserve(labels.size());
   for (const std::string &label : labels) {
-    transformed_labels.emplace_back(storage::LabelId::FromUint(std::stoull(label)));
+    transformed_labels.emplace_back(storage::LabelId::FromString(label));
   }
   return transformed_labels;
 }
@@ -242,7 +242,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std
   std::string labels_str{GetViewOfFirstPartOfSplit(value, '|')};
   std::vector<storage::LabelId> labels{TransformFromStringLabels(utils::Split(labels_str, ","))};
   std::string indexing_label = key.substr(0, key.find('|'));
-  labels.emplace_back(storage::LabelId::FromUint(std::stoull(indexing_label)));
+  labels.emplace_back(storage::LabelId::FromString(indexing_label));
   return labels;
 }
 

@@ -18,8 +18,7 @@ class InMemoryStorage;
 
 class InMemoryReplicationClient : public ReplicationClient {
  public:
-  InMemoryReplicationClient(InMemoryStorage *storage, std::string name, io::network::Endpoint endpoint,
-                            replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
+  InMemoryReplicationClient(InMemoryStorage *storage, const replication::ReplicationClientConfig &config);
 
  protected:
   void RecoverReplica(uint64_t replica_commit) override;

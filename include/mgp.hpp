@@ -886,6 +886,8 @@ class Path {
 
   /// @brief Adds a relationship continuing from the last node on the path.
   void Expand(const Relationship &relationship);
+  /// @brief Removes the last node and the last relationship from the path.
+  void Pop();
 
   /// @exception std::runtime_error Path contains element(s) with unknown value.
   bool operator==(const Path &other) const;
@@ -2994,6 +2996,8 @@ inline Relationship Path::GetRelationshipAt(size_t index) const {
 }
 
 inline void Path::Expand(const Relationship &relationship) { mgp::path_expand(ptr_, relationship.ptr_); }
+
+inline void Path::Pop() { mgp::path_pop(ptr_); }
 
 inline bool Path::operator==(const Path &other) const { return util::PathsEqual(ptr_, other.ptr_); }
 

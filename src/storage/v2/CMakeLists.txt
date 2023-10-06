@@ -32,7 +32,6 @@ add_library(mg-storage-v2 STATIC
         disk/label_property_index.cpp
         disk/unique_constraints.cpp
         storage_mode.cpp
-        isolation_level.cpp
         replication/replication_client.cpp
         replication/replication_server.cpp
         replication/serialization.cpp
