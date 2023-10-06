@@ -4,7 +4,7 @@ set(memory_src_files
 
 
 
-find_package(Jemalloc REQUIRED)
+find_package(jemalloc REQUIRED)
 
 add_library(mg-memory STATIC ${memory_src_files})
 target_link_libraries(mg-memory mg-utils fmt)

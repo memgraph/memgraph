@@ -156,12 +156,3 @@ install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
 # ----------------------------------------------------------------------------
 # Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------
-
-# find_package(Jemalloc REQUIRED)
-# add_executable(arenas arenas.cpp)
-
-# target_link_libraries(arenas mg-utils Jemalloc::Jemalloc)
-# target_compile_definitions(arenas PRIVATE USE_JEMALLOC=1)
-#target_link_libraries(arenas mg-storage-v2)
-
-# install(TARGETS arenas RUNTIME DESTINATION bin)

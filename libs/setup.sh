@@ -6,7 +6,6 @@
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
-echo $wokring_dir
 
 # Clones a git repository and optionally cherry picks additional commits. The
 # function will try to preserve any local changes in the repo.
@@ -256,17 +255,14 @@ cd ..
 absl_ref="20230125.3"
 repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
 
-jemalloc_dir="$wokring_dir/../build/"
-
 
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
-JEMALLOC_COMMIT_HASH="ea6b3e973b477b8061e0076bb257dbd7f3faa756"
 JEMALLOC_COMMIT_VERSION="5.2.1"
-repo_clone_try_double "${secondary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "Jemalloc" "$JEMALLOC_COMMIT_VERSION"
-pushd Jemalloc
-#git checkout ea6b3e973b477b8061e0076bb257dbd7f3faa756
+repo_clone_try_double "${secondary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
 
-#make distclean
+# this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
+pushd jemalloc
+
 ./autogen.sh
 MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
 ./configure \

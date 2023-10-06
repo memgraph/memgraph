@@ -15,7 +15,6 @@ set(GFLAGS_NOTHREADS OFF)
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt 8.0.1)
-#find_package(Jemalloc REQUIRED)
 find_package(ZLIB 1.2.11 REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -100,14 +99,14 @@ macro(import_external_library name type library_location include_dir)
 endmacro(import_external_library)
 
 
-macro(jemalloc_external_library name type library_location include_dir)
+macro(set_path_external_library name type library_location include_dir)
   string(TOUPPER ${name} _upper_name)
-  set(${name}_LIBRARY ${library_location} CACHE FILEPATH
+  set(${_upper_name}_LIBRARY ${library_location} CACHE FILEPATH
       "Path to ${name} library" FORCE)
-  set(${name}_INCLUDE_DIR ${include_dir} CACHE FILEPATH
+  set(${_upper_name}_INCLUDE_DIR ${include_dir} CACHE FILEPATH
       "Path to ${name} include directory" FORCE)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
-endmacro(jemalloc_external_library)
+endmacro(set_path_external_library)
 
 
 # setup antlr
@@ -277,22 +276,7 @@ import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(absl EXCLUDE_FROM_ALL)
 
-# set jemalloc
-jemalloc_external_library(Jemalloc STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/Jemalloc/lib/libjemalloc.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/Jemalloc/include/)
-
-message(STATUS "jemalloc.h searched in: ${CMAKE_CURRENT_SOURCE_DIR}")
-
-if(Jemalloc_INCLUDE_DIR)
-  message(STATUS "jemalloc.h found at: ${Jemalloc_INCLUDE_DIR}")
-else()
-  message(WARNING "jemalloc.h not found!")
-endif()
-
-# Check and print where libjemalloc.a was found
-if(Jemalloc_LIBRARY)
-  message(STATUS "libjemalloc.a found at: ${Jemalloc_LIBRARY}")
-else()
-  message(WARNING "libjemalloc.a not found!")
-endif()
+# set Jemalloc
+set_path_external_library(jemalloc STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
