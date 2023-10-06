@@ -95,7 +95,6 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
   auto shutdown = [shutdown_fun]() {
     if (is_shutting_down) return;
     is_shutting_down = 1;
-    // memgraph::memory::UnSetHooks();
     shutdown_fun();
   };
 

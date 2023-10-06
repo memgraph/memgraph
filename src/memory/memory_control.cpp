@@ -10,23 +10,12 @@
 // licenses/APL.txt.
 
 #include "memory_control.hpp"
-#include <fmt/core.h>
-#include <unistd.h>
-#include <atomic>
-#include <cstdint>
-#include <ios>
-#include <mutex>
-#include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/readable_size.hpp"
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #endif
-
-#include <iostream>
-#include <vector>
 
 namespace memgraph::memory {
 
