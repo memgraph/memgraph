@@ -120,8 +120,4 @@ void MemoryTracker::Alloc(const int64_t size) {
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
 
-void MemoryTracker::AllocVirt(const int64_t size) { amount_virt_.fetch_add(size, std::memory_order_relaxed); }
-
-void MemoryTracker::FreeVirt(const int64_t size) { amount_virt_.fetch_sub(size, std::memory_order_relaxed); }
-
 }  // namespace memgraph::utils
