@@ -1009,6 +1009,7 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
                                         bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
+  /// TODO: (andi) Refactor
   auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
   if (maybe_result.HasError()) {
     return maybe_result.GetError();
