@@ -33,7 +33,7 @@ struct Endpoint {
   Endpoint &operator=(Endpoint &&) noexcept = default;
   ~Endpoint() = default;
 
-  enum class IpFamily : std::uint8_t { NONE, IP4, IP6, DNS_ALIAS };
+  enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
 
   std::string SocketAddress() const;
 
@@ -44,12 +44,14 @@ struct Endpoint {
   uint16_t port{0};
   IpFamily family{IpFamily::NONE};
 
+  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrAddress(
+      const std::string &address, const std::optional<uint16_t> default_port);
+
   /**
    * Tries to parse the given string as either a socket address or ip address.
    * Expected address format:
-   *   - "address:port_number"
-   *   - "address"
-   * An address can be either an IP address or a DNS-associated name with an IP address.
+   *   - "ip_address:port_number"
+   *   - "ip_address"
    * We parse the address first. If it's an IP address, a default port must
    * be given, or we return nullopt. If it's a socket address, we try to parse
    * it into an ip address and a port number; even if a default port is given,
@@ -58,9 +60,27 @@ struct Endpoint {
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
       const std::string &address, const std::optional<uint16_t> default_port);
 
-  static IpFamily GetIpFamily(const std::string &ip_address);
+  /**
+   * Tries to parse given string as either socket address or hostname.
+   * Expected address format:
+   *    - "hostname:port_number"
+   *    - "hostname"
+   * After we parse hostname and port we try to resolve the hostname into an ip_address.
+   */
 
-  bool ValidReplicaAddress() const;
+  static std::optional<std::pair<std::string, uint16_t>> ParseDNSResolvableAddress(
+      const std::string &address, const std::optional<uint16_t> default_port);
+
+  static IpFamily GetIpFamily(const std::string &address);
+
+  static bool IsResolvableAddress(const std::string &address, const uint16_t port);
+
+  /**
+   * Tries to resolve hostname to its corresponding IP address.
+   * Given a DNS hostname, this function performs resolution and returns
+   * the IP address associated with the hostname.
+   */
+  static std::string ResolveHostnameIntoIpAddress(const std::string &address, const uint16_t port);
 };
 
 }  // namespace memgraph::io::network
