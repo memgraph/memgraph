@@ -44,8 +44,6 @@ bool MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() { return counter_ >
 
 MemoryTracker total_memory_tracker;
 
-MemoryTracker old_jemalloc_total_memory_tracker;
-
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution
 // should be used.

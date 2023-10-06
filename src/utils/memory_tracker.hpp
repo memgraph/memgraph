@@ -103,7 +103,4 @@ class MemoryTracker final {
 
 // Global memory tracker which tracks every allocation in the application.
 extern MemoryTracker total_memory_tracker;
-
-// Global memory tracker which tracks every allocation in the application.
-extern MemoryTracker old_jemalloc_total_memory_tracker;
 }  // namespace memgraph::utils
