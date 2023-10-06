@@ -14,6 +14,9 @@
 #include <atomic>
 #include <cstdint>
 
+#include "replication/replication_epoch.hpp"
+#include "utils/result.hpp"
+
 namespace memgraph::replication {
 
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
@@ -23,10 +26,14 @@ struct ReplicationState {
   bool IsMain() const { return replication_role_ == ReplicationRole::MAIN; }
   bool IsReplica() const { return replication_role_ == ReplicationRole::REPLICA; }
 
+  auto GetEpoch() const -> const ReplicationEpoch & { return epoch_; }
+  auto GetEpoch() -> ReplicationEpoch & { return epoch_; }
+
  protected:
   void SetRole(ReplicationRole role) { return replication_role_.store(role); }
 
  private:
+  ReplicationEpoch epoch_;
   std::atomic<memgraph::replication::ReplicationRole> replication_role_{ReplicationRole::MAIN};
 };
 

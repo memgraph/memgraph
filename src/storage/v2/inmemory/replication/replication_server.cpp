@@ -81,9 +81,10 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
   auto &repl_storage_state = storage_->replication_storage_state_;
-  const auto &epoch = repl_storage_state.GetEpoch();
+  auto &epoch = repl_storage_state.GetEpoch();
   if (*maybe_epoch_id != epoch.id()) {
-    repl_storage_state.AppendEpoch(*maybe_epoch_id);
+    auto prev_epoch = epoch.SetEpoch(*maybe_epoch_id);
+    repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
   if (storage_->wal_file_) {
@@ -245,8 +246,11 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, replication::D
       storage->uuid_ = wal_info.uuid;
     }
 
-    if (wal_info.epoch_id != storage->replication_storage_state_.GetEpoch().id()) {
-      storage->replication_storage_state_.AppendEpoch(wal_info.epoch_id);
+    auto &replication_storage_state = storage->replication_storage_state_;
+    auto &epoch = replication_storage_state.GetEpoch();
+    if (wal_info.epoch_id != epoch.id()) {
+      auto prev_epoch = epoch.SetEpoch(wal_info.epoch_id);
+      replication_storage_state.AddEpochToHistoryForce(prev_epoch);
     }
 
     if (storage->wal_file_) {

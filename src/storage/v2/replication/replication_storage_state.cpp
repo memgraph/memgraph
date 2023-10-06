@@ -11,7 +11,6 @@
 
 #include "storage/v2/replication/replication_storage_state.hpp"
 
-#include "replication/replication_state.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -361,18 +360,16 @@ void ReplicationStorageState::RestoreReplicas(Storage *storage) {
 
 constexpr uint16_t kEpochHistoryRetention = 1000;
 
-void ReplicationStorageState::NewEpoch() {
+void ReplicationStorageState::AddEpochToHistory(std::string prev_epoch) {
   // Generate new epoch id and save the last one to the history.
   if (history.size() == kEpochHistoryRetention) {
     history.pop_front();
   }
-  auto prevEpoch = epoch_.NewEpoch();
-  history.emplace_back(std::move(prevEpoch), last_commit_timestamp_);
+  history.emplace_back(std::move(prev_epoch), last_commit_timestamp_);
 }
 
-void ReplicationStorageState::AppendEpoch(std::string new_epoch) {
-  auto prevEpoch = epoch_.SetEpoch(std::move(new_epoch));
-  history.emplace_back(std::move(prevEpoch), last_commit_timestamp_);
+void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
+  history.emplace_back(std::move(prev_epoch), last_commit_timestamp_);
 }
 
 }  // namespace memgraph::storage

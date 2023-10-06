@@ -72,9 +72,6 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  const memgraph::replication::ReplicationEpoch &GetEpoch() const { return epoch_; }
-  memgraph::replication::ReplicationEpoch &GetEpoch() { return epoch_; }
-
   // Questions:
   //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
   //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
@@ -86,8 +83,8 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   // TODO: actually durability
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
-  void NewEpoch();
-  void AppendEpoch(std::string new_epoch);
+  void AddEpochToHistory(std::string prev_epoch);
+  void AddEpochToHistoryForce(std::string prev_epoch);
 
  private:
   bool TryPersistReplicaClient(const replication::ReplicationClientConfig &config);
@@ -110,8 +107,6 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   ReplicationClientList replication_clients_;
 
   std::unique_ptr<kvstore::KVStore> durability_;
-
-  memgraph::replication::ReplicationEpoch epoch_;
 };
 
 }  // namespace memgraph::storage
