@@ -41,7 +41,9 @@ class InMemoryStorage;
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 Storage::Storage(Config config, StorageMode storage_mode)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+    : replication_storage_state_(config.durability.restore_replication_state_on_startup,
+                                 config.durability.storage_directory),
+      name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
                                                     config.disk.id_name_mapper_directory);
@@ -53,9 +55,7 @@ Storage::Storage(Config config, StorageMode storage_mode)
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      id_(config.name),
-      replication_storage_state_(config_.durability.restore_replication_state_on_startup,
-                                 config_.durability.storage_directory) {}
+      id_(config.name) {}
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode)

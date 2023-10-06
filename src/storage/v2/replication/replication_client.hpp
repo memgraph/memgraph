@@ -36,6 +36,7 @@ struct Vertex;
 struct Edge;
 class Storage;
 class ReplicationClient;
+struct ReplicationStorageState;
 
 // Handler used for transferring the current transaction.
 class ReplicaStream {
@@ -61,6 +62,7 @@ class ReplicaStream {
 
  private:
   ReplicationClient *self_;
+  ReplicationStorageState *repl_state_;  // TODO: make ReplicationState
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
 };
 
@@ -99,7 +101,6 @@ class ReplicationClient {
   virtual void RecoverReplica(uint64_t replica_commit) = 0;
 
   auto GetStorage() -> Storage * { return storage_; }
-  auto GetEpochId() const -> std::string const &;
   auto LastCommitTimestamp() const -> uint64_t;
   void InitializeClient();
   void HandleRpcFailure();

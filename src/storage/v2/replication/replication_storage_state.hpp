@@ -18,6 +18,7 @@
 #include "utils/result.hpp"
 
 /// REPLICATION ///
+#include "replication/replication_epoch.hpp"
 #include "replication/replication_state.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -71,8 +72,8 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
   std::vector<ReplicaInfo> ReplicasInfo();
 
-  const ReplicationEpoch &GetEpoch() const { return epoch_; }
-  ReplicationEpoch &GetEpoch() { return epoch_; }
+  const memgraph::replication::ReplicationEpoch &GetEpoch() const { return epoch_; }
+  memgraph::replication::ReplicationEpoch &GetEpoch() { return epoch_; }
 
   // Questions:
   //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
@@ -110,7 +111,7 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
 
   std::unique_ptr<kvstore::KVStore> durability_;
 
-  ReplicationEpoch epoch_;
+  memgraph::replication::ReplicationEpoch epoch_;
 };
 
 }  // namespace memgraph::storage

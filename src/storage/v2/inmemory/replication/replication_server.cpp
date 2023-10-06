@@ -67,7 +67,7 @@ void InMemoryReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::B
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   replication::HeartbeatRes res{true, storage_->replication_storage_state_.last_commit_timestamp_.load(),
-                                storage_->replication_storage_state_.GetEpoch().id};
+                                std::string{storage_->replication_storage_state_.GetEpoch().id()}};
   slk::Save(res, res_builder);
 }
 
@@ -80,13 +80,14 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   auto maybe_epoch_id = decoder.ReadString();
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
-  if (*maybe_epoch_id != storage_->replication_storage_state_.GetEpoch().id) {
-    storage_->replication_storage_state_.AppendEpoch(*maybe_epoch_id);
+  auto &repl_storage_state = storage_->replication_storage_state_;
+  const auto &epoch = repl_storage_state.GetEpoch();
+  if (*maybe_epoch_id != epoch.id()) {
+    repl_storage_state.AppendEpoch(*maybe_epoch_id);
   }
 
   if (storage_->wal_file_) {
-    if (req.seq_num > storage_->wal_file_->SequenceNumber() ||
-        *maybe_epoch_id != storage_->replication_storage_state_.GetEpoch().id) {
+    if (req.seq_num > storage_->wal_file_->SequenceNumber() || *maybe_epoch_id != epoch.id()) {
       storage_->wal_file_->FinalizeWal();
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
@@ -99,7 +100,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
     storage_->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != storage_->replication_storage_state_.last_commit_timestamp_.load()) {
+  if (req.previous_commit_timestamp != repl_storage_state.last_commit_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -109,7 +110,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
           delta.type, durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    replication::AppendDeltasRes res{false, storage_->replication_storage_state_.last_commit_timestamp_.load()};
+    replication::AppendDeltasRes res{false, repl_storage_state.last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -117,7 +118,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   ReadAndApplyDelta(storage_, &decoder,
                     durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  replication::AppendDeltasRes res{true, storage_->replication_storage_state_.last_commit_timestamp_.load()};
+  replication::AppendDeltasRes res{true, repl_storage_state.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -157,7 +158,7 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
     storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
-    epoch.id = std::move(recovered_snapshot.snapshot_info.epoch_id);
+    epoch.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
     storage_->vertex_id_ = recovery_info.next_vertex_id;
     storage_->edge_id_ = recovery_info.next_edge_id;
@@ -244,7 +245,7 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, replication::D
       storage->uuid_ = wal_info.uuid;
     }
 
-    if (wal_info.epoch_id != storage->replication_storage_state_.GetEpoch().id) {
+    if (wal_info.epoch_id != storage->replication_storage_state_.GetEpoch().id()) {
       storage->replication_storage_state_.AppendEpoch(wal_info.epoch_id);
     }
 

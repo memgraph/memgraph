@@ -52,14 +52,13 @@ uint64_t ReplicationClient::LastCommitTimestamp() const {
 void ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  const auto &main_epoch = storage_->replication_storage_state_.GetEpoch();
-
+  const auto &epoch = storage_->replication_storage_state_.GetEpoch();
   auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->replication_storage_state_.last_commit_timestamp_,
-                                                            main_epoch.id)};
+                                                            std::string{epoch.id()})};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
-  if (replica.epoch_id != main_epoch.id && replica.current_commit_timestamp != kTimestampInitialId) {
+  if (replica.epoch_id != epoch.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = storage_->replication_storage_state_.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
@@ -183,10 +182,6 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
   }
 }
 
-auto ReplicationClient::GetEpochId() const -> std::string const & {
-  return storage_->replication_storage_state_.GetEpoch().id;
-}
-
 bool ReplicationClient::FinalizeTransactionReplication() {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -289,10 +284,11 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
 ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
                              const uint64_t current_seq_num)
     : self_(self),
+      repl_state_{&self->storage_->replication_storage_state_},
       stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
 
-  encoder.WriteString(self_->GetEpochId());
+  encoder.WriteString(repl_state_->GetEpoch().id());
 }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {

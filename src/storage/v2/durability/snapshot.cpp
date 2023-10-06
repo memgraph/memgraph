@@ -1714,7 +1714,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
                     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints, const Config &config, const std::string &uuid,
-                    const std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                    const memgraph::replication::ReplicationEpoch &epoch,
+                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
@@ -2044,7 +2045,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid);
-    snapshot.WriteString(epoch_id);
+    snapshot.WriteString(epoch.id());
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);

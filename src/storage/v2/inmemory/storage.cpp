@@ -60,7 +60,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
   if (config_.durability.recover_on_startup) {
     auto &epoch = replication_storage_state_.GetEpoch();
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id,
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
                                         &replication_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
@@ -1494,7 +1494,7 @@ bool InMemoryStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, replication_storage_state_.GetEpoch().id, config_.items,
+    wal_file_.emplace(wal_directory_, uuid_, replication_storage_state_.GetEpoch().id(), config_.items,
                       name_id_mapper_.get(), wal_seq_num_++, &file_retainer_);
   }
   return true;
@@ -1808,12 +1808,12 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   auto snapshot_creator = [this]() {
     utils::Timer timer;
-    const auto &epoch = replication_storage_state_.GetEpoch();
+    auto const &epoch = replication_storage_state_.GetEpoch();
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                                config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
-                               &indices_, &constraints_, config_, uuid_, epoch.id, replication_storage_state_.history,
+                               &indices_, &constraints_, config_, uuid_, epoch, replication_storage_state_.history,
                                &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
