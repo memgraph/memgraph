@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "replication/replication_epoch.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
@@ -36,7 +37,6 @@ struct Vertex;
 struct Edge;
 class Storage;
 class ReplicationClient;
-struct ReplicationStorageState;
 
 // Handler used for transferring the current transaction.
 class ReplicaStream {
@@ -62,7 +62,6 @@ class ReplicaStream {
 
  private:
   ReplicationClient *self_;
-  ReplicationStorageState *repl_state_;  // TODO: make ReplicationState
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
 };
 
@@ -71,7 +70,8 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config);
+  ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config,
+                    const memgraph::replication::ReplicationEpoch *epoch);
 
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;
@@ -135,6 +135,8 @@ class ReplicationClient {
 
   utils::Scheduler replica_checker_;
   Storage *storage_;
+
+  memgraph::replication::ReplicationEpoch const *repl_epoch_;
 };
 
 }  // namespace memgraph::storage

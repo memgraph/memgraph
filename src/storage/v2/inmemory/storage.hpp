@@ -326,7 +326,8 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -351,7 +352,7 @@ class InMemoryStorage final : public Storage {
   template <bool force>
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
 
-  bool InitializeWalFile();
+  bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
 
   StorageInfo GetInfo() const override;
@@ -379,7 +380,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void EstablishNewEpoch() override;
+  void PrepareForNewEpoch(std::string prev_epoch) override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;

@@ -22,6 +22,12 @@ namespace memgraph::replication {
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
 struct ReplicationState {
+  ReplicationState() = default;
+  ReplicationState(ReplicationState const &) = delete;
+  ReplicationState(ReplicationState &&) = delete;
+  ReplicationState &operator=(ReplicationState const &) = delete;
+  ReplicationState &operator=(ReplicationState &&) = delete;
+
   auto GetRole() const -> ReplicationRole { return replication_role_.load(); }
   bool IsMain() const { return replication_role_ == ReplicationRole::MAIN; }
   bool IsReplica() const { return replication_role_ == ReplicationRole::REPLICA; }

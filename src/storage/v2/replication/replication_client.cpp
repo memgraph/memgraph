@@ -31,13 +31,15 @@ static auto CreateClientContext(const replication::ReplicationClientConfig &conf
                       : communication::ClientContext{};
 }
 
-ReplicationClient::ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config)
+ReplicationClient::ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config,
+                                     const memgraph::replication::ReplicationEpoch *epoch)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(config.ip_address, config.port), &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode},
-      storage_{storage} {}
+      storage_{storage},
+      repl_epoch_{epoch} {}
 
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();
@@ -52,13 +54,12 @@ uint64_t ReplicationClient::LastCommitTimestamp() const {
 void ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  const auto &epoch = storage_->replication_storage_state_.GetEpoch();
   auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->replication_storage_state_.last_commit_timestamp_,
-                                                            std::string{epoch.id()})};
+                                                            std::string{repl_epoch_->id()})};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
-  if (replica.epoch_id != epoch.id() && replica.current_commit_timestamp != kTimestampInitialId) {
+  if (replica.epoch_id != repl_epoch_->id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = storage_->replication_storage_state_.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
@@ -284,11 +285,10 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
 ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
                              const uint64_t current_seq_num)
     : self_(self),
-      repl_state_{&self->storage_->replication_storage_state_},
       stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
 
-  encoder.WriteString(repl_state_->GetEpoch().id());
+  encoder.WriteString(self->repl_epoch_->id());
 }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {

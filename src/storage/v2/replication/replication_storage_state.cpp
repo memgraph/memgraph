@@ -51,7 +51,8 @@ void storage::ReplicationStorageState::Reset() {
   replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
 }
 
-bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *storage) {
+bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *storage,
+                                                              memgraph::replication::ReplicationEpoch &epoch) {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
   if (IsMain()) {
@@ -62,7 +63,8 @@ bool storage::ReplicationStorageState::SetMainReplicationRole(storage::Storage *
   // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
-  storage->EstablishNewEpoch();
+  auto prev_epoch = epoch.NewEpoch();
+  storage->PrepareForNewEpoch(std::move(prev_epoch));
 
   if (ShouldStoreAndRestoreReplicationState()) {
     // Only thing that matters here is the role saved as MAIN

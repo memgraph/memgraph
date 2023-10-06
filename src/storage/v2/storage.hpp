@@ -297,7 +297,7 @@ class Storage {
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
-  virtual void EstablishNewEpoch() = 0;
+  virtual void PrepareForNewEpoch(std::string prev_epoch) = 0;
 
   virtual auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
       -> std::unique_ptr<ReplicationClient> = 0;
@@ -309,7 +309,9 @@ class Storage {
   bool SetReplicaRole(const replication::ReplicationServerConfig &config) {
     return replication_storage_state_.SetReplicaRole(config, this);
   }
-  bool SetMainReplicationRole() { return replication_storage_state_.SetMainReplicationRole(this); }
+  bool SetMainReplicationRole() {
+    return replication_storage_state_.SetMainReplicationRole(this, replication_storage_state_.GetEpoch());
+  }
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication

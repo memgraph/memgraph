@@ -102,7 +102,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot({true}); maybe_error.HasError()) {
+      if (auto maybe_error = this->CreateSnapshot(replication_storage_state_, {true}); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
@@ -169,7 +169,7 @@ InMemoryStorage::~InMemoryStorage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot({false}); maybe_error.HasError()) {
+    if (auto maybe_error = this->CreateSnapshot(replication_storage_state_, {false}); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
@@ -1490,12 +1490,12 @@ StorageInfo InMemoryStorage::GetInfo() const {
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
-bool InMemoryStorage::InitializeWalFile() {
+bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, replication_storage_state_.GetEpoch().id(), config_.items,
-                      name_id_mapper_.get(), wal_seq_num_++, &file_retainer_);
+    wal_file_.emplace(wal_directory_, uuid_, epoch.id(), config_.items, name_id_mapper_.get(), wal_seq_num_++,
+                      &file_retainer_);
   }
   return true;
 }
@@ -1520,7 +1520,7 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) {
+  if (!InitializeWalFile(replication_storage_state_.GetEpoch())) {
     return true;
   }
   // Traverse deltas and append them to the WAL file.
@@ -1690,7 +1690,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) {
+  if (!InitializeWalFile(replication_storage_state_.GetEpoch())) {
     return true;
   }
 
@@ -1801,14 +1801,14 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    std::optional<bool> is_periodic) {
-  if (replication_storage_state_.IsReplica()) {
+    memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic) {
+  if (replicationState.IsReplica()) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  auto snapshot_creator = [this]() {
+  auto const &epoch = replicationState.GetEpoch();
+  auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
-    auto const &epoch = replication_storage_state_.GetEpoch();
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
     durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
@@ -1869,14 +1869,12 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-void InMemoryStorage::EstablishNewEpoch() {
+void InMemoryStorage::PrepareForNewEpoch(std::string prev_epoch) {
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  // TODO: Move out of storage (no need for the lock) <- missing commit_timestamp at a higher level
-  auto prev_epoch = replication_storage_state_.GetEpoch().NewEpoch();
   replication_storage_state_.AddEpochToHistory(std::move(prev_epoch));
 }
 
@@ -1907,12 +1905,12 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
 
 auto InMemoryStorage::CreateReplicationClient(replication::ReplicationClientConfig const &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, config);
+  return std::make_unique<InMemoryReplicationClient>(this, config, &this->replication_storage_state_.GetEpoch());
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
     const replication::ReplicationServerConfig &config) {
-  return std::make_unique<InMemoryReplicationServer>(this, config);
+  return std::make_unique<InMemoryReplicationServer>(this, config, &this->replication_storage_state_.GetEpoch());
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {

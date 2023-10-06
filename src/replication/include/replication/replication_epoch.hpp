@@ -19,6 +19,10 @@ namespace memgraph::replication {
 
 struct ReplicationEpoch {
   ReplicationEpoch() : id_(memgraph::utils::GenerateUUID()) {}
+  ReplicationEpoch(ReplicationEpoch const &) = delete;
+  ReplicationEpoch(ReplicationEpoch &&) = delete;
+  ReplicationEpoch &operator=(ReplicationEpoch const &) = delete;
+  ReplicationEpoch &operator=(ReplicationEpoch &&) = delete;
 
   auto id() const -> std::string_view { return id_; }
 

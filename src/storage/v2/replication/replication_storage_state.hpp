@@ -42,7 +42,8 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   // Generic API
   void Reset();
 
-  bool SetMainReplicationRole(Storage *storage);  // Set the instance to MAIN
+  bool SetMainReplicationRole(storage::Storage *storage,
+                              memgraph::replication::ReplicationEpoch &epoch);  // Set the instance to MAIN
   // TODO: ReplicationServer/Client uses Storage* for RPC callbacks
   bool SetReplicaRole(const replication::ReplicationServerConfig &config,
                       Storage *storage);  // Sets the instance to REPLICA
