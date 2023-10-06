@@ -70,7 +70,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
 
-  indices_by_property_[property].insert({label, &index_.at({label, property})});
+  indices_by_property_[property].insert({label, &it->second});
 
   if (!emplaced) {
     // Index already exists.
@@ -386,20 +386,23 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  deleted_indexes.reserve(stats_.size());
-  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+  auto locked_stats = stats_.Lock();
+  deleted_indexes.reserve(locked_stats->size());
+  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
                  [](const auto &elem) { return elem.first; });
-  stats_.clear();
+  locked_stats->clear();
   return deleted_indexes;
 }
 
+// stats_ is a map where the key is a pair of label and property, so for one label many pairs can be deleted
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+  auto locked_stats = stats_.Lock();
+  for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
     if (it->first.first == label) {
       deleted_indexes.push_back(it->first);
-      it = stats_.erase(it);
+      it = locked_stats->erase(it);
     } else {
       ++it;
     }
@@ -409,12 +412,14 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIn
 
 void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                                                const LabelPropertyIndexStats &stats) {
-  stats_[key] = stats;
+  auto locked_stats = stats_.Lock();
+  locked_stats->insert_or_assign(key, stats);
 }
 
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
     const std::pair<storage::LabelId, storage::PropertyId> &key) const {
-  if (auto it = stats_.find(key); it != stats_.end()) {
+  auto locked_stats = stats_.ReadLock();
+  if (auto it = locked_stats->find(key); it != locked_stats->end()) {
     return it->second;
   }
   return {};
