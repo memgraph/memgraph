@@ -3069,10 +3069,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("old_jemalloc_memory_allocated"), TypedValue(utils::GetReadableSize(static_cast<double>(
-                                                              utils::old_jemalloc_total_memory_tracker.Amount())))},
-            {TypedValue("jemalloc_memory_allocated"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            // {TypedValue("old_jemalloc_memory_allocated"), TypedValue(utils::GetReadableSize(static_cast<double>(
+            //                                                   utils::old_jemalloc_total_memory_tracker.Amount())))},
+            // {TypedValue("jemalloc_memory_allocated"),
+            //  TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
