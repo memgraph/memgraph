@@ -9,4 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/replication_epoch.hpp"
+#pragma once
+
+#include <cstdint>
+namespace memgraph::replication {
+
+enum class ReplicationRole : uint8_t { MAIN, REPLICA };
+}

@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "replication/replication_epoch.hpp"
+#include "replication/epoch.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"

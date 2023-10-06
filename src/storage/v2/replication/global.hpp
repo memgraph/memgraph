@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "io/network/endpoint.hpp"
+#include "replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "utils/uuid.hpp"
 
@@ -30,7 +31,7 @@ struct TimestampInfo {
 
 struct ReplicaInfo {
   std::string name;
-  replication::ReplicationMode mode;
+  memgraph::replication::ReplicationMode mode;
   io::network::Endpoint endpoint;
   replication::ReplicaState state;
   TimestampInfo timestamp_info;

@@ -18,7 +18,7 @@ class InMemoryStorage;
 
 class InMemoryReplicationClient : public ReplicationClient {
  public:
-  InMemoryReplicationClient(InMemoryStorage *storage, const replication::ReplicationClientConfig &config,
+  InMemoryReplicationClient(InMemoryStorage *storage, const memgraph::replication::ReplicationClientConfig &config,
                             const memgraph::replication::ReplicationEpoch *epoch);
 
  protected:

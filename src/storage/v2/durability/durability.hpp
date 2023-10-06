@@ -18,7 +18,7 @@
 #include <string>
 #include <variant>
 
-#include "replication/replication_epoch.hpp"
+#include "replication/epoch.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"

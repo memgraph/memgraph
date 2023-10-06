@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
@@ -18,12 +20,11 @@
 #include "utils/result.hpp"
 
 /// REPLICATION ///
-#include "replication/replication_epoch.hpp"
-#include "replication/replication_state.hpp"
-#include "storage/v2/replication/config.hpp"
+#include "replication/config.hpp"
+#include "replication/epoch.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
-#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
@@ -36,19 +37,19 @@ class ReplicationClient;
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 
 struct ReplicationStorageState : memgraph::replication::ReplicationState {
-  // TODO: This mirrors the logic in InMemoryConstructor; make it independent
-  ReplicationStorageState(bool restore, std::filesystem::path durability_dir);
+  ReplicationStorageState(std::optional<std::filesystem::path> durability_dir)
+      : memgraph::replication::ReplicationState(std::move(durability_dir)) {}
 
   // Generic API
   void Reset();
 
-  bool SetMainReplicationRole(storage::Storage *storage,
+  bool SetReplicationRoleMain(storage::Storage *storage,
                               memgraph::replication::ReplicationEpoch &epoch);  // Set the instance to MAIN
   // TODO: ReplicationServer/Client uses Storage* for RPC callbacks
-  bool SetReplicaRole(const replication::ReplicationServerConfig &config,
-                      Storage *storage);  // Sets the instance to REPLICA
+  bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
+                                 Storage *storage);  // Sets the instance to REPLICA
   // Generic restoration
-  void RestoreReplicationRole(Storage *storage);
+  void RestoreReplication(Storage *storage);
 
   // MAIN actually doing the replication
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
@@ -61,12 +62,9 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
 
   // MAIN connecting to replicas
   utils::BasicResult<RegisterReplicaError> RegisterReplica(const replication::RegistrationMode registration_mode,
-                                                           const replication::ReplicationClientConfig &config,
+                                                           const memgraph::replication::ReplicationClientConfig &config,
                                                            Storage *storage);
   bool UnregisterReplica(std::string_view name);
-
-  // MAIN reconnecting to replicas
-  void RestoreReplicas(Storage *storage);
 
   // MAIN getting info from replicas
   // TODO make into const (problem with SpinLock and WithReadLock)
@@ -88,9 +86,6 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   void AddEpochToHistoryForce(std::string prev_epoch);
 
  private:
-  bool TryPersistReplicaClient(const replication::ReplicationClientConfig &config);
-  bool ShouldStoreAndRestoreReplicationState() const { return nullptr != durability_; }
-
   // NOTE: Server is not in MAIN it is in REPLICA
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
@@ -106,8 +101,6 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
   // failed.
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
-
-  std::unique_ptr<kvstore::KVStore> durability_;
 };
 
 }  // namespace memgraph::storage

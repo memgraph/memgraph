@@ -21,9 +21,8 @@
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "storage/v2/replication/config.hpp"
+#include "replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -331,10 +330,10 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> override;
 
-  auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override;
 
  private:

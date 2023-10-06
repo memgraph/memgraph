@@ -34,7 +34,7 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
 }  // namespace
 
 InMemoryReplicationServer::InMemoryReplicationServer(InMemoryStorage *storage,
-                                                     const replication::ReplicationServerConfig &config,
+                                                     const memgraph::replication::ReplicationServerConfig &config,
                                                      memgraph::replication::ReplicationEpoch *repl_epoch)
     : ReplicationServer{config}, storage_(storage), repl_epoch_{repl_epoch} {
   rpc_server_.Register<replication::HeartbeatRpc>([this](auto *req_reader, auto *res_builder) {

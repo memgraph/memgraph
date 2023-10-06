@@ -19,6 +19,7 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
+#include "replication/config.hpp"
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -27,7 +28,6 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
-#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
@@ -299,24 +299,24 @@ class Storage {
 
   virtual void PrepareForNewEpoch(std::string prev_epoch) = 0;
 
-  virtual auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
+  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> = 0;
 
-  virtual auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
+  virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
   /// REPLICATION
-  bool SetReplicaRole(const replication::ReplicationServerConfig &config) {
-    return replication_storage_state_.SetReplicaRole(config, this);
+  bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
+    return replication_storage_state_.SetReplicationRoleReplica(config, this);
   }
-  bool SetMainReplicationRole() {
-    return replication_storage_state_.SetMainReplicationRole(this, replication_storage_state_.GetEpoch());
+  bool SetReplicationRoleMain() {
+    return replication_storage_state_.SetReplicationRoleMain(this, replication_storage_state_.GetEpoch());
   }
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
   auto RegisterReplica(const replication::RegistrationMode registration_mode,
-                       const replication::ReplicationClientConfig &config) {
+                       const memgraph::replication::ReplicationClientConfig &config) {
     return replication_storage_state_.RegisterReplica(registration_mode, config, this);
   }
   /// @pre The instance should have a MAIN role
@@ -330,8 +330,7 @@ class Storage {
   ReplicationStorageState replication_storage_state_;
 
  protected:
-  void RestoreReplicas() { return replication_storage_state_.RestoreReplicas(this); }
-  void RestoreReplicationRole() { return replication_storage_state_.RestoreReplicationRole(this); }
+  void RestoreReplication() { return replication_storage_state_.RestoreReplication(this); }
 
  public:
   // Main storage lock.

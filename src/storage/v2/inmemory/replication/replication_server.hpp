@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "replication/replication_epoch.hpp"
+#include "replication/epoch.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
@@ -21,7 +21,8 @@ class InMemoryStorage;
 
 class InMemoryReplicationServer : public ReplicationServer {
  public:
-  explicit InMemoryReplicationServer(InMemoryStorage *storage, const replication::ReplicationServerConfig &config,
+  explicit InMemoryReplicationServer(InMemoryStorage *storage,
+                                     const memgraph::replication::ReplicationServerConfig &config,
                                      memgraph::replication::ReplicationEpoch *repl_epoch);
 
  private:

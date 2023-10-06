@@ -21,14 +21,17 @@
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
 #include <storage/v2/replication/enums.hpp>
+#include "replication/config.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/replication/config.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 
 using testing::UnorderedElementsAre;
 
+using memgraph::replication::ReplicationClientConfig;
+using memgraph::replication::ReplicationMode;
 using memgraph::replication::ReplicationRole;
+using memgraph::replication::ReplicationServerConfig;
 using memgraph::storage::Config;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::Gid;
@@ -39,9 +42,6 @@ using memgraph::storage::Storage;
 using memgraph::storage::View;
 using memgraph::storage::replication::RegistrationMode;
 using memgraph::storage::replication::ReplicaState;
-using memgraph::storage::replication::ReplicationClientConfig;
-using memgraph::storage::replication::ReplicationMode;
-using memgraph::storage::replication::ReplicationServerConfig;
 
 class ReplicationTest : public ::testing::Test {
  protected:
@@ -72,7 +72,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   std::unique_ptr<Storage> main_store = std::make_unique<InMemoryStorage>(configuration);
   std::unique_ptr<Storage> replica_store = std::make_unique<InMemoryStorage>(configuration);
 
-  replica_store->SetReplicaRole(ReplicationServerConfig{
+  replica_store->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
@@ -368,7 +368,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
 
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
@@ -378,7 +378,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                                .storage_directory = storage_directory,
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
@@ -526,7 +526,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         {.durability = {.storage_directory = replica_storage_directory,
                         .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}})};
 
-    replica_store->SetReplicaRole(ReplicationServerConfig{
+    replica_store->SetReplicationRoleReplica(ReplicationServerConfig{
         .ip_address = local_host,
         .port = ports[0],
     });
@@ -600,7 +600,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 
   std::unique_ptr<Storage> replica_store_async{new InMemoryStorage(configuration)};
 
-  replica_store_async->SetReplicaRole(ReplicationServerConfig{
+  replica_store_async->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
@@ -647,14 +647,14 @@ TEST_F(ReplicationTest, EpochTest) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
 
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = 10001,
   });
@@ -702,7 +702,7 @@ TEST_F(ReplicationTest, EpochTest) {
   main_store->UnregisterReplica(replicas[0]);
   main_store->UnregisterReplica(replicas[1]);
 
-  replica_store1->SetMainReplicationRole();
+  replica_store1->SetReplicationRoleMain();
   ASSERT_FALSE(replica_store1
                    ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                      ReplicationClientConfig{
@@ -733,7 +733,7 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
@@ -769,14 +769,14 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
   uint16_t replica1_port = 10001;
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica1_port,
   });
 
   uint16_t replica2_port = 10002;
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica2_port,
   });
@@ -828,14 +828,14 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
   uint16_t replica1_port = 10001;
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica1_port,
   });
 
   uint16_t replica2_port = 10002;
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica2_port,
   });
@@ -866,13 +866,13 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = common_port,
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = common_port,
   });
@@ -904,13 +904,13 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
@@ -961,14 +961,14 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
-  replica_store1->SetReplicaRole(ReplicationServerConfig{
+  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
 
-  replica_store2->SetReplicaRole(ReplicationServerConfig{
+  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });

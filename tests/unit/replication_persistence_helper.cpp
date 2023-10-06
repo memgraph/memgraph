@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "formatters.hpp"
-#include "replication/replication_state.hpp"
+#include "replication/state.hpp"
+#include "replication/status.hpp"
 #include "utils/logging.hpp"
 
 #include <gtest/gtest.h>
@@ -21,7 +21,7 @@
 #include <string>
 
 using namespace memgraph::storage::replication;
-using memgraph::replication::ReplicationRole;
+using namespace memgraph::replication;
 
 class ReplicationPersistanceHelperTest : public testing::Test {
  protected:

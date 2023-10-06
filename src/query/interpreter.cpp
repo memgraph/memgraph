@@ -65,6 +65,7 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "replication/config.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
@@ -72,7 +73,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/replication/config.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
@@ -98,7 +98,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
-#include "replication/replication_state.hpp"
+#include "replication/state.hpp"
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -257,15 +257,15 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!db_->SetMainReplicationRole()) {
+      if (!db_->SetReplicationRoleMain()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
     } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
-      if (!db_->SetReplicaRole(storage::replication::ReplicationServerConfig{
-              .ip_address = storage::replication::kDefaultReplicationServerIp,
+      if (!db_->SetReplicationRoleReplica(memgraph::replication::ReplicationServerConfig{
+              .ip_address = memgraph::replication::kDefaultReplicationServerIp,
               .port = static_cast<uint16_t>(*port),
           })) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -293,34 +293,34 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
-    if (name == storage::replication::kReservedReplicationRoleName) {
+    if (name == memgraph::replication::kReservedReplicationRoleName) {
       throw QueryRuntimeException("This replica name is reserved and can not be used as replica name!");
     }
 
-    storage::replication::ReplicationMode repl_mode;
+    memgraph::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
       case ReplicationQuery::SyncMode::ASYNC: {
-        repl_mode = storage::replication::ReplicationMode::ASYNC;
+        repl_mode = memgraph::replication::ReplicationMode::ASYNC;
         break;
       }
       case ReplicationQuery::SyncMode::SYNC: {
-        repl_mode = storage::replication::ReplicationMode::SYNC;
+        repl_mode = memgraph::replication::ReplicationMode::SYNC;
         break;
       }
     }
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, storage::replication::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, memgraph ::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(
-          storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
-          storage::replication::ReplicationClientConfig{.name = name,
-                                                        .mode = repl_mode,
-                                                        .ip_address = ip,
-                                                        .port = port,
-                                                        .replica_check_frequency = replica_check_frequency,
-                                                        .ssl = std::nullopt});
+      auto ret =
+          db_->RegisterReplica(storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                               replication::ReplicationClientConfig{.name = name,
+                                                                    .mode = repl_mode,
+                                                                    .ip_address = ip,
+                                                                    .port = port,
+                                                                    .replica_check_frequency = replica_check_frequency,
+                                                                    .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -356,10 +356,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
       switch (repl_info.mode) {
-        case storage::replication::ReplicationMode::SYNC:
+        case memgraph::replication::ReplicationMode::SYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
-        case storage::replication::ReplicationMode::ASYNC:
+        case memgraph::replication::ReplicationMode::ASYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
       }
@@ -2785,7 +2785,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       std::move(parsed_query.required_privileges),
       [storage](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-        if (auto maybe_error = mem_storage->CreateSnapshot(replication_storage_state_, {}); maybe_error.HasError()) {
+        if (auto maybe_error = mem_storage->CreateSnapshot(storage->replication_storage_state_, {});
+            maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(

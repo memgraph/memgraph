@@ -12,22 +12,16 @@
 #pragma once
 
 #include <chrono>
-#include <compare>
+#include <cstdint>
 #include <optional>
 #include <string>
 
-#include <json/json.hpp>
+#include "json/json.hpp"
 
-#include "replication/replication_state.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
+#include "replication/config.hpp"
+#include "replication/role.hpp"
 
-namespace memgraph::storage::replication {
-
-inline constexpr auto *kReservedReplicationRoleName{"__replication_role"};
-inline constexpr uint16_t kDefaultReplicationPort = 10000;
-inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
-
+namespace memgraph::replication {
 struct ReplicationStatus {
   std::string name;
   std::string ip_address;
@@ -35,12 +29,11 @@ struct ReplicationStatus {
   ReplicationMode sync_mode;
   std::chrono::seconds replica_check_frequency;
   std::optional<ReplicationClientConfig::SSL> ssl;
-  std::optional<memgraph::replication::ReplicationRole> role;
+  std::optional<ReplicationRole> role;
 
   friend bool operator==(const ReplicationStatus &, const ReplicationStatus &) = default;
 };
 
 nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status);
-
 std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data);
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::replication

@@ -15,23 +15,17 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
-#include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
-#include "storage/v2/transaction.hpp"
-#include "utils/file_locker.hpp"
-#include "utils/logging.hpp"
-#include "utils/message.hpp"
 
 namespace memgraph::storage {
 
-static auto CreateClientContext(const replication::ReplicationClientConfig &config) -> communication::ClientContext {
+static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
+    -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 
-ReplicationClient::ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config,
+ReplicationClient::ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
                                      const memgraph::replication::ReplicationEpoch *epoch)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
@@ -216,7 +210,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
     return false;
   };
 
-  if (mode_ == replication::ReplicationMode::ASYNC) {
+  if (mode_ == memgraph::replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask([=] { (void)task(); });
     return true;
   }

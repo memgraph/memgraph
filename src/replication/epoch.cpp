@@ -9,4 +9,4 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/replication_state.hpp"
+#include "replication/epoch.hpp"

@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include "replication/replication_epoch.hpp"
+#include "replication/config.hpp"
+#include "replication/epoch.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -70,7 +70,7 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config,
+  ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
                     const memgraph::replication::ReplicationEpoch *epoch);
 
   ReplicationClient(ReplicationClient const &) = delete;
@@ -80,7 +80,7 @@ class ReplicationClient {
 
   virtual ~ReplicationClient();
 
-  auto Mode() const -> replication::ReplicationMode { return mode_; }
+  auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
   auto Name() const -> std::string const & { return name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
   auto State() const -> replication::ReplicaState { return replica_state_.load(); }
@@ -114,7 +114,7 @@ class ReplicationClient {
   std::chrono::seconds replica_check_frequency_;
 
   std::optional<ReplicaStream> replica_stream_;
-  replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
+  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
 
   utils::SpinLock client_lock_;
   // This thread pool is used for background tasks so we don't

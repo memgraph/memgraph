@@ -131,11 +131,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
 
   if (config_.durability.restore_replication_state_on_startup) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    RestoreReplicationRole();
-
-    if (replication_storage_state_.IsMain()) {
-      RestoreReplicas();
-    }
+    RestoreReplication();
   } else {
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "
@@ -1903,13 +1899,13 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(replication::ReplicationClientConfig const &config)
+auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     -> std::unique_ptr<ReplicationClient> {
   return std::make_unique<InMemoryReplicationClient>(this, config, &this->replication_storage_state_.GetEpoch());
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const replication::ReplicationServerConfig &config) {
+    const memgraph::replication::ReplicationServerConfig &config) {
   return std::make_unique<InMemoryReplicationServer>(this, config, &this->replication_storage_state_.GetEpoch());
 }
 

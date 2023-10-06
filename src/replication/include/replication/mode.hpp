@@ -11,10 +11,6 @@
 
 #pragma once
 #include <cstdint>
-
-namespace memgraph::storage::replication {
-
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, INVALID };
-
-enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, RESTORE };
-}  // namespace memgraph::storage::replication
+namespace memgraph::replication {
+enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+}
