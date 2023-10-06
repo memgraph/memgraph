@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -28,6 +29,7 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -64,7 +66,8 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                              StorageMode storage_mode);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -157,52 +160,19 @@ class InMemoryStorage final : public Storage {
       index->SetIndexStats(key, stats);
     }
 
-    void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override {
-      SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
-    }
+    void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                       const LabelPropertyIndexStats &stats) override {
-      SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-                            std::make_pair(label, property), stats);
-    }
+                       const LabelPropertyIndexStats &stats) override;
 
     template <typename TResult, typename TIndex>
-    std::vector<TResult> ClearIndexStatsForIndex(TIndex *index) const {
-      return index->ClearIndexStats();
+    TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {
+      return index->DeleteIndexStats(label);
     }
 
-    std::vector<LabelId> ClearLabelIndexStats() override {
-      return ClearIndexStatsForIndex<LabelId>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()));
-    }
+    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(const storage::LabelId &label) override;
 
-    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() override {
-      return ClearIndexStatsForIndex<std::pair<LabelId, PropertyId>>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()));
-    }
-
-    template <typename TResult, typename TIndex>
-    std::vector<TResult> DeleteIndexStatsForIndex(TIndex *index, const std::span<std::string> labels) {
-      std::vector<TResult> deleted_indexes;
-
-      for (const auto &label : labels) {
-        std::vector<TResult> loc_results = index->DeleteIndexStats(NameToLabel(label));
-        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
-                               std::make_move_iterator(loc_results.end()));
-      }
-      return deleted_indexes;
-    }
-
-    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const std::span<std::string> labels) override {
-      return DeleteIndexStatsForIndex<std::pair<LabelId, PropertyId>>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), labels);
-    }
-
-    std::vector<LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) override {
-      return DeleteIndexStatsForIndex<LabelId>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()),
-                                               labels);
-    }
+    bool DeleteLabelIndexStats(const storage::LabelId &label) override;
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
@@ -222,15 +192,9 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
     }
 
-    IndicesInfo ListAllIndices() const override {
-      const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return mem_storage->ListAllIndices();
-    }
+    IndicesInfo ListAllIndices() const override;
 
-    ConstraintsInfo ListAllConstraints() const override {
-      const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return mem_storage->ListAllConstraints();
-    }
+    ConstraintsInfo ListAllConstraints() const override;
 
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:
@@ -239,13 +203,85 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageDataManipulationError, void> Commit(
+    utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     /// @throw std::bad_alloc
     void Abort() override;
 
     void FinalizeTransaction() override;
+
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `IndexDefinitionError`: the index already exists.
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index already exists.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    /// Returns void if the existence constraint has been created.
+    /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
+    /// * `ConstraintDefinitionError`: the constraint already exists.
+    /// @throw std::bad_alloc
+    /// @throw std::length_error
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    /// Drop an existing existence constraint.
+    /// Returns void if the existence constraint has been dropped.
+    /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintDefinitionError`: the constraint did not exists.
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    /// Create an unique constraint.
+    /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintViolation`: there are already vertices violating the constraint.
+    /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
+    /// * `SUCCESS` if the constraint was successfully created,
+    /// * `ALREADY_EXISTS` if the constraint already existed,
+    /// * `EMPTY_PROPERTIES` if the property set is empty, or
+    /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+
+    /// Removes an existing unique constraint.
+    /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
+    /// * `SUCCESS` if constraint was successfully removed,
+    /// * `NOT_FOUND` if the specified constraint was not found,
+    /// * `EMPTY_PROPERTIES` if the property set is empty, or
+    /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                           const std::set<PropertyId> &properties) override;
 
    protected:
     // TODO Better naming
@@ -274,88 +310,11 @@ class InMemoryStorage final : public Storage {
     Transaction &GetTransaction() { return transaction_; }
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    return std::unique_ptr<InMemoryAccessor>(
-        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
-  }
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `IndexDefinitionError`: the index already exists.
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// @throw std::bad_alloc
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
-  /// Create an index.
-  /// Returns void if the index has been created.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index already exists.
-  /// @throw std::bad_alloc
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Drop an existing index.
-  /// Returns void if the index has been dropped.
-  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `IndexDefinitionError`: the index does not exist.
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Returns void if the existence constraint has been created.
-  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
-  /// * `ConstraintDefinitionError`: the constraint already exists.
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Drop an existing existence constraint.
-  /// Returns void if the existence constraint has been dropped.
-  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintDefinitionError`: the constraint did not exists.
-  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Create an unique constraint.
-  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// * `ConstraintViolation`: there are already vertices violating the constraint.
-  /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
-  /// * `SUCCESS` if the constraint was successfully created,
-  /// * `ALREADY_EXISTS` if the constraint already existed,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-  /// @throw std::bad_alloc
-  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  /// Removes an existing unique constraint.
-  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
-  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-  /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
-  /// * `SUCCESS` if constraint was successfully removed,
-  /// * `NOT_FOUND` if the specified constraint was not found,
-  /// * `EMPTY_PROPERTIES` if the property set is empty, or
-  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  void FreeMemory(std::unique_lock<utils::RWLock> main_guard) override;
+  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -384,18 +343,33 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage(std::unique_lock<utils::RWLock> main_guard = {});
+  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
 
   bool InitializeWalFile();
   void FinalizeWalFile();
 
   StorageInfo GetInfo() const override;
-
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
-                                               const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+  [[nodiscard]] bool AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label, LabelIndexStats stats,
+                                 uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
+                                 uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
+                                 LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

@@ -22,6 +22,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -46,6 +47,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         command_id(0),
         deltas(1024UL),
+        md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
@@ -57,6 +59,7 @@ struct Transaction {
         commit_timestamp(std::move(other.commit_timestamp)),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
+        md_deltas(std::move(other.md_deltas)),
         must_abort(other.must_abort),
         isolation_level(other.isolation_level),
         storage_mode(other.storage_mode),
@@ -93,6 +96,7 @@ struct Transaction {
   uint64_t command_id;
 
   Bond<PmrListDelta> deltas;
+  utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;

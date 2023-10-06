@@ -139,6 +139,34 @@ struct QueryExtras {
   std::optional<int64_t> tx_timeout;
 };
 
+struct CurrentDB {
+  CurrentDB() = default;  // TODO: remove, we should always have an implicit default obtainable from somewhere
+                          //       ATM: it is provided by the DatabaseAccess
+                          //       future: should be a name + ptr to dbms_handler, lazy fetch when needed
+  explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {}
+
+  CurrentDB(CurrentDB const &) = delete;
+  CurrentDB &operator=(CurrentDB const &) = delete;
+
+  void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
+                                bool unique = false);
+  void CleanupDBTransaction(bool abort);
+  void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
+    // do we lock here?
+    db_acc_ = std::move(new_db);
+    in_explicit_db_ = in_explicit_db;
+  }
+
+  // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
+  // DatabaseAccess
+  //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
+  std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
+  std::optional<DbAccessor> execution_db_accessor_;
+  std::optional<TriggerContextCollector> trigger_context_collector_;
+  bool in_explicit_db_{false};
+};
+
 class Interpreter final {
  public:
   Interpreter(InterpreterContext *interpreter_context);
@@ -158,16 +186,14 @@ class Interpreter final {
 
   std::optional<std::string> username_;
   bool in_explicit_transaction_{false};
-  bool in_explicit_db_{false};
+  CurrentDB current_db_;
+
   bool expect_rollback_{false};
-  std::shared_ptr<utils::AsyncTimer> explicit_transaction_timer_{};
+  std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
   std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
-  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
-
 #ifdef MG_ENTERPRISE
-  void SetCurrentDB(std::string_view db_name);
-  void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db);
+  void SetCurrentDB(std::string_view db_name, bool explicit_db);
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #endif
 
@@ -179,9 +205,9 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username, QueryExtras const &extras = {},
-                        const std::string &session_uuid = {});
+  Interpreter::PrepareResult Prepare(const std::string &query,
+                                     const std::map<std::string, storage::PropertyValue> &params,
+                                     QueryExtras const &extras);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -243,27 +269,30 @@ class Interpreter final {
    */
   void Abort();
 
-  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
+  std::optional<uint64_t> current_transaction_;
+
+  void ResetUser();
+
+  void SetUser(std::string_view username);
 
  private:
   struct QueryExecution {
-    std::optional<PreparedQuery> prepared_query;
     std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
+    std::optional<PreparedQuery> prepared_query;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    explicit QueryExecution(utils::MonotonicBufferResource monotonic_memory)
-        : execution_memory(std::move(monotonic_memory)) {
-      std::visit(
-          [&](auto &memory_resource) {
-            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
-          },
-          execution_memory);
-    };
+    static auto Create(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
+                       std::optional<PreparedQuery> prepared_query = std::nullopt) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(std::move(memory_resource), std::move(prepared_query));
+    }
 
-    explicit QueryExecution(utils::PoolResource pool_resource) : execution_memory(std::move(pool_resource)) {
+    explicit QueryExecution(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
+                            std::optional<PreparedQuery> prepared_query)
+        : execution_memory(std::move(memory_resource)), prepared_query{std::move(prepared_query)} {
       std::visit(
           [&](auto &memory_resource) {
             execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
@@ -311,12 +340,6 @@ class Interpreter final {
 
   InterpreterContext *interpreter_context_;
 
-  // This cannot be std::optional because we need to move this accessor later on into a lambda capture
-  // which is assigned to std::function. std::function requires every object to be copyable, so we
-  // move this unique_ptr into a shrared_ptr.
-  std::unique_ptr<storage::Storage::Accessor> db_accessor_;
-  std::optional<DbAccessor> execution_db_accessor_;
-  std::optional<TriggerContextCollector> trigger_context_collector_;
   std::optional<FrameChangeCollector> frame_change_collector_;
 
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
@@ -334,22 +357,8 @@ class Interpreter final {
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
-};
-
-class TransactionQueueQueryHandler {
- public:
-  TransactionQueueQueryHandler() = default;
-  virtual ~TransactionQueueQueryHandler() = default;
-
-  TransactionQueueQueryHandler(const TransactionQueueQueryHandler &) = default;
-  TransactionQueueQueryHandler &operator=(const TransactionQueueQueryHandler &) = default;
-
-  TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
-  TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
-
-  static std::vector<std::vector<TypedValue>> ShowTransactions(
-      const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username,
-      bool hasTransactionManagementPrivilege, std::optional<memgraph::dbms::DatabaseAccess> &filter_db_acc);
+  void SetupInterpreterTransaction(const QueryExtras &extras);
+  void SetupDatabaseTransaction(bool couldCommit, bool unique = false);
 };
 
 template <typename TStream>
@@ -411,7 +420,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(in_explicit_transaction_ || !db_accessor_);
+            MG_ASSERT(in_explicit_transaction_ || !current_db_.db_transactional_accessor_);
             break;
         }
         // As the transaction is done we can clear all the executions
