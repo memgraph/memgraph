@@ -36,77 +36,47 @@ namespace memgraph::memory {
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
 
 #if USE_JEMALLOC
+
+static void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero,
+                      bool *commit, unsigned arena_ind);
+static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind);
+static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind);
+static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
+                      unsigned arena_ind);
+static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
+                        unsigned arena_ind);
+static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
+                            unsigned arena_ind);
 extent_hooks_t *old_hooks = nullptr;
-#endif
 
-/*
-This is for tracking per query limit
-*/
+static extent_hooks_t custom_hooks = {
+    .alloc = &my_alloc,
+    .dalloc = &my_dalloc,
+    .destroy = &my_destroy,
+    .commit = &my_commit,
+    .decommit = &my_decommit,
+    .purge_lazy = old_hooks->purge_lazy,
+    .purge_forced = &my_purge_forced,
+    .split = old_hooks->split,
+    .merge = old_hooks->merge,
+};
 
-/*
+static const extent_hooks_t *new_hooks = &custom_hooks;
 
-std::vector<int64_t> arena_allocations{};
-std::vector<int64_t> arena_upper_limit{};
-std::vector<int> tracking_arenas{};
-*/
-
-int GetArenaForThread() {
-#if USE_JEMALLOC
-  // unsigned thread_arena{0};
-  // size_t size_thread_arena = sizeof(thread_arena);
-  // int err = mallctl("thread.arena", &thread_arena, &size_thread_arena, nullptr, 0);
-  // if (err) {
-  //   return -1;
-  // }
-  // return static_cast<int>(thread_arena);
-#endif
-  return -1;
-}
-
-void TrackMemoryForThread(int arena_id, size_t size) {
-#if USE_JEMALLOC
-  // tracking_arenas[arena_id] = true;
-  // arena_upper_limit[arena_id] = arena_allocations[arena_id] + size;
-#endif
-}
-
-#if USE_JEMALLOC
 void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
-    // arena_allocations[arena_ind] += size;
-    // if (tracking_arenas[arena_ind]) {
-    //   if (arena_allocations[arena_ind] > arena_upper_limit[arena_ind]) {
-    //     throw utils::OutOfMemoryException(
-    //         fmt::format("Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
-    //                     "use to {}, while the maximum allowed size for allocation is set to {}.",
-    //                     utils::GetReadableSize(size), utils::GetReadableSize(arena_allocations[arena_ind]),
-    //                     utils::GetReadableSize(arena_upper_limit[arena_ind])));
-    //   }
-    // }
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
-      // arena_allocations[arena_ind] -= size;
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     }
     return ptr;
   }
-
-  /*
-  TEST OF MEMORY TRACKER
-  long page_size = sysconf(_SC_PAGESIZE);
-  char *mem = (char*)ptr;
-  int i=0;
-  do{
-    mem[i*page_size]=0;
-    i++;
-  }while(i*page_size < size);
-  */
 
   return ptr;
 }
@@ -120,7 +90,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    // arena_allocations[arena_ind] -= size;
   }
 
   return false;
@@ -129,7 +98,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    // arena_allocations[arena_ind] -= size;
   }
 
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
@@ -177,9 +145,6 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
 
 static bool my_purge_lazy(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
                           unsigned arena_ind) {
-  // If memory is purged lazily, it will not be cleaned immediatelly if we are not using MADVISE_DONTNEED (muzzy=0 and
-  // decay=0)
-  // memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
   MG_ASSERT(old_hooks && old_hooks->purge_lazy);
   return old_hooks->purge_lazy(extent_hooks, addr, size, offset, length, arena_ind);
 }
@@ -196,23 +161,8 @@ static bool my_merge(extent_hooks_t *extent_hooks, void *addr_a, size_t size_a, 
   return old_hooks->merge(extent_hooks, addr_a, size_a, addr_b, size_b, committed, arena_ind);
 }
 
-static constexpr extent_hooks_t custom_hooks = {
-    .alloc = &my_alloc,
-    .dalloc = &my_dalloc,
-    .destroy = &my_destroy,
-    .commit = &my_commit,
-    .decommit = &my_decommit,
-    .purge_lazy = &my_purge_lazy,
-    .purge_forced = &my_purge_forced,
-    .split = &my_split,
-    .merge = &my_merge,
-};
-
-static const extent_hooks_t *new_hooks = &custom_hooks;
-
 #endif
 
-// TODO this can be designed if we fail setting hooks to rollback to classic jemalloc tracker
 void SetHooks() {
 #if USE_JEMALLOC
 
@@ -234,12 +184,6 @@ void SetHooks() {
   }
 
   for (int i = 0; i < n_arenas; i++) {
-    /*
-
-    arena_allocations.emplace_back(0);
-    arena_upper_limit.emplace_back(0);
-    tracking_arenas.emplace_back(0);
-    */
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
