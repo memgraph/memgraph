@@ -222,7 +222,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol), true);
     const std::string filtered_properties = ExtractAndJoin(filters.FilteredProperties(scan_symbol));
 
-    if (!filtered_labels.empty() && filtered_properties.empty()) {
+    if (filtered_labels.empty() && filtered_properties.empty()) {
       return;
     }
 
@@ -231,7 +231,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
         hints_.push_back(
             fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
                         "properties {2}. Consider "
-                        "creating a label property index",
+                        "creating a label property index.",
                         scan_symbol.name(), filtered_labels, filtered_properties));
         return;
       }
@@ -239,7 +239,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
       if (!filtered_labels.empty()) {
         hints_.push_back(fmt::format(
             "Sequential scan will be used on symbol `{0}` although there is a filter on labels {1}. Consider "
-            "creating a label index",
+            "creating a label index.",
             scan_symbol.name(), filtered_labels));
         return;
       }
@@ -249,7 +249,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
       hints_.push_back(fmt::format(
           "Sequential scan will be used on symbol `{0}` although there is a filter on properties {1}. Consider "
-          "creating a label property index",
+          "creating a label property index.",
           scan_symbol.name(), filtered_properties));
       return;
     }
