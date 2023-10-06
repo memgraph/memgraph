@@ -44,7 +44,7 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
-    explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
     /// TODO: const methods?
     void LoadVerticesToMainMemoryCache();
@@ -146,20 +146,12 @@ class DiskStorage final : public Storage {
       return {};
     }
 
-    std::vector<LabelId> ClearLabelIndexStats() override {
-      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
-    }
-
-    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() override {
-      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
-    }
-
-    std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> /*labels*/) override {
+    bool DeleteLabelIndexStats(const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const std::span<std::string> /*labels*/) override {
+        const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
@@ -191,18 +183,12 @@ class DiskStorage final : public Storage {
       return disk_storage->indices_.label_property_index_->IndexExists(label, property);
     }
 
-    IndicesInfo ListAllIndices() const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->ListAllIndices();
-    }
+    IndicesInfo ListAllIndices() const override;
 
-    ConstraintsInfo ListAllConstraints() const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->ListAllConstraints();
-    }
+    ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageDataManipulationError, void> Commit(
+    utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     void UpdateObjectsCountOnAbort();
@@ -219,25 +205,47 @@ class DiskStorage final : public Storage {
         const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
+    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
+                                                         const rocksdb::Slice &ts);
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                           const std::set<PropertyId> &properties) override;
    private:
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushIndexCache();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedVertices();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedEdges();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushVertices(
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
         const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> ClearDanglingVertices();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
     bool WriteVertexToVertexColumnFamily(const Vertex &vertex);
@@ -295,29 +303,11 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
+  RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -372,7 +362,7 @@ class DiskStorage final : public Storage {
 
   StorageInfo GetInfo() const override;
 
-  void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
+  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
   void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 

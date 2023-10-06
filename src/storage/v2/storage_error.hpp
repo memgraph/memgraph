@@ -19,30 +19,27 @@
 namespace memgraph::storage {
 
 struct ReplicationError {};
+struct PersistenceError {};  // TODO: Generalize and add to InMemory durability as well (currently durability just
+                             // asserts and terminated if failed)
 
-struct IndexPersistenceError {};
+struct IndexDefinitionError {};
 
 struct ConstraintsPersistenceError {};
 
 struct SerializationError {};
 inline bool operator==(const SerializationError & /*err1*/, const SerializationError & /*err2*/) { return true; }
 
-using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError, SerializationError>;
+using StorageManipulationError =
+    std::variant<ConstraintViolation, ReplicationError, SerializationError, PersistenceError>;
 
-struct IndexDefinitionError {};
-using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError, IndexPersistenceError>;
+using StorageIndexDefinitionError = IndexDefinitionError;
 
 struct ConstraintDefinitionError {};
 
-using StorageExistenceConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
+using StorageExistenceConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
-using StorageExistenceConstraintDroppingError =
-    std::variant<ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
+using StorageExistenceConstraintDroppingError = ConstraintDefinitionError;
 
-using StorageUniqueConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError, ConstraintsPersistenceError>;
-
-using StorageUniqueConstraintDroppingError = std::variant<ReplicationError, ConstraintsPersistenceError>;
+using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
 }  // namespace memgraph::storage

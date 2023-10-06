@@ -114,9 +114,9 @@ std::string SessionHL::GetDefaultDB() {
 }
 #endif
 
-std::string SessionHL::GetDatabaseName() const {
-  if (!interpreter_.db_acc_) return "";
-  const auto *db = interpreter_.db_acc_->get();
+std::string SessionHL::GetCurrentDB() const {
+  if (!interpreter_.current_db_.db_acc_) return "";
+  const auto *db = interpreter_.current_db_.db_acc_->get();
   return db->id();
 }
 
@@ -127,18 +127,23 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
   bool res = true;
+  interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->HasUsers()) {
       user_ = locked_auth->Authenticate(username, password);
-      res = user_.has_value();
+      if (user_.has_value()) {
+        interpreter_.SetUser(user_->username());
+      } else {
+        res = false;
+      }
     }
   }
 #ifdef MG_ENTERPRISE
   // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB());
+  interpreter_.SetCurrentDB(GetDefaultDB(), false);
 #endif
-  implicit_db_.emplace(GetDatabaseName());
+  implicit_db_.emplace(GetCurrentDB());
   return res;
 }
 
@@ -159,7 +164,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
                                                                             std::optional<int> n,
                                                                             std::optional<int> qid) {
   // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
-  auto *db = interpreter_.db_acc_->get();
+  auto *db = interpreter_.current_db_.db_acc_->get();
   try {
     TypedValueResultStream<TEncoder> stream(encoder, db->storage());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
@@ -184,14 +189,14 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
 
 #ifdef MG_ENTERPRISE
   // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
-  auto *db = interpreter_.db_acc_->get();
+  auto *db = interpreter_.current_db_.db_acc_->get();
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
                        memgraph::storage::PropertyValue(params_pv), db->id());
   }
 #endif
   try {
-    auto result = interpreter_.Prepare(query, params_pv, username, ToQueryExtras(extra), UUID());
+    auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
     const std::string db_name = result.db ? *result.db : "";
     if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
       interpreter_.Abort();
@@ -230,7 +235,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
       throw memgraph::communication::bolt::ClientError("Malformed database name.");
     }
     db = db_info.ValueString();
-    const auto &current = GetDatabaseName();
+    const auto &current = GetCurrentDB();
     update = db != current;
     if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
     in_explicit_db_ = true;
@@ -241,14 +246,14 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
     } else {
       db = GetDefaultDB();
     }
-    update = db != GetDatabaseName();
+    update = db != GetCurrentDB();
     in_explicit_db_ = false;
   }
 
   // Check if the underlying database needs to be updated
   if (update) {
     MultiDatabaseAuth(user_, db);
-    interpreter_.SetCurrentDB(db);
+    interpreter_.SetCurrentDB(db, in_explicit_db_);
   }
 #endif
 }
@@ -288,7 +293,7 @@ SessionHL::~SessionHL() {
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
     const std::map<std::string, memgraph::query::TypedValue> &summary) {
   // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
-  auto *db = interpreter_.db_acc_->get();
+  auto *db = interpreter_.current_db_.db_acc_->get();
   std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
   for (const auto &kv : summary) {
     auto maybe_value = ToBoltValue(kv.second, *db->storage(), memgraph::storage::View::NEW);

@@ -51,8 +51,9 @@ struct ReplicationState {
   void RestoreReplicationRole(Storage *storage);
 
   // MAIN actually doing the replication
-  bool AppendOperation(uint64_t seq_num, durability::StorageGlobalOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
+  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
+                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
   void InitializeTransaction(uint64_t seq_num);
   void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
