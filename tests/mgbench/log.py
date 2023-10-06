@@ -10,6 +10,23 @@
 # licenses/APL.txt.
 
 import logging
+from typing import Dict
+
+from constants import (
+    COUNT,
+    CPU,
+    DATABASE,
+    DOCKER,
+    DURATION,
+    IMPORT,
+    ITERATIONS,
+    LATENCY_STATS,
+    MEMORY,
+    METADATA,
+    RETRIES,
+    RUN_CONFIGURATION,
+    THROUGHPUT,
+)
 
 COLOR_GRAY = 0
 COLOR_RED = 1
