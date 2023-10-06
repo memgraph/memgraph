@@ -55,10 +55,10 @@ static extent_hooks_t custom_hooks = {
     .destroy = &my_destroy,
     .commit = &my_commit,
     .decommit = &my_decommit,
-    .purge_lazy = old_hooks->purge_lazy,
+    .purge_lazy = nullptr,
     .purge_forced = &my_purge_forced,
-    .split = old_hooks->split,
-    .merge = old_hooks->merge,
+    .split = nullptr,
+    .merge = nullptr,
 };
 
 static const extent_hooks_t *new_hooks = &custom_hooks;
@@ -143,24 +143,6 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
   return false;
 }
 
-static bool my_purge_lazy(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                          unsigned arena_ind) {
-  MG_ASSERT(old_hooks && old_hooks->purge_lazy);
-  return old_hooks->purge_lazy(extent_hooks, addr, size, offset, length, arena_ind);
-}
-
-static bool my_split(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t size_a, size_t size_b,
-                     bool committed, unsigned arena_ind) {
-  MG_ASSERT(old_hooks && old_hooks->split);
-  return old_hooks->split(extent_hooks, addr, size, size_a, size_b, committed, arena_ind);
-}
-
-static bool my_merge(extent_hooks_t *extent_hooks, void *addr_a, size_t size_a, void *addr_b, size_t size_b,
-                     bool committed, unsigned arena_ind) {
-  MG_ASSERT(old_hooks && old_hooks->merge);
-  return old_hooks->merge(extent_hooks, addr_a, size_a, addr_b, size_b, committed, arena_ind);
-}
-
 #endif
 
 void SetHooks() {
@@ -199,6 +181,21 @@ void SetHooks() {
 
     err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
 
+    MG_ASSERT(old_hooks);
+    MG_ASSERT(old_hooks->alloc);
+    MG_ASSERT(old_hooks->dalloc);
+    MG_ASSERT(old_hooks->destroy);
+    MG_ASSERT(old_hooks->commit);
+    MG_ASSERT(old_hooks->decommit);
+    MG_ASSERT(old_hooks->purge_forced);
+    MG_ASSERT(old_hooks->purge_lazy);
+    MG_ASSERT(old_hooks->split);
+    MG_ASSERT(old_hooks->merge);
+
+    custom_hooks.purge_lazy = old_hooks->purge_lazy;
+    custom_hooks.split = old_hooks->split;
+    custom_hooks.merge = old_hooks->merge;
+
     if (err) {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
@@ -207,47 +204,6 @@ void SetHooks() {
 
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
-    }
-  }
-
-  MG_ASSERT(old_hooks);
-  MG_ASSERT(old_hooks->alloc);
-  MG_ASSERT(old_hooks->dalloc);
-  MG_ASSERT(old_hooks->destroy);
-  MG_ASSERT(old_hooks->commit);
-  MG_ASSERT(old_hooks->decommit);
-  MG_ASSERT(old_hooks->purge_forced);
-  MG_ASSERT(old_hooks->purge_lazy);
-  MG_ASSERT(old_hooks->split);
-  MG_ASSERT(old_hooks->merge);
-
-#endif
-}
-
-// TODO this can be designed if we fail setting hooks to rollback to classic jemalloc tracker
-void UnSetHooks() {
-#if USE_JEMALLOC
-
-  uint64_t allocated{0};
-  uint64_t sz{sizeof(allocated)};
-
-  sz = sizeof(unsigned);
-  unsigned n_arenas{0};
-  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-
-  if (err) {
-    return;
-  }
-
-  spdlog::trace("n areanas {}", n_arenas);
-
-  for (int i = 0; i < n_arenas; i++) {
-    std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
-
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
-
-    if (err) {
-      LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
   }
 

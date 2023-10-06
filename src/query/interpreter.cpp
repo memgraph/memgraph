@@ -1291,8 +1291,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
   if (memory_limit_) {
     maybe_limited_resource.emplace(&*pool_memory, *memory_limit_);
-
-    memgraph::memory::TrackMemoryForThread(memgraph::memory::GetArenaForThread(), *memory_limit_);
     ctx_.evaluation_context.memory = &*maybe_limited_resource;
   } else {
     ctx_.evaluation_context.memory = &*pool_memory;
