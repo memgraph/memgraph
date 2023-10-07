@@ -67,9 +67,8 @@ struct Endpoint {
    *    - "hostname"
    * After we parse hostname and port we try to resolve the hostname into an ip_address.
    */
-
-  static std::optional<std::pair<std::string, uint16_t>> ParseDNSResolvableAddress(
-      const std::string &address, const std::optional<uint16_t> default_port);
+  static std::optional<std::pair<std::string, uint16_t>> ParseHostname(const std::string &address,
+                                                                       const std::optional<uint16_t> default_port);
 
   static IpFamily GetIpFamily(const std::string &address);
 

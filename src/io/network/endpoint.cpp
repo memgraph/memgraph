@@ -87,8 +87,8 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
   return std::nullopt;
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseDNSResolvableAddress(
-    const std::string &address, const std::optional<uint16_t> default_port) {
+std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(const std::string &address,
+                                                                        const std::optional<uint16_t> default_port) {
   const std::string delimiter = ":";
   std::string ip_address;
   std::vector<std::string> parts = utils::Split(address, delimiter);
@@ -165,11 +165,11 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
       if (!IsResolvableAddress(address, *default_port)) {
         return std::nullopt;
       }
-      return ParseDNSResolvableAddress(address, default_port);
+      return ParseHostname(address, default_port);
     }
     return ParseSocketOrIpAddress(address, default_port);
-
-  } else if (parts.size() == 2) {
+  }
+  if (parts.size() == 2) {
     int64_t int_port{0};
     try {
       int_port = utils::ParseInt(parts[1]);
@@ -181,7 +181,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
       if (!IsResolvableAddress(parts[0], static_cast<uint16_t>(int_port))) {
         return std::nullopt;
       }
-      return ParseDNSResolvableAddress(address, default_port);
+      return ParseHostname(address, default_port);
     }
     return ParseSocketOrIpAddress(address, default_port);
   }
@@ -199,16 +199,17 @@ std::string Endpoint::ResolveHostnameIntoIpAddress(const std::string &address, c
   if (status != 0) {
     throw NetworkError("Not a valid address: {}", address);
   }
-  for (auto result = info; result != nullptr; result = result->ai_next) {
+  for (auto *result = info; result != nullptr; result = result->ai_next) {
     if (result->ai_family == AF_INET) {
       char ipstr[INET_ADDRSTRLEN];
-      struct sockaddr_in *ipv4 = (struct sockaddr_in *)result->ai_addr;
+      auto *ipv4 = (struct sockaddr_in *)result->ai_addr;
       inet_ntop(AF_INET, &(ipv4->sin_addr), ipstr, sizeof(ipstr));
       freeaddrinfo(info);
       return ipstr;
-    } else if (result->ai_family == AF_INET6) {
+    }
+    if (result->ai_family == AF_INET6) {
       char ipstr[INET6_ADDRSTRLEN];
-      struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)result->ai_addr;
+      auto *ipv6 = (struct sockaddr_in6 *)result->ai_addr;
       inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipstr, sizeof(ipstr));
       freeaddrinfo(info);
       return ipstr;
