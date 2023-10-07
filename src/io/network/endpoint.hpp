@@ -72,14 +72,14 @@ struct Endpoint {
 
   static IpFamily GetIpFamily(const std::string &address);
 
-  static bool IsResolvableAddress(const std::string &address, const uint16_t port);
+  static bool IsResolvableAddress(const std::string &address, uint16_t port);
 
   /**
    * Tries to resolve hostname to its corresponding IP address.
    * Given a DNS hostname, this function performs resolution and returns
    * the IP address associated with the hostname.
    */
-  static std::string ResolveHostnameIntoIpAddress(const std::string &address, const uint16_t port);
+  static std::string ResolveHostnameIntoIpAddress(const std::string &address, uint16_t port);
 };
 
 }  // namespace memgraph::io::network

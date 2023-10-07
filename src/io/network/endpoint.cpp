@@ -87,8 +87,8 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
   return std::nullopt;
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(const std::string &address,
-                                                                        const std::optional<uint16_t> default_port) {
+std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(
+    const std::string &address, const std::optional<uint16_t> default_port = {}) {
   const std::string delimiter = ":";
   std::string ip_address;
   std::vector<std::string> parts = utils::Split(address, delimiter);
@@ -145,7 +145,7 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   return os << endpoint.address << ":" << endpoint.port;
 }
 
-bool Endpoint::IsResolvableAddress(const std::string &address, const uint16_t port) {
+bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
       .ai_family = AF_UNSPEC,     // IPv4 and IPv6
@@ -157,7 +157,7 @@ bool Endpoint::IsResolvableAddress(const std::string &address, const uint16_t po
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
-    const std::string &address, const std::optional<uint16_t> default_port) {
+    const std::string &address, const std::optional<uint16_t> default_port = {}) {
   const std::string delimiter = ":";
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
@@ -188,7 +188,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
   return std::nullopt;
 }
 
-std::string Endpoint::ResolveHostnameIntoIpAddress(const std::string &address, const uint16_t port) {
+std::string Endpoint::ResolveHostnameIntoIpAddress(const std::string &address, uint16_t port) {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
       .ai_family = AF_UNSPEC,     // IPv4 and IPv6
@@ -202,14 +202,14 @@ std::string Endpoint::ResolveHostnameIntoIpAddress(const std::string &address, c
   for (auto *result = info; result != nullptr; result = result->ai_next) {
     if (result->ai_family == AF_INET) {
       char ipstr[INET_ADDRSTRLEN];
-      auto *ipv4 = (struct sockaddr_in *)result->ai_addr;
+      auto *ipv4 = reinterpret_cast<struct sockaddr_in *>(result->ai_addr);
       inet_ntop(AF_INET, &(ipv4->sin_addr), ipstr, sizeof(ipstr));
       freeaddrinfo(info);
       return ipstr;
     }
     if (result->ai_family == AF_INET6) {
       char ipstr[INET6_ADDRSTRLEN];
-      auto *ipv6 = (struct sockaddr_in6 *)result->ai_addr;
+      auto *ipv6 = reinterpret_cast<struct sockaddr_in6 *>(result->ai_addr);
       inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipstr, sizeof(ipstr));
       freeaddrinfo(info);
       return ipstr;
