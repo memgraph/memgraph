@@ -463,17 +463,18 @@ if [ ! -f $PREFIX/bin/clang ]; then
     # NOTE: Go under llvmorg-$LLVM_VERSION/llvm/CMakeLists.txt to see all
     #       options, docs pages are not up to date.
     # Clang 15
+    # TODO(gitbuda): Remove or put under some kind of an if.
     TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;libunwind;lldb"
     if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
         # NOTE: LLVM_ENABLE_PROJECTS and LLVM_ENABLE_RUNTIMES don't work together.
         TOOLCHAIN_LLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS;libcxx;libcxxabi"
     fi
     # FUTURE: Clang 16+ has a different structure
-    # TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb"
-    # TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
-    # if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
-    #     TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
-    # fi
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb"
+    TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
+    if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
+        TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
+    fi
     # -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \ # Clang 16+
 
     pushd llvmorg-$LLVM_VERSION
@@ -491,6 +492,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
+        -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
