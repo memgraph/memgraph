@@ -47,7 +47,7 @@ case "$DISTRO" in
     ;;
 esac
 CMAKE_VERSION=3.27.7
-CPPCHECK_VERSION=2.12
+CPPCHECK_VERSION=2.12.1
 LLVM_VERSION=17.0.2
 SWIG_VERSION=4.1.1 # used only for LLVM compilation
 
@@ -103,7 +103,7 @@ if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
 fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
-    wget https://github.com/danmar/cppcheck/archive/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
+    wget https://github.com/danmar/cppcheck/archive/refs/tags/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
 fi
 if [ ! -d llvmorg-$LLVM_VERSION ]; then
     git clone --depth 1 --branch llvmorg-$LLVM_VERSION https://github.com/llvm/llvm-project.git llvmorg-$LLVM_VERSION
