@@ -83,8 +83,16 @@ TYPED_TEST(InfoTest, InfoCheck) {
   auto prop2 = db_acc->storage()->NameToProperty("another prop");
 
   {
-    ASSERT_FALSE(db_acc->storage()->CreateExistenceConstraint(lbl, prop, {}).HasError());
-    ASSERT_FALSE(db_acc->storage()->DropExistenceConstraint(lbl, prop, {}).HasError());
+    {
+      auto unique_acc = db_acc->storage()->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = db_acc->storage()->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     auto acc = db_acc->Access();
     auto v1 = acc->CreateVertex();
@@ -105,23 +113,56 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  ASSERT_FALSE(db_acc->storage()->CreateIndex(lbl).HasError());
-  ASSERT_FALSE(db_acc->storage()->CreateIndex(lbl, prop).HasError());
-  ASSERT_FALSE(db_acc->storage()->CreateIndex(lbl, prop2).HasError());
-  ASSERT_FALSE(db_acc->storage()->DropIndex(lbl, prop).HasError());
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
-  ASSERT_FALSE(db_acc->storage()->CreateUniqueConstraint(lbl, {prop2}, {}).HasError());
-  ASSERT_FALSE(db_acc->storage()->CreateUniqueConstraint(lbl2, {prop}, {}).HasError());
-  ASSERT_FALSE(db_acc->storage()->CreateUniqueConstraint(lbl3, {prop}, {}).HasError());
-  ASSERT_FALSE(db_acc->storage()->DropUniqueConstraint(lbl, {prop2}, {}).HasError());
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = db_acc->storage()->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
+              memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
-  const auto &info = db_acc->GetInfo();
+  const auto &info = db_acc->GetInfo(true);  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);
   ASSERT_EQ(info.storage_info.average_degree, 0.8);
-  ASSERT_GT(info.storage_info.memory_usage, 10'000'000);  // 100MB < > 10MB
-  ASSERT_LT(info.storage_info.memory_usage, 100'000'000);
+  ASSERT_GT(info.storage_info.memory_usage, 10'000'000);  // 200MB < > 10MB
+  ASSERT_LT(info.storage_info.memory_usage, 200'000'000);
   ASSERT_GT(info.storage_info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.storage_info.disk_usage, 1000'000);
   ASSERT_EQ(info.storage_info.label_indices, 1);

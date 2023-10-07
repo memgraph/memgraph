@@ -426,7 +426,7 @@ int main(int argc, char **argv) {
   const auto machine_id = memgraph::utils::GetMachineId();
 
   // Setup telemetry
-  static constexpr auto telemetry_server{"http://127.0.0.1:9000/"};
+  static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,

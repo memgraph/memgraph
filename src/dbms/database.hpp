@@ -97,11 +97,12 @@ class Database {
   /**
    * @brief Get the storage info
    *
+   * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo() const {
+  DatabaseInfo GetInfo(bool force_directory = false) const {
     DatabaseInfo info;
-    info.storage_info = storage_->GetInfo();
+    info.storage_info = storage_->GetInfo(force_directory);
     info.triggers = trigger_store_.GetTriggerInfo().size();
     info.streams = streams_.GetStreamInfo().size();
     return info;

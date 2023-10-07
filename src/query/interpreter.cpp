@@ -2680,7 +2680,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             }
 
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
-            if (auto vertex_cnt_approx = in.storage()->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+            if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
                   "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
@@ -3078,7 +3078,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
                  next_transaction_isolation_level] {
-        auto info = storage->GetInfo();
+        auto info = storage->GetBaseInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},

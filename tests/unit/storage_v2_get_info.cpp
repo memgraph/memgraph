@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_error.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -29,6 +30,7 @@ template <typename StorageType>
 class InfoTest : public testing::Test {
  protected:
   void SetUp() override {
+    std::filesystem::remove_all(storage_directory);
     memgraph::storage::UpdatePaths(config_, storage_directory);
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
@@ -60,8 +62,16 @@ TYPED_TEST(InfoTest, InfoCheck) {
   auto prop2 = this->storage->NameToProperty("another prop");
 
   {
-    ASSERT_FALSE(this->storage->CreateExistenceConstraint(lbl, prop, {}).HasError());
-    ASSERT_FALSE(this->storage->DropExistenceConstraint(lbl, prop, {}).HasError());
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     auto acc = this->storage->Access();
     auto v1 = acc->CreateVertex();
@@ -82,23 +92,56 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  ASSERT_FALSE(this->storage->CreateIndex(lbl).HasError());
-  ASSERT_FALSE(this->storage->CreateIndex(lbl, prop).HasError());
-  ASSERT_FALSE(this->storage->CreateIndex(lbl, prop2).HasError());
-  ASSERT_FALSE(this->storage->DropIndex(lbl, prop).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
-  ASSERT_FALSE(this->storage->CreateUniqueConstraint(lbl, {prop2}, {}).HasError());
-  ASSERT_FALSE(this->storage->CreateUniqueConstraint(lbl2, {prop}, {}).HasError());
-  ASSERT_FALSE(this->storage->CreateUniqueConstraint(lbl3, {prop}, {}).HasError());
-  ASSERT_FALSE(this->storage->DropUniqueConstraint(lbl, {prop2}, {}).HasError());
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
+              memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
-  StorageInfo info = this->storage->GetInfo();
+  StorageInfo info = this->storage->GetInfo(true);  // force to use configured directory
 
   ASSERT_EQ(info.vertex_count, 5);
   ASSERT_EQ(info.edge_count, 2);
   ASSERT_EQ(info.average_degree, 0.8);
-  ASSERT_GT(info.memory_usage, 10'000'000);  // 100MB < > 10MB
-  ASSERT_LT(info.memory_usage, 100'000'000);
+  ASSERT_GT(info.memory_usage, 10'000'000);  // 200MB < > 10MB
+  ASSERT_LT(info.memory_usage, 200'000'000);
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.disk_usage, 1000'000);
   ASSERT_EQ(info.label_indices, 1);

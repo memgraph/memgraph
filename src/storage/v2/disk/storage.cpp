@@ -794,7 +794,7 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
          durability_disk_storage_size;
 }
 
-StorageInfo DiskStorage::GetInfo() const {
+StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
   StorageInfo info{};
   info.vertex_count = vertex_count_;
   info.edge_count = edge_count_.load(std::memory_order_acquire);
@@ -804,12 +804,20 @@ StorageInfo DiskStorage::GetInfo() const {
   }
   info.memory_usage = utils::GetMemoryUsage();
   info.disk_usage = GetDiskSpaceUsage();
-  const auto &lbl = ListAllIndices();
-  info.label_indices = lbl.label.size();
-  info.label_property_indices = lbl.label_property.size();
-  const auto &con = ListAllConstraints();
-  info.existence_constraints = con.existence.size();
-  info.unique_constraints = con.unique.size();
+  return info;
+}
+
+StorageInfo DiskStorage::GetInfo(bool force_dir) {
+  StorageInfo info = GetBaseInfo(force_dir);
+  {
+    auto access = Access(std::nullopt);
+    const auto &lbl = access->ListAllIndices();
+    info.label_indices = lbl.label.size();
+    info.label_property_indices = lbl.label_property.size();
+    const auto &con = access->ListAllConstraints();
+    info.existence_constraints = con.existence.size();
+    info.unique_constraints = con.unique.size();
+  }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
   info.durability_snapshot_enabled =

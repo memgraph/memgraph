@@ -316,7 +316,25 @@ class Storage {
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
 
-  virtual StorageInfo GetInfo() const = 0;
+  virtual StorageInfo GetBaseInfo(bool force_directory) = 0;
+  StorageInfo GetBaseInfo() {
+#if MG_ENTERPRISE
+    const bool force_dir = false;
+#else
+    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
+#endif
+    return GetBaseInfo(force_dir);
+  }
+
+  virtual StorageInfo GetInfo(bool force_directory) = 0;
+  StorageInfo GetInfo() {
+#if MG_ENTERPRISE
+    const bool force_dir = false;
+#else
+    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
+#endif
+    return GetInfo(force_dir);
+  }
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
