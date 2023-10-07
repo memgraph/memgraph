@@ -36,19 +36,19 @@ fi
 TOOLCHAIN_VERSION=5
 
 # package versions used
-GCC_VERSION=12.2.0
-BINUTILS_VERSION=2.40
+GCC_VERSION=13.2.0
+BINUTILS_VERSION=2.41
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
     ;;
     *)
-        GDB_VERSION=13.1
+        GDB_VERSION=13.2
     ;;
 esac
-CMAKE_VERSION=3.26.2
-CPPCHECK_VERSION=2.10
-LLVM_VERSION=15.0.7
+CMAKE_VERSION=3.27.7
+CPPCHECK_VERSION=2.12
+LLVM_VERSION=17.0.2
 SWIG_VERSION=4.1.1 # used only for LLVM compilation
 
 # Set the right operating system setup script.
