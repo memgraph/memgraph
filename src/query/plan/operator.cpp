@@ -5273,9 +5273,10 @@ class HashJoinCursor : public Cursor {
  public:
   HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
       : self_(self),
-        left_op_frames_(mem),
         left_op_cursor_(self.left_op_->MakeCursor(mem)),
-        right_op_cursor_(self_.right_op_->MakeCursor(mem)) {
+        right_op_cursor_(self_.right_op_->MakeCursor(mem)),
+        hashtable_(mem),
+        right_op_frame_(mem) {
     MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
     MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
   }
@@ -5283,29 +5284,22 @@ class HashJoinCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("HashJoin");
 
-    if (!hash_join_initialized) {
-      // Pull all left_op frames.
+    if (!hash_join_initialized_) {
+      // Pull all left_op_ frames
       while (left_op_cursor_->Pull(frame, context)) {
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::NEW);
-        std::cout << self_.hash_join_condition_->GetTypeInfo().name << std::endl;
-        std::cout << self_.hash_join_condition_->expression1_->GetTypeInfo().name << std::endl;
-        auto x = self_.hash_join_condition_->expression1_->Accept(evaluator);
-        // auto x = evaluator.Visit(*static_cast<PropertyLookup *>(self_.hash_join_condition_->expression1_));
-        auto a = x;
-        if (x.type() != TypedValue::Type::Null) {
-          left_op_frames_[x].emplace_back(frame.elems().begin(), frame.elems().end());
+        // std::cout << "pulling left" << std::endl;
+        auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+        if (left_value.type() != TypedValue::Type::Null) {
+          hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
         }
       }
-
-      // We're setting the iterator to 'end' here so it pulls the right
-      // cursor.
-      // left_op_frames_it_ = left_op_frames_.end();
-      hash_join_initialized = true;
+      hash_join_initialized_ = true;
     }
 
-    // If left operator yielded zero results there is no cartesian product.
-    if (left_op_frames_.empty()) {
+    // If left_op yielded zero results, there is no cartesian product.
+    if (hashtable_.empty()) {
       return false;
     }
 
@@ -5318,39 +5312,39 @@ class HashJoinCursor : public Cursor {
       }
     };
 
-    while (right_op_cursor_->Pull(frame, context)) {
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    storage::View::NEW);
-      auto x = self_.hash_join_condition_->expression2_->Accept(evaluator);
-      if (!left_op_frames_.contains(x)) {
-        continue;
-      }
+    if (!common_value_found_) {
+      // Pull from the right_op until there’s a mergeable frame
+      while (true) {
+        auto pulled = right_op_cursor_->Pull(frame, context);
+        if (!pulled) return false;
 
-      for (auto frame : left_op_frames_.at(x)) {
-        restore_frame(self_.right_symbols_, frame);
+        // std::cout << "pulling right" << std::endl;
+
+        // Check if the join value from the pulled frame is shared with any left frames
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::View::NEW);
+        auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        if (hashtable_.contains(right_value)) {
+          // If so, finish pulling for now and proceed to joining the pulled frame
+          right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+          common_value_found_ = true;
+          common_value = right_value;
+          left_op_frame_it_ = hashtable_[common_value].begin();
+          break;
+        }
       }
+    } else {
+      // Restore the right frame ahead of restoring the left frame
+      restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
-    return false;
+    restore_frame(self_.left_symbols_, *left_op_frame_it_);
 
-    // TODO HashJoin: algorithm implementation pseudocode
-    // (there is something similar in Cartesian operator for saving the frames)
-    // if !hash_table {
-    //    while left_cursor->Pull() {
-    //      build_hash_table()
-    //    }
-    //    hash_table = true
-
-    // while right_cursor->pull() {
-    //    if check_in_hash_table_success:
-    //      for frame in hash_table[value]:
-    //        restore_frame
-    //        return true;
-    //    else: continue
-    //
-    // }
-
-    // link to implementation: https://rosettacode.org/wiki/Hash_join#Python
+    left_op_frame_it_++;
+    // When all left frames with the common value have been joined, move on to pulling and joining the next right frame
+    if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
+      common_value_found_ = false;
+    }
 
     return true;
   }
@@ -5363,17 +5357,24 @@ class HashJoinCursor : public Cursor {
   void Reset() override {
     left_op_cursor_->Reset();
     right_op_cursor_->Reset();
-    left_op_frames_.clear();
+    hashtable_.clear();
+    right_op_frame_.clear();
+    hash_join_initialized_ = false;
+    common_value_found_ = false;
   }
 
  private:
   const HashJoin &self_;
-  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
-                            TypedValue::BoolEqual>
-      left_op_frames_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
-  bool hash_join_initialized{false};
+  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
+                            TypedValue::BoolEqual>
+      hashtable_;
+  utils::pmr::vector<TypedValue> right_op_frame_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator left_op_frame_it_;
+  bool hash_join_initialized_{false};
+  bool common_value_found_{false};
+  TypedValue common_value;
 };
 }  // namespace
 
