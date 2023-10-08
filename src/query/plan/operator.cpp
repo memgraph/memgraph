@@ -5289,7 +5289,6 @@ class HashJoinCursor : public Cursor {
       while (left_op_cursor_->Pull(frame, context)) {
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::NEW);
-        // std::cout << "pulling left" << std::endl;
         auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (left_value.type() != TypedValue::Type::Null) {
           hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
@@ -5317,8 +5316,6 @@ class HashJoinCursor : public Cursor {
       while (true) {
         auto pulled = right_op_cursor_->Pull(frame, context);
         if (!pulled) return false;
-
-        // std::cout << "pulling right" << std::endl;
 
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
