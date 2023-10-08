@@ -46,18 +46,6 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-
-    std::vector<std::string> prev_op_names;
-    for (auto prev_op : prev_ops_) {
-      prev_op_names.push_back(prev_op->GetTypeInfo().name);
-    }
-
-    // TODO HashJoin: Collect filter expressions like in the index_lookup.hpp
-    // Check if we only need to collect if the child operator is Cartesian
-    // Probably yes
-    // Also see if before cartesian there could be Filter -> EdgeUniquenessFilter -> Cartesian
-    // e.g. MATCH (a)-[]->(b), (c)-[]->(d) return a, c;
-
     filters_.CollectFilterExpression(op.expression_, *symbol_table_);
     return true;
   }
@@ -68,11 +56,8 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
 
-    // TODO HashJoin: Remove filter expressions just like in index_lookup.hpp
-    // Remove filter if no expressions are left just like in index_lookup.hpp
-
-    ExpressionRemovalResult removal = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
-    op.expression_ = removal.expression;
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    op.expression_ = removal.trimmed_expression;
     if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
       SetOnParent(op.input());
     }
@@ -143,16 +128,9 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
-
-    // TODO HashJoin: possibly RewriteBranch will stay to not interfere with other cartesians and filters
-    // Perform logic that will set a HashJoin operator with left_op_ and right_op_ instead of this one
-    // Similar logic is in index_lookup.hpp
-
     RewriteBranch(&op.left_op_);
-    // RewriteBranch(&op.right_op_);
     cartesian_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
     op.right_op_->Accept(*this);
-
     return false;
   }
 
