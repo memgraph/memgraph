@@ -15,6 +15,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"

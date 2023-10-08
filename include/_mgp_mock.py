@@ -333,6 +333,13 @@ class Path:
         self._vertices.append(edge.end_id)
         self._edges.append((edge.start_id, edge.end_id, edge.id))
 
+    def pop(self):
+        if not self._edges:
+            raise IndexError("Path contains no relationships.")
+
+        self._vertices.pop()
+        self._edges.pop()
+
     def vertex_at(self, index: int) -> Vertex:
         return Vertex(self._vertices[index], self._graph)
 

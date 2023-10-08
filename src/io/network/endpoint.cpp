@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,7 +91,6 @@ std::string Endpoint::SocketAddress() const {
   return ip_address + ":" + std::to_string(port);
 }
 
-Endpoint::Endpoint() {}
 Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
   IpFamily ip_family = GetIpFamily(address);
   if (ip_family == IpFamily::NONE) {

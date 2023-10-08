@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ACTIVE
                       | AFTER
                       | ALTER
                       | ANALYZE
@@ -31,6 +32,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -47,6 +49,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE
                       | EDGE_TYPES
                       | EXECUTE
                       | FOR
@@ -58,6 +61,11 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | NULLIF
+                      | IMPORT
+                      | INACTIVE
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | ISOLATION
                       | KAFKA
                       | LABELS
@@ -88,6 +96,8 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STATUS
+                      | STORAGE
                       | STREAM
                       | STREAMS
                       | SYNC
@@ -101,6 +111,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UNCOMMITTED
                       | UNLOCK
                       | UPDATE
+                      | USE
                       | USER
                       | USERS
                       | VERSION
@@ -117,7 +128,8 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
-      | infoQuery
+      | databaseInfoQuery
+      | systemInfoQuery
       | constraintQuery
       | authQuery
       | dumpQuery
@@ -127,12 +139,16 @@ query : cypherQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
+      | storageModeQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
+      | multiDatabaseQuery
+      | showDatabases
+      | edgeImportModeQuery
       ;
 
 authQuery : createRole
@@ -150,6 +166,10 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
+          | grantDatabaseToUser
+          | revokeDatabaseFromUser
+          | showDatabasePrivileges
+          | setMainDatabase
           ;
 
 replicationQuery : setReplicationRole
@@ -201,6 +221,10 @@ streamQuery : checkStream
             | showStreams
             ;
 
+databaseName : symbolicName ;
+
+wildcardName : ASTERISK | symbolicName ;
+
 settingQuery : setSetting
              | showSetting
              | showSettings
@@ -218,6 +242,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
+         ( NULLIF nullif ) ?
          AS rowVar ;
 
 csvFile : literal ;
@@ -225,6 +250,8 @@ csvFile : literal ;
 delimiter : literal ;
 
 quote : literal ;
+
+nullif : literal ;
 
 rowVar : variable ;
 
@@ -255,6 +282,14 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
+grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
+
+revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
+
 privilege : CREATE
           | DELETE
           | MATCH
@@ -277,6 +312,9 @@ privilege : CREATE
           | MODULE_WRITE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
+          | STORAGE_MODE
+          | MULTI_DATABASE_EDIT
+          | MULTI_DATABASE_USE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -329,7 +367,7 @@ dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
 
-lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
 freeMemoryQuery : FREE MEMORY ;
 
@@ -353,6 +391,10 @@ isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
+
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTIONAL ;
+
+storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 
@@ -426,3 +468,18 @@ versionQuery : SHOW VERSION ;
 transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
+
+multiDatabaseQuery : createDatabase
+                   | useDatabase
+                   | dropDatabase
+                   ;
+
+createDatabase : CREATE DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
+
+dropDatabase : DROP DATABASE databaseName ;
+
+showDatabases: SHOW DATABASES ;
+
+edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;

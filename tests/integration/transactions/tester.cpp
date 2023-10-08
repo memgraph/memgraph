@@ -11,6 +11,7 @@
 
 #include <iostream>
 
+#include <fmt/core.h>
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
@@ -24,12 +25,16 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
+DEFINE_string(use_db, "memgraph", "Database to run the query against");
 
 using namespace memgraph::communication::bolt;
 
 class BoltClient : public ::testing::Test {
  protected:
-  virtual void SetUp() { client_.Connect(endpoint_, FLAGS_username, FLAGS_password); }
+  virtual void SetUp() {
+    client_.Connect(endpoint_, FLAGS_username, FLAGS_password);
+    Execute("CREATE DATABASE db1");
+  }
 
   virtual void TearDown() {}
 
@@ -89,6 +94,15 @@ const std::string kNestedTransactions = "Nested transactions are not supported."
 const std::string kCommitInvalid =
     "Transaction can't be committed because there was a previous error. Please "
     "invoke a rollback instead.";
+
+TEST_F(BoltClient, SelectDB) { Execute(fmt::format("USE DATABASE {}", FLAGS_use_db)); }
+
+TEST_F(BoltClient, SelectDBUnderTx) {
+  EXPECT_TRUE(Execute("begin"));
+  EXPECT_THROW(Execute("USE DATABASE memgraph", "Multi-database queries are not allowed in multicommand transactions."),
+               ClientQueryException);
+  EXPECT_FALSE(TransactionActive());
+}
 
 TEST_F(BoltClient, CommitWithoutTransaction) {
   EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);

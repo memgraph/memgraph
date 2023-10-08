@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,9 @@
 #include <unordered_map>
 
 #include "helpers.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
@@ -421,7 +423,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
                     std::unordered_map<NodeId, memgraph::storage::Gid> *node_id_map) {
   std::optional<NodeId> id;
   auto acc = store->Access();
-  auto node = acc.CreateVertex();
+  auto node = acc->CreateVertex();
   for (size_t i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     const auto &value = row[i];
@@ -436,7 +438,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
       if (it != node_id_map->end()) {
         if (FLAGS_skip_duplicate_nodes) {
           spdlog::warn(memgraph::utils::MessageWithLink("Skipping duplicate node with ID '{}'.", node_id,
-                                                        "https://memgr.ph/csv"));
+                                                        "https://memgr.ph/csv-import-tool"));
           return;
         } else {
           throw LoadException("Node with ID '{}' already exists", node_id);
@@ -450,29 +452,29 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
         } else {
           pv_id = memgraph::storage::PropertyValue(node_id.id);
         }
-        auto old_node_property = node.SetProperty(acc.NameToProperty(field.name), pv_id);
+        auto old_node_property = node.SetProperty(acc->NameToProperty(field.name), pv_id);
         if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
         if (!old_node_property->IsNull()) throw LoadException("The property '{}' already exists", field.name);
       }
       id = node_id;
     } else if (field.type == "LABEL") {
       for (const auto &label : memgraph::utils::Split(value, FLAGS_array_delimiter)) {
-        auto node_label = node.AddLabel(acc.NameToLabel(label));
+        auto node_label = node.AddLabel(acc->NameToLabel(label));
         if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
         if (!*node_label) throw LoadException("The label '{}' already exists", label);
       }
     } else if (field.type != "IGNORE") {
-      auto old_node_property = node.SetProperty(acc.NameToProperty(field.name), StringToValue(value, field.type));
+      auto old_node_property = node.SetProperty(acc->NameToProperty(field.name), StringToValue(value, field.type));
       if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
       if (!old_node_property->IsNull()) throw LoadException("The property '{}' already exists", field.name);
     }
   }
   for (const auto &label : additional_labels) {
-    auto node_label = node.AddLabel(acc.NameToLabel(label));
+    auto node_label = node.AddLabel(acc->NameToLabel(label));
     if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
     if (!*node_label) throw LoadException("The label '{}' already exists", label);
   }
-  if (acc.Commit().HasError()) throw LoadException("Couldn't store the node");
+  if (acc->Commit().HasError()) throw LoadException("Couldn't store the node");
 }
 
 void ProcessNodes(memgraph::storage::Storage *store, const std::string &nodes_path,
@@ -529,7 +531,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
           spdlog::warn(memgraph::utils::MessageWithLink("Skipping bad relationship with START_ID '{}'.", node_id,
-                                                        "https://memgr.ph/csv"));
+                                                        "https://memgr.ph/csv-import-tool"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -547,7 +549,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
           spdlog::warn(memgraph::utils::MessageWithLink("Skipping bad relationship with END_ID '{}'.", node_id,
-                                                        "https://memgr.ph/csv"));
+                                                        "https://memgr.ph/csv-import-tool"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -567,16 +569,16 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
   if (!relationship_type) throw LoadException("Relationship TYPE must be set");
 
   auto acc = store->Access();
-  auto from_node = acc.FindVertex(*start_id, memgraph::storage::View::NEW);
+  auto from_node = acc->FindVertex(*start_id, memgraph::storage::View::NEW);
   if (!from_node) throw LoadException("From node must be in the storage");
-  auto to_node = acc.FindVertex(*end_id, memgraph::storage::View::NEW);
+  auto to_node = acc->FindVertex(*end_id, memgraph::storage::View::NEW);
   if (!to_node) throw LoadException("To node must be in the storage");
 
-  auto relationship = acc.CreateEdge(&*from_node, &*to_node, acc.NameToEdgeType(*relationship_type));
+  auto relationship = acc->CreateEdge(&from_node.value(), &to_node.value(), acc->NameToEdgeType(*relationship_type));
   if (!relationship.HasValue()) throw LoadException("Couldn't create the relationship");
 
   for (const auto &property : properties) {
-    auto ret = relationship->SetProperty(acc.NameToProperty(property.first), property.second);
+    auto ret = relationship.GetValue().SetProperty(acc->NameToProperty(property.first), property.second);
     if (!ret.HasValue()) {
       if (ret.GetError() != memgraph::storage::Error::PROPERTIES_DISABLED) {
         throw LoadException("Couldn't add property '{}' to the relationship", property.first);
@@ -589,7 +591,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
     }
   }
 
-  if (acc.Commit().HasError()) throw LoadException("Couldn't store the relationship");
+  if (acc->Commit().HasError()) throw LoadException("Couldn't store the relationship");
 }
 
 void ProcessRelationships(memgraph::storage::Storage *store, const std::string &relationships_path,
@@ -699,13 +701,14 @@ int main(int argc, char *argv[]) {
   }
 
   std::unordered_map<NodeId, memgraph::storage::Gid> node_id_map;
-  memgraph::storage::Storage store{{
+  auto store = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
-  }};
+  });
 
   memgraph::utils::Timer load_timer;
 
@@ -715,7 +718,7 @@ int main(int argc, char *argv[]) {
     std::optional<std::vector<Field>> header;
     for (const auto &nodes_file : files) {
       spdlog::info("Loading {}", nodes_file);
-      ProcessNodes(&store, nodes_file, &header, &node_id_map, additional_labels);
+      ProcessNodes(store.get(), nodes_file, &header, &node_id_map, additional_labels);
     }
   }
 
@@ -725,7 +728,7 @@ int main(int argc, char *argv[]) {
     std::optional<std::vector<Field>> header;
     for (const auto &relationships_file : files) {
       spdlog::info("Loading {}", relationships_file);
-      ProcessRelationships(&store, relationships_file, type, &header, node_id_map);
+      ProcessRelationships(store.get(), relationships_file, type, &header, node_id_map);
     }
   }
 

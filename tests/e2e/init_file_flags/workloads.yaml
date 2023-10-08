@@ -1,0 +1,36 @@
+init_file_args: &init_file_args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+  - "--init-file=init_file_flags/init_file.cypherl"
+
+init_data_file_args: &init_data_file_args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+  - "--init-data-file=init_file_flags/init_file.cypherl"
+
+init_file_in_memory_cluster: &init_file_in_memory_cluster
+  cluster:
+    main:
+      args: *init_file_args
+      log_file: "init-file-flags-e2e.log"
+      validation_queries: []
+
+init_data_file_in_memory_cluster: &init_data_file_in_memory_cluster
+  cluster:
+    main:
+      args: *init_data_file_args
+      log_file: "init-data-file-flags-e2e.log"
+      validation_queries: []
+
+workloads:
+  - name: "Init file flags"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["init_file_flags/init_file_setup.py"]
+    <<: *init_file_in_memory_cluster
+
+  - name: "Init data file flags"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["init_file_flags/init_data_file_setup.py"]
+    <<: *init_data_file_in_memory_cluster

@@ -2,7 +2,12 @@ name: Package All
 
 # TODO(gitbuda): Cleanup docker container if GHA job was canceled.
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      memgraph_version:
+        description: "Memgraph version to upload as. If empty upload is skipped. Format: 'X.Y.Z'"
+        required: false
 
 jobs:
   centos-7:
@@ -106,7 +111,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-1804
+          name: ubuntu-18.04
           path: build/output/ubuntu-18.04/memgraph*.deb
 
   ubuntu-2004:
@@ -123,7 +128,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-2004
+          name: ubuntu-20.04
           path: build/output/ubuntu-20.04/memgraph*.deb
 
   ubuntu-2204:
@@ -140,7 +145,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-2204
+          name: ubuntu-22.04
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   debian-11-platform:
@@ -196,7 +201,7 @@ jobs:
 
   debian-11-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -208,12 +213,12 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: debian-11-arm
+          name: debian-11-aarch64
           path: build/output/debian-11-arm/memgraph*.deb
 
   ubuntu-2204-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -225,5 +230,27 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-22.04-arm
+          name: ubuntu-22.04-aarch64
           path: build/output/ubuntu-22.04-arm/memgraph*.deb
+
+  upload-to-s3:
+    # only run upload if we specified version. Allows for runs without upload
+    if: "${{ github.event.inputs.memgraph_version != '' }}"
+    needs: [centos-7, centos-9, debian-10, debian-11, docker, ubuntu-1804, ubuntu-2004, ubuntu-2204, debian-11-platform, fedora-36, amzn-2, debian-11-arm, ubuntu-2204-arm]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          # name: # if name input parameter is not provided, all artifacts are downloaded
+                  # and put in directories named after each one.
+          path: build/output/release
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: "download.memgraph.com"
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build/output/release"
+          DEST_DIR: "memgraph/v${{ github.event.inputs.memgraph_version }}/"

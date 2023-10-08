@@ -25,9 +25,9 @@
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event TriggersExecuted;
-}  // namespace EventCounter
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 namespace {
@@ -187,7 +187,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges)) {
+  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges, "")) {
     throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
   }
   return trigger_plan_;
@@ -213,7 +213,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
-  ctx.timer = utils::AsyncTimer(max_execution_time_sec);
+  ctx.timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr;
   ctx.is_shutting_down = is_shutting_down;
   ctx.transaction_status = transaction_status;
   ctx.is_profile_query = false;
@@ -248,7 +248,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
     ;
 
   cursor->Shutdown();
-  EventCounter::IncrementCounter(EventCounter::TriggersExecuted);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
 }
 
 namespace {

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,10 +16,12 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 
@@ -41,10 +43,22 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/bolt/v1/session.hpp"
+#include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
+#include "dbms/global.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/variant_helpers.hpp"
+
+namespace memgraph::metrics {
+extern const Event ActiveSessions;
+extern const Event ActiveTCPSessions;
+extern const Event ActiveSSLSessions;
+extern const Event ActiveWebSocketSessions;
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
 
@@ -85,10 +99,10 @@ class OutputStream final {
  * Websocket Sessions. It handles socket ownership, inactivity timeout and protocol
  * wrapping.
  */
-template <typename TSession, typename TSessionData>
-class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionData>> {
+template <typename TSession, typename TSessionContext>
+class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>> {
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
-  using std::enable_shared_from_this<WebsocketSession<TSession, TSessionData>>::shared_from_this;
+  using std::enable_shared_from_this<WebsocketSession<TSession, TSessionContext>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -96,9 +110,18 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     return std::shared_ptr<WebsocketSession>(new WebsocketSession(std::forward<Args>(args)...));
   }
 
+  ~WebsocketSession() = default;
+
+  WebsocketSession(const WebsocketSession &) = delete;
+  WebsocketSession &operator=(const WebsocketSession &) = delete;
+  WebsocketSession(WebsocketSession &&) noexcept = delete;
+  WebsocketSession &operator=(WebsocketSession &&) noexcept = delete;
+
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
   void DoAccept(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> req) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveWebSocketSessions);
+
     execution_active_ = true;
     // Set suggested timeout settings for the websocket
     ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
@@ -139,15 +162,21 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
  private:
   // Take ownership of the socket
-  explicit WebsocketSession(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint,
+  explicit WebsocketSession(tcp::socket &&socket, TSessionContext *session_context, tcp::endpoint endpoint,
                             std::string_view service_name)
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
         output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
-        session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
+        session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
+#ifdef MG_ENTERPRISE
+                 session_context->audit_log
+#endif
+        },
+        session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
-        service_name_{service_name} {}
+        service_name_{service_name} {
+  }
 
   void OnAccept(boost::beast::error_code ec) {
     if (ec) {
@@ -213,6 +242,10 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     if (!IsConnected()) {
       return;
     }
+
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveWebSocketSessions);
+
     if (ec) {
       return OnError(ec, "close");
     }
@@ -226,6 +259,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
+  TSessionContext *session_context_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
   std::string_view service_name_;
@@ -237,11 +271,11 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
  * Sessions. It handles socket ownership, inactivity timeout and protocol
  * wrapping.
  */
-template <typename TSession, typename TSessionData>
-class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
+template <typename TSession, typename TSessionContext>
+class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>> {
   using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
-  using std::enable_shared_from_this<Session<TSession, TSessionData>>::shared_from_this;
+  using std::enable_shared_from_this<Session<TSession, TSessionContext>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -249,22 +283,30 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::shared_ptr<Session>(new Session(std::forward<Args>(args)...));
   }
 
+  ~Session() = default;
+
   Session(const Session &) = delete;
   Session(Session &&) = delete;
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
-  ~Session() = default;
 
   bool Start() {
     if (execution_active_) {
       return false;
     }
+
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSessions);
+
     execution_active_ = true;
     timeout_timer_.async_wait(boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
+      utils::OnScopeExit increment_counter(
+          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
     } else {
+      utils::OnScopeExit increment_counter(
+          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
     }
     return true;
@@ -311,13 +353,18 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
  private:
-  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
-                   const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
+  explicit Session(tcp::socket &&socket, TSessionContext *session_context, ServerContext &server_context,
+                   tcp::endpoint endpoint, const std::chrono::seconds inactivity_timeout_sec,
+                   std::string_view service_name)
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
-        session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
-        data_{data},
+        session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
+#ifdef MG_ENTERPRISE
+                 session_context->audit_log
+#endif
+        },
+        session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
@@ -359,6 +406,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
+      // TODO Check if client disconnected
+      session_.HandleError();
       return OnError(ec);
     }
     input_buffer_.write_end()->Written(bytes_transferred);
@@ -373,7 +422,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         spdlog::info("Switching {} to websocket connection", remote_endpoint_);
         if (std::holds_alternative<TCPSocket>(socket_)) {
           auto sock = std::get<TCPSocket>(std::move(socket_));
-          WebsocketSession<TSession, TSessionData>::Create(std::move(sock), data_, endpoint_, service_name_)
+          WebsocketSession<TSession, TSessionContext>::Create(std::move(sock), session_context_, endpoint_,
+                                                              service_name_)
               ->DoAccept(parser.release());
           execution_active_ = false;
           return;
@@ -450,6 +500,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnClose(const boost::system::error_code &ec) {
+    if (ssl_context_.has_value()) {
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSSLSessions);
+    } else {
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTCPSessions);
+    }
+
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
+
     if (ec) {
       return OnError(ec);
     }
@@ -465,7 +523,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (timeout_timer_.expiry() <= boost::asio::steady_timer::clock_type::now()) {
       // The deadline has passed. Stop the session. The other actors will
       // terminate as soon as possible.
-      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_);
+      spdlog::info("Shutting down session after {} seconds of inactivity", timeout_seconds_.count());
       DoShutdown();
     } else {
       // Put the actor back to sleep.
@@ -504,7 +562,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
-  TSessionData *data_;
+  TSessionContext *session_context_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
   std::string_view service_name_;

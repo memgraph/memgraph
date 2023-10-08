@@ -1,0 +1,54 @@
+// Copyright 2023 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <memory>
+#include "storage/v2/indices/label_index.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/storage_mode.hpp"
+
+namespace memgraph::storage {
+
+struct Indices {
+  Indices(const Config &config, StorageMode storage_mode);
+
+  Indices(const Indices &) = delete;
+  Indices(Indices &&) = delete;
+  Indices &operator=(const Indices &) = delete;
+  Indices &operator=(Indices &&) = delete;
+  ~Indices() = default;
+
+  /// This function should be called from garbage collection to clean-up the
+  /// index.
+  /// TODO: unused in disk indices
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) const;
+
+  // Indices are updated whenever an update occurs, instead of only on commit or
+  // advance command. This is necessary because we want indices to support `NEW`
+  // view for use in Merge.
+
+  /// This function should be called whenever a label is added to a vertex.
+  /// @throw std::bad_alloc
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+
+  /// This function should be called whenever a property is modified on a vertex.
+  /// @throw std::bad_alloc
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                           const Transaction &tx) const;
+
+  std::unique_ptr<LabelIndex> label_index_;
+  std::unique_ptr<LabelPropertyIndex> label_property_index_;
+};
+
+}  // namespace memgraph::storage

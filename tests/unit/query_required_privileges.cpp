@@ -70,7 +70,7 @@ TEST_F(TestPrivilegeExtractor, MatchNodeSetLabels) {
 
 TEST_F(TestPrivilegeExtractor, MatchNodeSetProperty) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                   SET(PROPERTY_LOOKUP(storage.Create<Identifier>("n"), PROP_0), LITERAL(42))));
+                                   SET(PROPERTY_LOOKUP(dba, storage.Create<Identifier>("n"), PROP_0), LITERAL(42))));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::SET));
 }
@@ -88,8 +88,8 @@ TEST_F(TestPrivilegeExtractor, MatchNodeRemoveLabels) {
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeRemoveProperty) {
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(storage.Create<Identifier>("n"), PROP_0))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(dba, storage.Create<Identifier>("n"), PROP_0))));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::REMOVE));
 }
@@ -104,28 +104,28 @@ TEST_F(TestPrivilegeExtractor, AuthQuery) {
   auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
-  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", nullptr, std::vector<AuthQuery::Privilege>{},
-                           label_privileges, edge_type_privileges);
+  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", nullptr, "",
+                           std::vector<AuthQuery::Privilege>{}, label_privileges, edge_type_privileges);
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 #endif
 
 TEST_F(TestPrivilegeExtractor, ShowIndexInfo) {
-  auto *query = storage.Create<InfoQuery>();
-  query->info_type_ = InfoQuery::InfoType::INDEX;
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::INDEX));
+  auto *db_query = storage.Create<DatabaseInfoQuery>();
+  db_query->info_type_ = DatabaseInfoQuery::InfoType::INDEX;
+  EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::INDEX));
 }
 
 TEST_F(TestPrivilegeExtractor, ShowStatsInfo) {
-  auto *query = storage.Create<InfoQuery>();
-  query->info_type_ = InfoQuery::InfoType::STORAGE;
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
+  auto *db_query = storage.Create<SystemInfoQuery>();
+  db_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
+  EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
 }
 
 TEST_F(TestPrivilegeExtractor, ShowConstraintInfo) {
-  auto *query = storage.Create<InfoQuery>();
-  query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
+  auto *db_query = storage.Create<DatabaseInfoQuery>();
+  db_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
+  EXPECT_THAT(GetRequiredPrivileges(db_query), UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
 }
 
 TEST_F(TestPrivilegeExtractor, CreateConstraint) {

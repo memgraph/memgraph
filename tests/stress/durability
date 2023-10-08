@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-'''
+"""
 Durability Stress Test
-'''
+"""
 
 # TODO (mg_durability_stress_test): extend once we add full durability mode
 
@@ -13,11 +13,11 @@ import os
 import random
 import shutil
 import subprocess
-import time
 import threading
+import time
+from multiprocessing import Manager, Pool
 
-from common import connection_argument_parser, SessionCache
-from multiprocessing import Pool, Manager
+from common import SessionCache, connection_argument_parser
 
 # Constants and args
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -35,11 +35,9 @@ SNAPSHOT_CYCLE_SEC = 5
 # Parse command line arguments
 parser = connection_argument_parser()
 
-parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR,
-                                                       "memgraph"))
+parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
 parser.add_argument("--log-file", default="")
-parser.add_argument("--verbose", action="store_const",
-                    const=True, default=False)
+parser.add_argument("--verbose", action="store_const", const=True, default=False)
 parser.add_argument("--data-directory", default=DATA_DIR)
 parser.add_argument("--num-clients", default=multiprocessing.cpu_count())
 parser.add_argument("--num-steps", type=int, default=5)
@@ -47,14 +45,18 @@ args = parser.parse_args()
 
 # Memgraph run command construction
 cwd = os.path.dirname(args.memgraph)
-cmd = [args.memgraph, "--bolt-num-workers=" + str(DB_WORKERS),
-       "--storage-properties-on-edges=true",
-       "--storage-snapshot-on-exit=false",
-       "--storage-snapshot-interval-sec=5",
-       "--storage-snapshot-retention-count=2",
-       "--storage-wal-enabled=true",
-       "--storage-recover-on-startup=true",
-       "--query-execution-timeout-sec=600"]
+cmd = [
+    args.memgraph,
+    "--bolt-num-workers=" + str(DB_WORKERS),
+    "--storage-properties-on-edges=true",
+    "--storage-snapshot-on-exit=false",
+    "--storage-snapshot-interval-sec=5",
+    "--storage-snapshot-retention-count=2",
+    "--storage-wal-enabled=true",
+    "--storage-recover-on-startup=true",
+    "--query-execution-timeout-sec=600",
+    "--bolt-server-name-for-init=Neo4j/v5.11.0 compatible graph database server - Memgraph",
+]
 if not args.verbose:
     cmd += ["--log-level", "WARNING"]
 if args.log_file:
@@ -104,21 +106,18 @@ def run_client(id, data):
     counter = data[id]
 
     # Check recovery for this client
-    num_nodes_db = session.run(
-        "MATCH (n:%s) RETURN count(n) as cnt" %
-        ("Client%d" % id)).data()[0]["cnt"]
+    num_nodes_db = session.run("MATCH (n:%s) RETURN count(n) as cnt" % ("Client%d" % id)).data()[0]["cnt"]
     print("Client%d DB: %d; ACTUAL: %d" % (id, num_nodes_db, data[id]))
 
     # Execute a new set of write queries
     while True:
         try:
-            session.run("CREATE (n:%s {id:%s}) RETURN n;" %
-                        ("Client%d" % id, counter)).consume()
+            session.run("CREATE (n:%s {id:%s}) RETURN n;" % ("Client%d" % id, counter)).consume()
             counter += 1
             if counter % 100000 == 0:
                 print("Client %d executed %d" % (id, counter))
         except Exception:
-            print("DB isn't reachable any more")
+            print("DB isn't reachable anymore")
             break
     data[id] = counter
     print("Client %d executed %d" % (id, counter))
@@ -126,8 +125,7 @@ def run_client(id, data):
 
 def run_step():
     with Pool(args.num_clients) as p:
-        p.starmap(run_client, [(id, data)
-                               for id in range(1, args.num_clients + 1)])
+        p.starmap(run_client, [(id, data) for id in range(1, args.num_clients + 1)])
 
 
 def main():
@@ -143,22 +141,19 @@ def main():
         # Also it makes sense to run this test for a longer period of time
         # but with small --snapshot-cycle-sec to force that Memgraph is being
         # killed in the middle of generating the snapshot.
-        time.sleep(
-            random.randint(2 * SNAPSHOT_CYCLE_SEC, 3 * SNAPSHOT_CYCLE_SEC))
+        time.sleep(random.randint(2 * SNAPSHOT_CYCLE_SEC, 3 * SNAPSHOT_CYCLE_SEC))
         clean_memgraph()
 
     # Final check
     run_memgraph()
     session = SessionCache.argument_session(args)
-    num_nodes_db = \
-        session.run("MATCH (n) RETURN count(n) AS cnt").data()[0]["cnt"]
+    num_nodes_db = session.run("MATCH (n) RETURN count(n) AS cnt").data()[0]["cnt"]
     num_nodes = sum(data.values())
     # Check that more than 99.9% of data is recoverable.
     # NOTE: default WAL flush interval is 1ms.
     # Once the full sync durability mode is introduced,
     # this test has to be extended.
-    assert num_nodes_db > 0.999 * num_nodes, \
-        "Memgraph lost more than 0.001 of data!"
+    assert num_nodes_db > 0.999 * num_nodes, "Memgraph lost more than 0.001 of data!"
 
 
 if __name__ == "__main__":

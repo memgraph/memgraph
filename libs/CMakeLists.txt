@@ -12,6 +12,7 @@ find_package(Boost 1.78 REQUIRED)
 find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
+# NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt 8.0.1)
 find_package(Jemalloc REQUIRED)
@@ -28,6 +29,7 @@ function(import_header_library name include_dir)
   set(${_upper_name}_INCLUDE_DIR ${include_dir} CACHE FILEPATH
       "Path to ${name} include directory" FORCE)
   mark_as_advanced(${_upper_name}_INCLUDE_DIR)
+  add_library(lib::${name} ALIAS ${name})
 endfunction(import_header_library)
 
 function(import_library name type location include_dir)
@@ -256,3 +258,10 @@ import_external_library(librdtsc STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
   CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
   BUILD_COMMAND $(MAKE) rdtsc)
+
+# setup ctre
+import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
+
+# setup absl (cmake sub_directory tolerant)
+set(ABSL_PROPAGATE_CXX_STD ON)
+add_subdirectory(absl EXCLUDE_FROM_ALL)

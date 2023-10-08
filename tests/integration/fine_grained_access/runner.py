@@ -23,7 +23,7 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
-UNAUTHORIZED_ERROR = "You are not authorized to execute this query! Please " "contact your database administrator."
+UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\."
 
 
 def wait_for_server(port, delay=0.1):
@@ -47,8 +47,10 @@ def execute_tester(
     subprocess.run(args).check_returncode()
 
 
-def execute_filtering(binary: str, queries: List[str], expected: int, username: str = "", password: str = "") -> None:
-    args = [binary, "--username", username, "--password", password]
+def execute_filtering(
+    binary: str, queries: List[str], expected: int, username: str = "", password: str = "", db: str = "memgraph"
+) -> None:
+    args = [binary, "--username", username, "--password", password, "--use-db", db]
 
     args.extend(queries)
     args.append(str(expected))
@@ -82,35 +84,48 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
         assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
     # Prepare all users
-    execute_admin_queries(
-        [
-            "CREATE USER admin IDENTIFIED BY 'admin'",
-            "GRANT ALL PRIVILEGES TO admin",
-            "CREATE USER user IDENTIFIED BY 'user'",
-            "GRANT ALL PRIVILEGES TO user",
-            "GRANT LABELS :label1, :label2, :label3 TO user",
-            "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user",
-            "MERGE (l1:label1 {name: 'test1'})",
-            "MERGE (l2:label2  {name: 'test2'})",
-            "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2)",
-            "MERGE (l3:label3  {name: 'test3'})",
-            "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3)",
-            "MERGE (mix:label3:label1  {name: 'test4'})",
-            "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix)",
-        ]
-    )
+    def setup_user():
+        execute_admin_queries(
+            [
+                "CREATE USER admin IDENTIFIED BY 'admin'",
+                "GRANT ALL PRIVILEGES TO admin",
+                "CREATE USER user IDENTIFIED BY 'user'",
+                "GRANT ALL PRIVILEGES TO user",
+                "GRANT LABELS :label1, :label2, :label3 TO user",
+                "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user",
+            ]
+        )
 
-    # Run the test with all combinations of permissions
+    def db_setup():
+        execute_admin_queries(
+            [
+                "MERGE (l1:label1 {name: 'test1'})",
+                "MERGE (l2:label2  {name: 'test2'})",
+                "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2)",
+                "MERGE (l3:label3  {name: 'test3'})",
+                "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3)",
+                "MERGE (mix:label3:label1  {name: 'test4'})",
+                "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix)",
+            ]
+        )
+
+    db_setup()  # default db setup
+    execute_admin_queries(["CREATE DATABASE db1", "USE DATABASE db1"])
+    db_setup()  # db1 setup
+
     print("\033[1;36m~~ Starting edge filtering test ~~\033[0m")
-    execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 3, "user", "user")
-    execute_admin_queries(["DENY EDGE_TYPES :edgeType1 TO user"])
-    execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 2, "user", "user")
-    execute_admin_queries(["GRANT EDGE_TYPES :edgeType1 TO user", "DENY LABELS :label3 TO user"])
-    execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 1, "user", "user")
-    execute_admin_queries(["DENY LABELS :label1 TO user"])
-    execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user")
-    execute_admin_queries(["REVOKE LABELS * FROM user", "REVOKE EDGE_TYPES * FROM user"])
-    execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user")
+    for db in ["memgraph", "db1"]:
+        setup_user()
+        # Run the test with all combinations of permissions
+        execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 3, "user", "user", db)
+        execute_admin_queries(["DENY EDGE_TYPES :edgeType1 TO user"])
+        execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 2, "user", "user", db)
+        execute_admin_queries(["GRANT EDGE_TYPES :edgeType1 TO user", "DENY LABELS :label3 TO user"])
+        execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 1, "user", "user", db)
+        execute_admin_queries(["DENY LABELS :label1 TO user"])
+        execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user", db)
+        execute_admin_queries(["REVOKE LABELS * FROM user", "REVOKE EDGE_TYPES * FROM user"])
+        execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user", db)
 
     print("\033[1;36m~~ Finished edge filtering test ~~\033[0m\n")
 

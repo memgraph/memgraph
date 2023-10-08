@@ -27,6 +27,7 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
 
   uint64_t size = 0;
   for (auto &p : std::filesystem::directory_iterator(path)) {
+    if (std::filesystem::is_symlink(p)) continue;
     if (std::filesystem::is_directory(p)) {
       size += GetDirDiskUsage(p);
     } else if (std::filesystem::is_regular_file(p)) {

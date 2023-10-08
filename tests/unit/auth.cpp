@@ -28,6 +28,7 @@ namespace fs = std::filesystem;
 
 DECLARE_bool(auth_password_permit_null);
 DECLARE_string(auth_password_strength_regex);
+DECLARE_string(password_encryption_algorithm);
 
 class AuthWithStorage : public ::testing::Test {
  protected:
@@ -55,23 +56,22 @@ TEST_F(AuthWithStorage, AddRole) {
 TEST_F(AuthWithStorage, RemoveRole) {
   ASSERT_TRUE(auth.AddRole("admin"));
   ASSERT_TRUE(auth.RemoveRole("admin"));
-  ASSERT_FALSE(auth.RemoveRole("user"));
-  ASSERT_FALSE(auth.RemoveRole("user"));
-}
+  class AuthWithStorage : public ::testing::Test {
+   protected:
+    virtual void SetUp() {
+      memgraph::utils::EnsureDir(test_folder_);
+      FLAGS_auth_password_permit_null = true;
+      FLAGS_auth_password_strength_regex = ".+";
 
-TEST_F(AuthWithStorage, AddUser) {
-  ASSERT_FALSE(auth.HasUsers());
-  ASSERT_TRUE(auth.AddUser("test"));
-  ASSERT_TRUE(auth.HasUsers());
-  ASSERT_TRUE(auth.AddUser("test2"));
-  ASSERT_FALSE(auth.AddUser("test"));
-}
+      memgraph::license::global_license_checker.EnableTesting();
+    }
 
-TEST_F(AuthWithStorage, RemoveUser) {
-  ASSERT_FALSE(auth.HasUsers());
-  ASSERT_TRUE(auth.AddUser("test"));
-  ASSERT_TRUE(auth.HasUsers());
-  ASSERT_TRUE(auth.RemoveUser("test"));
+    virtual void TearDown() { fs::remove_all(test_folder_); }
+
+    fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
+
+    Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+  };
   ASSERT_FALSE(auth.HasUsers());
   ASSERT_FALSE(auth.RemoveUser("test2"));
   ASSERT_FALSE(auth.RemoveUser("test"));
@@ -925,4 +925,87 @@ TEST(AuthWithoutStorage, Crypto) {
   auto hash = EncryptPassword("hello");
   ASSERT_TRUE(VerifyPassword("hello", hash));
   ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+class AuthWithVariousEncryptionAlgorithms : public ::testing::Test {
+ protected:
+  virtual void SetUp() { FLAGS_password_encryption_algorithm = "bcrypt"; }
+};
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
+  auto hash = EncryptPassword("hello");
+  ASSERT_TRUE(VerifyPassword("hello", hash));
+  ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
+  FLAGS_password_encryption_algorithm = "sha256";
+  auto hash = EncryptPassword("hello");
+  ASSERT_TRUE(VerifyPassword("hello", hash));
+  ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
+  FLAGS_password_encryption_algorithm = "sha256-multiple";
+  auto hash = EncryptPassword("hello");
+  ASSERT_TRUE(VerifyPassword("hello", hash));
+  ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordThrow) {
+  FLAGS_password_encryption_algorithm = "abcd";
+  ASSERT_THROW(EncryptPassword("hello"), AuthException);
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordEmptyEncryptionThrow) {
+  FLAGS_password_encryption_algorithm = "";
+  ASSERT_THROW(EncryptPassword("hello"), AuthException);
+}
+
+class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
+ protected:
+  virtual void SetUp() {
+    memgraph::utils::EnsureDir(test_folder_);
+    FLAGS_auth_password_permit_null = true;
+    FLAGS_auth_password_strength_regex = ".+";
+    FLAGS_password_encryption_algorithm = "bcrypt";
+
+    memgraph::license::global_license_checker.EnableTesting();
+  }
+
+  virtual void TearDown() { fs::remove_all(test_folder_); }
+
+  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
+
+  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+};
+
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserDefault) {
+  auto user = auth.AddUser("Alice", "alice");
+  ASSERT_TRUE(user);
+  ASSERT_EQ(user->username(), "alice");
+}
+
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256) {
+  FLAGS_password_encryption_algorithm = "sha256";
+  auto user = auth.AddUser("Alice", "alice");
+  ASSERT_TRUE(user);
+  ASSERT_EQ(user->username(), "alice");
+}
+
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
+  FLAGS_password_encryption_algorithm = "sha256-multiple";
+  auto user = auth.AddUser("Alice", "alice");
+  ASSERT_TRUE(user);
+  ASSERT_EQ(user->username(), "alice");
+}
+
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserThrow) {
+  FLAGS_password_encryption_algorithm = "abcd";
+  ASSERT_THROW(auth.AddUser("Alice", "alice"), AuthException);
+}
+
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserEmptyPasswordEncryptionThrow) {
+  FLAGS_password_encryption_algorithm = "";
+  ASSERT_THROW(auth.AddUser("Alice", "alice"), AuthException);
 }

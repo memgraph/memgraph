@@ -27,6 +27,7 @@ set(mg_query_sources
     procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    procedure/callable_alias_mapper.cpp
     serialization/property_value.cpp
     stream/streams.cpp
     stream/sources.cpp
@@ -35,14 +36,26 @@ set(mg_query_sources
     trigger_context.cpp
     typed_value.cpp
     graph.cpp
-    db_accessor.cpp)
-
-find_package(Boost REQUIRED)
+    db_accessor.cpp
+    auth_query_handler.cpp
+    interpreter_context.cpp
+)
 
 add_library(mg-query STATIC ${mg_query_sources})
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-query dl cppitertools Boost::headers)
-target_link_libraries(mg-query mg-integrations-pulsar mg-integrations-kafka mg-storage-v2 mg-license mg-utils mg-kvstore mg-memory)
+target_link_libraries(mg-query PUBLIC dl
+                                      cppitertools
+                                      Python3::Python
+                                      mg-integrations-pulsar
+                                      mg-integrations-kafka
+                                      mg-storage-v2
+                                      mg-license
+                                      mg-utils
+                                      mg-kvstore
+                                      mg-memory
+                                      mg::csv
+                                      mg-flags
+                                      mg-dbms)
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
 endif()
@@ -51,7 +64,6 @@ if("${MG_PYTHON_VERSION}" STREQUAL "")
 else()
     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
 endif()
-target_link_libraries(mg-query Python3::Python)
 
 # Generate Antlr openCypher parser
 
@@ -94,4 +106,4 @@ add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src}
 add_dependencies(antlr_opencypher_parser_lib generate_opencypher_parser)
 target_link_libraries(antlr_opencypher_parser_lib antlr4)
 
-target_link_libraries(mg-query antlr_opencypher_parser_lib)
+target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)

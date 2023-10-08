@@ -1,9 +1,24 @@
-template_cluster: &template_cluster
+bolt_port: &bolt_port "7687"
+args: &args
+  - "--bolt_port"
+  - *bolt_port
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "write-procedures-e2e.log"
       setup_queries: []
+      validation_queries: []
+
+disk_cluster: &disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "write-procedures-e2e.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
       validation_queries: []
 
 workloads:
@@ -11,9 +26,22 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/simple_write.py"]
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
   - name: "Graph projection procedures"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/read_subgraph.py"]
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
+  - name: "Write procedures simple on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/simple_write.py"]
+    <<: *disk_cluster
+
+  - name: "Graph projection procedures on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/read_subgraph.py"]
+    <<: *disk_cluster

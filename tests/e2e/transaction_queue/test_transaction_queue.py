@@ -12,7 +12,6 @@
 
 import multiprocessing
 import sys
-import threading
 import time
 from typing import List
 
@@ -56,12 +55,28 @@ def test_self_transaction():
     assert len(results) == 1
 
 
+def test_multitenant_transactions():
+    """Tests that show transactions work on another database"""
+    test_cursor = connect().cursor()
+    execute_and_fetch_all(test_cursor, "CREATE DATABASE testing")
+    tx_connection = connect()
+    tx_cursor = tx_connection.cursor()
+    tx_process = multiprocessing.Process(
+        target=process_function, args=(tx_cursor, ["USE DATABASE testing", "MATCH (n) RETURN n"])
+    )
+    tx_process.start()
+    time.sleep(0.5)
+    show_transactions_test(test_cursor, 1)
+    # TODO Add SHOW TRANSACTIONS ON * that should return all transactions
+
+
 def test_admin_has_one_transaction():
     """Creates admin and tests that he sees only one transaction."""
     # a_cursor is used for creating admin user, simulates main thread
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     admin_cursor = connect(username="admin", password="").cursor()
     process = multiprocessing.Process(target=show_transactions_test, args=(admin_cursor, 1))
     process.start()
@@ -74,6 +89,7 @@ def test_user_can_see_its_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
     user_cursor = connect(username="user", password="").cursor()
@@ -89,6 +105,7 @@ def test_explicit_transaction_output():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     admin_connection = connect(username="admin", password="")
     admin_cursor = admin_connection.cursor()
     # Admin starts running explicit transaction
@@ -114,8 +131,10 @@ def test_superadmin_cannot_see_admin_can_see_admin():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
     # Admin starts running infinite query
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
@@ -153,6 +172,7 @@ def test_admin_sees_superadmin():
     superadmin_cursor = superadmin_connection.cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     # Admin starts running infinite query
     process = multiprocessing.Process(
         target=process_function, args=(superadmin_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
@@ -183,6 +203,7 @@ def test_admin_can_see_user_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     # Admin starts running infinite query
     admin_connection = connect(username="admin", password="")
@@ -220,8 +241,10 @@ def test_user_cannot_see_admin_transaction():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin2")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
@@ -282,6 +305,7 @@ def test_admin_killing_multiple_non_existing_transactions():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     # Connect with admin
     admin_cursor = connect(username="admin", password="").cursor()
     transactions_id = ["'1'", "'2'", "'3'"]
@@ -298,6 +322,7 @@ def test_user_killing_some_transactions():
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user1")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user1")
 
@@ -318,6 +343,17 @@ def test_user_killing_some_transactions():
     # Create another user1 connections
     user_connection_1_copy = connect(username="user1", password="")
     user_cursor_1_copy = user_connection_1_copy.cursor()
+    # Run in this while loop since it is possible that process 1 hasn't started yet.
+    query_not_started = True
+    time_passed = 0
+    while query_not_started:
+        query_not_started = len(execute_and_fetch_all(user_cursor_1_copy, "SHOW TRANSACTIONS")) != 2
+        time.sleep(1)
+        # Avoid running same test forever
+        time_passed += 1
+        if time_passed > 10:
+            assert False
+
     show_user_1_results = show_transactions_test(user_cursor_1_copy, 2)
     if show_user_1_results[0][2] == ["SHOW TRANSACTIONS"]:
         execution_index = 0

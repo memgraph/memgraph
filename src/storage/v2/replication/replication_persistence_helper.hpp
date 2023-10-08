@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,18 +23,23 @@
 
 namespace memgraph::storage::replication {
 
-struct ReplicaStatus {
+inline constexpr auto *kReservedReplicationRoleName{"__replication_role"};
+inline constexpr uint16_t kDefaultReplicationPort = 10000;
+inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+
+struct ReplicationStatus {
   std::string name;
   std::string ip_address;
   uint16_t port;
   ReplicationMode sync_mode;
   std::chrono::seconds replica_check_frequency;
   std::optional<ReplicationClientConfig::SSL> ssl;
+  std::optional<ReplicationRole> role;
 
-  friend bool operator==(const ReplicaStatus &, const ReplicaStatus &) = default;
+  friend bool operator==(const ReplicationStatus &, const ReplicationStatus &) = default;
 };
 
-nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status);
+nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status);
 
-std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data);
+std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data);
 }  // namespace memgraph::storage::replication

@@ -180,6 +180,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(IfOperator &op) override{};
   void Visit(ListLiteral &op) override{};
   void Visit(MapLiteral &op) override{};
+  void Visit(MapProjectionLiteral &op) override{};
   void Visit(LabelsTest &op) override{};
   void Visit(Aggregation &op) override{};
   void Visit(Function &op) override{};
@@ -194,6 +195,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override{};
   void Visit(PrimitiveLiteral &op) override{};
   void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
   void Visit(ParameterLookup &op) override{};
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
@@ -268,15 +270,15 @@ struct FilterInfo {
   /// The original filter expression which must be satisfied.
   Expression *expression;
   /// Set of used symbols by the filter @c expression.
-  std::unordered_set<Symbol> used_symbols;
+  std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
-  std::vector<LabelIx> labels;
+  std::vector<LabelIx> labels{};
   /// Property information for Type::Property filtering.
-  std::optional<PropertyFilter> property_filter;
+  std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.
-  std::optional<IdFilter> id_filter;
+  std::optional<IdFilter> id_filter{};
   /// Matchings for filters that include patterns
-  std::vector<FilterMatching> matchings;
+  std::vector<FilterMatching> matchings{};
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,7 +43,7 @@ class BasicException : public std::exception {
    *
    * @param message The error message.
    */
-  explicit BasicException(const std::string_view message) noexcept : msg_(message) {}
+  explicit BasicException(std::string_view message) noexcept : msg_(message) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
@@ -146,6 +146,16 @@ class NotYetImplemented final : public BasicException {
   template <class... Args>
   explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
+};
+
+class ParseException final : public BasicException {
+ public:
+  explicit ParseException(const std::string_view what) noexcept
+      : BasicException("Parsing failed for string: " + std::string(what)) {}
+
+  template <class... Args>
+  explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : ParseException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 };
 
 }  // namespace memgraph::utils

@@ -39,7 +39,7 @@ TOOLCHAIN_RUN_DEPS=(
 )
 
 MEMGRAPH_BUILD_DEPS=(
-    make pkgconfig # build system
+    make cmake pkgconfig # build system
     curl wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
@@ -56,9 +56,19 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel # for driver tests
+    which mono-complete dotnet-sdk-3.1 golang custom-golang1.18.9 # for driver tests
+    nodejs zip unzip java-11-openjdk-devel jdk-17 custom-maven3.9.3 # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    cyrus-sasl-devel
+)
+
+MEMGRAPH_RUN_DEPS=(
+    logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget curl tar gzip
 )
 
 list() {
@@ -68,6 +78,18 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
         if [ "$pkg" == git ]; then
             if ! which "git" >/dev/null; then
                 missing="git $missing"
@@ -110,7 +132,25 @@ install() {
     yum update -y
     yum install -y wget python3 python3-pip
     yum install -y git
+
     for pkg in $1; do
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            install_custom_maven "3.9.3"
+            continue
+        fi
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
+        if [ "$pkg" == jdk-17 ]; then
+            if ! yum list installed jdk-17 >/dev/null 2>/dev/null; then
+                wget https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
+                rpm -ivh jdk-17_linux-x64_bin.rpm
+                update-alternatives --set java java-11-openjdk.x86_64
+                update-alternatives --set javac java-11-openjdk.x86_64
+            fi
+            continue
+        fi
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then
                 yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm

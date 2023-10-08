@@ -21,7 +21,7 @@
 namespace memgraph::query::plan {
 
 PRE_VISIT(CreateNode, RWType::W, true)
-PRE_VISIT(CreateExpand, RWType::R, true)
+PRE_VISIT(CreateExpand, RWType::R, true)  // ?? RWType::RW
 PRE_VISIT(Delete, RWType::W, true)
 
 PRE_VISIT(SetProperty, RWType::W, true)

@@ -1,26 +1,72 @@
 bolt_port: &bolt_port "7687"
-template_cluster: &template_cluster
+args: &args
+  - "--bolt-port"
+  - *bolt_port
+  - "--memory-limit=1000"
+  - "--storage-gc-cycle-sec=180"
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--memory-limit=1000", "--storage-gc-cycle-sec=180", "--log-level=TRACE"]
+      args: *args
       log_file: "memory-e2e.log"
       setup_queries: []
       validation_queries: []
+
+disk_cluster: &disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "memory-e2e.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
 
 workloads:
   - name: "Memory control"
     binary: "tests/e2e/memory/memgraph__e2e__memory__control"
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
+  - name: "Memory control multi database"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__control"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+    <<: *in_memory_cluster
 
   - name: "Memory limit for modules upon loading"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
     proc: "tests/e2e/memory/procedures/"
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
+  - name: "Memory limit for modules upon loading multi database"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *in_memory_cluster
 
   - name: "Memory limit for modules inside a procedure"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
     proc: "tests/e2e/memory/procedures/"
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
+  - name: "Memory limit for modules inside a procedure multi database"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *in_memory_cluster
+
+  - name: "Memory limit for modules upon loading for on-disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *disk_cluster
+
+  - name: "Memory limit for modules inside a procedure for on-disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *disk_cluster

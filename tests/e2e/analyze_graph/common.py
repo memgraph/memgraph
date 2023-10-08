@@ -13,6 +13,7 @@ import typing
 
 import mgclient
 import pytest
+from gqlalchemy import Memgraph
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -24,6 +25,22 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
 def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
-    yield connection
     cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+    try:
+        execute_and_fetch_all(cursor, "DROP DATABASE clean")
+    except:
+        pass
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    yield connection
+
+
+@pytest.fixture
+def memgraph(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+
+    memgraph.drop_database()
+    memgraph.execute("analyze graph delete statistics;")
+    memgraph.drop_indexes()

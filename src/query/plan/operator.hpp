@@ -28,6 +28,7 @@
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
 
 namespace memgraph {
@@ -151,12 +152,19 @@ class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisito
   using typename LogicalOperatorLeafVisitor::ReturnType;
 };
 
+class NamedLogicalOperator {
+ public:
+  mutable const DbAccessor *dba_{nullptr};
+  virtual std::string ToString() const = 0;
+};
+
 /// Base class for logical operators.
 ///
 /// Each operator describes an operation, which is to be performed on the
 /// database. Operators are iterated over using a @c Cursor. Various operators
 /// can serve as inputs to others and thus a sequence of operations is formed.
-class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor> {
+class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisitor>,
+                        public memgraph::query::plan::NamedLogicalOperator {
  public:
   static const utils::TypeInfo kType;
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -230,6 +238,8 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
     AstStorage ast_storage;
     std::vector<std::shared_ptr<LogicalOperator>> loaded_ops;
   };
+
+  std::string ToString() const override { return GetTypeInfo().name; }
 
   virtual std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const = 0;
 };
@@ -463,6 +473,13 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   /// if the given node atom refers to an existing node (either matched or created)
   bool existing_node_;
 
+  std::string ToString() const override {
+    return fmt::format("CreateExpand ({}){}[{}:{}]{}({})", input_symbol_.name(),
+                       edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", edge_info_.symbol.name(),
+                       dba_->EdgeTypeToName(edge_info_.edge_type),
+                       edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", node_info_.symbol.name());
+  }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<CreateExpand>();
     object->node_info_ = node_info_.Clone(storage);
@@ -529,6 +546,8 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// transaction sees along with their modifications.
   storage::View view_;
 
+  std::string ToString() const override { return fmt::format("ScanAll ({})", output_symbol_.name()); }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAll>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
@@ -556,6 +575,10 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
+
+  std::string ToString() const override {
+    return fmt::format("ScanAllByLabel ({} :{})", output_symbol_.name(), dba_->LabelToName(label_));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabel>();
@@ -608,6 +631,11 @@ class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
   std::string property_name_;
   std::optional<Bound> lower_bound_;
   std::optional<Bound> upper_bound_;
+
+  std::string ToString() const override {
+    return fmt::format("ScanAllByLabelPropertyRange ({0} :{1} {{{2}}})", output_symbol_.name(),
+                       dba_->LabelToName(label_), dba_->PropertyToName(property_));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelPropertyRange>();
@@ -667,6 +695,11 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
   std::string property_name_;
   Expression *expression_;
 
+  std::string ToString() const override {
+    return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(),
+                       dba_->LabelToName(label_), dba_->PropertyToName(property_));
+  }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelPropertyValue>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
@@ -703,6 +736,11 @@ class ScanAllByLabelProperty : public memgraph::query::plan::ScanAll {
   std::string property_name_;
   Expression *expression_;
 
+  std::string ToString() const override {
+    return fmt::format("ScanAllByLabelProperty ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
+                       dba_->PropertyToName(property_));
+  }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelProperty>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
@@ -730,6 +768,8 @@ class ScanAllById : public memgraph::query::plan::ScanAll {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   Expression *expression_;
+
+  std::string ToString() const override { return fmt::format("ScanAllById ({})", output_symbol_.name()); }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllById>();
@@ -761,6 +801,13 @@ struct ExpandCommon {
   /// If the given node atom refer to a symbol
   /// that has already been expanded and should be just validated in the frame.
   bool existing_node;
+};
+
+struct ExpansionInfo {
+  std::optional<VertexAccessor> input_node;
+  EdgeAtom::Direction direction;
+  std::optional<VertexAccessor> existing_node;
+  bool reversed{false};
 };
 
 /// Expansion operator. For a node existing in the frame it
@@ -805,14 +852,16 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   class ExpandCursor : public Cursor {
    public:
     ExpandCursor(const Expand &, utils::MemoryResource *);
+    ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
+    ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
-    using InEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().InEdges(storage::View::OLD))>;
+    using InEdgeT = std::vector<EdgeAccessor>;
     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
-    using OutEdgeT = std::remove_reference_t<decltype(*std::declval<VertexAccessor>().OutEdges(storage::View::OLD))>;
+    using OutEdgeT = std::vector<EdgeAccessor>;
     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
     const Expand &self_;
@@ -825,6 +874,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     std::optional<InEdgeIteratorT> in_edges_it_;
     std::optional<OutEdgeT> out_edges_;
     std::optional<OutEdgeIteratorT> out_edges_it_;
+    ExpansionInfo expansion_info_;
+    int64_t prev_input_degree_{-1};
+    int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
   };
@@ -834,6 +886,15 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpandCommon common_;
   /// State from which the input node should get expanded.
   storage::View view_;
+
+  std::string ToString() const override {
+    return fmt::format(
+        "Expand ({}){}[{}{}]{}({})", input_symbol_.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node_symbol.name());
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Expand>();
@@ -941,6 +1002,37 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
+
+  std::string OperatorName() const {
+    using Type = query::EdgeAtom::Type;
+    switch (type_) {
+      case Type::DEPTH_FIRST:
+        return "ExpandVariable";
+        break;
+      case Type::BREADTH_FIRST:
+        return (common_.existing_node ? "STShortestPath" : "BFSExpand");
+        break;
+      case Type::WEIGHTED_SHORTEST_PATH:
+        return "WeightedShortestPath";
+        break;
+      case Type::ALL_SHORTEST_PATHS:
+        return "AllShortestPaths";
+        break;
+      case Type::SINGLE:
+        LOG_FATAL("Unexpected ExpandVariable::type_");
+      default:
+        LOG_FATAL("Unexpected ExpandVariable::type_");
+    }
+  }
+
+  std::string ToString() const override {
+    return fmt::format(
+        "{} ({}){}[{}{}]{}({})", OperatorName(), input_symbol_.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node_symbol.name());
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ExpandVariable>();
@@ -1084,6 +1176,11 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<NamedExpression *> named_expressions_;
 
+  std::string ToString() const override {
+    return fmt::format("Produce {{{}}}", utils::IterableToString(named_expressions_, ", ",
+                                                                 [](const auto &nexpr) { return nexpr->name_; }));
+  }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Produce>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
@@ -1106,6 +1203,11 @@ class Produce : public memgraph::query::plan::LogicalOperator {
     const Produce &self_;
     const UniqueCursorPtr input_cursor_;
   };
+};
+
+struct DeleteBuffer {
+  std::vector<VertexAccessor> nodes{};
+  std::vector<EdgeAccessor> edges{};
 };
 
 /// Operator for deleting vertices and edges.
@@ -1155,6 +1257,10 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    private:
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
+    DeleteBuffer buffer_;
+    bool delete_executed_{false};
+
+    void UpdateDeleteBuffer(Frame &, ExecutionContext &);
   };
 };
 
@@ -1262,6 +1368,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
    private:
     const SetProperties &self_;
     const UniqueCursorPtr input_cursor_;
+    std::unordered_map<std::string, storage::PropertyId> cached_name_id_{};
   };
 };
 
@@ -1605,6 +1712,13 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   std::vector<Expression *> group_by_;
   std::vector<Symbol> remember_;
 
+  std::string ToString() const override {
+    return fmt::format(
+        "Aggregate {{{0}}} {{{1}}}",
+        utils::IterableToString(aggregations_, ", ", [](const auto &aggr) { return aggr.output_sym.name(); }),
+        utils::IterableToString(remember_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Aggregate>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
@@ -1809,6 +1923,11 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
   TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
   std::vector<Symbol> output_symbols_;
+
+  std::string ToString() const override {
+    return fmt::format("OrderBy {{{}}}",
+                       utils::IterableToString(output_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<OrderBy>();
@@ -2041,6 +2160,12 @@ class Union : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> left_symbols_;
   std::vector<Symbol> right_symbols_;
 
+  std::string ToString() const override {
+    return fmt::format("Union {{{0} : {1}}}",
+                       utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Union>();
     object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
@@ -2177,7 +2302,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write);
+                size_t memory_scale, bool is_write, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2199,6 +2324,14 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  bool void_procedure_;
+  mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
+  utils::MemoryResource *memory_resource = &monotonic_memory;
+
+  std::string ToString() const override {
+    return fmt::format("CallProcedure<{0}> {{{1}}}", procedure_name_,
+                       utils::IterableToString(result_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<CallProcedure>();
@@ -2213,6 +2346,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->void_procedure_ = void_procedure_;
     return object;
   }
 
@@ -2227,7 +2361,7 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
 
   LoadCsv() = default;
   LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
-          Expression *delimiter, Expression *quote, Symbol row_var);
+          Expression *delimiter, Expression *quote, Expression *nullif, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -2243,7 +2377,10 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   bool ignore_bad_;
   Expression *delimiter_{nullptr};
   Expression *quote_{nullptr};
+  Expression *nullif_{nullptr};
   Symbol row_var_;
+
+  std::string ToString() const override { return fmt::format("LoadCsv {{{}}}", row_var_.name()); }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<LoadCsv>();
@@ -2253,6 +2390,7 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
     object->ignore_bad_ = ignore_bad_;
     object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
+    object->nullif_ = nullif_;
     object->row_var_ = row_var_;
     return object;
   }

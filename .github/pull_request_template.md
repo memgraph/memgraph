@@ -10,5 +10,5 @@
 
 
 To keep docs changelog up to date, one more thing to do:
-- [ ] Write a release note here
+- [ ] Write a release note here, including added/changed clauses
 - [ ] Tag someone from docs team in the comments

@@ -13,10 +13,12 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <map>
 #include <optional>
 #include <regex>
+#include <string>
 #include <vector>
 
 #include "query/common.hpp"
@@ -27,7 +29,11 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/frame_change_id.hpp"
+#include "utils/logging.hpp"
+#include "utils/pmr/unordered_map.hpp"
 
 namespace memgraph::query {
 
@@ -73,11 +79,13 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(ListSlicingOperator);
   UNSUCCESSFUL_VISIT(IsNullOperator);
   UNSUCCESSFUL_VISIT(PropertyLookup);
+  UNSUCCESSFUL_VISIT(AllPropertiesLookup);
   UNSUCCESSFUL_VISIT(LabelsTest);
 
   UNSUCCESSFUL_VISIT(PrimitiveLiteral);
   UNSUCCESSFUL_VISIT(ListLiteral);
   UNSUCCESSFUL_VISIT(MapLiteral);
+  UNSUCCESSFUL_VISIT(MapProjectionLiteral);
   UNSUCCESSFUL_VISIT(Aggregation);
   UNSUCCESSFUL_VISIT(Coalesce);
   UNSUCCESSFUL_VISIT(Function);
@@ -91,17 +99,89 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
 
+#undef UNSUCCESSFUL_VISIT
+
  private:
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
 };
 
+class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
+ public:
+  explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx) : ctx_(&ctx) {}
+  using ExpressionVisitor<TypedValue>::Visit;
+  TypedValue Visit(PrimitiveLiteral &literal) override {
+    // TODO: no need to evaluate constants, we can write it to frame in one
+    // of the previous phases.
+    return TypedValue(literal.value_, ctx_->memory);
+  }
+  TypedValue Visit(ParameterLookup &param_lookup) override {
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+  }
+
+#define INVALID_VISIT(expr_name)                                                             \
+  TypedValue Visit(expr_name & /*expr*/) override {                                          \
+    DLOG_FATAL("Invalid expression type visited with PrimitiveLiteralExpressionEvaluator."); \
+    return {};                                                                               \
+  }
+
+  INVALID_VISIT(NamedExpression)
+  INVALID_VISIT(OrOperator)
+  INVALID_VISIT(XorOperator)
+  INVALID_VISIT(AndOperator)
+  INVALID_VISIT(NotOperator)
+  INVALID_VISIT(AdditionOperator)
+  INVALID_VISIT(SubtractionOperator)
+  INVALID_VISIT(MultiplicationOperator)
+  INVALID_VISIT(DivisionOperator)
+  INVALID_VISIT(ModOperator)
+  INVALID_VISIT(NotEqualOperator)
+  INVALID_VISIT(EqualOperator)
+  INVALID_VISIT(LessOperator)
+  INVALID_VISIT(GreaterOperator)
+  INVALID_VISIT(LessEqualOperator)
+  INVALID_VISIT(GreaterEqualOperator)
+  INVALID_VISIT(InListOperator)
+  INVALID_VISIT(SubscriptOperator)
+  INVALID_VISIT(ListSlicingOperator)
+  INVALID_VISIT(IfOperator)
+  INVALID_VISIT(UnaryPlusOperator)
+  INVALID_VISIT(UnaryMinusOperator)
+  INVALID_VISIT(IsNullOperator)
+  INVALID_VISIT(ListLiteral)
+  INVALID_VISIT(MapLiteral)
+  INVALID_VISIT(MapProjectionLiteral)
+  INVALID_VISIT(PropertyLookup)
+  INVALID_VISIT(AllPropertiesLookup)
+  INVALID_VISIT(LabelsTest)
+  INVALID_VISIT(Aggregation)
+  INVALID_VISIT(Function)
+  INVALID_VISIT(Reduce)
+  INVALID_VISIT(Coalesce)
+  INVALID_VISIT(Extract)
+  INVALID_VISIT(All)
+  INVALID_VISIT(Single)
+  INVALID_VISIT(Any)
+  INVALID_VISIT(None)
+  INVALID_VISIT(Identifier)
+  INVALID_VISIT(RegexMatch)
+  INVALID_VISIT(Exists)
+
+#undef INVALID_VISIT
+ private:
+  EvaluationContext const *ctx_;
+};
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view)
-      : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
+                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr)
+      : frame_(frame),
+        symbol_table_(&symbol_table),
+        ctx_(&ctx),
+        dba_(dba),
+        view_(view),
+        frame_change_collector_(frame_change_collector) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -190,25 +270,78 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
+    TypedValue *_list_ptr = nullptr;
+    TypedValue _list;
     auto literal = in_list.expression1_->Accept(*this);
-    auto _list = in_list.expression2_->Accept(*this);
-    if (_list.IsNull()) {
-      return TypedValue(ctx_->memory);
+
+    auto get_list_literal = [this, &in_list, &_list, &_list_ptr]() -> void {
+      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+      _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      if (nullptr == _list_ptr) {
+        _list = in_list.expression2_->Accept(*this);
+        _list_ptr = &_list;
+      }
+    };
+
+    auto do_list_literal_checks = [this, &literal, &_list_ptr]() -> std::optional<TypedValue> {
+      MG_ASSERT(_list_ptr, "List literal should have been defined");
+      if (_list_ptr->IsNull()) {
+        return TypedValue(ctx_->memory);
+      }
+      // Exceptions have higher priority than returning nulls when list expression
+      // is not null.
+      if (_list_ptr->type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", _list_ptr->type());
+      }
+      const auto &list = _list_ptr->ValueList();
+
+      // If literal is NULL there is no need to try to compare it with every
+      // element in the list since result of every comparison will be NULL. There
+      // is one special case that we must test explicitly: if list is empty then
+      // result is false since no comparison will be performed.
+      if (list.empty()) return TypedValue(false, ctx_->memory);
+      if (literal.IsNull()) return TypedValue(ctx_->memory);
+      return {};
+    };
+
+    const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
+
+    const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
+                        frame_change_collector_->IsKeyTracked(*cached_id)};
+    if (do_cache) {
+      if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
+        // Check only first time if everything is okay, later when we use
+        // cache there is no need to check again as we did check first time
+        get_list_literal();
+        auto preoperational_checks = do_list_literal_checks();
+        if (preoperational_checks) {
+          return std::move(*preoperational_checks);
+        }
+        auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+        cached_value.CacheValue(*_list_ptr);
+        spdlog::trace("Value cached {}", *cached_id);
+      }
+      const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+
+      if (cached_value.ContainsValue(literal)) {
+        return TypedValue(true, ctx_->memory);
+      }
+      // has null
+      if (cached_value.ContainsValue(TypedValue(ctx_->memory))) {
+        return TypedValue(ctx_->memory);
+      }
+      return TypedValue(false, ctx_->memory);
     }
-    // Exceptions have higher priority than returning nulls when list expression
-    // is not null.
-    if (_list.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
+    // When caching is not an option, we need to evaluate list literal every time
+    // and do the checks
+    get_list_literal();
+    auto preoperational_checks = do_list_literal_checks();
+    if (preoperational_checks) {
+      return std::move(*preoperational_checks);
     }
+
     const auto &list = _list.ValueList();
-
-    // If literal is NULL there is no need to try to compare it with every
-    // element in the list since result of every comparison will be NULL. There
-    // is one special case that we must test explicitly: if list is empty then
-    // result is false since no comparison will be performed.
-    if (list.empty()) return TypedValue(false, ctx_->memory);
-    if (literal.IsNull()) return TypedValue(ctx_->memory);
-
+    spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
     for (const auto &element : list) {
       auto result = literal == element;
@@ -413,9 +546,35 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
+        if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
+          auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
+            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
+          }
+
+          auto property_id = ctx_->properties[property_lookup.property_.ix];
+          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
+            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          }
+          return TypedValue(ctx_->memory);
+        } else {
+          return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
+        }
       case TypedValue::Type::Edge:
-        return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
+        if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
+          auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
+            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
+          }
+
+          auto property_id = ctx_->properties[property_lookup.property_.ix];
+          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
+            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          }
+          return TypedValue(ctx_->memory);
+        } else {
+          return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
+        }
       case TypedValue::Type::Map: {
         auto &map = expression_result_ptr->ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
@@ -466,7 +625,101 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
       default:
-        throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");
+        throw QueryRuntimeException(
+            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+    }
+  }
+
+  TypedValue Visit(AllPropertiesLookup &all_properties_lookup) override {
+    TypedValue::TMap result(ctx_->memory);
+
+    auto expression_result = all_properties_lookup.expression_->Accept(*this);
+    switch (expression_result.type()) {
+      case TypedValue::Type::Null:
+        return TypedValue(ctx_->memory);
+      case TypedValue::Type::Vertex: {
+        for (const auto properties = *expression_result.ValueVertex().Properties(view_);
+             const auto &[property_id, value] : properties) {
+          result.emplace(dba_->PropertyToName(property_id), value);
+        }
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Edge: {
+        for (const auto properties = *expression_result.ValueEdge().Properties(view_);
+             const auto &[property_id, value] : properties) {
+          result.emplace(dba_->PropertyToName(property_id), value);
+        }
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Map: {
+        for (auto &[name, value] : expression_result.ValueMap()) {
+          result.emplace(name, value);
+        }
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Duration: {
+        const auto &dur = expression_result.ValueDuration();
+        result.emplace("day", TypedValue(dur.Days(), ctx_->memory));
+        result.emplace("hour", TypedValue(dur.SubDaysAsHours(), ctx_->memory));
+        result.emplace("minute", TypedValue(dur.SubDaysAsMinutes(), ctx_->memory));
+        result.emplace("second", TypedValue(dur.SubDaysAsSeconds(), ctx_->memory));
+        result.emplace("millisecond", TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
+        result.emplace("microseconds", TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
+        result.emplace("nanoseconds", TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Date: {
+        const auto &date = expression_result.ValueDate();
+        result.emplace("year", TypedValue(date.year, ctx_->memory));
+        result.emplace("month", TypedValue(date.month, ctx_->memory));
+        result.emplace("day", TypedValue(date.day, ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::LocalTime: {
+        const auto &lt = expression_result.ValueLocalTime();
+        result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
+        result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
+        result.emplace("second", TypedValue(lt.second, ctx_->memory));
+        result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
+        result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::LocalDateTime: {
+        const auto &ldt = expression_result.ValueLocalDateTime();
+        const auto &date = ldt.date;
+        const auto &lt = ldt.local_time;
+        result.emplace("year", TypedValue(date.year, ctx_->memory));
+        result.emplace("month", TypedValue(date.month, ctx_->memory));
+        result.emplace("day", TypedValue(date.day, ctx_->memory));
+        result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
+        result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
+        result.emplace("second", TypedValue(lt.second, ctx_->memory));
+        result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
+        result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Graph: {
+        const auto &graph = expression_result.ValueGraph();
+
+        utils::pmr::vector<TypedValue> vertices(ctx_->memory);
+        vertices.reserve(graph.vertices().size());
+        for (const auto &v : graph.vertices()) {
+          vertices.emplace_back(TypedValue(v, ctx_->memory));
+        }
+        result.emplace("nodes", TypedValue(std::move(vertices), ctx_->memory));
+
+        utils::pmr::vector<TypedValue> edges(ctx_->memory);
+        edges.reserve(graph.edges().size());
+        for (const auto &e : graph.edges()) {
+          edges.emplace_back(TypedValue(e, ctx_->memory));
+        }
+        result.emplace("edges", TypedValue(std::move(edges), ctx_->memory));
+
+        return TypedValue(result, ctx_->memory);
+      }
+      default:
+        throw QueryRuntimeException(
+            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
     }
   }
 
@@ -527,7 +780,45 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(MapLiteral &literal) override {
     TypedValue::TMap result(ctx_->memory);
-    for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
+    for (const auto &pair : literal.elements_) {
+      result.emplace(pair.first.name, pair.second->Accept(*this));
+    }
+
+    ctx_->property_lookups_cache.clear();
+    // TODO Don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
+    // from the same variable (symbol & value)
+
+    return TypedValue(result, ctx_->memory);
+  }
+
+  TypedValue Visit(MapProjectionLiteral &literal) override {
+    constexpr std::string_view kAllPropertiesSelector{"*"};
+
+    TypedValue::TMap result(ctx_->memory);
+    TypedValue::TMap all_properties_lookup(ctx_->memory);
+
+    auto map_variable = literal.map_variable_->Accept(*this);
+    if (map_variable.IsNull()) {
+      return TypedValue(ctx_->memory);
+    }
+
+    for (const auto &[property_key, property_value] : literal.elements_) {
+      if (property_key.name == kAllPropertiesSelector.data()) {
+        auto maybe_all_properties_lookup = property_value->Accept(*this);
+
+        if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
+          LOG_FATAL("Expected a map from AllPropertiesLookup, got {}.", maybe_all_properties_lookup.type());
+        }
+
+        all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
+        continue;
+      }
+
+      result.emplace(property_key.name, property_value->Accept(*this));
+    }
+
+    if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
+
     return TypedValue(result, ctx_->memory);
   }
 
@@ -609,15 +900,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     TypedValue::TVector result(ctx_->memory);
     result.reserve(list.size());
-    for (const auto &element : list) {
+    for (auto &element : list) {
       if (element.IsNull()) {
         result.emplace_back();
       } else {
-        frame_->at(element_symbol) = element;
+        frame_->at(element_symbol) = std::move(element);
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
@@ -791,6 +1082,33 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
  private:
   template <class TRecordAccessor>
+  std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
+    auto maybe_props = record_accessor.Properties(view_);
+    if (maybe_props.HasError() && maybe_props.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+      // This is a very nasty and temporary hack in order to make MERGE work.
+      // The old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't
+      // exist, it returned the NEW view. With this hack we simulate that
+      // behavior.
+      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+      maybe_props = record_accessor.Properties(storage::View::NEW);
+    }
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get properties from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting properties.");
+      }
+    }
+    return *maybe_props;
+  }
+
+  template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
@@ -852,7 +1170,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
   storage::View view_;
-};
+  FrameChangeCollector *frame_change_collector_;
+};  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
 ///
@@ -861,6 +1180,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
 int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
 
-std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale);
+std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
+                                          size_t memory_scale);
 
 }  // namespace memgraph::query

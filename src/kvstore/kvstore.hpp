@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,7 +91,7 @@ class KVStore final {
    *         true if the key doesn't exist and underlying storage
    *         didn't encounter any error.
    */
-  bool Delete(const std::string &key);
+  bool Delete(std::string_view key);
 
   /**
    * Deletes the keys and corresponding values from storage.

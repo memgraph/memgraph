@@ -27,7 +27,8 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
-      | infoQuery
+      | databaseInfoQuery
+      | systemInfoQuery
       | constraintQuery
       ;
 
@@ -46,7 +47,11 @@ indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
 
-infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo ) ;
+buildInfo : BUILD INFO ;
+
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo ) ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -248,6 +253,7 @@ literal : numberLiteral
         | booleanLiteral
         | CYPHERNULL
         | mapLiteral
+        | mapProjectionLiteral
         | listLiteral
         ;
 
@@ -290,6 +296,8 @@ patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expres
 
 propertyLookup : '.' ( propertyKeyName ) ;
 
+allPropertiesLookup : '.' '*' ;
+
 caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
 
 caseAlternatives : WHEN when_expression=expression THEN then_expression=expression ;
@@ -302,11 +310,21 @@ numberLiteral : doubleLiteral
 
 mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
 
+mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
+
+mapElement : propertyLookup
+           | allPropertiesLookup
+           | variable
+           | propertyKeyValuePair
+           ;
+
 parameter : '$' ( symbolicName | DecimalLiteral ) ;
 
 propertyExpression : atom ( propertyLookup )+ ;
 
 propertyKeyName : symbolicName ;
+
+propertyKeyValuePair : propertyKeyName ':' expression ;
 
 integerLiteral : DecimalLiteral
                | OctalLiteral
@@ -392,4 +410,5 @@ cypherKeyword : ALL
 symbolicName : UnescapedSymbolicName
              | EscapedSymbolicName
              | cypherKeyword
+             | UNDERSCORE
              ;

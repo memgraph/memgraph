@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,17 +9,30 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-import mgclient
 import sys
+import typing
+
+import mgclient
 import pytest
-from common import execute_and_fetch_all, has_one_result_row, has_n_result_row
+from common import execute_and_fetch_all, has_n_result_row, has_one_result_row
 
 
-def test_is_write(connection):
+@pytest.fixture(scope="function")
+def multi_db(request, connection):
+    cursor = connection.cursor()
+    if request.param:
+        execute_and_fetch_all(cursor, "CREATE DATABASE clean")
+        execute_and_fetch_all(cursor, "USE DATABASE clean")
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    pass
+    yield connection
+
+
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_is_write(multi_db):
     is_write = 2
     result_order = "name, signature, is_write"
-    cursor = connection.cursor()
+    cursor = multi_db.cursor()
     for proc in execute_and_fetch_all(
         cursor,
         "CALL mg.procedures() YIELD * WITH name, signature, "
@@ -41,8 +54,9 @@ def test_is_write(connection):
     assert cursor.description[2].name == "is_write"
 
 
-def test_single_vertex(connection):
-    cursor = connection.cursor()
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_single_vertex(multi_db):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")
     vertex = result[0][0]
@@ -93,8 +107,9 @@ def test_single_vertex(connection):
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
 
 
-def test_single_edge(connection):
-    cursor = connection.cursor()
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_single_edge(multi_db):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     v1_id = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")[0][0].id
     v2_id = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")[0][0].id
@@ -134,8 +149,9 @@ def test_single_edge(connection):
     assert has_n_result_row(cursor, "MATCH ()-[e]->() RETURN e", 0)
 
 
-def test_detach_delete_vertex(connection):
-    cursor = connection.cursor()
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_detach_delete_vertex(multi_db):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     v1_id = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")[0][0].id
     v2_id = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")[0][0].id
@@ -156,8 +172,9 @@ def test_detach_delete_vertex(connection):
     assert has_one_result_row(cursor, f"MATCH (n) WHERE id(n) = {v2_id} RETURN n")
 
 
-def test_graph_mutability(connection):
-    cursor = connection.cursor()
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_graph_mutability(multi_db):
+    cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     v1_id = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")[0][0].id
     v2_id = execute_and_fetch_all(cursor, "CALL write.create_vertex() YIELD v RETURN v")[0][0].id
@@ -193,8 +210,9 @@ def test_graph_mutability(connection):
     test_mutability(False)
 
 
-def test_log_message(connection):
-    cursor = connection.cursor()
+@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+def test_log_message(multi_db):
+    cursor = multi_db.cursor()
     success = execute_and_fetch_all(cursor, f"CALL read.log_message('message') YIELD success RETURN success")[0][0]
     assert (success) is True
 

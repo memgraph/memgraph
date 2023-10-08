@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,29 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace memgraph::storage {
 
 enum class IsolationLevel : std::uint8_t { SNAPSHOT_ISOLATION, READ_COMMITTED, READ_UNCOMMITTED };
+
+static inline std::string_view IsolationLevelToString(IsolationLevel isolation_level) {
+  switch (isolation_level) {
+    case IsolationLevel::READ_COMMITTED:
+      return "READ_COMMITTED";
+    case IsolationLevel::READ_UNCOMMITTED:
+      return "READ_UNCOMMITTED";
+    case IsolationLevel::SNAPSHOT_ISOLATION:
+      return "SNAPSHOT_ISOLATION";
+  }
+}
+
+static inline std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level) {
+  if (isolation_level) {
+    return IsolationLevelToString(*isolation_level);
+  }
+  return "";
+}
 
 }  // namespace memgraph::storage

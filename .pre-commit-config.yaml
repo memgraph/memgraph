@@ -3,6 +3,7 @@ repos:
     rev: v4.4.0
     hooks:
       - id: check-yaml
+        args: [--allow-multiple-documents]
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/psf/black
@@ -14,7 +15,21 @@ repos:
     hooks:
       - id: isort
         name: isort (python)
+        args: ["--profile", "black"]
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v13.0.0
     hooks:
       - id: clang-format
+#  - repo: local
+#    hooks:
+#      - id: clang-tidy
+#        name: clang-tidy
+#        description: Runs clang-tidy and checks for errors
+#        entry: python ./tools/pre-commit/clang-tidy.py
+#        language: python
+#        files: ^src/
+#        types: [c++, text]
+#        fail_fast: true
+#        require_serial: true
+#        args: [--compile_commands_path=build]
+#        pass_filenames: false

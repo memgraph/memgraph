@@ -35,3 +35,6 @@ java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP MaxQueryLength
 
 javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Transactions.java
 java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Transactions
+
+javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Metadata.java
+java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Metadata

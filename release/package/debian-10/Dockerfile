@@ -12,6 +12,7 @@ RUN apt update && apt install -y \
 
 RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-debian-10-amd64.tar.gz \
     -O ${TOOLCHAIN_VERSION}-binaries-debian-10-amd64.tar.gz \
-    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-debian-10-amd64.tar.gz -C /opt
+    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-debian-10-amd64.tar.gz -C /opt \
+    && rm ${TOOLCHAIN_VERSION}-binaries-debian-10-amd64.tar.gz
 
 ENTRYPOINT ["sleep", "infinity"]

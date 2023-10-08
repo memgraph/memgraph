@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <exception>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,6 +24,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
@@ -205,11 +208,11 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -250,6 +253,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   // Even though this part seems unnecessary it is needed to move the buffer
   if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
     spdlog::trace("Couldn't read extra field!");
+    return State::Close;
   }
 
   if (state != State::Idle) {
@@ -262,11 +266,17 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  try {
+    session.Configure(extra.ValueMap());
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -289,6 +299,12 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandleRunV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleRunV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandlePullV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<true>(session, state, marker);
 }
@@ -299,6 +315,12 @@ State HandlePullV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandlePullV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandlePullV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
@@ -306,6 +328,12 @@ State HandleDiscardV1(TSession &session, const State state, const Marker marker)
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<false>(session, state, marker);
+}
+
+template <typename TSession>
+State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleDiscardV4<TSession>(session, state, marker);
 }
 
 template <typename TSession>
@@ -360,7 +388,8 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction();
+    session.Configure(extra.ValueMap());
+    session.BeginTransaction(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -464,5 +493,11 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   return State::Error;
+}
+
+template <typename TSession>
+State HandleLogOff() {
+  // No arguments sent, the user just needs to reauthenticate
+  return State::Init;
 }
 }  // namespace memgraph::communication::bolt

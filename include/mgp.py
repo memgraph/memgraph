@@ -479,6 +479,12 @@ class Properties:
         except KeyError:
             return False
 
+    def set_properties(self, properties: dict) -> None:
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+
+        self._vertex_or_edge.set_properties(properties)
+
 
 class EdgeType:
     """Type of an Edge."""
@@ -977,6 +983,24 @@ class Path:
         self._vertices = None
         self._edges = None
 
+    def pop(self):
+        """
+        Remove the last node and the last relationship from the path.
+
+        Raises:
+            InvalidContextError: If using an invalid `Path` instance
+            OutOfRangeError: If the path contains no relationships.
+
+        Examples:
+            ```path.pop()```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._path.pop()
+        # Invalidate our cached tuples
+        self._vertices = None
+        self._edges = None
+
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
         """
@@ -1016,6 +1040,10 @@ class Path:
             num_edges = self._path.size()
             self._edges = tuple(Edge(self._path.edge_at(i)) for i in range(num_edges))
         return self._edges
+
+    @property
+    def length(self) -> int:
+        return self._path.size()
 
 
 class Record:
@@ -1402,6 +1430,13 @@ class UnsupportedTypingError(Exception):
         super().__init__("Unsupported typing annotation '{}'".format(type_))
 
 
+class UnequalTypesError(Exception):
+    """Signals a typing annotation is not equal between types"""
+
+    def __init__(self, type1_: typing.Any, type2_: typing.Any):
+        super().__init__(f"Unequal typing annotation '{type1_}' and '{type2_}'")
+
+
 def _typing_to_cypher_type(type_):
     """Convert typing annotation to a _mgp.CypherType instance."""
     simple_types = {
@@ -1512,6 +1547,72 @@ def _typing_to_cypher_type(type_):
             raise UnsupportedTypingError(type_)
 
         return parse_typing(str(type_))
+
+
+def _is_typing_same(type1_, type2_):
+    """Convert typing annotation to a _mgp.CypherType instance."""
+    simple_types = {
+        typing.Any: 1,
+        object: 2,
+        list: 3,
+        Any: 4,
+        bool: 5,
+        str: 6,
+        int: 7,
+        float: 8,
+        Number: 9,
+        Map: 10,
+        Vertex: 11,
+        Edge: 12,
+        Path: 13,
+        Date: 14,
+        LocalTime: 15,
+        LocalDateTime: 16,
+        Duration: 17,
+    }
+    try:
+        return simple_types[type1_] == simple_types[type2_]
+    except KeyError:
+        pass
+
+    if sys.version_info < (3, 8):
+        # skip type checks
+        return True
+
+    complex_type1 = typing.get_origin(type1_)
+    type_args1 = typing.get_args(type2_)
+
+    complex_type2 = typing.get_origin(type1_)
+    type_args2 = typing.get_args(type2_)
+
+    if complex_type2 != complex_type1:
+        raise UnequalTypesError(type1_, type2_)
+
+    if complex_type1 == typing.Union:
+        contains_none_arg1 = type(None) in type_args1
+        contains_none_arg2 = type(None) in type_args2
+
+        if contains_none_arg1 != contains_none_arg2:
+            raise UnequalTypesError(type1_, type2_)
+
+        if contains_none_arg1:
+            types1 = tuple(t for t in type_args1 if t is not type(None))  # noqa E721
+            types2 = tuple(t for t in type_args2 if t is not type(None))  # noqa E721
+            if len(types1) != len(types2):
+                raise UnequalTypesError(types1, types2)
+            if len(types1) == 1:
+                (type_arg1,) = types1
+                (type_arg2,) = types2
+            else:
+                type_arg1 = typing.Union.__getitem__(types1)
+                type_arg2 = typing.Union.__getitem__(types2)
+            return _is_typing_same(type_arg1, type_arg2)
+    elif complex_type1 == list:
+        (type_arg1,) = type_args1
+        (type_arg2,) = type_args2
+        return _is_typing_same(type_arg1, type_arg2)
+    # skip type checks
+    return True
 
 
 # Procedure registration
@@ -1671,6 +1772,92 @@ def write_proc(func: typing.Callable[..., Record]):
     Naturally, you may pass in different arguments.
     """
     return _register_proc(func, True)
+
+
+def _register_batch_proc(
+    func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable, is_write: bool
+):
+    raise_if_does_not_meet_requirements(func)
+    register_func = _mgp.Module.add_batch_write_procedure if is_write else _mgp.Module.add_batch_read_procedure
+    func_sig = inspect.signature(func)
+    func_params = tuple(func_sig.parameters.values())
+
+    initializer_sig = inspect.signature(initializer)
+    initializer_params = tuple(initializer_sig.parameters.values())
+
+    assert (
+        func_params and initializer_params or not func_params and not initializer_params
+    ), "Both function params and initializer params must exist or not exist"
+
+    assert len(func_params) == len(initializer_params), "Number of params must be same"
+
+    assert initializer_sig.return_annotation is initializer_sig.empty, "Initializer can't return anything"
+
+    if func_params and func_params[0].annotation is ProcCtx:
+        assert (
+            initializer_params and initializer_params[0].annotation is ProcCtx
+        ), "Initializer must have mgp.ProcCtx as first parameter"
+
+        @wraps(func)
+        def wrapper_func(graph, args):
+            return func(ProcCtx(graph), *args)
+
+        @wraps(initializer)
+        def wrapper_initializer(graph, args):
+            return initializer(ProcCtx(graph), *args)
+
+        func_params = func_params[1:]
+        initializer_params = initializer_params[1:]
+        mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
+    else:
+
+        @wraps(func)
+        def wrapper_func(graph, args):
+            return func(*args)
+
+        @wraps(initializer)
+        def wrapper_initializer(graph, args):
+            return initializer(*args)
+
+        mgp_proc = register_func(_mgp._MODULE, wrapper_func, wrapper_initializer, cleanup)
+
+    for func_param, initializer_param in zip(func_params, initializer_params):
+        func_param_name = func_param.name
+        func_param_type_ = func_param.annotation
+        if func_param_type_ is func_param.empty:
+            func_param_type_ = object
+        initializer_param_type_ = initializer_param.annotation
+        if initializer_param.annotation is initializer_param.empty:
+            initializer_param_type_ = object
+
+        assert _is_typing_same(
+            func_param_type_, initializer_param_type_
+        ), "Types of initializer and function must be same"
+
+        func_cypher_type = _typing_to_cypher_type(func_param_type_)
+        if func_param.default is func_param.empty:
+            mgp_proc.add_arg(func_param_name, func_cypher_type)
+        else:
+            mgp_proc.add_opt_arg(func_param_name, func_cypher_type, func_param.default)
+    if func_sig.return_annotation is not func_sig.empty:
+        record = func_sig.return_annotation
+        if not isinstance(record, Record):
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'".format(func.__name__, type(record)))
+        for name, type_ in record.fields.items():
+            if isinstance(type_, Deprecated):
+                cypher_type = _typing_to_cypher_type(type_.field_type)
+                mgp_proc.add_deprecated_result(name, cypher_type)
+            else:
+                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+    return func
+
+
+def add_batch_write_proc(func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable):
+    return _register_batch_proc(func, initializer, cleanup, True)
+
+
+def add_batch_read_proc(func: typing.Callable[..., Record], initializer: typing.Callable, cleanup: typing.Callable):
+    return _register_batch_proc(func, initializer, cleanup, False)
 
 
 class InvalidMessageError(Exception):

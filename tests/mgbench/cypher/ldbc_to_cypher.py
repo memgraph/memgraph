@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+
+# Copyright 2023 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+# ---  DISCLAIMER: This is NOT an official implementation of an LDBC Benchmark.  ---
 import argparse
 import csv
 import sys
@@ -24,7 +38,6 @@ BI_LINK = {
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(
         prog="LDBC CSV to CYPHERL converter",
         description="""Converts all LDBC CSV files to CYPHERL transactions, for faster Memgraph load""",
@@ -42,7 +55,6 @@ if __name__ == "__main__":
     output_directory.mkdir(exist_ok=True)
 
     if args.type == "interactive":
-
         NODES_INTERACTIVE = [
             {"filename": "Place", "label": "Place"},
             {"filename": "Organisation", "label": "Organisation"},
@@ -260,7 +272,6 @@ if __name__ == "__main__":
                 raise Exception("Didn't find the file that was needed!")
 
     elif args.type == "bi":
-
         NODES_BI = [
             {"filename": "Place", "label": "Place"},
             {"filename": "Organisation", "label": "Organisation"},

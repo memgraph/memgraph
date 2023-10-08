@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -89,7 +89,8 @@ TEST_P(FileLockerParameterizedTest, DeleteWhileInLocker) {
     auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
-      acc.AddPath(lock_absolute ? file_absolute : file);
+      const auto lock_success = acc.AddPath(lock_absolute ? file_absolute : file);
+      ASSERT_FALSE(lock_success.HasError());
     }
 
     file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -133,7 +134,9 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
       auto locker = file_retainer.AddLocker();
       {
         auto acc = locker.Access();
-        acc.AddPath(lock_absolute ? std::filesystem::absolute(directory_to_lock) : directory_to_lock);
+        const auto lock_success =
+            acc.AddPath(lock_absolute ? std::filesystem::absolute(directory_to_lock) : directory_to_lock);
+        ASSERT_FALSE(lock_success.HasError());
       }
 
       file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -165,7 +168,8 @@ TEST_P(FileLockerParameterizedTest, RemovePath) {
     auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
-      acc.AddPath(lock_absolute ? file_absolute : file);
+      const auto lock_success = acc.AddPath(lock_absolute ? file_absolute : file);
+      ASSERT_FALSE(lock_success.HasError());
     }
 
     file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -205,8 +209,10 @@ TEST_F(FileLockerTest, MultipleLockers) {
     auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
-      acc.AddPath(file1);
-      acc.AddPath(common_file);
+      const auto lock_success1 = acc.AddPath(file1);
+      ASSERT_FALSE(lock_success1.HasError());
+      const auto lock_success2 = acc.AddPath(common_file);
+      ASSERT_FALSE(lock_success2.HasError());
     }
     std::this_thread::sleep_for(200ms);
   });
@@ -215,8 +221,10 @@ TEST_F(FileLockerTest, MultipleLockers) {
     auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
-      acc.AddPath(file2);
-      acc.AddPath(common_file);
+      const auto lock_success1 = acc.AddPath(file2);
+      ASSERT_FALSE(lock_success1.HasError());
+      const auto lock_success2 = acc.AddPath(common_file);
+      ASSERT_FALSE(lock_success2.HasError());
     }
     std::this_thread::sleep_for(200ms);
   });
@@ -275,7 +283,8 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
         auto acc = locker.Access();
         for (auto i = 0; i < file_access_num; ++i) {
           auto file = random_file();
-          if (acc.AddPath(file)) {
+          const auto res = acc.AddPath(file);
+          if (!res.HasError()) {
             ASSERT_TRUE(std::filesystem::exists(file));
             locked_files.emplace_back(std::move(file));
           } else {

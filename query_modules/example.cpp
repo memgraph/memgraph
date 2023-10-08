@@ -18,7 +18,11 @@ void ProcImpl(std::vector<mgp::Value> arguments, mgp::Graph graph, mgp::RecordFa
 
 void SampleReadProc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
-    mgp::memory = memory;
+    // The outcommented way of assigning the memory pointer is still
+    // working, but it is deprecated because of certain concurrency
+    // issues. Please use the guard instead.
+    // mgp::memory = memory;
+    mgp::MemoryDispatcherGuard guard(memory);
 
     std::vector<mgp::Value> arguments;
     for (size_t i = 0; i < mgp::list_size(args); i++) {
@@ -34,7 +38,11 @@ void SampleReadProc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 }
 
 void AddXNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::memory = memory;
+  // The outcommented way of assigning the memory pointer is still
+  // working, but it is deprecated because of certain concurrency
+  // issues. Please use the guard instead.
+  // mgp::memory = memory;
+  mgp::MemoryDispatcherGuard guard(memory);
   auto graph = mgp::Graph(memgraph_graph);
 
   std::vector<mgp::Value> arguments;
@@ -49,7 +57,11 @@ void AddXNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 }
 
 void Multiply(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::memory = memory;
+  // The outcommented way of assigning the memory pointer is still
+  // working, but it is deprecated because of certain concurrency
+  // issues. Please use the guard instead.
+  // mgp::memory = memory;
+  mgp::MemoryDispatcherGuard guard(memory);
 
   std::vector<mgp::Value> arguments;
   for (size_t i = 0; i < mgp::list_size(args); i++) {
@@ -67,7 +79,11 @@ void Multiply(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_m
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::memory = memory;
+    // The outcommented way of assigning the memory pointer is still
+    // working, but it is deprecated because of certain concurrency
+    // issues. Please use the guard instead.
+    // mgp::memory = memory;
+    mgp::MemoryDispatcherGuard guard(memory);
 
     AddProcedure(SampleReadProc, "return_true", mgp::ProcedureType::Read,
                  {mgp::Parameter("param_1", mgp::Type::Int), mgp::Parameter("param_2", mgp::Type::Double, 2.3)},
@@ -77,7 +93,11 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   }
 
   try {
-    mgp::memory = memory;
+    // The outcommented way of assigning the memory pointer is still
+    // working, but it is deprecated because of certain concurrency
+    // issues. Please use the guard instead.
+    // mgp::memory = memory;
+    mgp::MemoryDispatcherGuard guard(memory);
 
     mgp::AddProcedure(AddXNodes, "add_x_nodes", mgp::ProcedureType::Write, {mgp::Parameter("param_1", mgp::Type::Int)},
                       {}, module, memory);
@@ -87,7 +107,11 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   }
 
   try {
-    mgp::memory = memory;
+    // The outcommented way of assigning the memory pointer is still
+    // working, but it is deprecated because of certain concurrency
+    // issues. Please use the guard instead.
+    // mgp::memory = memory;
+    mgp::MemoryDispatcherGuard guard(memory);
 
     mgp::AddFunction(Multiply, "multiply",
                      {mgp::Parameter("int", mgp::Type::Int), mgp::Parameter("int", mgp::Type::Int, (int64_t)3)}, module,

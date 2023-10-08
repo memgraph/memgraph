@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,13 @@ namespace memgraph::io::network {
  * connection address.
  */
 struct Endpoint {
-  Endpoint();
+  Endpoint() = default;
   Endpoint(std::string ip_address, uint16_t port);
+  Endpoint(Endpoint const &) = default;
+  Endpoint(Endpoint &&) noexcept = default;
+  Endpoint &operator=(Endpoint const &) = default;
+  Endpoint &operator=(Endpoint &&) noexcept = default;
+  ~Endpoint() = default;
 
   enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
 

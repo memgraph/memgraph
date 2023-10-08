@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,18 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/timer.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotRecoveryLatency_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage::durability {
 
@@ -68,6 +77,12 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
   if (utils::DirExists(snapshot_directory)) {
     for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
+      if (!utils::HasReadAccess(item.path())) {
+        spdlog::warn(
+            "Skipping snapshot file '{}' because it is not readable, check file ownership and read permissions!",
+            item.path());
+        continue;
+      }
       try {
         auto info = ReadSnapshotInfo(item.path());
         if (uuid.empty() || info.uuid == uuid) {
@@ -113,34 +128,69 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                  const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index.CreateIndex(item, vertices->access()))
+    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
+
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
 
+  spdlog::info("Recreating index statistics from metadata.");
+  // Recover label indices statistics.
+  spdlog::info("Recreating {} label index statistics from metadata.", indices_constraints.indices.label_stats.size());
+  for (const auto &item : indices_constraints.indices.label_stats) {
+    mem_label_index->SetIndexStats(item.first, item.second);
+    spdlog::info("A label index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label indices statistics are recreated.");
+
   // Recover label+property indices.
   spdlog::info("Recreating {} label+property indices from metadata.",
                indices_constraints.indices.label_property.size());
+  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_constraints.indices.label_property) {
-    if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
+    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("A label+property index is recreated from metadata.");
   }
   spdlog::info("Label+property indices are recreated.");
+
+  // Recover label+property indices statistics.
+  spdlog::info("Recreating {} label+property indices statistics from metadata.",
+               indices_constraints.indices.label_property_stats.size());
+  for (const auto &item : indices_constraints.indices.label_property_stats) {
+    const auto label_id = item.first;
+    const auto property_id = item.second.first;
+    const auto &stats = item.second.second;
+    mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+    spdlog::info("A label+property index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label+property indices statistics are recreated.");
+
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");
   // Recover existence constraints.
   spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
-  for (const auto &item : indices_constraints.constraints.existence) {
-    auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
-    if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
+  for (const auto &[label, property] : indices_constraints.constraints.existence) {
+    if (constraints->existence_constraints_->ConstraintExists(label, property)) {
+      throw RecoveryFailure("The existence constraint already exists!");
+    }
+
+    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property);
+        violation.has_value()) {
+      throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
+    }
+
+    constraints->existence_constraints_->InsertConstraint(label, property);
+
     spdlog::info("A existence constraint is recreated from metadata.");
   }
   spdlog::info("Existence constraints are recreated from metadata.");
@@ -148,7 +198,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover unique constraints.
   spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
-    auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
+    auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
+    auto ret = mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
     spdlog::info("A unique constraint is recreated from metadata.");
@@ -163,7 +214,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        Indices *indices, Constraints *constraints, const Config &config,
                                         uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
@@ -173,6 +224,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         "https://memgr.ph/durability"));
     return std::nullopt;
   }
+
+  utils::Timer timer;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
@@ -195,7 +248,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, items);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -213,7 +266,11 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+      const auto par_exec_info = config.durability.allow_parallel_index_creation
+                                     ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
+                                                                         config.durability.recovery_thread_count))
+                                     : std::nullopt;
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -319,7 +376,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, items);
+                            edge_count, config.items);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
@@ -341,6 +398,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   }
 
   RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+
+  memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
   return recovery_info;
 }
 

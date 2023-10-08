@@ -1,1 +1,7 @@
 .cache
+*.zip
+*.log
+*.report
+*.sysinfo
+*.json
+*.html

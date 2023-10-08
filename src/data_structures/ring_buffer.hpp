@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@
 template <typename TElement>
 class RingBuffer {
  public:
-  explicit RingBuffer(int capacity) : capacity_(capacity) { buffer_ = std::make_unique<TElement[]>(capacity_); }
+  explicit RingBuffer(int capacity) : capacity_(capacity), buffer_{std::make_unique<TElement[]>(capacity_)} {}
 
   RingBuffer(const RingBuffer &) = delete;
   RingBuffer(RingBuffer &&) = delete;

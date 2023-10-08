@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,11 +19,11 @@
 #include <variant>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
@@ -91,13 +91,18 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
+using ParallelizedIndexCreationInfo =
+    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
+
 // Helper function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices);
+void RecoverIndicesAndConstraints(
+    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
+    utils::SkipList<Vertex> *vertices,
+    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
 
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
@@ -108,7 +113,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        Indices *indices, Constraints *constraints, const Config &config,
                                         uint64_t *wal_seq_num);
 
 }  // namespace memgraph::storage::durability

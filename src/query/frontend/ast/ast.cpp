@@ -114,11 +114,17 @@ constexpr utils::TypeInfo query::ListLiteral::kType{utils::TypeId::AST_LIST_LITE
 constexpr utils::TypeInfo query::MapLiteral::kType{utils::TypeId::AST_MAP_LITERAL, "MapLiteral",
                                                    &query::BaseLiteral::kType};
 
+constexpr utils::TypeInfo query::MapProjectionLiteral::kType{utils::TypeId::AST_MAP_PROJECTION_LITERAL,
+                                                             "MapProjectionLiteral", &query::BaseLiteral::kType};
+
 constexpr utils::TypeInfo query::Identifier::kType{utils::TypeId::AST_IDENTIFIER, "Identifier",
                                                    &query::Expression::kType};
 
 constexpr utils::TypeInfo query::PropertyLookup::kType{utils::TypeId::AST_PROPERTY_LOOKUP, "PropertyLookup",
                                                        &query::Expression::kType};
+
+constexpr utils::TypeInfo query::AllPropertiesLookup::kType{utils::TypeId::AST_ALL_PROPERTIES_LOOKUP,
+                                                            "AllPropertiesLookup", &query::Expression::kType};
 
 constexpr utils::TypeInfo query::LabelsTest::kType{utils::TypeId::AST_LABELS_TEST, "LabelsTest",
                                                    &query::Expression::kType};
@@ -217,7 +223,11 @@ constexpr utils::TypeInfo query::Unwind::kType{utils::TypeId::AST_UNWIND, "Unwin
 
 constexpr utils::TypeInfo query::AuthQuery::kType{utils::TypeId::AST_AUTH_QUERY, "AuthQuery", &query::Query::kType};
 
-constexpr utils::TypeInfo query::InfoQuery::kType{utils::TypeId::AST_INFO_QUERY, "InfoQuery", &query::Query::kType};
+constexpr utils::TypeInfo query::DatabaseInfoQuery::kType{utils::TypeId::AST_DATABASE_INFO_QUERY, "DatabaseInfoQuery",
+                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::SystemInfoQuery::kType{utils::TypeId::AST_SYSTEM_INFO_QUERY, "SystemInfoQuery",
+                                                        &query::Query::kType};
 
 constexpr utils::TypeInfo query::Constraint::kType{utils::TypeId::AST_CONSTRAINT, "Constraint", nullptr};
 
@@ -242,6 +252,9 @@ constexpr utils::TypeInfo query::TriggerQuery::kType{utils::TypeId::AST_TRIGGER_
 
 constexpr utils::TypeInfo query::IsolationLevelQuery::kType{utils::TypeId::AST_ISOLATION_LEVEL_QUERY,
                                                             "IsolationLevelQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::StorageModeQuery::kType{utils::TypeId::AST_STORAGE_MODE_QUERY, "StorageModeQuery",
+                                                         &query::Query::kType};
 
 constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{utils::TypeId::AST_CREATE_SNAPSHOT_QUERY,
                                                             "CreateSnapshotQuery", &query::Query::kType};
@@ -270,4 +283,14 @@ constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exist
 
 constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
                                                      &query::Clause::kType};
+
+constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MULTI_DATABASE_QUERY,
+                                                           "MultiDatabaseQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
+                                                           &query::Query::kType};
+
+constexpr utils::TypeInfo query::EdgeImportModeQuery::kType{utils::TypeId::AST_EDGE_IMPORT_MODE_QUERY,
+                                                            "EdgeImportModeQuery", &query::Query::kType};
+
 }  // namespace memgraph

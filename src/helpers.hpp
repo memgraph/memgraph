@@ -63,7 +63,7 @@ inline void LoadConfig(const std::string &product_name) {
   delete[] custom_argv;
 }
 
-std::pair<std::string, std::string> LoadUsernameAndPassword(const std::string &pass_file) {
+inline std::pair<std::string, std::string> LoadUsernameAndPassword(const std::string &pass_file) {
   std::ifstream file(pass_file);
   if (file.fail()) {
     spdlog::warn("Problem with opening MG_PASSFILE, memgraph server will start without user");

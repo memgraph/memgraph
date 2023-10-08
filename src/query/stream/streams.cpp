@@ -18,6 +18,8 @@
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
 
+#include "dbms/database.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
@@ -36,9 +38,9 @@
 #include "utils/pmr/string.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event MessagesConsumed;
-}  // namespace EventCounter
+}  // namespace memgraph::metrics
 
 namespace memgraph::query::stream {
 namespace {
@@ -161,10 +163,7 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   from_json(data, status.info);
 }
 
-Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path directory)
-    : interpreter_context_(interpreter_context), storage_(std::move(directory)) {
-  RegisterProcedures();
-}
+Streams::Streams(std::filesystem::path directory) : storage_(std::move(directory)) { RegisterProcedures(); }
 
 void Streams::RegisterProcedures() {
   RegisterKafkaProcedures();
@@ -448,11 +447,12 @@ void Streams::RegisterPulsarProcedures() {
   }
 }
 
-template <Stream TStream>
+template <Stream TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
-                     std::optional<std::string> owner) {
+                     std::optional<std::string> owner, TDbAccess db_acc, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
-  auto it = CreateConsumer<TStream>(*locked_streams, stream_name, std::move(info), std::move(owner));
+  auto it = CreateConsumer<TStream, TDbAccess>(*locked_streams, stream_name, std::move(info), std::move(owner),
+                                               std::move(db_acc), ic);
 
   try {
     std::visit(
@@ -467,36 +467,44 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
   }
 }
 
-template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
-                                           std::optional<std::string> owner);
-template void Streams::Create<PulsarStream>(const std::string &stream_name, PulsarStream::StreamInfo info,
-                                            std::optional<std::string> owner);
+template void Streams::Create<KafkaStream, dbms::DatabaseAccess>(const std::string &stream_name,
+                                                                 KafkaStream::StreamInfo info,
+                                                                 std::optional<std::string> owner,
+                                                                 dbms::DatabaseAccess db, InterpreterContext *ic);
+template void Streams::Create<PulsarStream, dbms::DatabaseAccess>(const std::string &stream_name,
+                                                                  PulsarStream::StreamInfo info,
+                                                                  std::optional<std::string> owner,
+                                                                  dbms::DatabaseAccess db, InterpreterContext *ic);
 
-template <Stream TStream>
+template <Stream TStream, typename TDbAccess>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
-                                                      std::optional<std::string> owner) {
+                                                      std::optional<std::string> owner, TDbAccess db_acc,
+                                                      InterpreterContext *interpreter_context) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
+  auto consumer_function = [interpreter_context, memory_resource, stream_name,
                             transformation_name = stream_info.common_info.transformation_name, owner = owner,
-                            interpreter = std::make_shared<Interpreter>(interpreter_context_),
+                            interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
                             result = mgp_result{nullptr, memory_resource},
-                            total_retries = interpreter_context_->config.stream_transaction_conflict_retries,
-                            retry_interval = interpreter_context_->config.stream_transaction_retry_interval](
+                            total_retries = interpreter_context->config.stream_transaction_conflict_retries,
+                            retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
-    auto accessor = interpreter_context->db->Access();
-    // register new interpreter into interpreter_context_
+#ifdef MG_ENTERPRISE
+    interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
+#endif
+    auto accessor = interpreter->current_db_.db_acc_->get()->Access();
+    // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
     utils::OnScopeExit interpreter_cleanup{
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
-    EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
+    CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;
 
@@ -519,8 +527,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result =
-              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
-          if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
+              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
+          if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
@@ -552,7 +560,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   return insert_result.first;
 }
 
-void Streams::RestoreStreams() {
+template <typename TDbAccess>
+void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
   spdlog::info("Loading streams...");
   auto locked_streams_map = streams_.Lock();
   MG_ASSERT(locked_streams_map->empty(), "Cannot restore streams when some streams already exist!");
@@ -563,8 +572,8 @@ void Streams::RestoreStreams() {
       return fmt::format("Failed to load stream '{}', because: {} caused by {}", stream_name, message, nested_message);
     };
 
-    const auto create_consumer = [&, &stream_name = stream_name, this]<typename T>(StreamStatus<T> status,
-                                                                                   auto &&stream_json_data) {
+    const auto create_consumer = [&, &stream_name = stream_name]<typename T>(StreamStatus<T> status,
+                                                                             auto &&stream_json_data) {
       try {
         stream_json_data.get_to(status);
       } catch (const nlohmann::json::type_error &exception) {
@@ -577,7 +586,8 @@ void Streams::RestoreStreams() {
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
       try {
-        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner));
+        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner),
+                                    db, ic);
         if (status.is_running) {
           std::visit(
               [&](const auto &stream_data) {
@@ -612,6 +622,8 @@ void Streams::RestoreStreams() {
     }
   }
 }
+
+template void Streams::RestoreStreams<dbms::DatabaseAccess>(dbms::DatabaseAccess db, InterpreterContext *ic);
 
 void Streams::Drop(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
@@ -722,7 +734,9 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
   return result;
 }
 
-TransformationResult Streams::Check(const std::string &stream_name, std::optional<std::chrono::milliseconds> timeout,
+template <typename TDbAccess>
+TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db_acc,
+                                    std::optional<std::chrono::milliseconds> timeout,
                                     std::optional<uint64_t> batch_limit) const {
   std::optional locked_streams{streams_.ReadLock()};
   auto it = GetStream(**locked_streams, stream_name);
@@ -739,11 +753,10 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
         mgp_result result{nullptr, memory_resource};
         TransformationResult test_result;
 
-        auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, &stream_name,
-                                  &transformation_name = transformation_name, &result,
-                                  &test_result]<typename T>(const std::vector<T> &messages) mutable {
-          auto accessor = interpreter_context->db->Access();
-          CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+        auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
+                                  &result, &test_result]<typename T>(const std::vector<T> &messages) mutable {
+          auto accessor = db_acc->Access();
+          CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();
           result_row.reserve(kCheckStreamResultSize);
@@ -773,5 +786,10 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       },
       it->second);
 }
+
+template TransformationResult Streams::Check<dbms::DatabaseAccess>(const std::string &stream_name,
+                                                                   dbms::DatabaseAccess db_acc,
+                                                                   std::optional<std::chrono::milliseconds> timeout,
+                                                                   std::optional<uint64_t> batch_limit) const;
 
 }  // namespace memgraph::query::stream

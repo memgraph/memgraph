@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -25,7 +25,8 @@ struct Vertex;
 
 struct Edge {
   Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
+                  delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Edge must be created with an initial DELETE_OBJECT delta!");
   }
 
@@ -33,7 +34,7 @@ struct Edge {
 
   PropertyStore properties;
 
-  mutable utils::SpinLock lock;
+  mutable utils::RWSpinLock lock;
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;

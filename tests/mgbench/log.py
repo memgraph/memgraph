@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,23 @@
 # licenses/APL.txt.
 
 import logging
+from typing import Dict
+
+from constants import (
+    COUNT,
+    CPU,
+    DATABASE,
+    DOCKER,
+    DURATION,
+    IMPORT,
+    ITERATIONS,
+    LATENCY_STATS,
+    MEMORY,
+    METADATA,
+    RETRIES,
+    RUN_CONFIGURATION,
+    THROUGHPUT,
+)
 
 COLOR_GRAY = 0
 COLOR_RED = 1
@@ -33,7 +50,7 @@ def _log(color, *args):
 
 
 def log(msg):
-    print(msg)
+    print(str(msg))
     logger.info(msg=msg)
 
 
@@ -60,3 +77,8 @@ def warning(*args):
 def error(*args):
     _log(COLOR_RED, *args)
     logger.critical(*args)
+
+
+def summary(*args):
+    _log(COLOR_CYAN, *args)
+    logger.info(*args)

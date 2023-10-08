@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -76,7 +78,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
-    frontend::ParsingContext context{true};
+    frontend::ParsingContext context{.is_query_cached = true};
     frontend::CypherMainVisitor visitor(context, &ast_storage);
 
     visitor.visit(parser->tree());

@@ -1,0 +1,19 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "transaction-rollback-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Transaction rollback"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/transaction_rollback/procedures/"
+    args: ["transaction_rollback/transaction.py"]
+    <<: *in_memory_cluster

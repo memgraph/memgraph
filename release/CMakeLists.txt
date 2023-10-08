@@ -14,7 +14,7 @@ set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "High performance, in-memory, transactional graph database")
 
-# Setting arhitecture extension for deb packages
+# Setting architecture extension for deb packages
 set(MG_ARCH_EXTENSION_DEB "all")
 
 if(${MG_ARCH} STREQUAL "x86_64")
@@ -48,9 +48,9 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0), libstdc++6")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0)")
 
-# Setting arhitecture extension for rpm packages
+# Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
 
 if(${MG_ARCH} STREQUAL "x86_64")
@@ -69,6 +69,12 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
 set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
 set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
 set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
+# CPACK deduces dependency to libstdc++ which:
+#   * can't be easily installed on Centos 7 (the one from the toolchain,
+#     only required to avoid printing issue within query modules)
+#   * it causes issues with glibcxx 2.4
+#     `if(DISTRO STREQUAL "Amazon Linux" AND DISTRO_VERSION STREQUAL "2")`
+set(CPACK_RPM_PACKAGE_AUTOREQ " no")
 
 # Description formatting is important, no line must be greater than 80 characters.
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
@@ -77,13 +83,7 @@ the next generation of applications driver by real-time connected data.")
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, libstdc++ >= 3.4.29, logrotate")
-
-# If amzn-2
-if(DISTRO STREQUAL "Amazon Linux" AND DISTRO_VERSION STREQUAL "2")
-    # It causes issues with glibcxx 2.4
-    set(CPACK_RPM_PACKAGE_AUTOREQ " no")
-endif()
+set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
 
 # All variables must be set before including.
 include(CPack)

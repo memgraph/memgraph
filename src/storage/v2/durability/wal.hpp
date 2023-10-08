@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,8 +20,12 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/durability/storage_global_operation.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -57,8 +61,12 @@ struct WalDeltaData {
     TRANSACTION_END,
     LABEL_INDEX_CREATE,
     LABEL_INDEX_DROP,
+    LABEL_INDEX_STATS_SET,
+    LABEL_INDEX_STATS_CLEAR,
     LABEL_PROPERTY_INDEX_CREATE,
     LABEL_PROPERTY_INDEX_DROP,
+    LABEL_PROPERTY_INDEX_STATS_SET,
+    LABEL_PROPERTY_INDEX_STATS_CLEAR,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
@@ -102,24 +110,23 @@ struct WalDeltaData {
     std::string label;
     std::set<std::string> properties;
   } operation_label_properties;
+
+  struct {
+    std::string label;
+    std::string stats;
+  } operation_label_stats;
+
+  struct {
+    std::string label;
+    std::string property;
+    std::string stats;
+  } operation_label_property_stats;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
 
-/// Enum used to indicate a global database operation that isn't transactional.
-enum class StorageGlobalOperation {
-  LABEL_INDEX_CREATE,
-  LABEL_INDEX_DROP,
-  LABEL_PROPERTY_INDEX_CREATE,
-  LABEL_PROPERTY_INDEX_DROP,
-  EXISTENCE_CONSTRAINT_CREATE,
-  EXISTENCE_CONSTRAINT_DROP,
-  UNIQUE_CONSTRAINT_CREATE,
-  UNIQUE_CONSTRAINT_DROP,
-};
-
-constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
+constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Type type) {
   switch (type) {
     // These delta actions are all found inside transactions so they don't
     // indicate a transaction end.
@@ -142,14 +149,26 @@ constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
     // 'transaction'.
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
+    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-      return true;
+      return true;  // TODO: Still true?
   }
+}
+
+constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
+  if (version < 16U) {
+    return IsWalDeltaDataTypeTransactionEndVersion15(type);
+  }
+  // All deltas are now handled in a transactional scope
+  return type == WalDeltaData::Type::TRANSACTION_END;
 }
 
 /// Function used to read information about the WAL file.
@@ -185,8 +204,9 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 /// Function used to encode non-transactional operation.
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
-                     LabelId label, const std::set<PropertyId> &properties, uint64_t timestamp);
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
+                     LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
@@ -215,8 +235,8 @@ class WalFile {
 
   void AppendTransactionEnd(uint64_t timestamp);
 
-  void AppendOperation(StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                       uint64_t timestamp);
+  void AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
+                       const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   void Sync();
 

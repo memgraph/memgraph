@@ -1,20 +1,38 @@
-template_cluster: &template_cluster
+args: &args
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=True"
+  - "--storage-snapshot-interval-sec"
+  - "300"
+  - "--storage-wal-enabled=True"
+
+in_memory_cluster: &in_memory_cluster
   cluster:
     main:
-      args:
-        [
-          "--log-level=TRACE",
-          "--storage-properties-on-edges=True",
-          "--storage-snapshot-interval-sec",
-          "300",
-          "--storage-wal-enabled=True",
-        ]
+      args: *args
       log_file: "configuration-check-e2e.log"
       setup_queries: []
+      validation_queries: []
+
+disk_cluster: &disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "configuration-check-disk-e2e.log"
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
       validation_queries: []
 
 workloads:
   - name: "Configuration check"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/configuration_check.py"]
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
+  - name: "SHOW STORAGE INFO check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/storage_info.py"]
+    <<: *in_memory_cluster
+
+  - name: "Disk configuration check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/configuration_check.py"]
+    <<: *disk_cluster

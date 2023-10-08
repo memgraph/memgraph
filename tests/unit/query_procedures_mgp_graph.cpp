@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,13 +18,15 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "storage_test_utils.hpp"
@@ -81,35 +83,53 @@ using MgpVertexPtr = std::unique_ptr<mgp_vertex, MgpVertexDeleter>;
 using MgpVerticesIteratorPtr = std::unique_ptr<mgp_vertices_iterator, MgpVerticesIteratorDeleter>;
 using MgpValuePtr = std::unique_ptr<mgp_value, MgpValueDeleter>;
 
-template <typename TMaybeIterable>
-size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable) {
+template <typename TMaybeIterable, typename TIterableAccessor>
+size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor func) {
   if (maybe_iterable.HasError()) {
     ADD_FAILURE() << static_cast<std::underlying_type_t<typename TMaybeIterable::ErrorType>>(maybe_iterable.GetError());
     return 0;
   }
-  auto &iterable = maybe_iterable.GetValue();
+  auto iterable = func(maybe_iterable.GetValue());
   return std::distance(iterable.begin(), iterable.end());
 }
 
 ;
 
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
+  if (auto dbAccessor = std::get_if<memgraph::query::DbAccessor *>(&from->graph->impl)) {
+    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
+    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
+    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
+    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
+  } else if (auto dbAccessor = std::get<memgraph::query::SubgraphDbAccessor *>(from->graph->impl)) {
+    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
+    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
+    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
+    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
+  }
+
   EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl)),
+      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
       0);
-  EXPECT_EQ(CountMaybeIterables(
-                std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, from->impl)),
-            number_of_edges_between);
   EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, to->impl)),
+      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, from->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
       number_of_edges_between);
   EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, to->impl)),
+      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, to->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
+      number_of_edges_between);
+  EXPECT_EQ(
+      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, to->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
       0);
 }
 }  // namespace
 
-struct MgpGraphTest : public ::testing::Test {
+template <typename StorageType>
+class MgpGraphTest : public ::testing::Test {
+ public:
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
     // the execution context can be null as it shouldn't be used in these tests
     return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
@@ -132,118 +152,147 @@ struct MgpGraphTest : public ::testing::Test {
 
   void GetFirstOutEdge(mgp_graph &graph, memgraph::storage::Gid vertex_id, MgpEdgePtr &edge) {
     MgpVertexPtr from{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
-                                          mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+                                          mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
     ASSERT_NE(from, nullptr);
 
-    MgpEdgesIteratorPtr it{EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &memory)};
+    MgpEdgesIteratorPtr it{
+        EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &this->memory)};
     ASSERT_NE(it, nullptr);
     auto *edge_from_it = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, it.get());
     ASSERT_NE(edge_from_it, nullptr);
     // Copy is used to get a non const pointer because mgp_edges_iterator_get_mutable doesn't work with immutable graph
-    edge.reset(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy, edge_from_it, &memory));
+    edge.reset(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy, edge_from_it, &this->memory));
     ASSERT_NE(edge, nullptr);
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
-    accessors_.push_back(storage.Access(isolationLevel));
-    db_accessors_.emplace_back(&accessors_.back());
+    accessors_.push_back(storage->Access(isolationLevel));
+    db_accessors_.emplace_back(accessors_.back().get());
     return db_accessors_.back();
   }
 
-  memgraph::storage::Storage storage;
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
+
+  const std::string testSuite = "query_procedures_mgp_graph";
+
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> storage{new StorageType(config)};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
  private:
-  std::list<memgraph::storage::Storage::Accessor> accessors_;
+  std::list<std::unique_ptr<memgraph::storage::Storage::Accessor>> accessors_;
   std::list<memgraph::query::DbAccessor> db_accessors_;
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };
 
-TEST_F(MgpGraphTest, IsMutable) {
-  mgp_graph immutable_graph = CreateGraph(memgraph::storage::View::OLD);
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(MgpGraphTest, StorageTypes);
+
+TYPED_TEST(MgpGraphTest, IsMutable) {
+  mgp_graph immutable_graph = this->CreateGraph(memgraph::storage::View::OLD);
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_graph_is_mutable, &immutable_graph), 0);
-  mgp_graph mutable_graph = CreateGraph(memgraph::storage::View::NEW);
+  mgp_graph mutable_graph = this->CreateGraph(memgraph::storage::View::NEW);
   EXPECT_NE(EXPECT_MGP_NO_ERROR(int, mgp_graph_is_mutable, &mutable_graph), 0);
 }
 
-TEST_F(MgpGraphTest, CreateVertex) {
-  mgp_graph graph = CreateGraph();
-  auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 0);
-  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_create_vertex, &graph, &memory)};
+TYPED_TEST(MgpGraphTest, CreateVertex) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
+  mgp_graph graph = this->CreateGraph();
+  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 0);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_create_vertex, &graph, &this->memory)};
   EXPECT_NE(vertex, nullptr);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
   const auto vertex_id = EXPECT_MGP_NO_ERROR(mgp_vertex_id, mgp_vertex_get_id, vertex.get());
-  EXPECT_TRUE(read_uncommited_accessor
-                  .FindVertex(memgraph::storage::Gid::FromInt(vertex_id.as_int), memgraph::storage::View::NEW)
-                  .has_value());
+  EXPECT_TRUE(read_uncommited_accessor->FindVertex(memgraph::storage::Gid::FromInt(vertex_id.as_int),
+                                                   memgraph::storage::View::NEW));
 }
 
-TEST_F(MgpGraphTest, DeleteVertex) {
+TYPED_TEST(MgpGraphTest, DeleteVertex) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   memgraph::storage::Gid vertex_id{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     const auto vertex = accessor.InsertVertex();
     vertex_id = vertex.Gid();
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  mgp_graph graph = CreateGraph();
-  auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
-  MgpVertexPtr vertex{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+  mgp_graph graph = this->CreateGraph();
+  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                          mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
   EXPECT_NE(vertex, nullptr);
   EXPECT_SUCCESS(mgp_graph_delete_vertex(&graph, vertex.get()));
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 0);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 0);
 }
 
-TEST_F(MgpGraphTest, DetachDeleteVertex) {
-  const auto vertex_ids = CreateEdge();
-  auto graph = CreateGraph();
-  auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 2);
+TYPED_TEST(MgpGraphTest, DetachDeleteVertex) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
+  const auto vertex_ids = this->CreateEdge();
+  auto graph = this->CreateGraph();
+  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 2);
   MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
-                                          mgp_vertex_id{vertex_ids.front().AsInt()}, &memory)};
+                                          mgp_vertex_id{vertex_ids.front().AsInt()}, &this->memory)};
   EXPECT_EQ(mgp_graph_delete_vertex(&graph, vertex.get()), mgp_error::MGP_ERROR_LOGIC_ERROR);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 2);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 2);
   EXPECT_SUCCESS(mgp_graph_detach_delete_vertex(&graph, vertex.get()));
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 }
 
-TEST_F(MgpGraphTest, CreateDeleteWithImmutableGraph) {
+TYPED_TEST(MgpGraphTest, CreateDeleteWithImmutableGraph) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   memgraph::storage::Gid vertex_id{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     const auto vertex = accessor.InsertVertex();
     vertex_id = vertex.Gid();
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 
-  mgp_graph immutable_graph = CreateGraph(memgraph::storage::View::OLD);
+  mgp_graph immutable_graph = this->CreateGraph(memgraph::storage::View::OLD);
   mgp_vertex *raw_vertex{nullptr};
-  EXPECT_EQ(mgp_graph_create_vertex(&immutable_graph, &memory, &raw_vertex), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_create_vertex(&immutable_graph, &this->memory, &raw_vertex),
+            mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   MgpVertexPtr created_vertex{raw_vertex};
   EXPECT_EQ(created_vertex, nullptr);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
   MgpVertexPtr vertex_to_delete{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &immutable_graph,
-                                                    mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+                                                    mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
   ASSERT_NE(vertex_to_delete, nullptr);
   EXPECT_EQ(mgp_graph_delete_vertex(&immutable_graph, vertex_to_delete.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 }
 
-TEST_F(MgpGraphTest, VerticesIterator) {
+TYPED_TEST(MgpGraphTest, VerticesIterator) {
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     accessor.InsertVertex();
     ASSERT_FALSE(accessor.Commit().HasError());
   }
   auto check_vertices_iterator = [this](const memgraph::storage::View view) {
-    mgp_graph graph = CreateGraph(view);
+    mgp_graph graph = this->CreateGraph(view);
     MgpVerticesIteratorPtr vertices_iter{
-        EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &memory)};
+        EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory)};
     ASSERT_NE(vertices_iter, nullptr);
     EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_get, vertices_iter.get());
     if (view == memgraph::storage::View::NEW) {
@@ -262,21 +311,25 @@ TEST_F(MgpGraphTest, VerticesIterator) {
   }
 }
 
-TEST_F(MgpGraphTest, VertexIsMutable) {
-  auto graph = CreateGraph(memgraph::storage::View::NEW);
-  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_create_vertex, &graph, &memory)};
+TYPED_TEST(MgpGraphTest, VertexIsMutable) {
+  auto graph = this->CreateGraph(memgraph::storage::View::NEW);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_create_vertex, &graph, &this->memory)};
   ASSERT_NE(vertex.get(), nullptr);
   EXPECT_NE(EXPECT_MGP_NO_ERROR(int, mgp_vertex_underlying_graph_is_mutable, vertex.get()), 0);
   graph.view = memgraph::storage::View::OLD;
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_vertex_underlying_graph_is_mutable, vertex.get()), 0);
 }
 
-TEST_F(MgpGraphTest, VertexSetProperty) {
+TYPED_TEST(MgpGraphTest, VertexSetProperty) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   static constexpr std::string_view property_to_update{"to_update"};
   static constexpr std::string_view property_to_set{"to_set"};
   memgraph::storage::Gid vertex_id{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     auto vertex = accessor.InsertVertex();
     vertex_id = vertex.Gid();
     const auto result =
@@ -284,23 +337,23 @@ TEST_F(MgpGraphTest, VertexSetProperty) {
     ASSERT_TRUE(result.HasValue());
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-  EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
+  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 
-  mgp_graph graph = CreateGraph(memgraph::storage::View::NEW);
-  MgpVertexPtr vertex{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+  mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                          mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
   ASSERT_NE(vertex, nullptr);
 
-  auto vertex_acc = read_uncommited_accessor.FindVertex(vertex_id, memgraph::storage::View::NEW);
-  ASSERT_TRUE(vertex_acc.has_value());
-  const auto property_id_to_update = read_uncommited_accessor.NameToProperty(property_to_update);
+  auto vertex_acc = read_uncommited_accessor->FindVertex(vertex_id, memgraph::storage::View::NEW);
+  ASSERT_TRUE(vertex_acc);
+  const auto property_id_to_update = read_uncommited_accessor->NameToProperty(property_to_update);
 
   {
     SCOPED_TRACE("Update the property");
     static constexpr int64_t numerical_value_to_update_to{69};
     MgpValuePtr value_to_update_to{
-        EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, numerical_value_to_update_to, &memory)};
+        EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, numerical_value_to_update_to, &this->memory)};
     ASSERT_NE(value_to_update_to, nullptr);
     EXPECT_SUCCESS(mgp_vertex_set_property(vertex.get(), property_to_update.data(), value_to_update_to.get()));
 
@@ -310,7 +363,7 @@ TEST_F(MgpGraphTest, VertexSetProperty) {
   }
   {
     SCOPED_TRACE("Remove the property");
-    MgpValuePtr null_value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)};
+    MgpValuePtr null_value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &this->memory)};
     ASSERT_NE(null_value, nullptr);
     EXPECT_SUCCESS(mgp_vertex_set_property(vertex.get(), property_to_update.data(), null_value.get()));
 
@@ -321,51 +374,60 @@ TEST_F(MgpGraphTest, VertexSetProperty) {
   {
     SCOPED_TRACE("Add a property");
     static constexpr double numerical_value_to_set{3.5};
-    MgpValuePtr value_to_set{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, numerical_value_to_set, &memory)};
+    MgpValuePtr value_to_set{
+        EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, numerical_value_to_set, &this->memory)};
     ASSERT_NE(value_to_set, nullptr);
     EXPECT_SUCCESS(mgp_vertex_set_property(vertex.get(), property_to_set.data(), value_to_set.get()));
-    const auto maybe_prop =
-        vertex_acc->GetProperty(read_uncommited_accessor.NameToProperty(property_to_set), memgraph::storage::View::NEW);
+    const auto maybe_prop = vertex_acc->GetProperty(read_uncommited_accessor->NameToProperty(property_to_set),
+                                                    memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_prop.HasValue());
     EXPECT_EQ(*maybe_prop, memgraph::storage::PropertyValue{numerical_value_to_set});
   }
 }
 
-TEST_F(MgpGraphTest, VertexAddLabel) {
+TYPED_TEST(MgpGraphTest, VertexAddLabel) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     const auto vertex = accessor.InsertVertex();
     vertex_id = vertex.Gid();
     ASSERT_FALSE(accessor.Commit().HasError());
   }
 
-  mgp_graph graph = CreateGraph(memgraph::storage::View::NEW);
-  MgpVertexPtr vertex{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+  mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                          mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
   EXPECT_SUCCESS(mgp_vertex_add_label(vertex.get(), mgp_label{label.data()}));
 
   auto check_label = [&]() {
     EXPECT_NE(EXPECT_MGP_NO_ERROR(int, mgp_vertex_has_label_named, vertex.get(), label.data()), 0);
 
-    auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-    const auto maybe_vertex = read_uncommited_accessor.FindVertex(vertex_id, memgraph::storage::View::NEW);
-    ASSERT_TRUE(maybe_vertex.has_value());
+    auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+    const auto maybe_vertex = read_uncommited_accessor->FindVertex(vertex_id, memgraph::storage::View::NEW);
+    ASSERT_TRUE(maybe_vertex);
     const auto label_ids = maybe_vertex->Labels(memgraph::storage::View::NEW);
     ASSERT_TRUE(label_ids.HasValue());
-    EXPECT_THAT(*label_ids, ::testing::ContainerEq(std::vector{read_uncommited_accessor.NameToLabel(label)}));
+    EXPECT_THAT(*label_ids, ::testing::ContainerEq(std::vector{read_uncommited_accessor->NameToLabel(label)}));
   };
   ASSERT_NO_FATAL_FAILURE(check_label());
   EXPECT_SUCCESS(mgp_vertex_add_label(vertex.get(), mgp_label{label.data()}));
   ASSERT_NO_FATAL_FAILURE(check_label());
 }
 
-TEST_F(MgpGraphTest, VertexRemoveLabel) {
+TYPED_TEST(MgpGraphTest, VertexRemoveLabel) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     auto vertex = accessor.InsertVertex();
     const auto result = vertex.AddLabel(accessor.NameToLabel(label));
     ASSERT_TRUE(result.HasValue());
@@ -374,17 +436,17 @@ TEST_F(MgpGraphTest, VertexRemoveLabel) {
     ASSERT_FALSE(accessor.Commit().HasError());
   }
 
-  mgp_graph graph = CreateGraph(memgraph::storage::View::NEW);
-  MgpVertexPtr vertex{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+  mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                          mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
   EXPECT_SUCCESS(mgp_vertex_remove_label(vertex.get(), mgp_label{label.data()}));
 
   auto check_label = [&]() {
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_vertex_has_label_named, vertex.get(), label.data()), 0);
 
-    auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
-    const auto maybe_vertex = read_uncommited_accessor.FindVertex(vertex_id, memgraph::storage::View::NEW);
-    ASSERT_TRUE(maybe_vertex.has_value());
+    auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+    const auto maybe_vertex = read_uncommited_accessor->FindVertex(vertex_id, memgraph::storage::View::NEW);
+    ASSERT_TRUE(maybe_vertex);
     const auto label_ids = maybe_vertex->Labels(memgraph::storage::View::NEW);
     ASSERT_TRUE(label_ids.HasValue());
     EXPECT_EQ(label_ids->size(), 0);
@@ -394,58 +456,58 @@ TEST_F(MgpGraphTest, VertexRemoveLabel) {
   ASSERT_NO_FATAL_FAILURE(check_label());
 }
 
-TEST_F(MgpGraphTest, ModifyImmutableVertex) {
+TYPED_TEST(MgpGraphTest, ModifyImmutableVertex) {
   static constexpr std::string_view label_to_remove{"label_to_remove"};
   memgraph::storage::Gid vertex_id{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     auto vertex = accessor.InsertVertex();
     vertex_id = vertex.Gid();
     ASSERT_TRUE(vertex.AddLabel(accessor.NameToLabel(label_to_remove)).HasValue());
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto graph = CreateGraph(memgraph::storage::View::OLD);
-  MgpVertexPtr vertex{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+  auto graph = this->CreateGraph(memgraph::storage::View::OLD);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                          mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_vertex_underlying_graph_is_mutable, vertex.get()), 0);
 
   EXPECT_EQ(mgp_vertex_add_label(vertex.get(), mgp_label{"label"}), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   EXPECT_EQ(mgp_vertex_remove_label(vertex.get(), mgp_label{label_to_remove.data()}),
             mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
-  MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 4, &memory)};
+  MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 4, &this->memory)};
   EXPECT_EQ(mgp_vertex_set_property(vertex.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
 
-TEST_F(MgpGraphTest, CreateDeleteEdge) {
+TYPED_TEST(MgpGraphTest, CreateDeleteEdge) {
   std::array<memgraph::storage::Gid, 2> vertex_ids{};
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     for (auto i = 0; i < 2; ++i) {
       vertex_ids[i] = accessor.InsertVertex().Gid();
     }
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto graph = CreateGraph();
+  auto graph = this->CreateGraph();
   MgpVertexPtr from{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
-                                        mgp_vertex_id{vertex_ids[0].AsInt()}, &memory)};
+                                        mgp_vertex_id{vertex_ids[0].AsInt()}, &this->memory)};
   MgpVertexPtr to{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
-                                      mgp_vertex_id{vertex_ids[1].AsInt()}, &memory)};
+                                      mgp_vertex_id{vertex_ids[1].AsInt()}, &this->memory)};
   ASSERT_NE(from, nullptr);
   ASSERT_NE(to, nullptr);
   CheckEdgeCountBetween(from, to, 0);
   MgpEdgePtr edge{EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_graph_create_edge, &graph, from.get(), to.get(),
-                                      mgp_edge_type{"EDGE"}, &memory)};
+                                      mgp_edge_type{"EDGE"}, &this->memory)};
   CheckEdgeCountBetween(from, to, 1);
   ASSERT_NE(edge, nullptr);
   EXPECT_SUCCESS(mgp_graph_delete_edge(&graph, edge.get()));
   CheckEdgeCountBetween(from, to, 0);
 }
 
-TEST_F(MgpGraphTest, CreateDeleteEdgeWithImmutableGraph) {
+TYPED_TEST(MgpGraphTest, CreateDeleteEdgeWithImmutableGraph) {
   memgraph::storage::Gid from_id;
   memgraph::storage::Gid to_id;
   {
-    auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     auto from = accessor.InsertVertex();
     auto to = accessor.InsertVertex();
     from_id = from.Gid();
@@ -453,51 +515,51 @@ TEST_F(MgpGraphTest, CreateDeleteEdgeWithImmutableGraph) {
     ASSERT_TRUE(accessor.InsertEdge(&from, &to, accessor.NameToEdgeType("EDGE_TYPE_TO_REMOVE")).HasValue());
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto graph = CreateGraph(memgraph::storage::View::OLD);
-  MgpVertexPtr from{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{from_id.AsInt()}, &memory)};
-  MgpVertexPtr to{
-      EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{to_id.AsInt()}, &memory)};
+  auto graph = this->CreateGraph(memgraph::storage::View::OLD);
+  MgpVertexPtr from{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                        mgp_vertex_id{from_id.AsInt()}, &this->memory)};
+  MgpVertexPtr to{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{to_id.AsInt()},
+                                      &this->memory)};
   ASSERT_NE(from, nullptr);
   ASSERT_NE(to, nullptr);
   CheckEdgeCountBetween(from, to, 1);
   mgp_edge *edge{nullptr};
-  EXPECT_EQ(
-      mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"NEWLY_CREATED_EDGE_TYPE"}, &memory, &edge),
-      mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"NEWLY_CREATED_EDGE_TYPE"}, &this->memory,
+                                  &edge),
+            mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   CheckEdgeCountBetween(from, to, 1);
 
   MgpEdgesIteratorPtr edges_it{
-      EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &memory)};
+      EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &this->memory)};
   auto *edge_from_it = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it.get());
   ASSERT_NE(edge_from_it, nullptr);
   EXPECT_EQ(mgp_graph_delete_edge(&graph, edge_from_it), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
-  MgpEdgePtr edge_copy_of_immutable{EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy, edge_from_it, &memory)};
+  MgpEdgePtr edge_copy_of_immutable{EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy, edge_from_it, &this->memory)};
   EXPECT_EQ(mgp_graph_delete_edge(&graph, edge_copy_of_immutable.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   CheckEdgeCountBetween(from, to, 1);
 }
 
-TEST_F(MgpGraphTest, EdgeIsMutable) {
-  const auto vertex_ids = CreateEdge();
-  auto graph = CreateGraph();
+TYPED_TEST(MgpGraphTest, EdgeIsMutable) {
+  const auto vertex_ids = this->CreateEdge();
+  auto graph = this->CreateGraph();
   MgpEdgePtr edge{};
-  ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, vertex_ids[0], edge));
+  ASSERT_NO_FATAL_FAILURE(this->GetFirstOutEdge(graph, vertex_ids[0], edge));
   EXPECT_NE(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
   graph.view = memgraph::storage::View::OLD;
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
 }
 
-TEST_F(MgpGraphTest, MutableFromTo) {
+TYPED_TEST(MgpGraphTest, MutableFromTo) {
   memgraph::storage::Gid from_vertex_id{};
   {
-    const auto vertex_ids = CreateEdge();
+    const auto vertex_ids = this->CreateEdge();
     from_vertex_id = vertex_ids[0];
   }
   auto check_edges_iterator = [this, from_vertex_id](const memgraph::storage::View view) {
-    mgp_graph graph = CreateGraph(view);
+    mgp_graph graph = this->CreateGraph(view);
 
     MgpEdgePtr edge{};
-    ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
+    ASSERT_NO_FATAL_FAILURE(this->GetFirstOutEdge(graph, from_vertex_id, edge));
     auto *from = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_edge_get_from, edge.get());
     auto *to = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_edge_get_from, edge.get());
     auto check_is_mutable = [&edge, from, to](bool is_mutable) {
@@ -521,18 +583,19 @@ TEST_F(MgpGraphTest, MutableFromTo) {
   }
 }
 
-TEST_F(MgpGraphTest, EdgesIterator) {
+TYPED_TEST(MgpGraphTest, EdgesIterator) {
   memgraph::storage::Gid from_vertex_id{};
   {
-    const auto vertex_ids = CreateEdge();
+    const auto vertex_ids = this->CreateEdge();
     from_vertex_id = vertex_ids[0];
   }
   auto check_edges_iterator = [this, from_vertex_id](const memgraph::storage::View view) {
-    mgp_graph graph = CreateGraph(view);
+    mgp_graph graph = this->CreateGraph(view);
 
     MgpVertexPtr from{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
-                                          mgp_vertex_id{from_vertex_id.AsInt()}, &memory)};
-    MgpEdgesIteratorPtr iter{EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &memory)};
+                                          mgp_vertex_id{from_vertex_id.AsInt()}, &this->memory)};
+    MgpEdgesIteratorPtr iter{
+        EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &this->memory)};
     auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, iter.get());
     auto check_is_mutable = [&edge, &iter](bool is_mutable) {
       EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edges_iterator_underlying_graph_is_mutable, iter.get()) != 0, is_mutable);
@@ -554,39 +617,43 @@ TEST_F(MgpGraphTest, EdgesIterator) {
   }
 }
 
-TEST_F(MgpGraphTest, EdgeSetProperty) {
+TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
+    return;
+  }
   static constexpr std::string_view property_to_update{"to_update"};
   static constexpr std::string_view property_to_set{"to_set"};
 
   memgraph::storage::Gid from_vertex_id{};
-  auto get_edge = [&from_vertex_id](memgraph::storage::Storage::Accessor &accessor) -> memgraph::storage::EdgeAccessor {
-    auto from = accessor.FindVertex(from_vertex_id, memgraph::storage::View::NEW);
-    return from->OutEdges(memgraph::storage::View::NEW).GetValue().front();
+  auto get_edge = [&from_vertex_id](memgraph::storage::Storage::Accessor *accessor) -> memgraph::storage::EdgeAccessor {
+    auto from = accessor->FindVertex(from_vertex_id, memgraph::storage::View::NEW);
+    return std::move(from->OutEdges(memgraph::storage::View::NEW).GetValue().edges.front());
   };
   {
-    const auto vertex_ids = CreateEdge();
+    const auto vertex_ids = this->CreateEdge();
     from_vertex_id = vertex_ids[0];
-    auto accessor = storage.Access(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
-    auto edge = get_edge(accessor);
+    auto accessor = this->storage->Access(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto edge = get_edge(accessor.get());
     const auto result =
-        edge.SetProperty(accessor.NameToProperty(property_to_update), memgraph::storage::PropertyValue(42));
+        edge.SetProperty(accessor->NameToProperty(property_to_update), memgraph::storage::PropertyValue(42));
     ASSERT_TRUE(result.HasValue());
-    ASSERT_FALSE(accessor.Commit().HasError());
+    ASSERT_FALSE(accessor->Commit().HasError());
   }
-  auto read_uncommited_accessor = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
 
-  mgp_graph graph = CreateGraph(memgraph::storage::View::NEW);
+  mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
   MgpEdgePtr edge;
-  ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
-  const auto edge_acc = get_edge(read_uncommited_accessor);
+  ASSERT_NO_FATAL_FAILURE(this->GetFirstOutEdge(graph, from_vertex_id, edge));
+  const auto edge_acc = get_edge(read_uncommited_accessor.get());
 
-  const auto property_id_to_update = read_uncommited_accessor.NameToProperty(property_to_update);
+  const auto property_id_to_update = read_uncommited_accessor->NameToProperty(property_to_update);
 
   {
     SCOPED_TRACE("Update the property");
     static constexpr int64_t numerical_value_to_update_to{69};
     MgpValuePtr value_to_update_to{
-        EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, numerical_value_to_update_to, &memory)};
+        EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, numerical_value_to_update_to, &this->memory)};
     ASSERT_NE(value_to_update_to, nullptr);
     EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_update.data(), value_to_update_to.get()));
 
@@ -596,7 +663,7 @@ TEST_F(MgpGraphTest, EdgeSetProperty) {
   }
   {
     SCOPED_TRACE("Remove the property");
-    MgpValuePtr null_value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)};
+    MgpValuePtr null_value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &this->memory)};
     ASSERT_NE(null_value, nullptr);
     EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_update.data(), null_value.get()));
 
@@ -607,26 +674,27 @@ TEST_F(MgpGraphTest, EdgeSetProperty) {
   {
     SCOPED_TRACE("Add a property");
     static constexpr double numerical_value_to_set{3.5};
-    MgpValuePtr value_to_set{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, numerical_value_to_set, &memory)};
+    MgpValuePtr value_to_set{
+        EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, numerical_value_to_set, &this->memory)};
     ASSERT_NE(value_to_set, nullptr);
     EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_set.data(), value_to_set.get()));
     const auto maybe_prop =
-        edge_acc.GetProperty(read_uncommited_accessor.NameToProperty(property_to_set), memgraph::storage::View::NEW);
+        edge_acc.GetProperty(read_uncommited_accessor->NameToProperty(property_to_set), memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_prop.HasValue());
     EXPECT_EQ(*maybe_prop, memgraph::storage::PropertyValue{numerical_value_to_set});
   }
 }
 
-TEST_F(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
+TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   memgraph::storage::Gid from_vertex_id{};
   {
-    const auto vertex_ids = CreateEdge();
+    const auto vertex_ids = this->CreateEdge();
     from_vertex_id = vertex_ids[0];
   }
-  auto graph = CreateGraph(memgraph::storage::View::OLD);
+  auto graph = this->CreateGraph(memgraph::storage::View::OLD);
   MgpEdgePtr edge;
-  ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
-  MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 65, &memory)};
+  ASSERT_NO_FATAL_FAILURE(this->GetFirstOutEdge(graph, from_vertex_id, edge));
+  MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 65, &this->memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }

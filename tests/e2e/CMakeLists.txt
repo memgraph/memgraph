@@ -29,6 +29,14 @@ function(copy_e2e_cpp_files TARGET_PREFIX FILE_NAME)
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
 endfunction()
 
+function(copy_e2e_files TARGET_PREFIX FILE_NAME)
+        add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
+                ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
+                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
+endfunction()
+
 add_subdirectory(fine_grained_access)
 add_subdirectory(server)
 add_subdirectory(replication)
@@ -47,6 +55,17 @@ add_subdirectory(python_query_modules_reloading)
 add_subdirectory(analyze_graph)
 add_subdirectory(transaction_queue)
 add_subdirectory(mock_api)
+add_subdirectory(graphql)
+add_subdirectory(disk_storage)
+add_subdirectory(load_csv)
+add_subdirectory(init_file_flags)
+add_subdirectory(analytical_mode)
+add_subdirectory(batched_procedures)
+add_subdirectory(import_mode)
+add_subdirectory(concurrent_query_modules)
+add_subdirectory(show_index_info)
+add_subdirectory(set_properties)
+add_subdirectory(transaction_rollback)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

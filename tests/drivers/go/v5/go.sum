@@ -1,0 +1,10 @@
+github.com/neo4j/neo4j-go-driver/v5 v5.5.0 h1:KxufacDV+IqkzbzvjIAIGkBsa2i0lEB8/MhCgOQxrQo=
+github.com/neo4j/neo4j-go-driver/v5 v5.5.0/go.mod h1:Vff8OwT7QpLm7L2yYr85XNWe9Rbqlbeb9asNXJTHO4k=
+github.com/neo4j/neo4j-go-driver/v5 v5.6.0 h1:+LxOHCyDWGjtD8qHhb20GUpvwCFcJm1wqSEyo2MiehE=
+github.com/neo4j/neo4j-go-driver/v5 v5.6.0/go.mod h1:Vff8OwT7QpLm7L2yYr85XNWe9Rbqlbeb9asNXJTHO4k=
+github.com/neo4j/neo4j-go-driver/v5 v5.8.1 h1:IysKg6KJIUgyItmnHRRrt2N8srbd6znMslRW3qQErTQ=
+github.com/neo4j/neo4j-go-driver/v5 v5.8.1/go.mod h1:Vff8OwT7QpLm7L2yYr85XNWe9Rbqlbeb9asNXJTHO4k=
+github.com/neo4j/neo4j-go-driver/v5 v5.9.0 h1:TYxT0RSiwnvVFia90V7TLnRXv8HkdQQ6rTUaPVoyZ+w=
+github.com/neo4j/neo4j-go-driver/v5 v5.9.0/go.mod h1:Vff8OwT7QpLm7L2yYr85XNWe9Rbqlbeb9asNXJTHO4k=
+golang.org/dl v0.0.0-20230502172222-5216546bad51 h1:Bmo/kmR2hzyhGt3jjtl1ghkCqa5LINbB9D3QTkiLJIY=
+golang.org/dl v0.0.0-20230502172222-5216546bad51/go.mod h1:IUMfjQLJQd4UTqG1Z90tenwKoCX93Gn3MAQJMOSBsDQ=

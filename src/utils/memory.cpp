@@ -187,14 +187,19 @@ void *Pool::Allocate() {
   for (unsigned char i = 0U; i < blocks_per_chunk_; ++i) {
     *(data + (i * block_size_)) = i + 1U;
   }
+  Chunk chunk{data, 0, blocks_per_chunk_};
+  // Insert the big block in the sorted position.
+  auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk,
+                             [](const auto &a, const auto &b) { return a.data < b.data; });
   try {
-    chunks_.push_back(Chunk{data, 0, blocks_per_chunk_});
+    it = chunks_.insert(it, chunk);
   } catch (...) {
     GetUpstreamResource()->Deallocate(data, data_size, alignment);
     throw;
   }
-  last_alloc_chunk_ = &chunks_.back();
-  last_dealloc_chunk_ = &chunks_.back();
+
+  last_alloc_chunk_ = &*it;
+  last_dealloc_chunk_ = &*it;
   return allocate_block_from_chunk(last_alloc_chunk_);
 }
 
@@ -223,18 +228,20 @@ void Pool::Deallocate(void *p) {
     deallocate_block_from_chunk(last_dealloc_chunk_);
     return;
   }
+
   // Find the chunk which served this allocation
-  for (auto &chunk : chunks_) {
-    if (is_in_chunk(chunk)) {
-      // Update last_alloc_chunk_ as well because it now has a free block.
-      // Additionally this corresponds with C++ pattern of allocations and
-      // deallocations being done in reverse order.
-      last_alloc_chunk_ = &chunk;
-      last_dealloc_chunk_ = &chunk;
-      deallocate_block_from_chunk(&chunk);
-      return;
-    }
-  }
+  Chunk chunk{reinterpret_cast<unsigned char *>(p) - blocks_per_chunk_ * block_size_, 0, 0};
+  auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk,
+                             [](const auto &a, const auto &b) { return a.data <= b.data; });
+  MG_ASSERT(it != chunks_.end(), "Failed deallocation in utils::Pool");
+  MG_ASSERT(is_in_chunk(*it), "Failed deallocation in utils::Pool");
+
+  // Update last_alloc_chunk_ as well because it now has a free block.
+  // Additionally this corresponds with C++ pattern of allocations and
+  // deallocations being done in reverse order.
+  last_alloc_chunk_ = &*it;
+  last_dealloc_chunk_ = &*it;
+  deallocate_block_from_chunk(last_dealloc_chunk_);
   // TODO: We could release the Chunk to upstream memory
 }
 

@@ -38,7 +38,12 @@ def test_does_default_config_match():
         flag_name = flag[0]
 
         # The default value of these is dependent on the given machine.
-        machine_dependent_configurations = ["bolt_num_workers", "data_directory", "log_file"]
+        machine_dependent_configurations = [
+            "bolt_num_workers",
+            "data_directory",
+            "log_file",
+            "storage_recovery_thread_count",
+        ]
         if flag_name in machine_dependent_configurations:
             continue
 

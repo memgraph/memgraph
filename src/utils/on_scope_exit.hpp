@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,17 +34,25 @@ namespace memgraph::utils {
  *     // long block of code, might trow an exception
  * }
  */
-class OnScopeExit {
+template <typename Callable>
+class [[nodiscard]] OnScopeExit {
  public:
-  explicit OnScopeExit(const std::function<void()> &function) : function_(function) {}
-  ~OnScopeExit() { function_(); }
-
-  void Disable() {
-    function_ = [] {};
+  explicit OnScopeExit(Callable &&function) : function_{std::forward<Callable>(function)}, doCall_{true} {}
+  OnScopeExit(OnScopeExit const &) = delete;
+  OnScopeExit(OnScopeExit &&) = delete;
+  OnScopeExit &operator=(OnScopeExit const &) = delete;
+  OnScopeExit &operator=(OnScopeExit &&) = delete;
+  ~OnScopeExit() {
+    if (doCall_) function_();
   }
+
+  void Disable() { doCall_ = false; }
 
  private:
   std::function<void()> function_;
+  bool doCall_;
 };
+template <typename Callable>
+OnScopeExit(Callable &&) -> OnScopeExit<Callable>;
 
 }  // namespace memgraph::utils

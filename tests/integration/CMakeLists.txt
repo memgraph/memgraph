@@ -30,3 +30,9 @@ add_subdirectory(env_variable_check)
 
 #flag check binaries
 add_subdirectory(flag_check)
+
+#storage mode binaries
+add_subdirectory(storage_mode)
+
+#run time settings binaries
+add_subdirectory(run_time_settings)

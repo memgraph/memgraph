@@ -13,6 +13,7 @@ import atexit
 import json
 import os
 import re
+import socket
 import subprocess
 import tempfile
 import threading
@@ -20,12 +21,15 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+import log
 from benchmark_context import BenchmarkContext
 
+DOCKER_NETWORK_NAME = "mgbench_network"
 
-def _wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
+
+def _wait_for_server_socket(port, ip="127.0.0.1", delay=0.1):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    while s.connect_ex((ip, int(port))) != 0:
         time.sleep(0.01)
     time.sleep(delay)
 
@@ -65,6 +69,27 @@ def _get_current_usage(pid):
     return rss / 1024
 
 
+def _setup_docker_benchmark_network(network_name):
+    command = ["docker", "network", "ls", "--format", "{{.Name}}"]
+    networks = subprocess.run(command, check=True, capture_output=True, text=True).stdout.split("\n")
+    if network_name in networks:
+        return
+    else:
+        command = ["docker", "network", "create", network_name]
+        subprocess.run(command, check=True, capture_output=True, text=True)
+
+
+def _get_docker_container_ip(container_name):
+    command = [
+        "docker",
+        "inspect",
+        "--format",
+        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+        container_name,
+    ]
+    return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
+
+
 class BaseClient(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -97,26 +122,56 @@ class BoltClient(BaseClient):
         queries=None,
         file_path=None,
         num_workers=1,
-        max_retries: int = 50,
+        max_retries: int = 10000,
         validation: bool = False,
         time_dependent_execution: int = 0,
     ):
+        check_db_query = Path(self._directory.name) / "check_db_query.json"
+        with open(check_db_query, "w") as f:
+            query = ["RETURN 0;", {}]
+            json.dump(query, f)
+            f.write("\n")
+
+        check_db_args = self._get_args(
+            input=check_db_query,
+            num_workers=1,
+            max_retries=max_retries,
+            queries_json=True,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=False,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        while True:
+            try:
+                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                break
+            except subprocess.CalledProcessError as e:
+                log.log("Checking if database is up and running failed...")
+                log.warning("Reported errors from client:")
+                log.warning("Error: {}".format(e.stderr))
+                log.warning("Database is not up yet, waiting 3 seconds...")
+                time.sleep(3)
+
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
-        queries_json = False
+        queries_and_args_json = False
         if queries is not None:
-            queries_json = True
-            file_path = os.path.join(self._directory.name, "queries.json")
+            queries_and_args_json = True
+            file_path = os.path.join(self._directory.name, "queries_and_args_json.json")
             with open(file_path, "w") as f:
                 for query in queries:
                     json.dump(query, f)
                     f.write("\n")
+
         args = self._get_args(
             input=file_path,
             num_workers=num_workers,
             max_retries=max_retries,
-            queries_json=queries_json,
+            queries_json=queries_and_args_json,
             username=self._username,
             password=self._password,
             port=self._bolt_port,
@@ -131,10 +186,184 @@ class BoltClient(BaseClient):
             error = ret.stderr.decode("utf-8").strip().split("\n")
             data = ret.stdout.decode("utf-8").strip().split("\n")
             if error and error[0] != "":
-                print("Reported errros from client")
-                print(error)
+                log.warning("Reported errors from client:")
+                log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
+                log.error(error)
+                log.error("Results for this query or benchmark run are probably invalid!")
             data = [x for x in data if not x.startswith("[")]
             return list(map(json.loads, data))
+
+
+class BoltClientDocker(BaseClient):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        self._client_binary = benchmark_context.client_binary
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._username = ""
+        self._password = ""
+        self._bolt_port = (
+            benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
+        )
+        self._container_name = "mgbench-bolt-client"
+        self._target_db_container = (
+            "memgraph_benchmark" if "memgraph" in benchmark_context.vendor_name else "neo4j_benchmark"
+        )
+
+    def _remove_container(self):
+        command = ["docker", "rm", "-f", self._container_name]
+        self._run_command(command)
+
+    def _create_container(self, *args):
+        command = [
+            "docker",
+            "create",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "memgraph/mgbench-client",
+            *args,
+        ]
+        self._run_command(command)
+
+    def _get_logs(self):
+        command = [
+            "docker",
+            "logs",
+            self._container_name,
+        ]
+        ret = self._run_command(command)
+        return ret
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def execute(
+        self,
+        queries=None,
+        file_path=None,
+        num_workers=1,
+        max_retries: int = 50,
+        validation: bool = False,
+        time_dependent_execution: int = 0,
+    ):
+        if (queries is None and file_path is None) or (queries is not None and file_path is not None):
+            raise ValueError("Either queries or input_path must be specified!")
+
+        self._remove_container()
+        ip = _get_docker_container_ip(self._target_db_container)
+
+        # Perform a check to make sure the database is up and running
+        args = self._get_args(
+            address=ip,
+            input="/bin/check.json",
+            num_workers=1,
+            max_retries=max_retries,
+            queries_json=True,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=False,
+            time_dependent_execution=0,
+        )
+
+        self._create_container(*args)
+
+        check_file = Path(self._directory.name) / "check.json"
+        with open(check_file, "w") as f:
+            query = ["RETURN 0;", {}]
+            json.dump(query, f)
+            f.write("\n")
+
+        command = [
+            "docker",
+            "cp",
+            check_file.resolve().as_posix(),
+            self._container_name + ":/bin/" + check_file.name,
+        ]
+        self._run_command(command)
+
+        command = [
+            "docker",
+            "start",
+            "-i",
+            self._container_name,
+        ]
+        while True:
+            try:
+                self._run_command(command)
+                break
+            except subprocess.CalledProcessError as e:
+                log.log("Checking if database is up and running failed!")
+                log.warning("Reported errors from client:")
+                log.warning("Error: {}".format(e.stderr))
+                log.warning("Database is not up yet, waiting 3 second")
+                time.sleep(3)
+
+        self._remove_container()
+
+        queries_and_args_json = False
+        if queries is not None:
+            queries_and_args_json = True
+            file_path = os.path.join(self._directory.name, "queries.json")
+            with open(file_path, "w") as f:
+                for query in queries:
+                    json.dump(query, f)
+                    f.write("\n")
+
+        self._remove_container()
+        ip = _get_docker_container_ip(self._target_db_container)
+
+        # Query file JSON or Cypher
+        file = Path(file_path)
+
+        args = self._get_args(
+            address=ip,
+            input="/bin/" + file.name,
+            num_workers=num_workers,
+            max_retries=max_retries,
+            queries_json=queries_and_args_json,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=validation,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        self._create_container(*args)
+
+        command = [
+            "docker",
+            "cp",
+            file.resolve().as_posix(),
+            self._container_name + ":/bin/" + file.name,
+        ]
+        self._run_command(command)
+        log.log("Starting query execution...")
+        try:
+            command = [
+                "docker",
+                "start",
+                "-i",
+                self._container_name,
+            ]
+            self._run_command(command)
+        except subprocess.CalledProcessError as e:
+            log.warning("Reported errors from client:")
+            log.warning("Error: {}".format(e.stderr))
+
+        ret = self._get_logs()
+        error = ret.stderr.strip().split("\n")
+        if error and error[0] != "":
+            log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
+            log.warning(*error)
+        data = ret.stdout.strip().split("\n")
+        data = [x for x in data if not x.startswith("[")]
+        return list(map(json.loads, data))
+
+    def _run_command(self, command):
+        ret = subprocess.run(command, capture_output=True, check=True, text=True)
+        time.sleep(0.2)
+        return ret
 
 
 class BaseRunner(ABC):
@@ -159,15 +388,19 @@ class BaseRunner(ABC):
         self.benchmark_context = benchmark_context
 
     @abstractmethod
-    def start_benchmark(self):
+    def start_db_init(self):
         pass
 
     @abstractmethod
-    def start_preparation(self):
+    def stop_db_init(self):
         pass
 
     @abstractmethod
-    def stop(self):
+    def start_db(self):
+        pass
+
+    @abstractmethod
+    def stop_db(self):
         pass
 
     @abstractmethod
@@ -186,11 +419,6 @@ class Memgraph(BaseRunner):
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
-        self._properties_on_edges = (
-            self._vendor_args["no-properties-on-edges"]
-            if "no-properties-on-edges" in self._vendor_args.keys()
-            else False
-        )
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
         self._proc_mg = None
         self._stop_event = threading.Event()
@@ -211,7 +439,9 @@ class Memgraph(BaseRunner):
         data_directory = os.path.join(self._directory.name, "memgraph")
         kwargs["bolt_port"] = self._bolt_port
         kwargs["data_directory"] = data_directory
-        kwargs["storage_properties_on_edges"] = self._properties_on_edges
+        kwargs["storage_properties_on_edges"] = True
+        for key, value in self._vendor_args.items():
+            kwargs[key] = value
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
     def _start(self, **kwargs):
@@ -223,9 +453,8 @@ class Memgraph(BaseRunner):
         if self._proc_mg.poll() is not None:
             self._proc_mg = None
             raise Exception("The database process died prematurely!")
-        _wait_for_server(self._bolt_port)
+        _wait_for_server_socket(self._bolt_port)
         ret = self._proc_mg.poll()
-        assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
         if self._proc_mg is None:
@@ -236,21 +465,35 @@ class Memgraph(BaseRunner):
         self._proc_mg = None
         return ret, usage
 
-    def start_preparation(self, workload):
+    def start_db_init(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        self._start(storage_snapshot_on_exit=True)
+        self._start(storage_snapshot_on_exit=True, **self._vendor_args)
 
-    def start_benchmark(self, workload):
+    def stop_db_init(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        return usage
+
+    def start_db(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        self._start(storage_recover_on_startup=True)
+        self._start(storage_recover_on_startup=True, **self._vendor_args)
+
+    def stop_db(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        return usage
 
     def clean_db(self):
         if self._proc_mg is not None:
@@ -284,14 +527,6 @@ class Memgraph(BaseRunner):
                 f.write("\n")
             f.close()
 
-    def stop(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
-        return usage
-
     def fetch_client(self) -> BoltClient:
         return BoltClient(benchmark_context=self.benchmark_context)
 
@@ -304,6 +539,14 @@ class Neo4j(BaseRunner):
         self._neo4j_config = self._neo4j_path / "conf" / "neo4j.conf"
         self._neo4j_pid = self._neo4j_path / "run" / "neo4j.pid"
         self._neo4j_admin = self._neo4j_path / "bin" / "neo4j-admin"
+        self._neo4j_dump = (
+            Path()
+            / ".cache"
+            / "datasets"
+            / self.benchmark_context.get_active_workload()
+            / self.benchmark_context.get_active_variant()
+            / "neo4j.dump"
+        )
         self._performance_tracking = benchmark_context.performance_tracking
         self._vendor_args = benchmark_context.vendor_args
         self._stop_event = threading.Event()
@@ -372,13 +615,13 @@ class Neo4j(BaseRunner):
             raise Exception("The database process is already running!")
         args = _convert_args_to_flags(self._neo4j_binary, "start", **kwargs)
         start_proc = subprocess.run(args, check=True)
-        time.sleep(5)
+        time.sleep(0.5)
         if self._neo4j_pid.exists():
             print("Neo4j started!")
         else:
             raise Exception("The database process died prematurely!")
         print("Run server check:")
-        _wait_for_server(self._bolt_port)
+        _wait_for_server_socket(self._bolt_port)
 
     def _cleanup(self):
         if self._neo4j_pid.exists():
@@ -391,30 +634,57 @@ class Neo4j(BaseRunner):
         else:
             return 0
 
-    def start_preparation(self, workload):
+    def start_db_init(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
 
-        # Start DB
         self._start()
 
         if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
 
-    def start_benchmark(self, workload):
+    def stop_db_init(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.get_memory_usage("stop_" + workload)
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        self.dump_db(path=self._neo4j_dump.parent)
+        return usage
+
+    def start_db(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
+
+        neo4j_dump = (
+            Path()
+            / ".cache"
+            / "datasets"
+            / self.benchmark_context.get_active_workload()
+            / self.benchmark_context.get_active_variant()
+            / "neo4j.dump"
+        )
+        if neo4j_dump.exists():
+            self.load_db_from_dump(path=neo4j_dump.parent)
         # Start DB
         self._start()
 
         if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
+
+    def stop_db(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.get_memory_usage("stop_" + workload)
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        return usage
 
     def dump_db(self, path):
         print("Dumping the neo4j database...")
@@ -426,7 +696,7 @@ class Neo4j(BaseRunner):
                     self._neo4j_admin,
                     "database",
                     "dump",
-                    "--overwrite-destination=false",
+                    "--overwrite-destination=true",
                     "--to-path",
                     path,
                     "neo4j",
@@ -478,19 +748,9 @@ class Neo4j(BaseRunner):
     def is_stopped(self):
         pid_file = self._neo4j_path / "run" / "neo4j.pid"
         if pid_file.exists():
-
             return False
         else:
             return True
-
-    def stop(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.get_memory_usage("stop_" + workload)
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
-        return usage
 
     def dump_rss(self, workload):
         file_name = workload + "_rss"
@@ -521,3 +781,311 @@ class Neo4j(BaseRunner):
 
     def fetch_client(self) -> BoltClient:
         return BoltClient(benchmark_context=self.benchmark_context)
+
+
+class MemgraphDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
+        self._container_name = "memgraph_benchmark"
+        self._container_ip = None
+        self._config_file = None
+        _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
+
+    def _set_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def start_db_init(self, message):
+        log.init("Starting database for import...")
+        try:
+            command = [
+                "docker",
+                "run",
+                "--detach",
+                "--network",
+                DOCKER_NETWORK_NAME,
+                "--name",
+                self._container_name,
+                "-it",
+                "-p",
+                self._bolt_port + ":" + self._bolt_port,
+                "memgraph/memgraph:2.7.0",
+                "--storage_wal_enabled=false",
+                "--storage_recover_on_startup=true",
+                "--storage_snapshot_interval_sec",
+                "0",
+            ]
+            command.extend(self._set_args(**self._vendor_args))
+            ret = self._run_command(command)
+        except subprocess.CalledProcessError as e:
+            log.error("Failed to start Memgraph docker container.")
+            log.error(
+                "There is probably a database running on that port, please stop the running container and try again."
+            )
+            raise e
+
+        command = [
+            "docker",
+            "cp",
+            self._container_name + ":/etc/memgraph/memgraph.conf",
+            self._directory.name + "/memgraph.conf",
+        ]
+        self._run_command(command)
+        self._config_file = Path(self._directory.name + "/memgraph.conf")
+        _wait_for_server_socket(self._bolt_port, delay=0.5)
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+
+        # Stop to save the snapshot
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+
+        # Change config back to default
+        argument = "--storage-snapshot-on-exit=false"
+        self._replace_config_args(argument)
+        command = [
+            "docker",
+            "cp",
+            self._config_file.resolve(),
+            self._container_name + ":/etc/memgraph/memgraph.conf",
+        ]
+        self._run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def start_db(self, message):
+        log.init("Starting database for benchmark...")
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
+        ip_address = _get_docker_container_ip(self._container_name)
+        _wait_for_server_socket(self._bolt_port, delay=0.5)
+        log.log("Database started.")
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def fetch_client(self) -> BaseClient:
+        return BoltClientDocker(benchmark_context=self.benchmark_context)
+
+    def remove_container(self, containerName):
+        command = ["docker", "rm", "-f", containerName]
+        self._run_command(command)
+
+    def _replace_config_args(self, argument):
+        config_lines = []
+        with self._config_file.open("r") as file:
+            lines = file.readlines()
+            file.close()
+            key, value = argument.split("=")
+            for line in lines:
+                if line[0] == "#" or line.strip("\n") == "":
+                    config_lines.append(line)
+                else:
+                    key_file, value_file = line.split("=")
+                    if key_file == key and value != value_file:
+                        line = argument + "\n"
+                    config_lines.append(line)
+
+        with self._config_file.open("w") as file:
+            file.writelines(config_lines)
+            file.close()
+
+    def _get_cpu_memory_usage(self):
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "grep ^VmPeak /proc/1/status",
+        ]
+        usage = {"cpu": 0, "memory": 0}
+        ret = self._run_command(command)
+        memory = ret.stdout.split()
+        usage["memory"] = int(memory[1]) * 1024
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "cat /proc/1/stat",
+        ]
+        stat = self._run_command(command).stdout.strip("\n")
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "getconf CLK_TCK",
+        ]
+        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+
+        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
+        usage["cpu"] = cpu_time
+
+        return usage
+
+    def _run_command(self, command):
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+
+        time.sleep(0.2)
+        return ret
+
+
+class Neo4jDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
+        self._container_name = "neo4j_benchmark"
+        self._container_ip = None
+        self._config_file = None
+        _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
+
+    def _set_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def start_db_init(self, message):
+        log.init("Starting database for initialization...")
+        try:
+            command = [
+                "docker",
+                "run",
+                "--detach",
+                "--network",
+                DOCKER_NETWORK_NAME,
+                "--name",
+                self._container_name,
+                "-it",
+                "-p",
+                self._bolt_port + ":" + self._bolt_port,
+                "--env",
+                "NEO4J_AUTH=none",
+                "neo4j:5.6.0",
+            ]
+            command.extend(self._set_args(**self._vendor_args))
+            ret = self._run_command(command)
+        except subprocess.CalledProcessError as e:
+            log.error("There was an error starting the Neo4j container!")
+            log.error(
+                "There is probably a database running on that port, please stop the running container and try again."
+            )
+            raise e
+        _wait_for_server_socket(self._bolt_port, delay=5)
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def start_db(self, message):
+        log.init("Starting database...")
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
+        _wait_for_server_socket(self._bolt_port, delay=5)
+        log.log("Database started.")
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def fetch_client(self) -> BaseClient:
+        return BoltClientDocker(benchmark_context=self.benchmark_context)
+
+    def remove_container(self, containerName):
+        command = ["docker", "rm", "-f", containerName]
+        self._run_command(command)
+
+    def _get_cpu_memory_usage(self):
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "cat /var/lib/neo4j/run/neo4j.pid",
+        ]
+        ret = self._run_command(command)
+        pid = ret.stdout.split()[0]
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "grep ^VmPeak /proc/{}/status".format(pid),
+        ]
+        usage = {"cpu": 0, "memory": 0}
+        ret = self._run_command(command)
+        memory = ret.stdout.split()
+        usage["memory"] = int(memory[1]) * 1024
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "cat /proc/{}/stat".format(pid),
+        ]
+        stat = self._run_command(command).stdout.strip("\n")
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "getconf CLK_TCK",
+        ]
+        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+
+        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
+        usage["cpu"] = cpu_time
+
+        return usage
+
+    def _run_command(self, command):
+        ret = subprocess.run(command, capture_output=True, check=True, text=True)
+        time.sleep(0.2)
+        return ret

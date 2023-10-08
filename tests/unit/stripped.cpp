@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -194,6 +194,12 @@ TEST(QueryStripper, MapLiteral) {
   EXPECT_EQ(stripped.query(), "MATCH ( n ) RETURN { val : n }");
 }
 
+TEST(QueryStripper, MapProjectionLiteral) {
+  StrippedQuery stripped("WITH 0 as var MATCH (n) RETURN n {.x, var, key: 'a'}");
+  EXPECT_EQ(stripped.literals().size(), 2);
+  EXPECT_EQ(stripped.query(), "WITH 0 as var MATCH ( n ) RETURN n { . x , var , key : \"a\" }");
+}
+
 TEST(QueryStripper, RangeLiteral) {
   StrippedQuery stripped("MATCH (n)-[*2..3]-() RETURN n");
   EXPECT_EQ(stripped.literals().size(), 2);
@@ -355,6 +361,11 @@ TEST(QueryStripper, UnionAllMultipleReturnStatementsNamedExpressions) {
 TEST(QueryStripper, QueryReturnMap) {
   StrippedQuery stripped("RETURN {a: 1, b: 'foo'}");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "{a: 1, b: 'foo'}")));
+}
+
+TEST(QueryStripper, QueryReturnMapProjection) {
+  StrippedQuery stripped("RETURN a {.prop, var, key: 2}");
+  EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "a {.prop, var, key: 2}")));
 }
 
 TEST(QueryStripper, QuerySemicolonEndingQuery1) {
