@@ -1,6 +1,15 @@
 #!/bin/bash -ex
-
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 PREFIX=/opt/toolchain-v5
+
+# NOTE: Often times when versions in the build script are changes, something
+# doesn't work. To avoid rebuild of the whole toolchain but rebuild specific
+# lib from 0, just comment specific line under this cript and run it. Don't
+# forget to comment back to avoid unnecessary deletes next time your run this
+# cript.
+
+# rm -rf "$DIR/build"
+# rm -rf "$DIR/output"
 
 # rm -rf "$PREFIX/bin/gcc"
 # rm -rf "$PREFIX/bin/ld.gold"
@@ -29,3 +38,5 @@ PREFIX=/opt/toolchain-v5
 # rm -rf "$PREFIX/include/proxygen"
 # rm -rf "$PREFIX/include/wangle"
 # rm -rf "$PREFIX/include/thrift"
+
+# rm -rf "$PREFIX"
