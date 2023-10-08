@@ -19,9 +19,9 @@
 #include <vector>
 
 //////////////////////////////////////////////////////
-// "json.hpp" should always come before "antrl4-runtime.h"
+// "json.hpp" should always come before "antlr4-runtime.h"
 // "json.hpp" uses libc's EOF macro while
-// "antrl4-runtime.h" contains a static variable of the
+// "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
@@ -2597,23 +2597,23 @@ TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
 
 TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
+  auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::STORAGE);
+  EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
+  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::INDEX);
+  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowConstraintInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
+  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::CONSTRAINT);
+  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
 }
 
 TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {

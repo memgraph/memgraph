@@ -221,15 +221,15 @@ class RuleBasedPlanner {
             // storage::View::NEW.
             input_op = std::make_unique<plan::CallProcedure>(
                 std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
-                result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
+                result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_,
+                call_proc->void_procedure_);
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
 
-            input_op =
-                std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
-                                                load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
-
+            input_op = std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
+                                                       load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_,
+                                                       load_csv->nullif_, row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,

@@ -82,6 +82,8 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
   return !error_code;
 }
 
+bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
+
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
 
 InputFile::~InputFile() { Close(); }

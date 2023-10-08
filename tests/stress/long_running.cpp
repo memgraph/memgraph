@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,6 +46,9 @@ DEFINE_int32(worker_count, 1, "The number of workers that operate on the graph i
 DEFINE_bool(global_queries, true, "If queries that modifiy globally should be executed sometimes");
 
 DEFINE_string(stats_file, "", "File into which to write statistics.");
+
+DEFINE_string(isolation_level, "", "Database isolation level.");
+DEFINE_string(storage_mode, "", "Database storage_mode.");
 
 /**
  * Encapsulates a Graph and a Bolt session and provides CRUD op functions.

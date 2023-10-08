@@ -15,8 +15,28 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
+#include "utils/algorithm.hpp"
+#include "utils/math.hpp"
 
 namespace memgraph::query::plan {
+
+/**
+ * The symbol statistics specify essential DB statistics which
+ * help the query planner (namely here the cost estimator), to decide
+ * how to do expands and other types of Cypher manipulations.
+ */
+struct SymbolStatistics {
+  uint64_t count;
+  double degree;
+};
+
+/**
+ * Scope of the statistics for every scanned symbol in
+ * the operator tree.
+ */
+struct Scope {
+  std::unordered_map<std::string, SymbolStatistics> symbol_stats;
+};
 
 /**
  * Query plan execution time cost estimator, for comparing and choosing optimal
@@ -81,8 +101,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
-  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters)
-      : db_accessor_(db_accessor), parameters(parameters) {}
+  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters)
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{Scope()} {}
+
+  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters, Scope scope)
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{scope} {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_->VerticesCount();
@@ -92,6 +115,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
+    auto index_stats = db_accessor_->GetIndexStats(scan_all_by_label.label_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(scan_all_by_label.output_symbol_, index_stats.value());
+    }
+
     cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAllByLabel);
@@ -102,6 +130,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
+
     auto property_value = ConstPropertyValue(logical_op.expression_);
     double factor = 1.0;
     if (property_value)
@@ -119,6 +152,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
+
     // this cardinality estimation depends on Bound expressions.
     // if they are literals we can evaluate cardinality properly
     auto lower = BoundToPropertyValue(logical_op.lower_bound_);
@@ -144,6 +182,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelProperty &logical_op) override {
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
+
     const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
     cardinality_ *= factor;
     IncrementCost(CostParam::MakeScanAllByLabelProperty);
@@ -151,6 +194,20 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   // TODO: Cost estimate ScanAllById?
+
+  bool PostVisit(Expand &expand) override {
+    auto card_param = CardParam::kExpand;
+    auto stats = GetStatsFor(expand.input_symbol_);
+
+    if (stats.has_value()) {
+      card_param = stats.value().degree;
+    }
+
+    cardinality_ *= card_param;
+    IncrementCost(CostParam::kExpand);
+
+    return true;
+  }
 
 // For the given op first increments the cardinality and then cost.
 #define POST_VISIT_CARD_FIRST(NAME)     \
@@ -160,7 +217,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;                        \
   }
 
-  POST_VISIT_CARD_FIRST(Expand);
   POST_VISIT_CARD_FIRST(ExpandVariable);
 
 #undef POST_VISIT_CARD_FIRST
@@ -225,18 +281,40 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PostVisit(Produce &op) override {
+    auto scope = Scope();
+
+    // translate all the stats to the scope outside the return
+    for (const auto &symbol : op.ModifiedSymbols(table_)) {
+      auto stats = GetStatsFor(symbol);
+      if (stats.has_value()) {
+        scope.symbol_stats[symbol.name()] =
+            SymbolStatistics{.count = stats.value().count, .degree = stats.value().degree};
+      }
+    }
+
+    scopes_.push_back(std::move(scope));
+    return true;
+  }
+
   bool PreVisit(Apply &op) override {
-    double input_cost = EstimateCostOnBranch(&op.input_);
-    double subquery_cost = EstimateCostOnBranch(&op.subquery_);
+    // Get the cost of the main branch
+    op.input_->Accept(*this);
 
-    // if the query is a unit subquery, we don't want the cost to be zero but 1xN
-    input_cost = input_cost == 0 ? 1 : input_cost;
-    subquery_cost = subquery_cost == 0 ? 1 : subquery_cost;
+    // Estimate cost on the subquery branch independently, use a copy
+    auto &last_scope = scopes_.back();
+    double subquery_cost = EstimateCostOnBranch(&op.subquery_, last_scope);
+    subquery_cost = !utils::ApproxEqualDecimal(subquery_cost, 0.0) ? subquery_cost : 1;
+    cardinality_ *= subquery_cost;
 
-    cardinality_ *= input_cost * subquery_cost;
     IncrementCost(CostParam::kSubquery);
 
     return false;
+  }
+
+  bool PostVisit(EmptyResult & /*op*/) override {
+    scopes_.emplace_back();
+    return true;
   }
 
   bool Visit(Once &) override { return true; }
@@ -255,12 +333,20 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
+  const SymbolTable &table_;
   const Parameters &parameters;
+  std::vector<Scope> scopes_;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
   double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
-    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters);
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters);
+    (*branch)->Accept(cost_estimator);
+    return cost_estimator.cost();
+  }
+
+  double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope);
     (*branch)->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -287,12 +373,32 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
     return std::nullopt;
   }
+
+  bool HasStatsFor(const Symbol &symbol) const { return utils::Contains(scopes_.back().symbol_stats, symbol.name()); }
+
+  std::optional<SymbolStatistics> GetStatsFor(const Symbol &symbol) {
+    if (!HasStatsFor(symbol)) {
+      return std::nullopt;
+    }
+
+    auto &scope = scopes_.back();
+    return scope.symbol_stats[symbol.name()];
+  }
+
+  template <typename T>
+  void SaveStatsFor(const Symbol &symbol, T index_stats) {
+    scopes_.back().symbol_stats[symbol.name()] = SymbolStatistics{
+        .count = index_stats.count,
+        .degree = index_stats.avg_degree,
+    };
+  }
 };
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOperator &plan) {
-  CostEstimator<TDbAccessor> estimator(db, parameters);
+double EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
+                        LogicalOperator &plan) {
+  CostEstimator<TDbAccessor> estimator(db, table, parameters);
   plan.Accept(estimator);
   return estimator.cost();
 }

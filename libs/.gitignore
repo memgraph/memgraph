@@ -8,3 +8,4 @@
 !antlr4.10.1.patch
 !rocksdb.patch
 !rocksdb-8.0.0.patch
+!rocksdb8.1.1.patch

@@ -47,10 +47,9 @@ struct MetricsResponse {
   std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 };
 
-template <typename TSessionData>
 class MetricsService {
  public:
-  explicit MetricsService(TSessionData *data) : db_(data->db) {}
+  explicit MetricsService(storage::Storage *storage) : db_(storage) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -98,9 +97,10 @@ class MetricsService {
     return metrics_response;
   }
 
-  auto GetEventCounters() {
+  inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventCounters() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
+    event_counters.reserve(memgraph::metrics::CounterEnd());
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
       event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
@@ -110,9 +110,10 @@ class MetricsService {
     return event_counters;
   }
 
-  auto GetEventGauges() {
+  inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventGauges() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
+    event_gauges.reserve(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
       event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
@@ -122,7 +123,7 @@ class MetricsService {
     return event_gauges;
   }
 
-  auto GetEventHistograms() {
+  inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventHistograms() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 
@@ -141,10 +142,11 @@ class MetricsService {
   }
 };
 
-template <typename TSessionData>
+// TODO: Should this be inside Database?
+// Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(TSessionData *data) : service_(data) {
+  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {
     spdlog::info("Basic request handler started!");
   }
 
@@ -206,6 +208,6 @@ class MetricsRequestHandler final {
   }
 
  private:
-  MetricsService<TSessionData> service_;
+  MetricsService service_;
 };
 }  // namespace memgraph::http

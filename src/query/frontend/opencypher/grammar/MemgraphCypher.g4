@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ACTIVE
                       | AFTER
                       | ALTER
                       | ANALYZE
@@ -48,6 +49,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE
                       | EDGE_TYPES
                       | EXECUTE
                       | FOR
@@ -59,9 +61,12 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
-                      | ISOLATION
+                      | NULLIF
+                      | IMPORT
+                      | INACTIVE
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
+                      | ISOLATION
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -106,6 +111,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UNCOMMITTED
                       | UNLOCK
                       | UPDATE
+                      | USE
                       | USER
                       | USERS
                       | VERSION
@@ -122,7 +128,8 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
-      | infoQuery
+      | databaseInfoQuery
+      | systemInfoQuery
       | constraintQuery
       | authQuery
       | dumpQuery
@@ -139,6 +146,9 @@ query : cypherQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
+      | multiDatabaseQuery
+      | showDatabases
+      | edgeImportModeQuery
       ;
 
 authQuery : createRole
@@ -156,6 +166,10 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
+          | grantDatabaseToUser
+          | revokeDatabaseFromUser
+          | showDatabasePrivileges
+          | setMainDatabase
           ;
 
 replicationQuery : setReplicationRole
@@ -207,6 +221,10 @@ streamQuery : checkStream
             | showStreams
             ;
 
+databaseName : symbolicName ;
+
+wildcardName : ASTERISK | symbolicName ;
+
 settingQuery : setSetting
              | showSetting
              | showSettings
@@ -224,6 +242,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
+         ( NULLIF nullif ) ?
          AS rowVar ;
 
 csvFile : literal ;
@@ -231,6 +250,8 @@ csvFile : literal ;
 delimiter : literal ;
 
 quote : literal ;
+
+nullif : literal ;
 
 rowVar : variable ;
 
@@ -261,6 +282,14 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
+grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
+
+revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
+
 privilege : CREATE
           | DELETE
           | MATCH
@@ -284,6 +313,8 @@ privilege : CREATE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
           | STORAGE_MODE
+          | MULTI_DATABASE_EDIT
+          | MULTI_DATABASE_USE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -361,7 +392,7 @@ isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
 
-storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL ;
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTIONAL ;
 
 storageModeQuery : STORAGE MODE storageMode ;
 
@@ -437,3 +468,18 @@ versionQuery : SHOW VERSION ;
 transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
+
+multiDatabaseQuery : createDatabase
+                   | useDatabase
+                   | dropDatabase
+                   ;
+
+createDatabase : CREATE DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
+
+dropDatabase : DROP DATABASE databaseName ;
+
+showDatabases: SHOW DATABASES ;
+
+edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;

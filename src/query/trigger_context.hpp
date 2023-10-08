@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -159,11 +159,6 @@ enum class TriggerEventType : uint8_t {
 };
 
 const char *TriggerEventTypeToString(TriggerEventType event_type);
-
-static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
-              "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
-static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
-              "EdgeAccessor is not trivially copy constructible, move it where possible and remove this asssert");
 
 // Holds the information necessary for triggers
 class TriggerContext {

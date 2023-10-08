@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "auth/models.hpp"
+#include "dbms/constants.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
@@ -122,6 +123,29 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 }
 
 #ifdef MG_ENTERPRISE
+std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
+    const std::optional<memgraph::auth::User> &user) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !user) {
+    return {};
+  }
+
+  const auto &db = user->db_access();
+  const auto &allows = db.GetAllowAll();
+  const auto &grants = db.GetGrants();
+  const auto &denies = db.GetDenies();
+
+  std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
+  if (allows) {
+    res.emplace_back("*");
+  } else {
+    std::vector<memgraph::query::TypedValue> grants_vec(grants.cbegin(), grants.cend());
+    res.emplace_back(std::move(grants_vec));
+  }
+  std::vector<memgraph::query::TypedValue> denies_vec(denies.cbegin(), denies.cend());
+  res.emplace_back(std::move(denies_vec));
+  return {res};
+}
+
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
@@ -268,6 +292,10 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
           }
 #endif
       );
+#ifdef MG_ENTERPRISE
+      GrantDatabaseToUser(auth::kAllDatabases, username);
+      SetMainDatabase(username, dbms::kDefaultDB);
+#endif
     }
 
     return user_added;
@@ -318,6 +346,75 @@ bool AuthQueryHandler::CreateRole(const std::string &rolename) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
+
+#ifdef MG_ENTERPRISE
+bool AuthQueryHandler::RevokeDatabaseFromUser(const std::string &db, const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user name.");
+  }
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) return false;
+    return locked_auth->RevokeDatabaseFromUser(db, username);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db, const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user name.");
+  }
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) return false;
+    return locked_auth->GrantDatabaseToUser(db, username);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
+    const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
+  }
+  try {
+    auto locked_auth = auth_->ReadLock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+    return ShowDatabasePrivileges(user);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+bool AuthQueryHandler::SetMainDatabase(const std::string &db, const std::string &username) {
+  if (!std::regex_match(username, name_regex_)) {
+    throw memgraph::query::QueryRuntimeException("Invalid user name.");
+  }
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) return false;
+    return locked_auth->SetMainDatabase(db, username);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::DeleteDatabase(std::string_view db) {
+  try {
+    auth_->Lock()->DeleteDatabase(std::string(db));
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+#endif
 
 bool AuthQueryHandler::DropRole(const std::string &rolename) {
   if (!std::regex_match(rolename, name_regex_)) {

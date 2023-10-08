@@ -1,14 +1,33 @@
 bolt_port: &bolt_port "7687"
-template_cluster: &template_cluster
+
+args: &args
+  - "--bolt-port"
+  - *bolt_port
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      args: *args
       log_file: "isolation-levels-e2e.log"
       setup_queries: []
+      validation_queries: []
+
+disk_cluster: &disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "isolation-levels-disk-e2e.log"
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
       validation_queries: []
 
 workloads:
   - name: "Isolation levels"
     binary: "tests/e2e/isolation_levels/memgraph__e2e__isolation_levels"
     args: ["--bolt-port", *bolt_port]
-    <<: *template_cluster
+    <<: *in_memory_cluster
+
+  - name: "Isolation levels for disk storage"
+    binary: "tests/e2e/isolation_levels/memgraph__e2e__isolation_levels"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_cluster

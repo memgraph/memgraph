@@ -24,8 +24,9 @@ namespace memgraph::storage {
 
 class EdgeAccessor;
 class Storage;
-struct Indices;
 struct Constraints;
+struct Indices;
+struct EdgesVertexAccessorResult;
 
 class VertexAccessor final {
  private:
@@ -43,6 +44,8 @@ class VertexAccessor final {
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
+
+  static bool IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
@@ -73,6 +76,9 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
+  Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
+
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
@@ -86,13 +92,13 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+  Result<EdgesVertexAccessorResult> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                             const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+  Result<EdgesVertexAccessorResult> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                              const VertexAccessor *destination = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
@@ -106,7 +112,6 @@ class VertexAccessor final {
   }
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
- private:
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;
@@ -121,6 +126,11 @@ class VertexAccessor final {
   // All the write operations, and operators used for traversal (e.g. InEdges) will still
   // return an error if it's called for a deleted vertex.
   bool for_deleted_{false};
+};
+
+struct EdgesVertexAccessorResult {
+  std::vector<EdgeAccessor> edges;
+  int64_t expanded_count;
 };
 
 }  // namespace memgraph::storage

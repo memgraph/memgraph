@@ -21,6 +21,7 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
+DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
 namespace {
 auto GetClient() {
@@ -180,6 +181,15 @@ int main(int argc, char **argv) {
 
   mg::Client::Init();
   auto client = GetClient();
+
+  if (FLAGS_multi_db) {
+    client->Execute("CREATE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("USE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  }
 
   AssertQueryFails<mg::ClientException>(client, CreateModuleFileQuery("some.cpp", "some content"),
                                         "mg.create_module_file: The specified file isn't in the supported format.");

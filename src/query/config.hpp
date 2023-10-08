@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,8 +19,6 @@ struct InterpreterConfig {
     bool allow_load_csv{true};
   } query;
 
-  // The default execution timeout is 10 minutes.
-  double execution_timeout_sec{600.0};
   // The same as \ref memgraph::storage::replication::ReplicationClientConfig
   std::chrono::seconds replication_replica_check_frequency{1};
 

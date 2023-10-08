@@ -101,7 +101,7 @@ jobs:
             echo ${file}
             if [[ ${file} == *.py ]]; then
               python3 -m black --check --diff ${file}
-              python3 -m isort --check-only --diff ${file}
+              python3 -m isort --profile black --check-only --diff ${file}
             fi
           done
 
@@ -196,22 +196,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          cd tests/integration
-          for name in *; do
-            if [ ! -d $name ]; then continue; fi
-            pushd $name >/dev/null
-            echo "Running: $name"
-            if [ -x prepare.sh ]; then
-              ./prepare.sh
-            fi
-            if [ -x runner.py ]; then
-              ./runner.py
-            elif [ -x runner.sh ]; then
-              ./runner.sh
-            fi
-            echo
-            popd >/dev/null
-          done
+          tests/integration/run.sh
 
       - name: Run cppcheck and clang-format
         run: |
@@ -243,6 +228,11 @@ jobs:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Check e2e service dependencies
+        run: |
+          cd tests/e2e
+          ./dependency_check.sh
 
       - name: Build release binaries
         run: |
@@ -281,21 +271,22 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          # TODO(gitbuda): Setup mgclient and pymgclient properly.
           cd tests
-          ./setup.sh
-          source ve3/bin/activate
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
           cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory .
+          ./run.sh
 
       - name: Run stress test (plain)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration
 
       - name: Run stress test (SSL)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration --use-ssl
 
       - name: Run durability test
@@ -308,7 +299,6 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
           cd build
 
           # create mgconsole
@@ -355,10 +345,8 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
           # Initialize dependencies.
           ./init
-
           # Build only memgraph release binarie.
           cd build
           cmake -DCMAKE_BUILD_TYPE=release ..
@@ -367,7 +355,7 @@ jobs:
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test --binary ../../build/memgraph --run-args "test-all --node-configs resources/node-config.edn" --ignore-run-stdout-logs --ignore-run-stderr-logs
+          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v3
@@ -429,11 +417,12 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
       - name: Run mgbench
         run: |
           cd tests/mgbench
@@ -446,7 +435,7 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"

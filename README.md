@@ -175,7 +175,6 @@ license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 
 - :purple_heart: [**Discord**](https://discord.gg/memgraph)
 - :ocean: [**Stack Overflow**](https://stackoverflow.com/questions/tagged/memgraphdb)
-- :busts_in_silhouette: [**Discourse forum**](https://discourse.memgraph.com/)
 - :bird: [**Twitter**](https://twitter.com/memgraphdb)
 - :movie_camera:
   [**YouTube**](https://www.youtube.com/channel/UCZ3HOJvHGxtQ_JHxOselBYg)

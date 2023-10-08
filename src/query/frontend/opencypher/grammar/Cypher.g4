@@ -27,7 +27,8 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
-      | infoQuery
+      | databaseInfoQuery
+      | systemInfoQuery
       | constraintQuery
       ;
 
@@ -48,7 +49,9 @@ constraintInfo : CONSTRAINT INFO ;
 
 buildInfo : BUILD INFO ;
 
-infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo | buildInfo) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo ) ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -407,4 +410,5 @@ cypherKeyword : ALL
 symbolicName : UnescapedSymbolicName
              | EscapedSymbolicName
              | cypherKeyword
+             | UNDERSCORE
              ;

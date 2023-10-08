@@ -13,7 +13,6 @@ import copy
 import os
 import subprocess
 import sys
-import tempfile
 import time
 
 import mgclient
@@ -62,19 +61,51 @@ class MemgraphInstanceRunner:
         self.binary_path = binary_path
         self.args = None
         self.proc_mg = None
-        self.conn = None
         self.ssl = use_ssl
 
-    def query(self, query):
-        cursor = self.conn.cursor()
-        cursor.execute(query)
-        return cursor.fetchall()
+    def execute_setup_queries(self, setup_queries):
+        if setup_queries is None:
+            return
+        # An assumption being database instance is fresh, no need for the auth.
+        conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
+        conn.autocommit = True
+        cursor = conn.cursor()
+        for query_coll in setup_queries:
+            if isinstance(query_coll, str):
+                cursor.execute(query_coll)
+            elif isinstance(query_coll, list):
+                for query in query_coll:
+                    cursor.execute(query)
+        cursor.close()
+        conn.close()
 
-    def start(self, restart=False, args=[]):
+    # NOTE: Both query and get_connection may esablish new connection -> auth
+    # details required -> username/password should be optional arguments.
+    def query(self, query, conn=None, username="", password=""):
+        new_conn = conn is None
+        if new_conn:
+            conn = self.get_connection(username, password)
+        cursor = conn.cursor()
+        cursor.execute(query)
+        data = cursor.fetchall()
+        cursor.close()
+        if new_conn:
+            conn.close()
+        return data
+
+    def get_connection(self, username="", password=""):
+        conn = mgclient.connect(
+            host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
+        )
+        conn.autocommit = True
+        return conn
+
+    def start(self, restart=False, args=None, setup_queries=None):
         if not restart and self.is_running():
             return
         self.stop()
-        self.args = copy.deepcopy(args)
+        if args is not None:
+            self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
         args_mg = [
             self.binary_path,
@@ -86,8 +117,7 @@ class MemgraphInstanceRunner:
         self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
-        self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
-        self.conn.autocommit = True
+        self.execute_setup_queries(setup_queries)
         assert self.is_running(), "The Memgraph process died!"
 
     def is_running(self):

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,21 +10,24 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+
+#include "storage/v2/replication/enums.hpp"
 #include "utils/logging.hpp"
 
 namespace {
-const std::string kReplicaName = "replica_name";
-const std::string kIpAddress = "replica_ip_address";
-const std::string kPort = "replica_port";
-const std::string kSyncMode = "replica_sync_mode";
-const std::string kCheckFrequency = "replica_check_frequency";
-const std::string kSSLKeyFile = "replica_ssl_key_file";
-const std::string kSSLCertFile = "replica_ssl_cert_file";
+inline constexpr auto *kReplicaName = "replica_name";
+inline constexpr auto *kIpAddress = "replica_ip_address";
+inline constexpr auto *kPort = "replica_port";
+inline constexpr auto *kSyncMode = "replica_sync_mode";
+inline constexpr auto *kCheckFrequency = "replica_check_frequency";
+inline constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
+inline constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
+inline constexpr auto *kReplicationRole = "replication_role";
 }  // namespace
 
 namespace memgraph::storage::replication {
 
-nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
+nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status) {
   auto data = nlohmann::json::object();
 
   data[kReplicaName] = std::move(status.name);
@@ -42,11 +45,15 @@ nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
     data[kSSLCertFile] = nullptr;
   }
 
+  if (status.role.has_value()) {
+    data[kReplicationRole] = *status.role;
+  }
+
   return data;
 }
 
-std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
-  ReplicaStatus replica_status;
+std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) {
+  ReplicationStatus replica_status;
 
   const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
     return fmt::format("Failed to deserialize replica's configuration: {} : {}", message, nested_message);
@@ -69,6 +76,11 @@ std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
       replica_status.ssl = replication::ReplicationClientConfig::SSL{};
       data.at(kSSLKeyFile).get_to(replica_status.ssl->key_file);
       data.at(kSSLCertFile).get_to(replica_status.ssl->cert_file);
+    }
+
+    if (data.find(kReplicationRole) != data.end()) {
+      replica_status.role = replication::ReplicationRole::MAIN;
+      data.at(kReplicationRole).get_to(replica_status.role.value());
     }
   } catch (const nlohmann::json::type_error &exception) {
     spdlog::error(get_failed_message("Invalid type conversion", exception.what()));

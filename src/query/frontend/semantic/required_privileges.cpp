@@ -35,21 +35,26 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
-  void Visit(InfoQuery &info_query) override {
+  void Visit(DatabaseInfoQuery &info_query) override {
     switch (info_query.info_type_) {
-      case InfoQuery::InfoType::INDEX:
+      case DatabaseInfoQuery::InfoType::INDEX:
         // TODO: This should be INDEX | STATS, but we don't have support for
         // *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::INDEX);
         break;
-      case InfoQuery::InfoType::STORAGE:
-      case InfoQuery::InfoType::BUILD:
-        AddPrivilege(AuthQuery::Privilege::STATS);
-        break;
-      case InfoQuery::InfoType::CONSTRAINT:
+      case DatabaseInfoQuery::InfoType::CONSTRAINT:
         // TODO: This should be CONSTRAINT | STATS, but we don't have support
         // for *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
+        break;
+    }
+  }
+
+  void Visit(SystemInfoQuery &info_query) override {
+    switch (info_query.info_type_) {
+      case SystemInfoQuery::InfoType::STORAGE:
+      case SystemInfoQuery::InfoType::BUILD:
+        AddPrivilege(AuthQuery::Privilege::STATS);
         break;
     }
   }
@@ -87,7 +92,25 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
+  void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
+
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
+  void Visit(MultiDatabaseQuery &query) override {
+    switch (query.action_) {
+      case MultiDatabaseQuery::Action::CREATE:
+      case MultiDatabaseQuery::Action::DROP:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        break;
+      case MultiDatabaseQuery::Action::USE:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE);
+        break;
+    }
+  }
+
+  void Visit(ShowDatabasesQuery & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
+  }
 
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);

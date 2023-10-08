@@ -39,7 +39,7 @@ namespace memgraph::communication {
  * second, checks all sessions for expiration and shuts them down if they have
  * expired.
  */
-template <class TSession, class TSessionData>
+template <class TSession, class TSessionContext>
 class Listener final {
  private:
   // The maximum number of events handled per execution thread is 1. This is
@@ -48,10 +48,10 @@ class Listener final {
   // can take a long time.
   static const int kMaxEvents = 1;
 
-  using SessionHandler = Session<TSession, TSessionData>;
+  using SessionHandler = Session<TSession, TSessionContext>;
 
  public:
-  Listener(TSessionData *data, ServerContext *context, int inactivity_timeout_sec, const std::string &service_name,
+  Listener(TSessionContext *data, ServerContext *context, int inactivity_timeout_sec, const std::string &service_name,
            size_t workers_count)
       : data_(data),
         alive_(false),
@@ -261,7 +261,7 @@ class Listener final {
 
   io::network::Epoll epoll_;
 
-  TSessionData *data_;
+  TSessionContext *data_;
 
   utils::SpinLock lock_;
   std::vector<std::unique_ptr<SessionHandler>> sessions_;

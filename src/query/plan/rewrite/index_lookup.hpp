@@ -27,7 +27,6 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
-#include "storage/v2/indices.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -91,19 +90,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // See if it might be better to do ScanAllBy<Index> of the destination and
-  // then do Expand to existing.
-  bool PostVisit(Expand &expand) override {
+  bool PostVisit(Expand & /*expand*/) override {
     prev_ops_.pop_back();
-    if (expand.common_.existing_node) {
-      return true;
-    }
-    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
-    auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    if (indexed_scan) {
-      expand.set_input(std::move(indexed_scan));
-      expand.common_.existing_node = true;
-    }
     return true;
   }
 
@@ -477,6 +465,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(LoadCsv &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadCsv & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
@@ -495,7 +493,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
-    std::optional<storage::IndexStats> index_stats;
+    std::optional<storage::LabelPropertyIndexStats> index_stats;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -562,8 +560,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      * @param vertex_count: New index's number of vertices.
      * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
      */
-    auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
-                              int vertex_count) {
+    auto compare_indices = [](std::optional<LabelPropertyIndex> &found,
+                              std::optional<storage::LabelPropertyIndexStats> &new_stats, int vertex_count) {
       if (!new_stats.has_value()) {
         return 0;
       }
@@ -600,7 +598,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         };
 
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-        std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+        std::optional<storage::LabelPropertyIndexStats> new_stats =
+            db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         // Conditions, from more to less important:
         // the index with 10x less vertices is better.

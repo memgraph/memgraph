@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,10 @@
 #include "license/license.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
 #include "utils/on_scope_exit.hpp"
 
 int main(int argc, char *argv[]) {
@@ -26,16 +28,20 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  memgraph::storage::Storage db;
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
   memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::query::InterpreterContext interpreter_context{&db, memgraph::query::InterpreterConfig{}, data_directory};
-  memgraph::query::Interpreter interpreter{&interpreter_context};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(memgraph::storage::Config{
+      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
+  auto db_acc_opt = db_gk.access();
+  MG_ASSERT(db_acc_opt, "Failed to access db");
+  auto &db_acc = *db_acc_opt;
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
+  memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};
 
-  ResultStreamFaker stream(&db);
-  auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);
+  ResultStreamFaker stream(db_acc->storage());
+  auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);

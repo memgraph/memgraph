@@ -689,3 +689,41 @@ TEST(PropertyStore, SetMultipleProperties) {
     EXPECT_FALSE(store.InitProperties(data));
   }
 }
+
+TEST(PropertyStore, HasAllProperties) {
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromInt(2), memgraph::storage::PropertyValue(123)},
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue("three")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue("0.0")}};
+
+  memgraph::storage::PropertyStore store;
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_TRUE(
+      store.HasAllProperties({memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyId::FromInt(2),
+                              memgraph::storage::PropertyId::FromInt(3)}));
+}
+
+TEST(PropertyStore, HasAllPropertyValues) {
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromInt(2), memgraph::storage::PropertyValue(123)},
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue("three")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue(0.0)}};
+
+  memgraph::storage::PropertyStore store;
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_TRUE(store.HasAllPropertyValues({memgraph::storage::PropertyValue(0.0), memgraph::storage::PropertyValue(123),
+                                          memgraph::storage::PropertyValue("three")}));
+}
+
+TEST(PropertyStore, HasAnyProperties) {
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue("three")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue("0.0")}};
+
+  memgraph::storage::PropertyStore store;
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_FALSE(store.HasAllPropertyValues({memgraph::storage::PropertyValue(0.0), memgraph::storage::PropertyValue(123),
+                                           memgraph::storage::PropertyValue("three")}));
+}

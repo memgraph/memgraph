@@ -11,7 +11,11 @@
 
 #pragma once
 
-#include "query/db_accessor.hpp"
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "query/frontend/ast/ast.hpp"
 #include "storage/v2/id_types.hpp"
 
@@ -19,16 +23,21 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 
+class DbAccessor;
+
 class AuthChecker {
  public:
   virtual ~AuthChecker() = default;
 
   [[nodiscard]] virtual bool IsUserAuthorized(const std::optional<std::string> &username,
-                                              const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
+                                              const std::vector<AuthQuery::Privilege> &privileges,
+                                              const std::string &db_name) const = 0;
 
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const std::string &username, const memgraph::query::DbAccessor *db_accessor) const = 0;
+      const std::string &username, const DbAccessor *db_accessor) const = 0;
+
+  virtual void ClearCache() const = 0;
 #endif
 };
 #ifdef MG_ENTERPRISE
@@ -36,72 +45,73 @@ class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
 
-  [[nodiscard]] virtual bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
-                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+  [[nodiscard]] virtual bool Has(const VertexAccessor &vertex, memgraph::storage::View view,
+                                 AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool Has(const query::EdgeAccessor &edge,
-                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+  [[nodiscard]] virtual bool Has(const EdgeAccessor &edge,
+                                 AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool Has(const std::vector<memgraph::storage::LabelId> &labels,
-                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+                                 AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool Has(const memgraph::storage::EdgeTypeId &edge_type,
-                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+                                 AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool HasGlobalPrivilegeOnVertices(
-      memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+      AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool HasGlobalPrivilegeOnEdges(
-      memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+      AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 };
 
-class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
+class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
  public:
   bool Has(const VertexAccessor & /*vertex*/, const memgraph::storage::View /*view*/,
-           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+           const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool Has(const memgraph::query::EdgeAccessor & /*edge*/,
-           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+  bool Has(const EdgeAccessor & /*edge*/,
+           const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
   bool Has(const std::vector<memgraph::storage::LabelId> & /*labels*/,
-           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+           const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
   bool Has(const memgraph::storage::EdgeTypeId & /*edge_type*/,
-           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+           const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool HasGlobalPrivilegeOnVertices(
-      const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+  bool HasGlobalPrivilegeOnVertices(const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool HasGlobalPrivilegeOnEdges(
-      const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+  bool HasGlobalPrivilegeOnEdges(const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
-};  // namespace memgraph::query
+};
 #endif
 
-class AllowEverythingAuthChecker final : public query::AuthChecker {
+class AllowEverythingAuthChecker final : public AuthChecker {
  public:
   bool IsUserAuthorized(const std::optional<std::string> & /*username*/,
-                        const std::vector<query::AuthQuery::Privilege> & /*privileges*/) const override {
+                        const std::vector<AuthQuery::Privilege> & /*privileges*/,
+                        const std::string & /*db*/) const override {
     return true;
   }
 
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/,
-                                                                    const query::DbAccessor * /*dba*/) const override {
+                                                                    const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
+
+  void ClearCache() const override {}
 #endif
-};  // namespace memgraph::query
+};
 
 }  // namespace memgraph::query

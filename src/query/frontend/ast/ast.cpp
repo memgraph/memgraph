@@ -223,7 +223,11 @@ constexpr utils::TypeInfo query::Unwind::kType{utils::TypeId::AST_UNWIND, "Unwin
 
 constexpr utils::TypeInfo query::AuthQuery::kType{utils::TypeId::AST_AUTH_QUERY, "AuthQuery", &query::Query::kType};
 
-constexpr utils::TypeInfo query::InfoQuery::kType{utils::TypeId::AST_INFO_QUERY, "InfoQuery", &query::Query::kType};
+constexpr utils::TypeInfo query::DatabaseInfoQuery::kType{utils::TypeId::AST_DATABASE_INFO_QUERY, "DatabaseInfoQuery",
+                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::SystemInfoQuery::kType{utils::TypeId::AST_SYSTEM_INFO_QUERY, "SystemInfoQuery",
+                                                        &query::Query::kType};
 
 constexpr utils::TypeInfo query::Constraint::kType{utils::TypeId::AST_CONSTRAINT, "Constraint", nullptr};
 
@@ -279,4 +283,14 @@ constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exist
 
 constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
                                                      &query::Clause::kType};
+
+constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MULTI_DATABASE_QUERY,
+                                                           "MultiDatabaseQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
+                                                           &query::Query::kType};
+
+constexpr utils::TypeInfo query::EdgeImportModeQuery::kType{utils::TypeId::AST_EDGE_IMPORT_MODE_QUERY,
+                                                            "EdgeImportModeQuery", &query::Query::kType};
+
 }  // namespace memgraph

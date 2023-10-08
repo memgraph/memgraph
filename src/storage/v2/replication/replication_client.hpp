@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,148 +11,106 @@
 
 #pragma once
 
-#include <atomic>
-#include <chrono>
-#include <thread>
-#include <variant>
-
 #include "rpc/client.hpp"
-#include "storage/v2/config.hpp"
-#include "storage/v2/delta.hpp"
-#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
-#include "storage/v2/storage.hpp"
-#include "utils/file.hpp"
 #include "utils/file_locker.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/thread_pool.hpp"
+
+#include <atomic>
+#include <optional>
+#include <set>
+#include <string>
 
 namespace memgraph::storage {
 
-class Storage::ReplicationClient {
+struct Delta;
+struct Vertex;
+struct Edge;
+class Storage;
+class ReplicationClient;
+
+// Handler used for transferring the current transaction.
+class ReplicaStream {
  public:
-  ReplicationClient(std::string name, Storage *storage, const io::network::Endpoint &endpoint,
-                    replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
+  explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
 
-  // Handler used for transfering the current transaction.
-  class ReplicaStream {
-   private:
-    friend class ReplicationClient;
-    explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
+  /// @throw rpc::RpcFailedException
+  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
 
-   public:
-    /// @throw rpc::RpcFailedException
-    void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
+  /// @throw rpc::RpcFailedException
+  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
 
-    /// @throw rpc::RpcFailedException
-    void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
+  /// @throw rpc::RpcFailedException
+  void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
-    /// @throw rpc::RpcFailedException
-    void AppendTransactionEnd(uint64_t final_commit_timestamp);
+  /// @throw rpc::RpcFailedException
+  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
+                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
-    /// @throw rpc::RpcFailedException
-    void AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
-                         const std::set<PropertyId> &properties, uint64_t timestamp);
+  /// @throw rpc::RpcFailedException
+  replication::AppendDeltasRes Finalize();
 
-   private:
-    /// @throw rpc::RpcFailedException
-    replication::AppendDeltasRes Finalize();
+ private:
+  ReplicationClient *self_;
+  rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
+};
 
-    ReplicationClient *self_;
-    rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
-  };
+class ReplicationClient {
+  friend class CurrentWalHandler;
+  friend class ReplicaStream;
 
-  // Handler for transfering the current WAL file whose data is
-  // contained in the internal buffer and the file.
-  class CurrentWalHandler {
-   private:
-    friend class ReplicationClient;
-    explicit CurrentWalHandler(ReplicationClient *self);
+ public:
+  ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config);
 
-   public:
-    void AppendFilename(const std::string &filename);
+  ReplicationClient(ReplicationClient const &) = delete;
+  ReplicationClient &operator=(ReplicationClient const &) = delete;
+  ReplicationClient(ReplicationClient &&) noexcept = delete;
+  ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-    void AppendSize(size_t size);
+  virtual ~ReplicationClient();
 
-    void AppendFileData(utils::InputFile *file);
+  auto Mode() const -> replication::ReplicationMode { return mode_; }
+  auto Name() const -> std::string const & { return name_; }
+  auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
+  auto State() const -> replication::ReplicaState { return replica_state_.load(); }
+  auto GetTimestampInfo() -> TimestampInfo;
 
-    void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
-
-    /// @throw rpc::RpcFailedException
-    replication::CurrentWalRes Finalize();
-
-   private:
-    ReplicationClient *self_;
-    rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
-  };
-
-  void StartTransactionReplication(uint64_t current_wal_seq_num);
-
+  void Start();
+  void StartTransactionReplication(const uint64_t current_wal_seq_num);
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
-
+  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
   // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication();
 
-  // Transfer the snapshot file.
-  // @param path Path of the snapshot file.
-  replication::SnapshotRes TransferSnapshot(const std::filesystem::path &path);
+ protected:
+  virtual void RecoverReplica(uint64_t replica_commit) = 0;
 
-  CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
-
-  // Transfer the WAL files
-  replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
-
-  const auto &Name() const { return name_; }
-
-  auto State() const { return replica_state_.load(); }
-
-  auto Mode() const { return mode_; }
-
-  const auto &Endpoint() const { return rpc_client_->Endpoint(); }
-
-  Storage::TimestampInfo GetTimestampInfo();
-
- private:
-  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
-
-  void RecoverReplica(uint64_t replica_commit);
-
-  uint64_t ReplicateCurrentWal();
-
-  using RecoveryWals = std::vector<std::filesystem::path>;
-  struct RecoveryCurrentWal {
-    uint64_t current_wal_seq_num;
-
-    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
-  };
-  using RecoverySnapshot = std::filesystem::path;
-  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
-
-  std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
-
-  void FrequentCheck();
+  auto GetStorage() -> Storage * { return storage_; }
+  auto GetEpochId() const -> std::string const &;
+  auto LastCommitTimestamp() const -> uint64_t;
   void InitializeClient();
-  void TryInitializeClientSync();
-  void TryInitializeClientAsync();
   void HandleRpcFailure();
+  void TryInitializeClientAsync();
+  void TryInitializeClientSync();
+  void FrequentCheck();
 
   std::string name_;
-  Storage *storage_;
-  std::optional<communication::ClientContext> rpc_context_;
-  std::optional<rpc::Client> rpc_client_;
+  communication::ClientContext rpc_context_;
+  rpc::Client rpc_client_;
+  std::chrono::seconds replica_check_frequency_;
 
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
@@ -175,6 +133,7 @@ class Storage::ReplicationClient {
   std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
 
   utils::Scheduler replica_checker_;
+  Storage *storage_;
 };
 
 }  // namespace memgraph::storage

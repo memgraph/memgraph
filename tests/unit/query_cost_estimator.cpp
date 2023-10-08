@@ -17,6 +17,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 using namespace memgraph::query;
@@ -33,11 +34,11 @@ using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  std::optional<memgraph::storage::Storage::Accessor> storage_dba;
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
+  std::optional<std::unique_ptr<memgraph::storage::Storage::Accessor>> storage_dba;
   std::optional<memgraph::query::DbAccessor> dba;
-  memgraph::storage::LabelId label = db.NameToLabel("label");
-  memgraph::storage::PropertyId property = db.NameToProperty("property");
+  memgraph::storage::LabelId label = db->NameToLabel("label");
+  memgraph::storage::PropertyId property = db->NameToProperty("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -49,10 +50,18 @@ class QueryCostEstimator : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    ASSERT_FALSE(db.CreateIndex(label).HasError());
-    ASSERT_FALSE(db.CreateIndex(label, property).HasError());
-    storage_dba.emplace(db.Access());
-    dba.emplace(&*storage_dba);
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    storage_dba.emplace(db->Access());
+    dba.emplace(storage_dba->get());
   }
 
   Symbol NextSymbol() { return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
@@ -74,7 +83,7 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, parameters_);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, symbol_table_, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -201,7 +210,7 @@ TEST_F(QueryCostEstimator, SubqueryCartesian) {
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> subquery = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   MakeOp<memgraph::query::plan::Apply>(input, subquery, true);
-  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices);
+  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices + no_vertices);
 }
 
 TEST_F(QueryCostEstimator, UnitSubquery) {

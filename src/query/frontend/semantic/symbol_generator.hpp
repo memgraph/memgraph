@@ -72,6 +72,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Expressions
   ReturnType Visit(Identifier &) override;
   ReturnType Visit(PrimitiveLiteral &) override { return true; }
+  bool PreVisit(MapLiteral &) override { return true; }
+  bool PostVisit(MapLiteral &) override;
   ReturnType Visit(ParameterLookup &) override { return true; }
   bool PreVisit(Aggregation &) override;
   bool PostVisit(Aggregation &) override;
@@ -140,6 +142,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     std::vector<Identifier *> identifiers_in_match;
     // Number of nested IfOperators.
     int num_if_operators{0};
+    std::unordered_set<std::string> prev_return_names{};
+    std::unordered_set<std::string> curr_return_names{};
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
@@ -171,8 +175,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
-  std::unordered_set<std::string> prev_return_names_;
-  std::unordered_set<std::string> curr_return_names_;
 };
 
 inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identifier *> &predefined_identifiers = {}) {

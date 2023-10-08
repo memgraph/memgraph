@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <exception>
 #include <map>
 #include <optional>
 #include <string>
@@ -72,23 +73,6 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
           "An unknown exception occurred, this is unexpected. Real message "
           "should be in database logs."};
 }
-
-namespace helpers {
-
-/** Extracts metadata from the extras field.
- * NOTE: In order to avoid a copy, the metadata in moved.
- * TODO: Update if extra field is used for anything else.
- */
-inline std::map<std::string, Value> ConsumeMetadata(Value &extra) {
-  std::map<std::string, Value> md;
-  auto &md_tv = extra.ValueMap()["tx_metadata"];
-  if (md_tv.IsMap()) {
-    md = std::move(md_tv.ValueMap());
-  }
-  return md;
-}
-
-}  // namespace helpers
 
 namespace details {
 
@@ -224,7 +208,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
   try {
     // Interpret can throw.
@@ -282,12 +266,17 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+  try {
+    session.Configure(extra.ValueMap());
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
   try {
     // Interpret can throw.
-    const auto [header, qid] =
-        session.Interpret(query.ValueString(), params.ValueMap(), helpers::ConsumeMetadata(extra));
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -310,6 +299,12 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandleRunV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleRunV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandlePullV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<true>(session, state, marker);
 }
@@ -320,6 +315,12 @@ State HandlePullV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandlePullV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandlePullV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
@@ -327,6 +328,12 @@ State HandleDiscardV1(TSession &session, const State state, const Marker marker)
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<false>(session, state, marker);
+}
+
+template <typename TSession>
+State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleDiscardV4<TSession>(session, state, marker);
 }
 
 template <typename TSession>
@@ -381,7 +388,8 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction(helpers::ConsumeMetadata(extra));
+    session.Configure(extra.ValueMap());
+    session.BeginTransaction(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -485,5 +493,11 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   return State::Error;
+}
+
+template <typename TSession>
+State HandleLogOff() {
+  // No arguments sent, the user just needs to reauthenticate
+  return State::Init;
 }
 }  // namespace memgraph::communication::bolt

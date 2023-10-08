@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "admin", "Username for the database");
 DEFINE_string(password, "admin", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
+DEFINE_string(use_db, "memgraph", "Database to run the query against");
 
 /**
  * Verifies that user 'user' has privileges that are given as positional
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
   memgraph::communication::bolt::Client client(context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  client.Execute(fmt::format("USE DATABASE {}", FLAGS_use_db), {});
 
   try {
     std::string query(argv[1]);

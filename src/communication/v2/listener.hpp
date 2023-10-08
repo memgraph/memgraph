@@ -36,11 +36,11 @@
 
 namespace memgraph::communication::v2 {
 
-template <class TSession, class TSessionData>
-class Listener final : public std::enable_shared_from_this<Listener<TSession, TSessionData>> {
+template <class TSession, class TSessionContext>
+class Listener final : public std::enable_shared_from_this<Listener<TSession, TSessionContext>> {
   using tcp = boost::asio::ip::tcp;
-  using SessionHandler = Session<TSession, TSessionData>;
-  using std::enable_shared_from_this<Listener<TSession, TSessionData>>::shared_from_this;
+  using SessionHandler = Session<TSession, TSessionContext>;
+  using std::enable_shared_from_this<Listener<TSession, TSessionContext>>::shared_from_this;
 
  public:
   Listener(const Listener &) = delete;
@@ -59,10 +59,10 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   bool IsRunning() const noexcept { return alive_.load(std::memory_order_relaxed); }
 
  private:
-  Listener(boost::asio::io_context &io_context, TSessionData *data, ServerContext *server_context,
+  Listener(boost::asio::io_context &io_context, TSessionContext *session_context, ServerContext *server_context,
            tcp::endpoint &endpoint, const std::string_view service_name, const uint64_t inactivity_timeout_sec)
       : io_context_(io_context),
-        data_(data),
+        session_context_(session_context),
         server_context_(server_context),
         acceptor_(io_context_),
         endpoint_{endpoint},
@@ -111,8 +111,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return OnError(ec, "accept");
     }
 
-    auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
-                                          service_name_);
+    auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, endpoint_,
+                                          inactivity_timeout_, service_name_);
     session->Start();
     DoAccept();
   }
@@ -123,7 +123,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   }
 
   boost::asio::io_context &io_context_;
-  TSessionData *data_;
+  TSessionContext *session_context_;
   ServerContext *server_context_;
   tcp::acceptor acceptor_;
 

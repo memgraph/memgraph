@@ -157,25 +157,34 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 // Query
 
 bool SymbolGenerator::PreVisit(SingleQuery &) {
-  prev_return_names_ = curr_return_names_;
-  curr_return_names_.clear();
+  auto &scope = scopes_.back();
+
+  scope.prev_return_names = scope.curr_return_names;
+  scope.curr_return_names.clear();
   return true;
 }
 
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
-  scopes_.back() = Scope();
+  auto next_scope = Scope();
+  next_scope.curr_return_names = scopes_.back().curr_return_names;
+
+  scopes_.pop_back();
+  scopes_.push_back(next_scope);
+
   return true;
 }
 
 bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
-  if (prev_return_names_ != curr_return_names_) {
+  auto &scope = scopes_.back();
+
+  if (scope.prev_return_names != scope.curr_return_names) {
     throw SemanticException("All subqueries in an UNION must have the same column names.");
   }
 
   // create new symbols for the result of the union
-  for (const auto &name : curr_return_names_) {
+  for (const auto &name : scope.curr_return_names) {
     auto symbol = CreateSymbol(name, false);
     cypher_union.union_symbols_.push_back(symbol);
   }
@@ -259,7 +268,9 @@ bool SymbolGenerator::PreVisit(Return &ret) {
 }
 
 bool SymbolGenerator::PostVisit(Return &) {
-  for (const auto &name_symbol : scopes_.back().symbols) curr_return_names_.insert(name_symbol.first);
+  auto &scope = scopes_.back();
+
+  for (const auto &name_symbol : scope.symbols) scope.curr_return_names.insert(name_symbol.first);
   return true;
 }
 
@@ -386,6 +397,29 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   }
   ident.MapTo(symbol);
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
+  std::unordered_map<int32_t, PropertyLookup *> property_lookups{};
+
+  for (const auto &pair : map_literal.elements_) {
+    if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
+    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
+    if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
+
+    auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
+    try {
+      auto *existing_property_lookup = property_lookups.at(symbol_pos);
+      // If already there (no exception), update the original and current PropertyLookups
+      existing_property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+      property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+    } catch (const std::out_of_range &) {
+      // Otherwise, add the PropertyLookup to the map
+      property_lookups.emplace(symbol_pos, property_lookup);
+    }
+  }
+
   return true;
 }
 

@@ -52,6 +52,14 @@ class EdgeAccessor final {
 
   VertexAccessor ToVertex() const;
 
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeFromVertex() const;
+
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeToVertex() const;
+
   EdgeTypeId EdgeType() const { return edge_type_; }
 
   /// Set a property value and return the old value.
@@ -62,6 +70,9 @@ class EdgeAccessor final {
   /// `false` otherwise.
   /// @throw std::bad_alloc
   Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+
+  Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
@@ -76,9 +87,8 @@ class EdgeAccessor final {
   Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
-    } else {
-      return edge_.gid;
     }
+    return edge_.gid;
   }
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
@@ -88,7 +98,6 @@ class EdgeAccessor final {
   }
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
- private:
   EdgeRef edge_;
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;

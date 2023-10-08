@@ -91,6 +91,37 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
   }
 }
 
+template <typename TSession>
+State RunHandlerV5(Signature signature, TSession &session, State state, Marker marker) {
+  switch (signature) {
+    case Signature::Run:
+      return HandleRunV5<TSession>(session, state, marker);
+    case Signature::Pull:
+      return HandlePullV5<TSession>(session, state, marker);
+    case Signature::Discard:
+      return HandleDiscardV5<TSession>(session, state, marker);
+    case Signature::Reset:
+      return HandleReset<TSession>(session, marker);
+    case Signature::Begin:
+      return HandleBegin<TSession>(session, state, marker);
+    case Signature::Commit:
+      return HandleCommit<TSession>(session, state, marker);
+    case Signature::Goodbye:
+      return HandleGoodbye<TSession>();
+    case Signature::Rollback:
+      return HandleRollback<TSession>(session, state, marker);
+    case Signature::Noop:
+      return HandleNoop<TSession>(state);
+    case Signature::Route:
+      return HandleRoute<TSession>(session, marker);
+    case Signature::LogOff:
+      return HandleLogOff<TSession>();
+    default:
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      return State::Close;
+  }
+}
+
 /**
  * Executor state run function
  * This function executes an initialized Bolt session.
@@ -120,6 +151,9 @@ State StateExecutingRun(TSession &session, State state) {
       }
       return RunHandlerV4<TSession>(signature, session, state, marker);
     }
+    case 5:
+      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
+      return RunHandlerV5<TSession>(signature, session, state, marker);
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
       return State::Close;

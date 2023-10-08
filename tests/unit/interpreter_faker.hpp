@@ -11,17 +11,18 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 
 struct InterpreterFaker {
-  InterpreterFaker(memgraph::query::InterpreterContext *interpreter_context)
-      : interpreter_context(interpreter_context), interpreter(interpreter_context) {
+  InterpreterFaker(memgraph::query::InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
+      : interpreter_context(interpreter_context), interpreter(interpreter_context, db) {
     interpreter_context->auth_checker = &auth_checker;
     interpreter_context->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter); });
   }
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(interpreter_context->db);
-    const auto [header, _, qid] = interpreter.Prepare(query, params, nullptr);
+    ResultStreamFaker stream(interpreter.current_db_.db_acc_->get()->storage());
+    const auto [header, _1, qid, _2] = interpreter.Prepare(query, params, {});
     stream.Header(header);
     return std::make_pair(std::move(stream), qid);
   }

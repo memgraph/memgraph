@@ -500,9 +500,13 @@ class FakeDbAccessor {
     return false;
   }
 
-  memgraph::storage::IndexStats GetIndexStats(memgraph::storage::LabelId label,
-                                              memgraph::storage::PropertyId property) const {
-    return memgraph::storage::IndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
+    return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
+  }
+
+  std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
+    return memgraph::storage::LabelIndexStats{.count = 0, .avg_degree = 0};  // unique id
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }

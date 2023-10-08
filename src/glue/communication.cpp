@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -150,7 +150,9 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
   }
-  return communication::bolt::Vertex{id, labels, properties};
+  // Introduced in Bolt v5 (for now just send the ID)
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
@@ -165,7 +167,12 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
   }
-  return communication::bolt::Edge{id, from, to, type, properties};
+  // Introduced in Bolt v5 (for now just send the ID)
+  const auto element_id = std::to_string(id.AsInt());
+  const auto from_element_id = std::to_string(from.AsInt());
+  const auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{
+      id, from, to, std::move(type), std::move(properties), element_id, from_element_id, to_element_id};
 }
 
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,

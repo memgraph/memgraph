@@ -1,6 +1,7 @@
 # CMake configuration for the main memgraph library and executable
 
 # add memgraph sub libraries, ordered by dependency
+add_subdirectory(csv)
 add_subdirectory(utils)
 add_subdirectory(requests)
 add_subdirectory(io)
@@ -16,10 +17,10 @@ add_subdirectory(slk)
 add_subdirectory(rpc)
 add_subdirectory(license)
 add_subdirectory(auth)
-
-if(MG_ENTERPRISE)
-        add_subdirectory(audit)
-endif()
+add_subdirectory(audit)
+add_subdirectory(dbms)
+add_subdirectory(flags)
+add_subdirectory(distributed)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -35,18 +36,11 @@ set(mg_single_node_v2_sources
         memgraph.cpp
 )
 
-set(mg_single_node_v2_libs stdc++fs Threads::Threads
-        mg-telemetry mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-glue)
-
-if(MG_ENTERPRISE)
-        # These are enterprise subsystems
-        set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-audit)
-endif()
-
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(memgraph ${mg_single_node_v2_libs})
+target_link_libraries(memgraph stdc++fs Threads::Threads
+        mg-telemetry mg-communication mg-memory mg-utils mg-license mg-settings mg-glue mg-flags)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
@@ -79,7 +73,7 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
-# Generate the configuration file.
+# Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
         ${CMAKE_BINARY_DIR}/memgraph
@@ -88,6 +82,11 @@ add_custom_command(TARGET memgraph POST_BUILD
         ${CMAKE_SOURCE_DIR}/config/flags.yaml
         BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
         COMMENT "Generating memgraph configuration file")
+# Copy the mappings file to the build directory.
+add_custom_command(TARGET memgraph POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_SOURCE_DIR}/config/mappings.json
+        ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json)
 
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
@@ -123,6 +122,9 @@ install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.hpp
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
+# Install the mappings file (must use absolute path).
+install(FILES ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json
+        DESTINATION /etc/memgraph RENAME apoc_compatibility_mappings.json)
 
 # Install logrotate configuration (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf

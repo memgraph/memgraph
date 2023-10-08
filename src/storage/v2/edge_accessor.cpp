@@ -12,10 +12,13 @@
 #include "storage/v2/edge_accessor.hpp"
 
 #include <memory>
+#include <stdexcept>
 #include <tuple>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -29,7 +32,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
   if (!config_.properties_on_edges) {
     Delta *delta = nullptr;
     {
-      std::lock_guard<utils::SpinLock> guard(from_vertex_->lock);
+      auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
       deleted = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
                   return std::get<2>(out_edge) == edge_;
@@ -44,6 +47,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::REMOVE_IN_EDGE:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
           break;
         case Delta::Action::ADD_OUT_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
@@ -65,7 +69,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
 
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     delta = edge_.ptr->delta;
   }
@@ -83,6 +87,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -100,11 +105,20 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor{from_vertex_, transaction_, indices_,
+                        constraints_, config_,      for_deleted_ && from_vertex_->deleted};
+}
+
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_, for_deleted_ && to_vertex_->deleted};
+}
+
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -121,6 +135,11 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
+  if (transaction_->IsDiskStorage()) {
+    ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
+    transaction_->AddModifiedEdge(Gid(), modified_edge);
+  }
+
   return std::move(current_value);
 }
 
@@ -128,7 +147,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -142,10 +161,30 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   return true;
 }
 
+Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  auto guard = std::unique_lock{edge_.ptr->lock};
+
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  auto id_old_new_change = edge_.ptr->properties.UpdateProperties(properties);
+
+  for (auto &[property, old_value, new_value] : id_old_new_change) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+  }
+
+  return id_old_new_change;
+}
+
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -168,7 +207,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   PropertyValue value;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     value = edge_.ptr->properties.GetProperty(property);
     delta = edge_.ptr->delta;
@@ -181,6 +220,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -210,7 +250,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
     properties = edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta;
@@ -232,6 +272,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;

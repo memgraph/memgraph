@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@ import os  # To be removed
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, create_multi_db, execute_and_fetch_all, switch_db
 
 COMMON_PATH_PREFIX_TEST1 = "procedures/mage/test_module"
 COMMON_PATH_PREFIX_TEST2 = "procedures/new_test_module_utils"
@@ -76,9 +76,13 @@ def postprocess_functions(path1: str, path2: str):
         )
 
 
-def test_mg_load_reload_submodule_root_utils():
+@pytest.mark.parametrize("switch", [False, True])
+def test_mg_load_reload_submodule_root_utils(switch):
     """Tests whether mg.load reloads content of some submodule code."""
     cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
     # First do a simple experiment
     test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
     try:
@@ -101,9 +105,13 @@ def test_mg_load_reload_submodule_root_utils():
     execute_and_fetch_all(cursor, "CALL mg.load('new_test_module');")
 
 
-def test_mg_load_all_reload_submodule_root_utils():
+@pytest.mark.parametrize("switch", [False, True])
+def test_mg_load_all_reload_submodule_root_utils(switch):
     """Tests whether mg.load_all reloads content of some submodule code"""
     cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
     # First do a simple experiment
     test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
     try:
@@ -126,9 +134,13 @@ def test_mg_load_all_reload_submodule_root_utils():
     execute_and_fetch_all(cursor, "CALL mg.load_all();")
 
 
-def test_mg_load_reload_submodule():
+@pytest.mark.parametrize("switch", [False, True])
+def test_mg_load_reload_submodule(switch):
     """Tests whether mg.load reloads content of some submodule code."""
     cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
     # First do a simple experiment
     test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
     try:
@@ -151,9 +163,13 @@ def test_mg_load_reload_submodule():
     execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
 
 
-def test_mg_load_all_reload_submodule():
+@pytest.mark.parametrize("switch", [False, True])
+def test_mg_load_all_reload_submodule(switch):
     """Tests whether mg.load_all reloads content of some submodule code"""
     cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
     # First do a simple experiment
     test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
     try:

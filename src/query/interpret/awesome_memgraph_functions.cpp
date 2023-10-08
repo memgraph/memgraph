@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 namespace {
@@ -419,6 +420,10 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   }
 }
 
+TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  return TypedValue(utils::GenerateUUID(), ctx.memory);
+}
+
 TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
   const auto &value = args[0];
@@ -467,6 +472,8 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
+  ctx.db_accessor->PrefetchInEdges(vertex);
+  ctx.db_accessor->PrefetchOutEdges(vertex);
   size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
@@ -476,6 +483,7 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
+  ctx.db_accessor->PrefetchInEdges(vertex);
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
@@ -484,6 +492,7 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
+  ctx.db_accessor->PrefetchOutEdges(vertex);
   size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
@@ -1198,7 +1207,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
     const mgp_func &func, const std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    /// Find function is called to aquire the lock on Module pointer while user-defined function is executed
+    /// Find function is called to acquire the lock on Module pointer while user-defined function is executed
     const auto &maybe_found =
         procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
     if (!maybe_found) {
@@ -1206,7 +1215,7 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
           "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
           fully_qualified_name);
     }
-    /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
+    /// Explicit extraction of module pointer, to clearly state that the lock is acquired.
     // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
     const auto &module_ptr = (*maybe_found).first;
 
@@ -1254,6 +1263,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == kId) return Id;
   if (function_name == "LAST") return Last;
   if (function_name == "PROPERTIES") return Properties;
+  if (function_name == "RANDOMUUID") return RandomUuid;
   if (function_name == "SIZE") return Size;
   if (function_name == "STARTNODE") return StartNode;
   if (function_name == "TIMESTAMP") return Timestamp;

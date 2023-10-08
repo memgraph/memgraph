@@ -27,6 +27,9 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -75,6 +78,12 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
   if (utils::DirExists(snapshot_directory)) {
     for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
+      if (!utils::HasReadAccess(item.path())) {
+        spdlog::warn(
+            "Skipping snapshot file '{}' because it is not readable, check file ownership and read permissions!",
+            item.path());
+        continue;
+      }
       try {
         auto info = ReadSnapshotInfo(item.path());
         if (uuid.empty() || info.uuid == uuid) {
@@ -121,35 +130,68 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                                  const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+                                  const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info))
+    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
 
+  spdlog::info("Recreating index statistics from metadata.");
+  // Recover label indices statistics.
+  spdlog::info("Recreating {} label index statistics from metadata.", indices_constraints.indices.label_stats.size());
+  for (const auto &item : indices_constraints.indices.label_stats) {
+    mem_label_index->SetIndexStats(item.first, item.second);
+    spdlog::info("A label index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label indices statistics are recreated.");
+
   // Recover label+property indices.
   spdlog::info("Recreating {} label+property indices from metadata.",
                indices_constraints.indices.label_property.size());
+  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_constraints.indices.label_property) {
-    if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
+    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("A label+property index is recreated from metadata.");
   }
   spdlog::info("Label+property indices are recreated.");
+
+  // Recover label+property indices statistics.
+  spdlog::info("Recreating {} label+property indices statistics from metadata.",
+               indices_constraints.indices.label_property_stats.size());
+  for (const auto &item : indices_constraints.indices.label_property_stats) {
+    const auto label_id = item.first;
+    const auto property_id = item.second.first;
+    const auto &stats = item.second.second;
+    mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+    spdlog::info("A label+property index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label+property indices statistics are recreated.");
+
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");
   // Recover existence constraints.
   spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
-  for (const auto &item : indices_constraints.constraints.existence) {
-    auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
-    if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
+  for (const auto &[label, property] : indices_constraints.constraints.existence) {
+    if (constraints->existence_constraints_->ConstraintExists(label, property)) {
+      throw RecoveryFailure("The existence constraint already exists!");
+    }
+
+    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property);
+        violation.has_value()) {
+      throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
+    }
+
+    constraints->existence_constraints_->InsertConstraint(label, property);
+
     spdlog::info("A existence constraint is recreated from metadata.");
   }
   spdlog::info("Existence constraints are recreated from metadata.");
@@ -157,7 +199,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover unique constraints.
   spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
-    auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
+    auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
+    auto ret = mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
     spdlog::info("A unique constraint is recreated from metadata.");

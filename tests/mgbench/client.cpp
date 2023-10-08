@@ -470,7 +470,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   spdlog::info("Running a bolt client with following settings:");
-  spdlog::info("Adress: {} ", FLAGS_address);
+  spdlog::info("Address: {} ", FLAGS_address);
   spdlog::info("Port: {} ", FLAGS_port);
   spdlog::info("Username: {} ", FLAGS_username);
   spdlog::info("Password: {} ", FLAGS_password);

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,9 @@ inline constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
 
 enum class Signature : uint8_t {
   Noop = 0x00,
-  Init = 0x01,
+  Init = 0x01,  // v3+ now HELLO
+  LogOn = 0x6A,
+  LogOff = 0x6B,
   AckFailure = 0x0E,  // only v1
   Reset = 0x0F,
   Goodbye = 0x02,

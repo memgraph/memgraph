@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -313,5 +313,58 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
   }
   return ret;
 }
+
+#ifdef MG_ENTERPRISE
+bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name) {
+  auto user = GetUser(name);
+  if (user) {
+    if (db == kAllDatabases) {
+      user->db_access().GrantAll();
+    } else {
+      user->db_access().Add(db);
+    }
+    SaveUser(*user);
+    return true;
+  }
+  return false;
+}
+
+bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name) {
+  auto user = GetUser(name);
+  if (user) {
+    if (db == kAllDatabases) {
+      user->db_access().DenyAll();
+    } else {
+      user->db_access().Remove(db);
+    }
+    SaveUser(*user);
+    return true;
+  }
+  return false;
+}
+
+void Auth::DeleteDatabase(const std::string &db) {
+  for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
+    auto username = it->first.substr(kUserPrefix.size());
+    auto user = GetUser(username);
+    if (user) {
+      user->db_access().Delete(db);
+      SaveUser(*user);
+    }
+  }
+}
+
+bool Auth::SetMainDatabase(const std::string &db, const std::string &name) {
+  auto user = GetUser(name);
+  if (user) {
+    if (!user->db_access().SetDefault(db)) {
+      throw AuthException("Couldn't set default database '{}' for user '{}'!", db, name);
+    }
+    SaveUser(*user);
+    return true;
+  }
+  return false;
+}
+#endif
 
 }  // namespace memgraph::auth

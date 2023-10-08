@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       memgraph_version:
-        description: "Memgraph version to upload as. If empty upload is skipped. Format: 'vX.Y.Z'"
+        description: "Memgraph version to upload as. If empty upload is skipped. Format: 'X.Y.Z'"
         required: false
 
 jobs:
@@ -201,7 +201,7 @@ jobs:
 
   debian-11-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -218,7 +218,7 @@ jobs:
 
   ubuntu-2204-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -253,4 +253,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph/${{ github.event.inputs.memgraph_version }}/"
+          DEST_DIR: "memgraph/v${{ github.event.inputs.memgraph_version }}/"

@@ -57,6 +57,7 @@ struct Vertex {
   Id id;
   std::vector<std::string> labels;
   std::map<std::string, Value> properties;
+  std::string element_id;
 };
 
 /**
@@ -69,6 +70,9 @@ struct Edge {
   Id to;
   std::string type;
   std::map<std::string, Value> properties;
+  std::string element_id;
+  std::string from_element_id;
+  std::string to_element_id;
 };
 
 /**
@@ -79,6 +83,7 @@ struct UnboundedEdge {
   Id id;
   std::string type;
   std::map<std::string, Value> properties;
+  std::string element_id;
 };
 
 /**
@@ -107,7 +112,7 @@ struct Path {
     for (uint i = 0; i < edges.size(); i++) {
       const auto &e = edges[i];
       const auto &v = vertices[i + 1];
-      UnboundedEdge unbounded_edge{e.id, e.type, e.properties};
+      UnboundedEdge unbounded_edge{e.id, e.type, e.properties, e.element_id};
       add_element(this->edges, unbounded_edge, e.to == v.id ? 1 : -1, 1);
       add_element(this->vertices, v, 1, 0);
     }

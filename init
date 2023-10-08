@@ -77,7 +77,9 @@ fi
 
 # Fix for centos 7 during release
 if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
-  python3 -m pip uninstall -y virtualenv
+  if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
+    python3 -m pip uninstall -y virtualenv
+  fi
   python3 -m pip install virtualenv
 fi
 
@@ -91,6 +93,10 @@ setup_virtualenv tests/stress
 setup_virtualenv tests/integration/ldap
 
 # Setup tests dependencies.
+# NOTE: This is commented out because of the build order (at the time of
+# execution mgclient is not built yet) which makes this setup to fail. mgclient
+# is built during the make phase. The tests/setup.sh is called under GHA CI
+# jobs.
 # cd tests
 # ./setup.sh
 # cd ..
@@ -100,11 +106,15 @@ setup_virtualenv tests/integration/ldap
 
 echo "Done installing dependencies for Memgraph"
 
-echo "Linking git hooks"
-for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
-  ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
-  echo "Added $hook hook"
-done;
+echo "Linking git hooks OR skip if .git folder is not there"
+if [ -d "$DIR/.git" ]; then
+  for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
+    ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
+    echo "Added $hook hook"
+  done;
+else
+  echo "WARNING: .git folder not present, skip adding hooks"
+fi
 
 # Install precommit hook except on old operating systems because we don't
 # develop on them -> pre-commit hook not required -> we can use latest

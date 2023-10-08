@@ -19,11 +19,11 @@
 #include <variant>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
@@ -91,7 +91,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
-using ParalellizedIndexCreationInfo =
+using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 // Helper function used to recover all discovered indices and constraints. The
@@ -102,7 +102,7 @@ using ParalellizedIndexCreationInfo =
 void RecoverIndicesAndConstraints(
     const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
     utils::SkipList<Vertex> *vertices,
-    const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
+    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
 
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure

@@ -12,6 +12,7 @@
 #include "query/procedure/module.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <optional>
 
 extern "C" {
@@ -22,6 +23,7 @@ extern "C" {
 #include <unistd.h>
 
 #include "py/py.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
@@ -1267,7 +1269,7 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
 ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
   std::shared_lock<utils::RWLock> guard(lock_);
   auto found_it = modules_.find(name);
-  if (found_it == modules_.end()) return nullptr;
+  if (found_it == modules_.end()) return ModulePtr{nullptr};
   return ModulePtr(found_it->second.get(), std::move(guard));
 }
 
@@ -1326,10 +1328,25 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
     }
   };
   auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
-  if (!result) return std::nullopt;
+  if (!result) {
+    return std::nullopt;
+  }
   auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
-  if (!module) return std::nullopt;
+  if (!module) {
+    // Check for possible callable aliases.
+    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
+    if (maybe_valid_alias) {
+      result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
+      auto [module_name, prop_name] = *result;
+      module = module_registry.GetModuleNamed(module_name);
+      if (!module) {
+        return std::nullopt;
+      }
+    } else {
+      return std::nullopt;
+    }
+  }
   auto *prop = prop_fun(module);
   const auto &prop_it = prop->find(prop_name);
   if (prop_it == prop->end()) return std::nullopt;

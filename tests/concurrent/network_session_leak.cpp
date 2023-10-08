@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,9 +32,9 @@ TEST(Network, SessionLeak) {
   Endpoint endpoint(interface, 0);
 
   // initialize server
-  TestData session_data;
+  TestData session_context;
   ContextT context;
-  ServerT server(endpoint, &session_data, &context, -1, "Test", 2);
+  ServerT server(endpoint, &session_context, &context, -1, "Test", 2);
   ASSERT_TRUE(server.Start());
 
   // start clients

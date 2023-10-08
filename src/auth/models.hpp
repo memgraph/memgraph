@@ -9,10 +9,13 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 
 #include <json/json.hpp>
+#include "dbms/constants.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
@@ -41,7 +44,9 @@ enum class Permission : uint64_t {
   MODULE_WRITE = 1U << 19U,
   WEBSOCKET    = 1U << 20U,
   TRANSACTION_MANAGEMENT = 1U << 21U,
-  STORAGE_MODE    = 1U << 22U
+  STORAGE_MODE = 1U << 22U,
+  MULTI_DATABASE_EDIT = 1U << 23U,
+  MULTI_DATABASE_USE  = 1U << 24U,
 };
 // clang-format on
 
@@ -237,6 +242,85 @@ class Role final {
 
 bool operator==(const Role &first, const Role &second);
 
+#ifdef MG_ENTERPRISE
+class Databases final {
+ public:
+  Databases() : grants_dbs_({dbms::kDefaultDB}), allow_all_(false), default_db_(dbms::kDefaultDB) {}
+
+  Databases(const Databases &) = default;
+  Databases &operator=(const Databases &) = default;
+  Databases(Databases &&) noexcept = default;
+  Databases &operator=(Databases &&) noexcept = default;
+  ~Databases() = default;
+
+  /**
+   * @brief Add database to the list of granted access. @note allow_all_ will be false after execution
+   *
+   * @param db name of the database to grant access to
+   */
+  void Add(const std::string &db);
+
+  /**
+   * @brief Remove database to the list of granted access.
+   * @note if allow_all_ is set, the flag will remain set and the
+   * database will be added to the set of denied databases.
+   *
+   * @param db name of the database to grant access to
+   */
+  void Remove(const std::string &db);
+
+  /**
+   * @brief Called when database is dropped. Removes it from granted (if allow_all is false) and denied set.
+   * @note allow_all_ is not changed
+   *
+   * @param db name of the database to grant access to
+   */
+  void Delete(const std::string &db);
+
+  /**
+   * @brief Set allow_all_ to true and clears grants and denied sets.
+   */
+  void GrantAll();
+
+  /**
+   * @brief Set allow_all_ to false and clears grants and denied sets.
+   */
+  void DenyAll();
+
+  /**
+   * @brief Set the default database.
+   */
+  bool SetDefault(const std::string &db);
+
+  /**
+   * @brief Checks if access is grated to the database.
+   *
+   * @param db name of the database
+   * @return true if allow_all and not denied or granted
+   */
+  bool Contains(const std::string &db) const;
+
+  bool GetAllowAll() const { return allow_all_; }
+  const std::set<std::string> &GetGrants() const { return grants_dbs_; }
+  const std::set<std::string> &GetDenies() const { return denies_dbs_; }
+  const std::string &GetDefault() const;
+
+  nlohmann::json Serialize() const;
+  /// @throw AuthException if unable to deserialize.
+  static Databases Deserialize(const nlohmann::json &data);
+
+ private:
+  Databases(bool allow_all, std::set<std::string> grant, std::set<std::string> deny,
+            const std::string &default_db = dbms::kDefaultDB)
+      : grants_dbs_(grant), denies_dbs_(deny), allow_all_(allow_all), default_db_(default_db) {}
+
+  std::set<std::string> grants_dbs_;  //!< set of databases with granted access
+  std::set<std::string> denies_dbs_;  //!< set of databases with denied access
+  bool allow_all_;                    //!< flag to allow access to everything (denied overrides this)
+  std::string default_db_;            //!< user's default database
+};
+#endif
+
 // TODO (mferencevic): Implement password expiry.
 class User final {
  public:
@@ -246,7 +330,7 @@ class User final {
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler);
+       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
 #endif
   User(const User &) = default;
   User &operator=(const User &) = default;
@@ -279,6 +363,11 @@ class User final {
 
   const Role *role() const;
 
+#ifdef MG_ENTERPRISE
+  Databases &db_access() { return database_access_; }
+  const Databases &db_access() const { return database_access_; }
+#endif
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -292,6 +381,7 @@ class User final {
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+  Databases database_access_;
 #endif
   std::optional<Role> role_;
 };

@@ -157,9 +157,14 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitProfileQuery(MemgraphCypher::ProfileQueryContext *ctx) override;
 
   /**
-   * @return InfoQuery*
+   * @return DatabaseInfoQuery*
    */
-  antlrcpp::Any visitInfoQuery(MemgraphCypher::InfoQueryContext *ctx) override;
+  antlrcpp::Any visitDatabaseInfoQuery(MemgraphCypher::DatabaseInfoQueryContext *ctx) override;
+
+  /**
+   * @return SystemInfoQuery*
+   */
+  antlrcpp::Any visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) override;
 
   /**
    * @return Constraint
@@ -195,6 +200,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) override;
+
+  /**
+   * @return EdgeImportMode*
+   */
+  antlrcpp::Any visitEdgeImportModeQuery(MemgraphCypher::EdgeImportModeQueryContext *ctx) override;
 
   /**
    * @return ReplicationQuery*
@@ -525,6 +535,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
 
   /**
+   * @return std::string
+   */
+  antlrcpp::Any visitWildcardName(MemgraphCypher::WildcardNameContext *ctx) override;
+
+  /**
    * @return AuthQuery::FineGrainedPrivilege
    */
   antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
@@ -553,6 +568,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitGrantDatabaseToUser(MemgraphCypher::GrantDatabaseToUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitRevokeDatabaseFromUser(MemgraphCypher::RevokeDatabaseFromUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowDatabasePrivileges(MemgraphCypher::ShowDatabasePrivilegesContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitSetMainDatabase(MemgraphCypher::SetMainDatabaseContext *ctx) override;
 
   /**
    * @return Return*
@@ -934,6 +969,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return CallSubquery*
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery*
+   */
+  antlrcpp::Any visitCreateDatabase(MemgraphCypher::CreateDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery*
+   */
+  antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery*
+   */
+  antlrcpp::Any visitDropDatabase(MemgraphCypher::DropDatabaseContext *ctx) override;
+
+  /**
+   * @return ShowDatabasesQuery*
+   */
+  antlrcpp::Any visitShowDatabases(MemgraphCypher::ShowDatabasesContext *ctx) override;
 
  public:
   Query *query() { return query_; }
