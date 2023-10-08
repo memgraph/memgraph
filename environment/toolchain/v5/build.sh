@@ -6,7 +6,6 @@ popd () { command popd "$@" > /dev/null; }
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
-
 source "$DIR/../../util.sh"
 DISTRO="$(operating_system)"
 
@@ -27,14 +26,12 @@ if [[ "$#" -eq 1 ]]; then
         exit 1
    fi
 fi
-
 TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
 if [[ "$TOOLCHAIN_STDCXX" != "libstdc++" && "$TOOLCHAIN_STDCXX" != "libc++" ]]; then
     echo "Only GCC (libstdc++) or LLVM (libc++) C++ standard library implementations are supported."
     exit 1
 fi
 TOOLCHAIN_VERSION=5
-
 # package versions used
 GCC_VERSION=13.2.0
 BINUTILS_VERSION=2.41
@@ -50,6 +47,28 @@ CMAKE_VERSION=3.27.7
 CPPCHECK_VERSION=2.12.1
 LLVM_VERSION=17.0.2
 SWIG_VERSION=4.1.1 # used only for LLVM compilation
+# define the name used to make the toolchain archive
+DISTRO_FULL_NAME=${DISTRO}
+if [[ "${DISTRO}" == centos* ]]; then
+    if [[ "$for_arm" = "true" ]]; then
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
+    else
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-x86_64"
+    fi
+else
+    if [[ "$for_arm" = "true" ]]; then
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-arm64"
+    else
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-amd64"
+    fi
+fi
+if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+    # Pass because infra scripts assume there is not C++ standard lib in the name.
+    echo "NOTE: Not adding anything to the archive name, GCC C++ standard lib is used to build libraries."
+else
+    echo "NOTE: Adding libc++ to the archive name, all libraries are built with LLVM standard C++ library."
+    DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
+fi
 
 # Set the right operating system setup script.
 ENV_SCRIPT_RELATIVE="environment/os/$DISTRO.sh"
@@ -1233,32 +1252,11 @@ popd
 # folder to the output archive.
 mkdir -p output
 pushd output
-
-# create toolchain archive
-# TODO(gitbuda): Add flag to skip packaging (by default package).
-if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
-    DISTRO_FULL_NAME=${DISTRO}
-    if [[ "${DISTRO}" == centos* ]]; then
-        if [[ "$for_arm" = "true" ]]; then
-            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
-        else
-            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-x86_64"
-        fi
-    else
-        if [[ "$for_arm" = "true" ]]; then
-            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-arm64"
-        else
-            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-amd64"
-        fi
-    fi
-    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-        # Pass because infra scripts assume there is not C++ standard lib in the name.
-        echo "NOTE: Not adding anything to the archive name, GCC C++ standard lib is used to build libraries."
-    else
-        echo "NOTE: Adding libc++ to the archive name, all libraries are built with LLVM standard C++ library."
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
-    fi
+# Create the toolchain archive.
+if [ ! -f $NAME-binaries-$DISTRO_FULL_NAME.tar.gz ]; then
     tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
+else
+  echo "NOTE: Skipping archiving because the file already exists"
 fi
 
 # output final instructions
