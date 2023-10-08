@@ -352,11 +352,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(HashJoin &op) override {
-    // TODO HashJoin: Implement cost estimator for HashJoin, look at IndexedJoin (which may be wrong), and cartesian
-    // Cartesian is right I think, while IndexedJoin was written without too much thinking.
-    // Either way, learn about cost and cardinality and implement logic
+    // Get the cost of the main branch
+    op.left_op_->Accept(*this);
 
-    return true;
+    // add cost from the right branch and multiply cardinalities
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_op_);
+    IncrementCost(right_cost_estimation.cost);
+
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality;
+
+    return false;
   }
 
   bool PostVisit(EmptyResult & /*op*/) override {
