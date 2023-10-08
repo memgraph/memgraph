@@ -52,7 +52,7 @@ void EnsureDirOrDie(const std::filesystem::path &dir) {
   MG_ASSERT(EnsureDir(dir),
             "Couldn't create directory '{}' due to a permission issue or the "
             "path exists and isn't a directory!",
-            dir.string());
+            dir);
 }
 
 bool DirExists(const std::filesystem::path &dir) {
@@ -250,7 +250,7 @@ void InputFile::Close() noexcept {
   }
 
   if (ret != 0) {
-    spdlog::error("While trying to close {} an error occured: {} ({})", path_.string(), strerror(errno), errno);
+    spdlog::error("While trying to close {} an error occured: {} ({})", path_, strerror(errno), errno);
   }
 
   fd_ = -1;
@@ -323,7 +323,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
-            path.string(), path_.string());
+            path, path_);
   path_ = path;
   written_since_last_sync_ = 0;
 
@@ -343,8 +343,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_.string(), strerror(errno),
-            errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -393,8 +392,8 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_.string(),
-              strerror(errno), errno);
+    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno),
+              errno);
     return pos;
   }
 }
@@ -470,7 +469,7 @@ void OutputFile::Sync() {
   MG_ASSERT(ret == 0,
             "While trying to sync {}, an error occurred: {} ({}). Possibly {} "
             "bytes from previous write calls were lost.",
-            path_.string(), strerror(errno), errno, written_since_last_sync_);
+            path_, strerror(errno), errno, written_since_last_sync_);
 
   // Reset the counter.
   written_since_last_sync_ = 0;
@@ -495,7 +494,7 @@ void OutputFile::Close() noexcept {
   MG_ASSERT(ret == 0,
             "While trying to close {}, an error occurred: {} ({}). Possibly {} "
             "bytes from previous write calls were lost.",
-            path_.string(), strerror(errno), errno, written_since_last_sync_);
+            path_, strerror(errno), errno, written_since_last_sync_);
 
   fd_ = -1;
   written_since_last_sync_ = 0;
@@ -515,7 +514,7 @@ void OutputFile::FlushBufferInternal() {
   MG_ASSERT(buffer_position_ <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
-            path_.string());
+            path_);
 
   auto *buffer = buffer_;
   auto buffer_position = buffer_position_.load();
@@ -529,7 +528,7 @@ void OutputFile::FlushBufferInternal() {
               "while trying to write to {} an error occurred: {} ({}). "
               "Possibly {} bytes of data were lost from this call and "
               "possibly {} bytes were lost from previous calls.",
-              path_.string(), strerror(errno), errno, buffer_position_, written_since_last_sync_);
+              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
 
     buffer_position -= written;
     buffer += written;

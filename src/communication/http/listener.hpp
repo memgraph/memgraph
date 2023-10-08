@@ -82,7 +82,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
       return;
     }
 
-    spdlog::info("HTTP server is listening on {}:{}", endpoint.address(), endpoint.port());
+    spdlog::info("HTTP server is listening on {}:{}", endpoint.address().to_string(), endpoint.port());
   }
 
   void DoAccept() {

@@ -710,7 +710,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                      Config::Items items) {
-  spdlog::info("Trying to load WAL file {}.", path.string());
+  spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
 
   Decoder wal;

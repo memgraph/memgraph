@@ -23,9 +23,11 @@
 #include <optional>
 
 #include <fmt/format.h>
-// TODO(gitbuda): This solves all the issues with printing std::path (replace .string() calls)
-// TOOD(gitbuda): <fmt/std.h> doesn't work on the previous versions of fmt
-// #include <fmt/std.h>
+// NOTE: fmt 9+ introduced fmt/std.h, it's important because of, e.g., std::path formatting. toolchain-v4 has fmt 8,
+// __has_include is here because of fmt 8 compatibility.
+#if __has_include("fmt/std.h")
+#include <fmt/std.h>
+#endif
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>

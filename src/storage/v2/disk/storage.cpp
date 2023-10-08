@@ -1487,6 +1487,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       }
 
       const auto &edge = edge_acc.find(gid);
+      // TODO(gitbuda): Doesn't work on the latest compiler, what's the best way to resolve?
       MG_ASSERT(edge != edge_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
       if (!WriteEdgeToDisk(ser_edge_key, utils::SerializeProperties(edge->properties))) {

@@ -22,7 +22,6 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
-#include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
@@ -1722,7 +1721,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
   // Create snapshot file.
   auto path = snapshot_directory / MakeSnapshotName(transaction->start_timestamp);
-  spdlog::info("Starting snapshot creation to {}", path.string());
+  spdlog::info("Starting snapshot creation to {}", path);
   Encoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
 
@@ -2101,7 +2100,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         if (info.uuid != uuid) continue;
         old_snapshot_files.emplace_back(info.start_timestamp, item.path());
       } catch (const RecoveryFailure &e) {
-        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}", item.path().string(), e.what());
+        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}", item.path(), e.what());
         continue;
       }
     }

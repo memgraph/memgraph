@@ -17,7 +17,7 @@ namespace memgraph::utils {
 namespace {
 void DeleteFromSystem(const std::filesystem::path &path) {
   if (!utils::DeleteFile(path)) {
-    spdlog::warn("Couldn't delete file {}!", path.string());
+    spdlog::warn("Couldn't delete file {}!", path);
   }
 }
 }  // namespace
@@ -25,7 +25,7 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    spdlog::info("File {} doesn't exist.", path.string());
+    spdlog::info("File {} doesn't exist.", path);
     return;
   }
 
