@@ -489,7 +489,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         TOOLCHAIN_LLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS;libcxx;libcxxabi"
     fi
     # FUTURE: Clang 16+ has a different structure
-    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb"
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb;lld"
     TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
     if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
         TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
