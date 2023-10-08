@@ -670,11 +670,11 @@ WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
 # WANGLE_SHA256=0e493c03572bb27fe9ca03a9da5023e52fde99c95abdcaa919bb6190e7e69532
 
 FLEX_VERSION=2.6.4
-FMT_SHA256=5dea48d1fcddc3ec571ce2058e13910a0d4a6bab4cc09a809d8b1dd1c88ae6f2
-FMT_VERSION=9.1.0
-# NOTE: spdlog 1.10 & 1.11 does NOT work with fmt 10.0.0
-# FMT_SHA256=ede1b6b42188163a3f2e0f25ad5c0637eca564bd8df74d02e31a311dd6b37ad8
-# FMT_VERSION=10.0.0
+FMT_SHA256=78b8c0a72b1c35e4443a7e308df52498252d1cefc2b08c9a97bc9ee6cfe61f8b
+FMT_VERSION=10.1.1
+# NOTE: spdlog depends on exact fmt versions -> UPGRADE fmt and spdlog TOGETHER.
+SPDLOG_SHA256=4dccf2d10f410c1e2feaff89966bfc49a1abb29ef6f08246335b110e001e09a9
+SPDLOG_VERSION=1.12.0
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -712,12 +712,12 @@ fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
 fi
+if [ ! -f spdlog-$SPDLOG_VERSION.tar.gz ]; then
+    wget https://github.com/gabime/spdlog/archive/refs/tags/v$SPDLOG_VERSION.tar.gz -O spdlog-$SPDLOG_VERSION.tar.gz
+fi
 if [ ! -d folly-$FBLIBS_VERSION ]; then
     git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/folly.git folly-$FBLIBS_VERSION
 fi
-# if [ ! -f folly-$FBLIBS_VERSION.tar.gz ]; then
-#     wget https://github.com/facebook/folly/releases/download/v$FBLIBS_VERSION/folly-v$FBLIBS_VERSION.tar.gz -O folly-$FBLIBS_VERSION.tar.gz
-# fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
 fi
@@ -771,6 +771,8 @@ $GPG --keyserver $KEYSERVER --recv-keys 0xE4B29C8D64885307
 $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
+# verify spdlog
+echo "$SPDLOG_SHA256 spdlog-$SPDLOG_VERSION.tar.gz" | sha256sum -c
 # verify folly
 # echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
@@ -873,6 +875,19 @@ if [ ! -d $PREFIX/include/fmt ]; then
     popd && popd
 fi
 
+log_tool_name "spdlog $SPDLOG_VERSION"
+if [ ! -d $PREFIX/include/spdlog ]; then
+    if [ -d spdlog-$SPDLOG_VERSION ]; then
+        rm -rf spdlog-$SPDLOG_VERSION
+    fi
+    tar -xzf ../archives/spdlog-$SPDLOG_VERSION.tar.gz
+    pushd spdlog-$SPDLOG_VERSION
+    mkdir build && pushd build
+    cmake .. $COMMON_CMAKE_FLAGS
+    make -j$CPUS install
+    popd && popd
+fi
+
 log_tool_name "lz4 $LZ4_VERSION"
 if [ ! -f $PREFIX/include/lz4.h ]; then
     if [ -d lz4-$LZ4_VERSION ]; then
@@ -930,18 +945,17 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     if [ -d jemalloc ]; then
         rm -rf jemalloc
     fi
-
     git clone https://github.com/jemalloc/jemalloc.git jemalloc
     pushd jemalloc
     git checkout $JEMALLOC_VERSION
     ./autogen.sh
-    MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:0" \
+    MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
     ./configure \
          --disable-cxx \
          $COMMON_CONFIGURE_FLAGS \
-         --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:0"
+         --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
     make -j$CPUS install
-    # NOTE: Old jmalloc config.
+    # NOTE: Old jmalloc config (toolchain-v4 and before).
     # ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
     # env \
     #     EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
