@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -733,32 +734,36 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
 
-      // Before committing and validating vertices against unique constraints,
-      // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.
-      for (const auto &delta : transaction_.deltas.use()) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
-        mem_unique_constraints->UpdateBeforeCommit(prev.vertex, transaction_);
-      }
-
-      // Validate that unique constraints are satisfied for all modified
-      // vertices.
-      for (const auto &delta : transaction_.deltas.use()) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
+      if (transaction_.needs_constraint_verification) {
+        // Before committing and validating vertices against unique constraints,
+        // we have to update unique constraints with the vertices that are going
+        // to be validated/committed.
+        for (const auto &delta : transaction_.deltas.use()) {
+          auto prev = delta.prev.Get();
+          MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+          if (prev.type != PreviousPtr::Type::VERTEX) {
+            continue;
+          }
+          spdlog::trace("Gid of vertex is {}", prev.vertex->gid.AsUint());
+          mem_unique_constraints->UpdateBeforeCommit(prev.vertex, transaction_);
         }
 
-        // No need to take any locks here because we modified this vertex and no
-        // one else can touch it until we commit.
-        unique_constraint_violation = mem_unique_constraints->Validate(*prev.vertex, transaction_, *commit_timestamp_);
-        if (unique_constraint_violation) {
-          break;
+        // Validate that unique constraints are satisfied for all modified
+        // vertices.
+        for (const auto &delta : transaction_.deltas.use()) {
+          auto prev = delta.prev.Get();
+          MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+          if (prev.type != PreviousPtr::Type::VERTEX) {
+            continue;
+          }
+
+          // No need to take any locks here because we modified this vertex and no
+          // one else can touch it until we commit.
+          unique_constraint_violation =
+              mem_unique_constraints->Validate(*prev.vertex, transaction_, *commit_timestamp_);
+          if (unique_constraint_violation) {
+            break;
+          }
         }
       }
 
