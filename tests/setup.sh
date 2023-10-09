@@ -59,9 +59,7 @@ if [ $# == 1 ]; then
         set +u
         OLD_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
         source $toolchain
-        NEW_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-        # TODO(gitbuda): Setup mgclient and pymgclient properly.
-        NEW_LD_LIBRARY_PATH=$NEW_LD_LIBRARY_PATH:"../libs/mgclient/lib"
+        NEW_LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"../libs/mgclient/lib"
         deactivate
         set -u
 
