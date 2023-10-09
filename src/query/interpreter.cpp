@@ -1265,6 +1265,17 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  if (memory_limit_) {
+    memgraph::memory::query_limit = true;
+    memgraph::memory::memory_tracker_per_thread.SetMaximumHardLimit(static_cast<int64_t>(*memory_limit_));
+    memgraph::memory::memory_tracker_per_thread.SetHardLimit(static_cast<int64_t>(*memory_limit_));
+  }
+  utils::OnScopeExit<std::function<void()>> reset_query_limit{[memory_limit = memory_limit_]() {
+    if (memory_limit) {
+      memgraph::memory::query_limit = false;
+      memgraph::memory::memory_tracker_per_thread.ResetTrackings();
+    }
+  }};
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -1288,13 +1299,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
   }
 
-  std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
-  if (memory_limit_) {
-    maybe_limited_resource.emplace(&*pool_memory, *memory_limit_);
-    ctx_.evaluation_context.memory = &*maybe_limited_resource;
-  } else {
-    ctx_.evaluation_context.memory = &*pool_memory;
-  }
+  ctx_.evaluation_context.memory = &*pool_memory;
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
@@ -1361,6 +1366,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
+
   return GetStatsWithTotalTime(ctx_);
 }
 
@@ -3067,8 +3073,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            // {TypedValue("jemalloc_memory_allocated"),
-            //  TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            // {TypedValue("readable_memory_allocated"),
+            //   TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},

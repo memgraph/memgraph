@@ -58,6 +58,8 @@ class MemoryTracker final {
   void TryRaiseHardLimit(int64_t limit);
   void SetMaximumHardLimit(int64_t limit);
 
+  void ResetTrackings();
+
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.
   class OutOfMemoryExceptionEnabler final {

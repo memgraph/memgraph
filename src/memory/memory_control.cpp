@@ -57,12 +57,18 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+    if (query_limit) [[unlikely]] {
+      memory_tracker_per_thread.Alloc(static_cast<int64_t>(size));
+    }
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+      if (query_limit) [[unlikely]] {
+        memory_tracker_per_thread.Free(static_cast<int64_t>(size));
+      }
     }
     return ptr;
   }
@@ -79,6 +85,10 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+
+    if (query_limit) [[unlikely]] {
+      memory_tracker_per_thread.Free(static_cast<int64_t>(size));
+    }
   }
 
   return false;
@@ -87,6 +97,9 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+    if (query_limit) [[unlikely]] {
+      memory_tracker_per_thread.Free(static_cast<int64_t>(size));
+    }
   }
 
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
@@ -101,6 +114,9 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  if (query_limit) [[unlikely]] {
+    memory_tracker_per_thread.Alloc(static_cast<int64_t>(length));
+  }
 
   return false;
 }
@@ -115,6 +131,9 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   }
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
+  if (query_limit) [[unlikely]] {
+    memory_tracker_per_thread.Free(static_cast<int64_t>(length));
+  }
 
   return false;
 }
@@ -128,6 +147,10 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
     return err;
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
+
+  if (query_limit) [[unlikely]] {
+    memory_tracker_per_thread.Free(static_cast<int64_t>(length));
+  }
 
   return false;
 }

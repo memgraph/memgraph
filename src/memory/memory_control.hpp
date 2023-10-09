@@ -13,9 +13,13 @@
 
 #include <cstddef>
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 namespace memgraph::memory {
 
 void PurgeUnusedMemory();
 void SetHooks();
+
+inline thread_local bool query_limit{false};
+inline thread_local utils::MemoryTracker memory_tracker_per_thread{};
 
 }  // namespace memgraph::memory
