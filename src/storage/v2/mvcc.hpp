@@ -104,6 +104,41 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
+/// This function prepares the object for a write. It checks whether there are
+/// any serialization errors in the process (eg. the object can't be written to
+/// from this transaction because it is being written to from another
+/// transaction) and returns a `bool` value indicating whether the caller can
+/// proceed with a write operation.
+template <typename TObj>
+inline bool PrepareForWriteWithExcludedDelta(Transaction *transaction, TObj *object,
+                                             const std::vector<Delta::Action> &exclude_deltas) {
+  if (object->delta == nullptr) return true;
+  auto *delta = object->delta;
+  while (delta != nullptr) {
+    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+      return true;
+    }
+
+    bool delta_needs_to_be_excluded = false;
+    for (const auto &exclude_delta : exclude_deltas) {
+      if (delta->action == exclude_delta) {
+        delta_needs_to_be_excluded = true;
+        break;
+      }
+    }
+
+    if (!delta_needs_to_be_excluded) {
+      transaction->must_abort = true;
+      return false;
+    }
+
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+
+  return true;
+}
+
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
 /// a pointer to the created delta. It doesn't perform any linking of the delta
 /// and is primarily used to create the first delta for an object (that must be

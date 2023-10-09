@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "utils/resource_lock.hpp"
 
 namespace memgraph::storage {
@@ -325,11 +326,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+  const std::vector<Delta::Action> serialization_excluding_deltas{Delta::Action::REMOVE_IN_EDGE,
+                                                                  Delta::Action::REMOVE_OUT_EDGE};
+
+  if (!PrepareForWriteWithExcludedDelta(&transaction_, from_vertex, serialization_excluding_deltas))
+    return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWriteWithExcludedDelta(&transaction_, to_vertex, serialization_excluding_deltas))
+      return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 

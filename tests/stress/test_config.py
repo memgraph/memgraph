@@ -69,6 +69,19 @@ SMALL_DATASET = [
         DatasetConstants.MODE: [get_default_database_mode()],
     },
     {
+        DatasetConstants.TEST: "parallel_edge_import.py",
+        DatasetConstants.OPTIONS: [
+            "--worker-count",
+            "4",
+            "--repetition-count",
+            "50",
+            "--edge-import-per-transaction-count",
+            "100",
+        ],
+        DatasetConstants.TIMEOUT: 5,
+        DatasetConstants.MODE: [get_default_database_mode()],
+    },
+    {
         DatasetConstants.TEST: "create_match.py",
         DatasetConstants.OPTIONS: ["--vertex-count", "40000", "--create-pack-size", "100"],
         DatasetConstants.TIMEOUT: 5,
@@ -129,6 +142,19 @@ LARGE_DATASET = (
         {
             DatasetConstants.TEST: "detach_delete.py",
             DatasetConstants.OPTIONS: ["--worker-count", "4", "--repetition-count", "300"],
+            DatasetConstants.TIMEOUT: 5,
+            DatasetConstants.MODE: [get_default_database_mode()],
+        },
+        {
+            DatasetConstants.TEST: "parallel_edge_import.py",
+            DatasetConstants.OPTIONS: [
+                "--worker-count",
+                "4",
+                "--repetition-count",
+                "100",
+                "--edge-import-per-transaction-count",
+                "100",
+            ],
             DatasetConstants.TIMEOUT: 5,
             DatasetConstants.MODE: [get_default_database_mode()],
         },
