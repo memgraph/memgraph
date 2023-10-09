@@ -86,7 +86,7 @@ class QueryExecution : public testing::Test {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(this->db_acc_->get()->storage());
 
-    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
+    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, {});
     stream.Header(header);
     auto summary = interpreter_->PullAll(&stream);
     stream.Summary(summary);

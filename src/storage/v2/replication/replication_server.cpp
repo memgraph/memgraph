@@ -30,9 +30,10 @@ auto CreateServerContext(const replication::ReplicationServerConfig &config) -> 
 constexpr auto kReplictionServerThreads = 1;
 }  // namespace
 
-ReplicationServer::ReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+ReplicationServer::ReplicationServer(const replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
-      rpc_server_{std::move(endpoint), &rpc_server_context_, kReplictionServerThreads} {
+      rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
+                  kReplictionServerThreads} {
   rpc_server_.Register<replication::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc");
     FrequentHeartbeatHandler(req_reader, res_builder);

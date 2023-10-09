@@ -20,7 +20,7 @@ namespace memgraph::storage {
 
 class ReplicationServer {
  public:
-  explicit ReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config);
+  explicit ReplicationServer(const replication::ReplicationServerConfig &config);
   ReplicationServer(const ReplicationServer &) = delete;
   ReplicationServer(ReplicationServer &&) = delete;
   ReplicationServer &operator=(const ReplicationServer &) = delete;
