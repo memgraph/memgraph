@@ -122,6 +122,8 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
 struct Delta {
+  inline static int deltacount{0};
+
   enum class Action {
     /// Use for Vertex and Edge
     /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for

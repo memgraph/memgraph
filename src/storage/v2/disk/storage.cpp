@@ -577,7 +577,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   const auto cache_key = label;
 
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
-    HandleLoadingLabelForEdgeImportCache(cache_key);
+    HandleLoadingLabelForEdgeImportCache(label);
 
     return VerticesIterable(
         disk_storage->edge_import_mode_cache_->Vertices(cache_key, view, &transaction_, &disk_storage->constraints_));
@@ -603,7 +603,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
       auto gids = merge_with_main_cache(index);
       LoadVerticesFromDiskLabelIndex(cache_key, gids, *index_deltas, *indexed_vertices);
     } else {
-      if (index.contains(cache_key)) {
+      if (index.contains(cache_key) && view == View::OLD) {
         merge_with_main_cache(index);
       } else {
         auto gids = merge_with_main_cache(index);
@@ -612,14 +612,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     }
   };
 
-  switch (view) {
-    case View::OLD: {
-      cb(label_index_old_, label_index_old_ci_);
-    } break;
-    case View::NEW: {
-      cb(label_index_new_, label_index_new_ci_);
-    } break;
-  }
+  cb(label_index_old_, label_index_old_ci_);
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
@@ -655,25 +648,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                                  *indexed_vertices, label_property_filter);
   };
 
-  // auto cb = [&](auto &index)
-  // {
-  //   if(index.contains(cache_key))
-  //   {
-  //     merge_with_main_cache(index);
-  //   }
-  //   else
-  //   {
-  //     auto gids = merge_with_main_cache(index);
-  //     const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
-  //                                             const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
-  //     return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
-  //     };
-
-  //     LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
-  //                                         disk_label_property_filter);
-  //   }
-  // };
-
   // TODO more axuliary ds did not solve the issue, check out the command_id counter/checking per cache solution.
 
   const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
@@ -681,46 +655,20 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
   };
 
-  switch (view) {
-    case View::OLD: {
-      if (transaction_.command_id > label_property_index_old_ci_) {
-        label_property_index_old_ci_ = transaction_.command_id;
+  if (transaction_.command_id > label_property_index_old_ci_) {
+    label_property_index_old_ci_ = transaction_.command_id;
 
-        auto gids = merge_with_main_cache(label_property_index_old_);
-        LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
-                                               disk_label_property_filter);
-      } else {
-        if (label_property_index_old_.contains(cache_key)) {
-          merge_with_main_cache(label_property_index_old_);
-        } else {
-          auto gids = merge_with_main_cache(label_property_index_old_);
-          LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
-                                                 disk_label_property_filter);
-        }
-      }
-    } break;
-    case View::NEW: {
-      if (transaction_.command_id > label_property_index_new_ci_) {
-        label_property_index_new_ci_ = transaction_.command_id;
-
-        auto gids = merge_with_main_cache(label_property_index_new_);
-        LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
-                                               disk_label_property_filter);
-      } else {
-        if (label_property_index_new_.contains(cache_key)) {
-          merge_with_main_cache(label_property_index_new_);
-        } else {
-          auto gids = merge_with_main_cache(label_property_index_new_);
-          const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
-                                                     const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
-            return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
-          };
-
-          LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
-                                                 disk_label_property_filter);
-        }
-      }
-    } break;
+    auto gids = merge_with_main_cache(label_property_index_old_);
+    LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
+                                           disk_label_property_filter);
+  } else {
+    if (label_property_index_old_.contains(cache_key) && view == View::OLD) {
+      merge_with_main_cache(label_property_index_old_);
+    } else {
+      auto gids = merge_with_main_cache(label_property_index_old_);
+      LoadVerticesFromDiskLabelPropertyIndex(label, property, gids, *index_deltas, *indexed_vertices,
+                                             disk_label_property_filter);
+    }
   }
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
@@ -731,6 +679,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   const auto cache_key = std::make_tuple(label, property, value);
+
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     HandleLoadingLabelPropertyForEdgeImportCache(label, property);
 
@@ -758,55 +707,20 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                                  *indexed_vertices, label_property_filter);
   };
 
-  // auto cb = [&](auto & index)
-  // {
-  //   if(index.contains(cache_key))
-  //   {
-  //     merge_with_main_cache(index);
-  //   }
-  //   else
-  //   {
-  //     auto gids = merge_with_main_cache(index);
-  //     LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
-  //                                                             *indexed_vertices);
-  //   }
-  // };
+  if (transaction_.command_id > label_property_val_index_old_ci_) {
+    label_property_val_index_old_ci_ = transaction_.command_id;
 
-  switch (view) {
-    case View::OLD: {
-      if (transaction_.command_id > label_property_val_index_old_ci_) {
-        label_property_val_index_old_ci_ = transaction_.command_id;
-
-        auto gids = merge_with_main_cache(label_property_val_index_old_);
-        LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
-                                                                   *indexed_vertices);
-      } else {
-        if (label_property_val_index_old_.contains(cache_key)) {
-          merge_with_main_cache(label_property_val_index_old_);
-        } else {
-          auto gids = merge_with_main_cache(label_property_val_index_old_);
-          LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
-                                                                     *indexed_vertices);
-        }
-      }
-    } break;
-    case View::NEW: {
-      if (transaction_.command_id > label_property_val_index_new_ci_) {
-        label_property_val_index_new_ci_ = transaction_.command_id;
-
-        auto gids = merge_with_main_cache(label_property_val_index_new_);
-        LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
-                                                                   *indexed_vertices);
-      } else {
-        if (label_property_val_index_new_.contains(cache_key)) {
-          merge_with_main_cache(label_property_val_index_new_);
-        } else {
-          auto gids = merge_with_main_cache(label_property_val_index_new_);
-          LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
-                                                                     *indexed_vertices);
-        }
-      }
-    } break;
+    auto gids = merge_with_main_cache(label_property_val_index_old_);
+    LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
+                                                               *indexed_vertices);
+  } else {
+    if (label_property_val_index_old_.contains(cache_key) && view == View::OLD) {
+      merge_with_main_cache(label_property_val_index_old_);
+    } else {
+      auto gids = merge_with_main_cache(label_property_val_index_old_);
+      LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(label, property, gids, value, *index_deltas,
+                                                                 *indexed_vertices);
+    }
   }
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
@@ -819,6 +733,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   const auto cache_key = std::make_tuple(label, property, lower_bound, upper_bound);
+  // const auto cache_key = std::make_pair(label, property);
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     HandleLoadingLabelPropertyForEdgeImportCache(label, property);
 
@@ -847,7 +762,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(label, property, gids, lower_bound, upper_bound,
                                                               *index_deltas, *indexed_vertices);
     } else {
-      if (index.contains(cache_key)) {
+      if (index.contains(cache_key) && view == View::OLD) {
         merge_with_main_cache(index);
       } else {
         auto gids = merge_with_main_cache(index);
@@ -857,14 +772,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     }
   };
 
-  switch (view) {
-    case View::OLD:
-      cb(label_property_range_index_old_, label_property_range_index_old_ci_);
-      break;
-    case View::NEW:
-      cb(label_property_range_index_new_, label_property_range_index_new_ci_);
-      break;
-  }
+  cb(label_property_range_index_old_, label_property_range_index_old_ci_);
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
@@ -1260,15 +1168,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
     return *vertex;
   }
 
-  if (auto vertex = find_in_indices(label_index_new_)) {
-    return *vertex;
-  }
-
   if (auto vertex = find_in_indices(label_property_index_old_)) {
-    return *vertex;
-  }
-
-  if (auto vertex = find_in_indices(label_property_index_new_)) {
     return *vertex;
   }
 
@@ -1276,15 +1176,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
     return *vertex;
   }
 
-  if (auto vertex = find_in_indices(label_property_val_index_new_)) {
-    return *vertex;
-  }
-
   if (auto vertex = find_in_indices(label_property_range_index_old_)) {
-    return *vertex;
-  }
-
-  if (auto vertex = find_in_indices(label_property_range_index_new_)) {
     return *vertex;
   }
 
@@ -1658,15 +1550,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
     return res.GetError();
   }
 
-  if (auto res = flush_index(label_index_new_); res.HasError()) {
-    return res.GetError();
-  }
-
   if (auto res = flush_index(label_property_index_old_); res.HasError()) {
-    return res.GetError();
-  }
-
-  if (auto res = flush_index(label_property_index_new_); res.HasError()) {
     return res.GetError();
   }
 
@@ -1674,15 +1558,7 @@ DiskStorage::DiskAccessor::ClearDanglingVertices() {
     return res.GetError();
   }
 
-  if (auto res = flush_index(label_property_val_index_new_); res.HasError()) {
-    return res.GetError();
-  }
-
   if (auto res = flush_index(label_property_range_index_old_); res.HasError()) {
-    return res.GetError();
-  }
-
-  if (auto res = flush_index(label_property_range_index_new_); res.HasError()) {
     return res.GetError();
   }
 

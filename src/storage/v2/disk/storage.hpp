@@ -277,26 +277,14 @@ class DiskStorage final : public Storage {
     std::map<LabelId, utils::SkipList<Vertex>> label_index_old_;
     uint64_t label_index_old_ci_{transaction_.command_id};
 
-    std::map<LabelId, utils::SkipList<Vertex>> label_index_new_;
-    uint64_t label_index_new_ci_{transaction_.command_id};
-
     std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_old_;
     uint64_t label_property_index_old_ci_{transaction_.command_id};
-
-    std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_new_;
-    uint64_t label_property_index_new_ci_{transaction_.command_id};
 
     std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_old_;
     uint64_t label_property_val_index_old_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_new_;
-    uint64_t label_property_val_index_new_ci_{transaction_.command_id};
-
     std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_old_;
     uint64_t label_property_range_index_old_ci_{transaction_.command_id};
-
-    std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_new_;
-    uint64_t label_property_range_index_new_ci_{transaction_.command_id};
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
