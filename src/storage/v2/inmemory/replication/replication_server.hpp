@@ -38,7 +38,7 @@ class InMemoryReplicationServer : public ReplicationServer {
 
   static void LoadWal(InMemoryStorage *storage, replication::Decoder *decoder);
 
-  static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder);
+  static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder, uint64_t version);
 
   InMemoryStorage *storage_;
 };

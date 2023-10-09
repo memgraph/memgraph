@@ -28,6 +28,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -77,17 +78,45 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
-    // Create label index.
-    ASSERT_FALSE(store->CreateIndex(label_unindexed).HasError());
+    {
+      // Create label index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
+      ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
+    {
+      // Create label+property index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label+property index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_indexed, property_id, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_id));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
 
-    // Create label+property index.
-    ASSERT_FALSE(store->CreateIndex(label_indexed, property_id).HasError());
-
-    // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id, {}).HasError());
-
-    // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}, {}).HasError());
+    {
+      // Create existence constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create unique constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
@@ -142,17 +171,47 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
-    // Create label index.
-    ASSERT_FALSE(store->CreateIndex(label_unused).HasError());
+    {
+      // Create label index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
+      ASSERT_TRUE(acc->GetIndexStats(label_unused));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
+    {
+      // Create label+property index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label+property index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_indexed, property_count,
+                         memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_count));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
 
-    // Create label+property index.
-    ASSERT_FALSE(store->CreateIndex(label_indexed, property_count).HasError());
+    {
+      // Create existence constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
-    // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count, {}).HasError());
-
-    // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count}, {}).HasError());
+    {
+      // Create unique constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     // Storage accessor.
     std::unique_ptr<memgraph::storage::Storage::Accessor> acc;
@@ -212,9 +271,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
+    // Create storage accessor.
+    auto acc = store->Access();
+
     // Verify indices info.
     {
-      auto info = store->ListAllIndices();
+      auto info = acc->ListAllIndices();
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -237,9 +299,71 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       }
     }
 
+    // Verify index statistics
+    {
+      switch (type) {
+        case DatasetType::ONLY_BASE: {
+          const auto l_stats = acc->GetIndexStats(base_label_unindexed);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 1);
+          ASSERT_EQ(l_stats->avg_degree, 2);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 1);
+          ASSERT_EQ(lp_stats->distinct_values_count, 2);
+          ASSERT_EQ(lp_stats->statistic, 3.4);
+          ASSERT_EQ(lp_stats->avg_group_size, 5.6);
+          ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          break;
+        }
+        case DatasetType::ONLY_EXTENDED: {
+          const auto l_stats = acc->GetIndexStats(extended_label_unused);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 123);
+          ASSERT_EQ(l_stats->avg_degree, 9.87);
+          const auto lp_stats = acc->GetIndexStats(extended_label_indexed, property_count);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 456798);
+          ASSERT_EQ(lp_stats->distinct_values_count, 312345);
+          ASSERT_EQ(lp_stats->statistic, 12312312.2);
+          ASSERT_EQ(lp_stats->avg_group_size, 123123.2);
+          ASSERT_EQ(lp_stats->avg_degree, 67876.9);
+          break;
+        }
+        case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
+        case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
+        case DatasetType::BASE_WITH_EXTENDED: {
+          const auto &i = acc->ListAllIndices();
+          const auto l_stats = acc->GetIndexStats(base_label_unindexed);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 1);
+          ASSERT_EQ(l_stats->avg_degree, 2);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 1);
+          ASSERT_EQ(lp_stats->distinct_values_count, 2);
+          ASSERT_EQ(lp_stats->statistic, 3.4);
+          ASSERT_EQ(lp_stats->avg_group_size, 5.6);
+          ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          const auto l_stats_ex = acc->GetIndexStats(extended_label_unused);
+          ASSERT_TRUE(l_stats_ex);
+          ASSERT_EQ(l_stats_ex->count, 123);
+          ASSERT_EQ(l_stats_ex->avg_degree, 9.87);
+          const auto lp_stats_ex = acc->GetIndexStats(extended_label_indexed, property_count);
+          ASSERT_TRUE(lp_stats_ex);
+          ASSERT_EQ(lp_stats_ex->count, 456798);
+          ASSERT_EQ(lp_stats_ex->distinct_values_count, 312345);
+          ASSERT_EQ(lp_stats_ex->statistic, 12312312.2);
+          ASSERT_EQ(lp_stats_ex->avg_group_size, 123123.2);
+          ASSERT_EQ(lp_stats_ex->avg_degree, 67876.9);
+          break;
+        }
+      }
+    }
+
     // Verify constraints info.
     {
-      auto info = store->ListAllConstraints();
+      auto info = acc->ListAllConstraints();
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
@@ -279,9 +403,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         have_extended_dataset = true;
         break;
     }
-
-    // Create storage accessor.
-    auto acc = store->Access();
 
     // Verify base dataset.
     if (have_base_dataset) {
@@ -1358,13 +1479,14 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       {.items = {.properties_on_edges = GetParam()},
        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
   {
-    auto indices = store->ListAllIndices();
+    auto acc = store->Access();
+
+    auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
-    auto constraints = store->ListAllConstraints();
+    auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
-    auto acc = store->Access();
     {
       auto v1 = acc->FindVertex(gid_v1, memgraph::storage::View::OLD);
       ASSERT_TRUE(v1);
@@ -1461,20 +1583,38 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
              .wal_file_flush_every_n_tx = kFlushWalEvery}}));
     CreateBaseDataset(store.get(), GetParam());
     CreateExtendedDataset(store.get());
-    auto indices = store->ListAllIndices();
+    auto indices = [&] {
+      auto acc = store->Access();
+      auto res = acc->ListAllIndices();
+      acc->Commit();
+      return res;
+    }();  // iile
     for (const auto &index : indices.label) {
-      ASSERT_FALSE(store->DropIndex(index).HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &index : indices.label_property) {
-      ASSERT_FALSE(store->DropIndex(index.first, index.second).HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    auto constraints = store->ListAllConstraints();
+    auto constraints = [&] {
+      auto acc = store->Access();
+      auto res = acc->ListAllConstraints();
+      acc->Commit();
+      return res;
+    }();  // iile
     for (const auto &constraint : constraints.existence) {
-      ASSERT_FALSE(store->DropExistenceConstraint(constraint.first, constraint.second, {}).HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &constraint : constraints.unique) {
-      ASSERT_EQ(store->DropUniqueConstraint(constraint.first, constraint.second, {}).GetValue(),
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto acc = store->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
@@ -1493,13 +1633,13 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       {.items = {.properties_on_edges = GetParam()},
        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
   {
-    auto indices = store->ListAllIndices();
+    auto acc = store->Access();
+    auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
-    auto constraints = store->ListAllConstraints();
+    auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
-    auto acc = store->Access();
     uint64_t count = 0;
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {

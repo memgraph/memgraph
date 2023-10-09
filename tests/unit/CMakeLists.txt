@@ -293,6 +293,9 @@ target_link_libraries(${test_prefix}utils_temporal mg-utils)
 add_unit_test(utils_java_string_formatter.cpp)
 target_link_libraries(${test_prefix}utils_java_string_formatter mg-utils)
 
+add_unit_test(utils_resource_lock.cpp)
+target_link_libraries(${test_prefix}utils_resource_lock mg-utils)
+
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
@@ -304,7 +307,7 @@ add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
 add_unit_test(storage_v2_constraints.cpp)
-target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)
 
 add_unit_test(storage_v2_decoder_encoder.cpp)
 target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
@@ -407,3 +410,9 @@ if(MG_ENTERPRISE)
   add_unit_test_with_custom_main(dbms_handler.cpp)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
 endif()
+
+
+# Test distributed
+add_unit_test(distributed_lamport_clock.cpp)
+target_link_libraries(${test_prefix}distributed_lamport_clock mg-distributed)
+target_include_directories(${test_prefix}distributed_lamport_clock PRIVATE ${CMAKE_SOURCE_DIR}/include)

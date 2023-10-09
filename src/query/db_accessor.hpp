@@ -535,7 +535,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageDataManipulationError, void> Commit() { return accessor_->Commit(); }
+  utils::BasicResult<storage::StorageManipulationError, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
 
@@ -556,20 +556,12 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> ClearLabelPropertyIndexStats() {
-    return accessor_->ClearLabelPropertyIndexStats();
-  }
-
-  std::vector<storage::LabelId> ClearLabelIndexStats() { return accessor_->ClearLabelIndexStats(); }
-
   std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
-      const std::span<std::string> labels) {
-    return accessor_->DeleteLabelPropertyIndexStats(labels);
+      const storage::LabelId &label) {
+    return accessor_->DeleteLabelPropertyIndexStats(label);
   }
 
-  std::vector<storage::LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) {
-    return accessor_->DeleteLabelIndexStats(labels);
-  }
+  bool DeleteLabelIndexStats(const storage::LabelId &label) { return accessor_->DeleteLabelIndexStats(label); }
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
     accessor_->SetIndexStats(label, stats);
@@ -604,6 +596,44 @@ class DbAccessor final {
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const std::string &id() const { return accessor_->id(); }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label) {
+    return accessor_->CreateIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label,
+                                                                             storage::PropertyId property) {
+    return accessor_->CreateIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
+    return accessor_->DropIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
+                                                                           storage::PropertyId property) {
+    return accessor_->DropIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    return accessor_->CreateExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    return accessor_->DropExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageUniqueConstraintDefinitionError, storage::UniqueConstraints::CreationStatus>
+  CreateUniqueConstraint(storage::LabelId label, const std::set<storage::PropertyId> &properties) {
+    return accessor_->CreateUniqueConstraint(label, properties);
+  }
+
+  storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
+                                                                  const std::set<storage::PropertyId> &properties) {
+    return accessor_->DropUniqueConstraint(label, properties);
+  }
 };
 
 class SubgraphDbAccessor final {
