@@ -320,7 +320,7 @@ class Pokec(Workload):
     # NOT OK
     def benchmark__basic__expansion_1_analytical(self):
         return (
-            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+            "MATCH (s:User)<--(n:User {id: $id}) " "RETURN n.id",
             {"id": self._get_random_vertex()},
         )
 
