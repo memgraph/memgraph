@@ -144,7 +144,7 @@ void ReplicationClient::TryInitializeClientSync() {
     std::unique_lock client_guarde{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
-                                         rpc_client_.Endpoint(), "https://memgr.ph/replication"));
+                                         rpc_client_.Endpoint().SocketAddress(), "https://memgr.ph/replication"));
   }
 }
 
