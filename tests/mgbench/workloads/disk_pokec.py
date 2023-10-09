@@ -108,18 +108,18 @@ class Pokec(Workload):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 
     # NOT OK
-    # def benchmark__arango__expansion_1(self):
-    #     return (
-    #         "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
-    #         {"id": self._get_random_vertex()},
-    #     )
+    def benchmark__arango__expansion_1(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     # NOT OK
-    # def benchmark__arango__expansion_1_with_filter(self):
-    #     return (
-    #         "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
-    #         {"id": self._get_random_vertex()},
-    #     )
+    def benchmark__arango__expansion_1_with_filter(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     # NOT OK
     # def benchmark__arango__expansion_2(self):
@@ -318,18 +318,18 @@ class Pokec(Workload):
         return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
 
     # NOT OK
-    # def benchmark__basic__expansion_1_analytical(self):
-    #     return (
-    #         "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
-    #         {"id": self._get_random_vertex()},
-    #     )
+    def benchmark__basic__expansion_1_analytical(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     # NOT OK
-    # def benchmark__basic__expansion_1_with_filter_analytical(self):
-    #     return (
-    #         "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
-    #         {"id": self._get_random_vertex()},
-    #     )
+    def benchmark__basic__expansion_1_with_filter_analytical(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     # NOT OK
     # def benchmark__basic__expansion_2_analytical(self):
