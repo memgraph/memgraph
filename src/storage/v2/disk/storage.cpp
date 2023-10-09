@@ -1465,7 +1465,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
-    const auto &edge_acc) {
+    auto &edges_acc) {
   for (const auto &modified_edge : transaction_.modified_edges_) {
     const storage::Gid &gid = modified_edge.first;
     const Delta::Action action = modified_edge.second.delta_action;
@@ -1486,9 +1486,8 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
         return StorageManipulationError{SerializationError{}};
       }
 
-      const auto &edge = edge_acc.find(gid);
-      // TODO(gitbuda): Doesn't work on the latest compiler, what's the best way to resolve?
-      MG_ASSERT(edge != edge_acc.end(),
+      const auto &edge = edges_acc.find(gid);
+      MG_ASSERT(edge != edges_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
       if (!WriteEdgeToDisk(ser_edge_key, utils::SerializeProperties(edge->properties))) {
         return StorageManipulationError{SerializationError{}};
@@ -1638,7 +1637,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
-      if (auto res = FlushModifiedEdges(disk_storage->edge_import_mode_cache_->AccessToEdges()); res.HasError()) {
+      auto edges_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
+      if (auto res = FlushModifiedEdges(edges_acc); res.HasError()) {
         Abort();
         return res;
       }
@@ -1648,8 +1648,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         Abort();
         return vertices_flush_res.GetError();
       }
-
-      if (auto modified_edges_res = FlushModifiedEdges(edges_.access()); modified_edges_res.HasError()) {
+      auto edges_acc = edges_.access();
+      if (auto modified_edges_res = FlushModifiedEdges(edges_acc); modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();
       }

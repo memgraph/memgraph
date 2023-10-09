@@ -258,7 +258,7 @@ class DiskStorage final : public Storage {
     [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
         const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
 
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(auto &edges_acc);
 
     [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices();
 
