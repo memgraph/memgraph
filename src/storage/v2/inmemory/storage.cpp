@@ -58,8 +58,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               "process!",
               config_.durability.storage_directory);
   }
+  auto &repl_state = replication_storage_state_.repl_state_;
   if (config_.durability.recover_on_startup) {
-    auto &epoch = replication_storage_state_.GetEpoch();
+    auto &epoch = repl_state.GetEpoch();
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
                                         &replication_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
@@ -102,7 +103,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot(replication_storage_state_, {true}); maybe_error.HasError()) {
+      auto const &repl_state = replication_storage_state_.repl_state_;
+      if (auto maybe_error = this->CreateSnapshot(repl_state, {true}); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
@@ -138,8 +140,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
         "forgotten.");
   }
 
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_storage_state_.IsMain()) {
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
     spdlog::warn(
         "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
@@ -165,7 +166,8 @@ InMemoryStorage::~InMemoryStorage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot(replication_storage_state_, {false}); maybe_error.HasError()) {
+    auto const &repl_state = replication_storage_state_.repl_state_;
+    if (auto maybe_error = this->CreateSnapshot(repl_state, {false}); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
@@ -649,6 +651,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  auto const &replState = mem_storage->replication_storage_state_.repl_state_;
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
@@ -668,7 +671,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
+    if (replState.IsMain() || desired_commit_timestamp.has_value()) {
       could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);
       // Take committed_transactions lock while holding the engine lock to
       // make sure that committed transactions are sorted by the commit
@@ -680,7 +683,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
+        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
           // Update the last commit timestamp
           mem_storage->replication_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
         }
@@ -766,7 +769,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
+        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
@@ -781,7 +784,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (mem_storage->replication_storage_state_.IsMain() || desired_commit_timestamp.has_value()) {
+          if (replState.IsMain() || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             mem_storage->replication_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
           }
@@ -1151,7 +1154,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_storage_state_.IsReplica()) {
+    auto const &replState = replication_storage_state_.repl_state_;
+    if (replState.IsReplica()) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
@@ -1516,7 +1520,8 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile(replication_storage_state_.GetEpoch())) {
+  auto &replState = replication_storage_state_.repl_state_;
+  if (!InitializeWalFile(replState.GetEpoch())) {
     return true;
   }
   // Traverse deltas and append them to the WAL file.
@@ -1686,7 +1691,8 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile(replication_storage_state_.GetEpoch())) {
+  auto &replState = replication_storage_state_.repl_state_;
+  if (!InitializeWalFile(replState.GetEpoch())) {
     return true;
   }
 
@@ -1901,12 +1907,14 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
 
 auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, config, &this->replication_storage_state_.GetEpoch());
+  auto &replState = this->replication_storage_state_.repl_state_;
+  return std::make_unique<InMemoryReplicationClient>(this, config, &replState.GetEpoch());
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
     const memgraph::replication::ReplicationServerConfig &config) {
-  return std::make_unique<InMemoryReplicationServer>(this, config, &this->replication_storage_state_.GetEpoch());
+  auto &replState = this->replication_storage_state_.repl_state_;
+  return std::make_unique<InMemoryReplicationServer>(this, config, &replState.GetEpoch());
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {

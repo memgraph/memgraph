@@ -25,8 +25,8 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 namespace {
 
 std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
-  using enum RegisterReplicaError;
   switch (error) {
+    using enum RegisterReplicaError;
     case NAME_EXISTS:
       return "NAME_EXISTS";
     case END_POINT_EXISTS:
@@ -48,7 +48,7 @@ bool ReplicationStorageState::SetReplicationRoleMain(storage::Storage *storage,
                                                      memgraph::replication::ReplicationEpoch &epoch) {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
-  if (IsMain()) {
+  if (repl_state_.IsMain()) {
     return false;
   }
 
@@ -59,11 +59,11 @@ bool ReplicationStorageState::SetReplicationRoleMain(storage::Storage *storage,
   auto prev_epoch = epoch.NewEpoch();
   storage->PrepareForNewEpoch(std::move(prev_epoch));
 
-  if (!TryPersistRoleMain()) {
+  if (!repl_state_.TryPersistRoleMain()) {
     return false;
   }
 
-  SetRole(memgraph::replication::ReplicationRole::MAIN);
+  repl_state_.SetRole(memgraph::replication::ReplicationRole::MAIN);
   return true;
 }
 
@@ -71,46 +71,44 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
                                               const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                               const LabelPropertyIndexStats &property_stats,
                                               uint64_t final_commit_timestamp) {
-  if (IsMain()) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        client->IfStreamingTransaction([&](auto &stream) {
-          stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-        });
-      }
-    });
-  }
-}
-
-void ReplicationStorageState::InitializeTransaction(uint64_t seq_num) {
-  if (IsMain()) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        client->StartTransactionReplication(seq_num);
-      }
-    });
-  }
-}
-
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp) {
+  if (repl_state_.IsReplica()) return;
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
+      client->IfStreamingTransaction([&](auto &stream) {
+        stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+      });
     }
   });
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp) {
+void ReplicationStorageState::InitializeTransaction(uint64_t seq_num) {
+  if (repl_state_.IsReplica()) return;
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, parent, timestamp); });
+      client->StartTransactionReplication(seq_num);
+    }
+  });
+}
+
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); });
+    }
+  });
+}
+
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); });
     }
   });
 }
 
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp) {
-  bool finalized_on_all_replicas = true;
-  replication_clients_.WithLock([&](auto &clients) {
+  return replication_clients_.WithLock([=](auto &clients) {
+    bool finalized_on_all_replicas = true;
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
       const auto finalized = client->FinalizeTransactionReplication();
@@ -119,14 +117,14 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
       }
     }
+    return finalized_on_all_replicas;
   });
-  return finalized_on_all_replicas;
 }
 
 utils::BasicResult<RegisterReplicaError> ReplicationStorageState::RegisterReplica(
     const replication::RegistrationMode registration_mode, const memgraph::replication::ReplicationClientConfig &config,
     Storage *storage) {
-  MG_ASSERT(IsMain(), "Only main instance can register a replica!");
+  MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
 
   auto name_check = [&config](auto &clients) {
     auto name_matches = [&name = config.name](const auto &client) { return client->Name() == name; };
@@ -149,7 +147,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationStorageState::RegisterReplic
     }
 
     using enum replication::RegistrationMode;
-    if (registration_mode != RESTORE && !TryPersistRegisteredReplica(config)) {
+    if (registration_mode != RESTORE && !repl_state_.TryPersistRegisteredReplica(config)) {
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
 
@@ -174,7 +172,7 @@ utils::BasicResult<RegisterReplicaError> ReplicationStorageState::RegisterReplic
 bool ReplicationStorageState::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                         Storage *storage) {
   // We don't want to restart the server if we're already a REPLICA
-  if (IsReplica()) {
+  if (repl_state_.IsReplica()) {
     return false;
   }
 
@@ -185,17 +183,17 @@ bool ReplicationStorageState::SetReplicationRoleReplica(const memgraph::replicat
     return false;
   }
 
-  if (!TryPersistRoleReplica(config)) {
+  if (!repl_state_.TryPersistRoleReplica(config)) {
     return false;
   }
 
-  SetRole(memgraph::replication::ReplicationRole::REPLICA);
+  repl_state_.SetRole(memgraph::replication::ReplicationRole::REPLICA);
   return true;
 }
 
 bool ReplicationStorageState::UnregisterReplica(std::string_view name) {
-  MG_ASSERT(IsMain(), "Only main instance can unregister a replica!");
-  if (!TryPersistUnregisterReplica(name)) {
+  MG_ASSERT(repl_state_.IsMain(), "Only main instance can unregister a replica!");
+  if (!repl_state_.TryPersistUnregisterReplica(name)) {
     return false;
   }
 
@@ -228,17 +226,18 @@ std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo() {
 }
 
 void ReplicationStorageState::RestoreReplication(Storage *storage) {
-  if (!ShouldPersist()) {
+  if (!repl_state_.ShouldPersist()) {
     return;
   }
 
   spdlog::info("Restoring replication role.");
 
-  auto replicationData = FetchReplicationData();
+  using memgraph::replication::ReplicationState;
 
+  auto replicationData = repl_state_.FetchReplicationData();
   if (replicationData.HasError()) {
     switch (replicationData.GetError()) {
-      using enum ReplicationStorageState::FetchReplicationError;
+      using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
         spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
         return;
@@ -250,10 +249,9 @@ void ReplicationStorageState::RestoreReplication(Storage *storage) {
     }
   }
 
-  ReplicationState &repl_state = *this;
-
+  auto &repl_state = repl_state_;
   std::visit(utils::Overloaded{
-                 [this, storage, &repl_state](ReplicationStorageState::ReplicationDataMain const &configs) {
+                 [this, storage, &repl_state](ReplicationState::ReplicationDataMain const &configs) {
                    replication_server_.reset();
                    repl_state.SetRole(memgraph::replication::ReplicationRole::MAIN);
                    for (const auto &config : configs) {
@@ -268,7 +266,7 @@ void ReplicationStorageState::RestoreReplication(Storage *storage) {
                    }
                    spdlog::info("Replication role restored to MAIN.");
                  },
-                 [this, storage, &repl_state](ReplicationStorageState::ReplicationDataReplica const &config) {
+                 [this, storage, &repl_state](ReplicationState::ReplicationDataReplica const &config) {
                    auto replication_server = storage->CreateReplicationServer(config);
                    if (!replication_server->Start()) {
                      LOG_FATAL("Unable to start the replication server.");

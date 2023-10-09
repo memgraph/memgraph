@@ -310,7 +310,8 @@ class Storage {
     return replication_storage_state_.SetReplicationRoleReplica(config, this);
   }
   bool SetReplicationRoleMain() {
-    return replication_storage_state_.SetReplicationRoleMain(this, replication_storage_state_.GetEpoch());
+    auto &epoch = replication_storage_state_.repl_state_.GetEpoch();
+    return replication_storage_state_.SetReplicationRoleMain(this, epoch);
   }
 
   /// @pre The instance should have a MAIN role

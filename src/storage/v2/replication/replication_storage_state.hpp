@@ -36,9 +36,9 @@ class ReplicationClient;
 
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 
-struct ReplicationStorageState : memgraph::replication::ReplicationState {
+struct ReplicationStorageState {
   ReplicationStorageState(std::optional<std::filesystem::path> durability_dir)
-      : memgraph::replication::ReplicationState(std::move(durability_dir)) {}
+      : repl_state_{std::move(durability_dir)} {}
 
   // Generic API
   void Reset();
@@ -56,8 +56,8 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
   void InitializeTransaction(uint64_t seq_num);
-  void AppendDelta(const Delta &delta, const Vertex &parent, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &parent, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
   bool FinalizeTransaction(uint64_t timestamp);
 
   // MAIN connecting to replicas
@@ -84,6 +84,8 @@ struct ReplicationStorageState : memgraph::replication::ReplicationState {
 
   void AddEpochToHistory(std::string prev_epoch);
   void AddEpochToHistoryForce(std::string prev_epoch);
+
+  memgraph::replication::ReplicationState repl_state_;
 
  private:
   // NOTE: Server is not in MAIN it is in REPLICA

@@ -803,9 +803,9 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
                    .HasError());
 
-  ASSERT_TRUE(main_store->replication_storage_state_.IsMain());
-  ASSERT_TRUE(replica_store1->replication_storage_state_.IsReplica());
-  ASSERT_TRUE(replica_store2->replication_storage_state_.IsReplica());
+  ASSERT_TRUE(main_store->replication_storage_state_.repl_state_.IsMain());
+  ASSERT_TRUE(replica_store1->replication_storage_state_.repl_state_.IsReplica());
+  ASSERT_TRUE(replica_store2->replication_storage_state_.repl_state_.IsReplica());
 
   const auto replicas_info = main_store->ReplicasInfo();
   ASSERT_EQ(replicas_info.size(), 2);

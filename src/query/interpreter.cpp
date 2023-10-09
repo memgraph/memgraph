@@ -275,7 +275,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
-    switch (db_->replication_storage_state_.GetRole()) {
+    auto const &replState = db_->replication_storage_state_.repl_state_;
+    switch (replState.GetRole()) {
       case memgraph::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
       case memgraph::replication::ReplicationRole::REPLICA:
@@ -288,7 +289,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
-    if (db_->replication_storage_state_.IsReplica()) {
+    auto const &replState = db_->replication_storage_state_.repl_state_;
+    if (replState.IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
@@ -331,7 +333,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void DropReplica(const std::string &replica_name) override {
-    if (db_->replication_storage_state_.IsReplica()) {
+    auto const &replState = db_->replication_storage_state_.repl_state_;
+    if (replState.IsReplica()) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
@@ -342,7 +345,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    if (db_->replication_storage_state_.IsReplica()) {
+    auto const &replState = db_->replication_storage_state_.repl_state_;
+    if (replState.IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -1372,7 +1376,8 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
                                      const query::plan::ReadWriteTypeChecker::RWType query_type) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return (storage->replication_storage_state_.IsReplica()) && (query_type == RWType::W || query_type == RWType::RW);
+    auto const &replState = storage->replication_storage_state_.repl_state_;
+    return replState.IsReplica() && (query_type == RWType::W || query_type == RWType::RW);
   }
   return false;
 }
@@ -1380,7 +1385,8 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
 bool IsReplica(storage::Storage *storage) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return storage->replication_storage_state_.IsReplica();
+    auto const &replState = storage->replication_storage_state_.repl_state_;
+    return replState.IsReplica();
   }
   return false;
 }
@@ -2785,7 +2791,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       std::move(parsed_query.required_privileges),
       [storage](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-        if (auto maybe_error = mem_storage->CreateSnapshot(storage->replication_storage_state_, {});
+        if (auto maybe_error = mem_storage->CreateSnapshot(storage->replication_storage_state_.repl_state_, {});
             maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
@@ -3473,7 +3479,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (storage->replication_storage_state_.IsReplica()) {
+  auto &replState = storage->replication_storage_state_.repl_state_;
+  if (replState.IsReplica()) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 
