@@ -124,7 +124,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
 
     acc->AdvanceCommand();
-    // TODO this one again (gvolfing)
+
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
