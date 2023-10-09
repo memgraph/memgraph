@@ -95,7 +95,7 @@ class ReplicationQueryHandler {
                                const std::chrono::seconds replica_check_frequency) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DropReplica(const std::string &replica_name) = 0;
+  virtual void DropReplica(std::string_view replica_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<Replica> ShowReplicas() const = 0;

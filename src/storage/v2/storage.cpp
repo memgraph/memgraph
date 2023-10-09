@@ -40,13 +40,13 @@ class InMemoryStorage;
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-auto ReplicationStorageStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
+auto ReplicationStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
   return {config.durability.storage_directory};
 }
 
 Storage::Storage(Config config, StorageMode storage_mode)
-    : replication_storage_state_(ReplicationStorageStateHelper(config)),
+    : repl_state_(ReplicationStateHelper(config)),
       name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,

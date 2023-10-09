@@ -23,6 +23,7 @@
 #include <storage/v2/replication/enums.hpp>
 #include "replication/config.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/replication/replication_handler.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 
@@ -38,9 +39,11 @@ using memgraph::storage::Gid;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::PropertyValue;
 using memgraph::storage::RegisterReplicaError;
+using memgraph::storage::RegistrationMode;
+using memgraph::storage::ReplicationHandler;
 using memgraph::storage::Storage;
+using memgraph::storage::UnregisterReplicaResult;
 using memgraph::storage::View;
-using memgraph::storage::replication::RegistrationMode;
 using memgraph::storage::replication::ReplicaState;
 
 class ReplicationTest : public ::testing::Test {
@@ -72,19 +75,21 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   std::unique_ptr<Storage> main_store = std::make_unique<InMemoryStorage>(configuration);
   std::unique_ptr<Storage> replica_store = std::make_unique<InMemoryStorage>(configuration);
 
-  replica_store->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica_store_handler = ReplicationHandler{replica_store->repl_state_, *replica_store};
+  replica_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = "REPLICA",
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = ports[0],
-                                     })
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = "REPLICA",
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = ports[0],
+                                    })
                    .HasError());
 
   // vertex create
@@ -368,7 +373,8 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
 
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
@@ -378,28 +384,30 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                                .storage_directory = storage_directory,
                                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                            }})};
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[0],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = ports[0],
-                                     })
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[0],
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = ports[0],
+                                    })
                    .HasError());
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[1],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = ports[1],
-                                     })
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[1],
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = ports[1],
+                                    })
                    .HasError());
 
   const auto *vertex_label = "label";
@@ -429,7 +437,8 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   check_replica(replica_store1.get());
   check_replica(replica_store2.get());
 
-  main_store->UnregisterReplica(replicas[1]);
+  auto handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  handler.UnregisterReplica(replicas[1]);
   {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
@@ -526,19 +535,20 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         {.durability = {.storage_directory = replica_storage_directory,
                         .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}})};
 
-    replica_store->SetReplicationRoleReplica(ReplicationServerConfig{
+    auto replica_store_handler = ReplicationHandler{replica_store->repl_state_, *replica_store};
+    replica_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
         .ip_address = local_host,
         .port = ports[0],
     });
-
-    ASSERT_FALSE(main_store
-                     ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                       ReplicationClientConfig{
-                                           .name = replicas[0],
-                                           .mode = ReplicationMode::SYNC,
-                                           .ip_address = local_host,
-                                           .port = ports[0],
-                                       })
+    auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+    ASSERT_FALSE(main_store_handler
+                     .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                      ReplicationClientConfig{
+                                          .name = replicas[0],
+                                          .mode = ReplicationMode::SYNC,
+                                          .ip_address = local_host,
+                                          .port = ports[0],
+                                      })
                      .HasError());
 
     ASSERT_EQ(main_store->GetReplicaState(replicas[0]), ReplicaState::RECOVERY);
@@ -600,19 +610,21 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 
   std::unique_ptr<Storage> replica_store_async{new InMemoryStorage(configuration)};
 
-  replica_store_async->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica_store_handler = ReplicationHandler{replica_store_async->repl_state_, *replica_store_async};
+  replica_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = "REPLICA_ASYNC",
-                                         .mode = ReplicationMode::ASYNC,
-                                         .ip_address = local_host,
-                                         .port = ports[1],
-                                     })
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = "REPLICA_ASYNC",
+                                        .mode = ReplicationMode::ASYNC,
+                                        .ip_address = local_host,
+                                        .port = ports[1],
+                                    })
                    .HasError());
 
   static constexpr size_t vertices_create_num = 10;
@@ -647,36 +659,39 @@ TEST_F(ReplicationTest, EpochTest) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
 
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = 10001,
   });
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[0],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = ports[0],
-                                     })
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[0],
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = ports[0],
+                                    })
                    .HasError());
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[1],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = 10001,
-                                     })
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[1],
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = 10001,
+                                    })
                    .HasError());
 
   std::optional<Gid> vertex_gid;
@@ -699,18 +714,19 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  main_store->UnregisterReplica(replicas[0]);
-  main_store->UnregisterReplica(replicas[1]);
+  main_store_handler.UnregisterReplica(replicas[0]);
+  main_store_handler.UnregisterReplica(replicas[1]);
 
-  replica_store1->SetReplicationRoleMain();
-  ASSERT_FALSE(replica_store1
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[1],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = 10001,
-                                     })
+  ASSERT_TRUE(replica1_store_handler.SetReplicationRoleMain());
+
+  ASSERT_FALSE(replica1_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[1],
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = 10001,
+                                    })
 
                    .HasError());
 
@@ -733,18 +749,18 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
-  ASSERT_TRUE(main_store
-                  ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                    ReplicationClientConfig{
-                                        .name = replicas[0],
-                                        .mode = ReplicationMode::SYNC,
-                                        .ip_address = local_host,
-                                        .port = ports[0],
-                                    })
+  ASSERT_TRUE(main_store_handler
+                  .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                   ReplicationClientConfig{
+                                       .name = replicas[0],
+                                       .mode = ReplicationMode::SYNC,
+                                       .ip_address = local_host,
+                                       .port = ports[0],
+                                   })
 
                   .HasError());
 
@@ -769,43 +785,46 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
   uint16_t replica1_port = 10001;
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica1_port,
   });
 
   uint16_t replica2_port = 10002;
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica2_port,
   });
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[0],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = replica1_port,
-                                     })
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[0],
+                                        .mode = ReplicationMode::SYNC,
+                                        .ip_address = local_host,
+                                        .port = replica1_port,
+                                    })
 
                    .HasError());
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[1],
-                                         .mode = ReplicationMode::ASYNC,
-                                         .ip_address = local_host,
-                                         .port = replica2_port,
-                                     })
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                    ReplicationClientConfig{
+                                        .name = replicas[1],
+                                        .mode = ReplicationMode::ASYNC,
+                                        .ip_address = local_host,
+                                        .port = replica2_port,
+                                    })
 
                    .HasError());
 
-  ASSERT_TRUE(main_store->replication_storage_state_.repl_state_.IsMain());
-  ASSERT_TRUE(replica_store1->replication_storage_state_.repl_state_.IsReplica());
-  ASSERT_TRUE(replica_store2->replication_storage_state_.repl_state_.IsReplica());
+  ASSERT_TRUE(main_store->repl_state_.IsMain());
+  ASSERT_TRUE(replica_store1->repl_state_.IsReplica());
+  ASSERT_TRUE(replica_store2->repl_state_.IsReplica());
 
   const auto replicas_info = main_store->ReplicasInfo();
   ASSERT_EQ(replicas_info.size(), 2);
@@ -828,36 +847,38 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
   uint16_t replica1_port = 10001;
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica1_port,
   });
 
   uint16_t replica2_port = 10002;
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = replica2_port,
   });
-
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[0],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = replica1_port,
-                                     })
-                   .HasError());
-
-  ASSERT_TRUE(main_store
-                  ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
                                         .name = replicas[0],
-                                        .mode = ReplicationMode::ASYNC,
+                                        .mode = ReplicationMode::SYNC,
                                         .ip_address = local_host,
-                                        .port = replica2_port,
+                                        .port = replica1_port,
                                     })
+                   .HasError());
+
+  ASSERT_TRUE(main_store_handler
+                  .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                   ReplicationClientConfig{
+                                       .name = replicas[0],
+                                       .mode = ReplicationMode::ASYNC,
+                                       .ip_address = local_host,
+                                       .port = replica2_port,
+                                   })
                   .GetError() == RegisterReplicaError::NAME_EXISTS);
 }
 
@@ -866,35 +887,38 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = common_port,
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = common_port,
   });
 
-  ASSERT_FALSE(main_store
-                   ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                     ReplicationClientConfig{
-                                         .name = replicas[0],
-                                         .mode = ReplicationMode::SYNC,
-                                         .ip_address = local_host,
-                                         .port = common_port,
-                                     })
-                   .HasError());
-
-  ASSERT_TRUE(main_store
-                  ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_FALSE(main_store_handler
+                   .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                     ReplicationClientConfig{
-                                        .name = replicas[1],
-                                        .mode = ReplicationMode::ASYNC,
+                                        .name = replicas[0],
+                                        .mode = ReplicationMode::SYNC,
                                         .ip_address = local_host,
                                         .port = common_port,
                                     })
+                   .HasError());
+
+  ASSERT_TRUE(main_store_handler
+                  .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                   ReplicationClientConfig{
+                                       .name = replicas[1],
+                                       .mode = ReplicationMode::ASYNC,
+                                       .ip_address = local_host,
+                                       .port = common_port,
+                                   })
                   .GetError() == RegisterReplicaError::END_POINT_EXISTS);
 }
 
@@ -904,30 +928,34 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
 
-  auto res = main_store->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  auto res =
+      main_store_handler.RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
                                                                                         .name = replicas[0],
                                                                                         .mode = ReplicationMode::SYNC,
                                                                                         .ip_address = local_host,
                                                                                         .port = ports[0],
                                                                                     });
   ASSERT_FALSE(res.HasError());
-  res = main_store->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
-                                                                                   .name = replicas[1],
-                                                                                   .mode = ReplicationMode::SYNC,
-                                                                                   .ip_address = local_host,
-                                                                                   .port = ports[1],
-                                                                               });
+  res = main_store_handler.RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
+                                                                                          .name = replicas[1],
+                                                                                          .mode = ReplicationMode::SYNC,
+                                                                                          .ip_address = local_host,
+                                                                                          .port = ports[1],
+                                                                                      });
   ASSERT_FALSE(res.HasError());
 
   auto replica_infos = main_store->ReplicasInfo();
@@ -961,31 +989,34 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
   std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
 
-  replica_store1->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
+  replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[0],
   });
 
   std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
 
-  replica_store2->SetReplicationRoleReplica(ReplicationServerConfig{
+  auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
+  replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,
       .port = ports[1],
   });
-
-  auto res = main_store->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  auto res =
+      main_store_handler.RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
                                                                                         .name = replicas[0],
                                                                                         .mode = ReplicationMode::SYNC,
                                                                                         .ip_address = local_host,
                                                                                         .port = ports[0],
                                                                                     });
   ASSERT_FALSE(res.HasError());
-  res = main_store->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
-                                                                                   .name = replicas[1],
-                                                                                   .mode = ReplicationMode::SYNC,
-                                                                                   .ip_address = local_host,
-                                                                                   .port = ports[1],
-                                                                               });
+  res = main_store_handler.RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, ReplicationClientConfig{
+                                                                                          .name = replicas[1],
+                                                                                          .mode = ReplicationMode::SYNC,
+                                                                                          .ip_address = local_host,
+                                                                                          .port = ports[1],
+                                                                                      });
   ASSERT_FALSE(res.HasError());
 
   auto replica_infos = main_store->ReplicasInfo();
@@ -998,8 +1029,9 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
 
-  const auto unregister_res = main_store->UnregisterReplica(replicas[0]);
-  ASSERT_TRUE(unregister_res);
+  auto handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  const auto unregister_res = handler.UnregisterReplica(replicas[0]);
+  ASSERT_EQ(unregister_res, UnregisterReplicaResult::SUCCESS);
 
   replica_infos = main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
@@ -1020,13 +1052,14 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
 TEST_F(ReplicationTest, AddingInvalidReplica) {
   std::unique_ptr<Storage> main_store{new InMemoryStorage(configuration)};
 
-  ASSERT_TRUE(main_store
-                  ->RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
-                                    ReplicationClientConfig{
-                                        .name = "REPLICA",
-                                        .mode = ReplicationMode::SYNC,
-                                        .ip_address = local_host,
-                                        .port = ports[0],
-                                    })
+  auto main_store_handler = ReplicationHandler{main_store->repl_state_, *main_store};
+  ASSERT_TRUE(main_store_handler
+                  .RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                   ReplicationClientConfig{
+                                       .name = "REPLICA",
+                                       .mode = ReplicationMode::SYNC,
+                                       .ip_address = local_host,
+                                       .port = ports[0],
+                                   })
                   .GetError() == RegisterReplicaError::CONNECTION_FAILED);
 }

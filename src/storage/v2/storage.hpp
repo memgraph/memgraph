@@ -305,33 +305,14 @@ class Storage {
   virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
-  /// REPLICATION
-  bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
-    return replication_storage_state_.SetReplicationRoleReplica(config, this);
-  }
-  bool SetReplicationRoleMain() {
-    auto &epoch = replication_storage_state_.repl_state_.GetEpoch();
-    return replication_storage_state_.SetReplicationRoleMain(this, epoch);
-  }
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  auto RegisterReplica(const replication::RegistrationMode registration_mode,
-                       const memgraph::replication::ReplicationClientConfig &config) {
-    return replication_storage_state_.RegisterReplica(registration_mode, config, this);
-  }
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) { return replication_storage_state_.UnregisterReplica(name); }
-  auto ReplicasInfo() { return replication_storage_state_.ReplicasInfo(); }
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
-    return replication_storage_state_.GetReplicaState(name);
+  auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(); }
+  auto GetReplicaState(std::string_view name) -> std::optional<replication::ReplicaState> {
+    return repl_storage_state_.GetReplicaState(name);
   }
 
   // TODO: make non-public
-  ReplicationStorageState replication_storage_state_;
-
- protected:
-  void RestoreReplication() { return replication_storage_state_.RestoreReplication(this); }
+  memgraph::replication::ReplicationState repl_state_;
+  ReplicationStorageState repl_storage_state_;
 
  public:
   // Main storage lock.
