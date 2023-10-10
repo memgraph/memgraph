@@ -15,6 +15,9 @@
 
 #include "query/typed_value.hpp"
 
+// TODO(gitbuda): TypedValue is printend under utils/exceptions -> probably TypedValue should have the formatting logic
+// because nothing else is viable.
+
 template <>
 class fmt::formatter<memgraph::query::TypedValue> {
  public:
