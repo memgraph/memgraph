@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <string>
 
+#include "replication/epoch.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"

@@ -355,19 +355,21 @@ class DiskStorage final : public Storage {
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
-  void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+  void PrepareForNewEpoch(std::string prev_epoch) override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
 
-  auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }

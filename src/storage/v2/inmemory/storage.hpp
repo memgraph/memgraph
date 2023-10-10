@@ -21,10 +21,9 @@
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "storage/v2/replication/config.hpp"
+#include "replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication.hpp"
-#include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
@@ -320,14 +319,15 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> override;
 
-  auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override;
 
  private:
@@ -345,7 +345,7 @@ class InMemoryStorage final : public Storage {
   template <bool force>
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
 
-  bool InitializeWalFile();
+  bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
 
   StorageInfo GetInfo() const override;
@@ -373,7 +373,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void EstablishNewEpoch() override;
+  void PrepareForNewEpoch(std::string prev_epoch) override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;

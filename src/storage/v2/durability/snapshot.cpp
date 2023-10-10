@@ -2043,7 +2043,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid);
-    snapshot.WriteString(epoch_id);
+    snapshot.WriteString(epoch.id());
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
