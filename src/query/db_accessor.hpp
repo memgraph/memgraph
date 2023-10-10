@@ -459,6 +459,8 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+    accessor_->PrefetchOutEdges(vertex_accessor->impl_);
+    accessor_->PrefetchInEdges(vertex_accessor->impl_);
     auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
