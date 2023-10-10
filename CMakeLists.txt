@@ -216,7 +216,8 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
 # Use lld linker to speedup build
-add_link_options(-fuse-ld=lld) # TODO: use mold linker
+# TODO(gitbuda): Figure out why lld produces linker errors.
+# add_link_options(-fuse-ld=lld) # TODO: use mold linker
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
