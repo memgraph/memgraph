@@ -159,13 +159,14 @@ class KVStore final {
    * and behaves as if all of those pairs are stored in a single iterable
    * collection of std::pair<std::string, std::string>.
    */
-  class iterator final : public std::iterator<std::input_iterator_tag,                      // iterator_category
-                                              std::pair<std::string, std::string>,          // value_type
-                                              long,                                         // difference_type
-                                              const std::pair<std::string, std::string> *,  // pointer
-                                              const std::pair<std::string, std::string> &   // reference
-                                              > {
+  class iterator final {
    public:
+    using iterator_category = std::input_iterator_tag;
+    using value_type = std::pair<std::string, std::string>;
+    using difference_type = long;
+    using pointer = const std::pair<std::string, std::string> *;
+    using reference = const std::pair<std::string, std::string> &;
+
     explicit iterator(const KVStore *kvstore, const std::string &prefix = "", bool at_end = false);
 
     iterator(const iterator &other) = delete;
