@@ -26,6 +26,7 @@
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -1265,17 +1266,30 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
+  MG_ASSERT(transaction_id.has_value());
   if (memory_limit_) {
-    memgraph::memory::query_limit = true;
-    memgraph::memory::memory_tracker_per_thread.SetMaximumHardLimit(static_cast<int64_t>(*memory_limit_));
-    memgraph::memory::memory_tracker_per_thread.SetHardLimit(static_cast<int64_t>(*memory_limit_));
+    // TODO(af) update for transaction id
+    memgraph::memory::transaction_id_tracker.emplace(std::piecewise_construct, std::forward_as_tuple(*transaction_id),
+                                                     std::forward_as_tuple());
+    auto &memory_tracker = memgraph::memory::transaction_id_tracker[*transaction_id];
+    memory_tracker.SetMaximumHardLimit(static_cast<int64_t>(*memory_limit_));
+    memory_tracker.SetHardLimit(static_cast<int64_t>(*memory_limit_));
+
+    auto arena_id = memgraph::memory::GetArenaForThread();
+    memgraph::memory::AddTrackingOnArena(arena_id);
+    memgraph::memory::UpdateThreadToTransactionId(std::this_thread::get_id(), *transaction_id);
   }
-  utils::OnScopeExit<std::function<void()>> reset_query_limit{[memory_limit = memory_limit_]() {
-    if (memory_limit) {
-      memgraph::memory::query_limit = false;
-      memgraph::memory::memory_tracker_per_thread.ResetTrackings();
-    }
-  }};
+  utils::OnScopeExit<std::function<void()>> reset_query_limit{
+      [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
+        if (memory_limit) {
+          // TODO(af) update for transaction with id
+          memgraph::memory::transaction_id_tracker.erase(transaction_id);
+          auto arena_id = memgraph::memory::GetArenaForThread();
+          memgraph::memory::RemoveTrackingOnArena(arena_id);
+          memgraph::memory::ResetThreadToTransactionId(std::this_thread::get_id());
+        }
+      }};
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -1300,6 +1314,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 
   ctx_.evaluation_context.memory = &*pool_memory;
+  ctx_.db_accessor->id();
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
@@ -3073,8 +3088,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            // {TypedValue("readable_memory_allocated"),
-            //   TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("readable_memory_allocated"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},

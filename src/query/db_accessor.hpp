@@ -372,6 +372,8 @@ class DbAccessor final {
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
+  std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {

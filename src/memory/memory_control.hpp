@@ -12,14 +12,25 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <unordered_map>
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+
+#include <thread>
 namespace memgraph::memory {
 
 void PurgeUnusedMemory();
 void SetHooks();
+unsigned GetArenaForThread();
+bool AddTrackingOnArena(unsigned);
+bool RemoveTrackingOnArena(unsigned);
+void UpdateThreadToTransactionId(const std::thread::id &, uint64_t);
+void ResetThreadToTransactionId(const std::thread::id &);
 
-inline thread_local bool query_limit{false};
-inline thread_local utils::MemoryTracker memory_tracker_per_thread{};
+// TODO(AF) : Do we need arena to transaction id and transaction_id to tracker?
+inline std::unordered_map<std::string, uint64_t> thread_id_to_transaction_id;
+inline std::unordered_map<int, std::atomic<int>> arena_tracking;
+inline std::unordered_map<uint64_t, utils::MemoryTracker> transaction_id_tracker;
 
 }  // namespace memgraph::memory

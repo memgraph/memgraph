@@ -10,6 +10,10 @@
 // licenses/APL.txt.
 
 #include "memory_control.hpp"
+#include <cstdint>
+#include <iostream>
+#include <sstream>
+#include <thread>
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -23,6 +27,12 @@ namespace memgraph::memory {
 #define STRINGIFY_HELPER(x) #x
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
+
+std::string get_thread_id() {
+  std::ostringstream oss;
+  oss << std::this_thread::get_id();
+  return oss.str();
+}
 
 #if USE_JEMALLOC
 
@@ -57,8 +67,11 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
-    if (query_limit) [[unlikely]] {
-      memory_tracker_per_thread.Alloc(static_cast<int64_t>(size));
+    if (arena_tracking[arena_ind]) [[unlikely]] {
+      std::string thread_id = get_thread_id();
+      std::cout << "aloc:" << thread_id << std::endl;
+      std::cout << "thread id to transaction id" << thread_id_to_transaction_id[get_thread_id()] << std::endl;
+      transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Alloc(static_cast<int64_t>(size));
     }
   }
 
@@ -66,8 +79,8 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-      if (query_limit) [[unlikely]] {
-        memory_tracker_per_thread.Free(static_cast<int64_t>(size));
+      if (arena_tracking[arena_ind]) [[unlikely]] {
+        transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Free(static_cast<int64_t>(size));
       }
     }
     return ptr;
@@ -86,8 +99,8 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
 
-    if (query_limit) [[unlikely]] {
-      memory_tracker_per_thread.Free(static_cast<int64_t>(size));
+    if (arena_tracking[arena_ind]) [[unlikely]] {
+      transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Free(static_cast<int64_t>(size));
     }
   }
 
@@ -97,8 +110,8 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    if (query_limit) [[unlikely]] {
-      memory_tracker_per_thread.Free(static_cast<int64_t>(size));
+    if (arena_tracking[arena_ind]) [[unlikely]] {
+      transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Free(static_cast<int64_t>(size));
     }
   }
 
@@ -114,8 +127,8 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
-  if (query_limit) [[unlikely]] {
-    memory_tracker_per_thread.Alloc(static_cast<int64_t>(length));
+  if (arena_tracking[arena_ind]) [[unlikely]] {
+    transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Alloc(static_cast<int64_t>(size));
   }
 
   return false;
@@ -131,8 +144,8 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   }
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-  if (query_limit) [[unlikely]] {
-    memory_tracker_per_thread.Free(static_cast<int64_t>(length));
+  if (arena_tracking[arena_ind]) [[unlikely]] {
+    transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Free(static_cast<int64_t>(size));
   }
 
   return false;
@@ -148,8 +161,8 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
 
-  if (query_limit) [[unlikely]] {
-    memory_tracker_per_thread.Free(static_cast<int64_t>(length));
+  if (arena_tracking[arena_ind]) [[unlikely]] {
+    transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Free(static_cast<int64_t>(size));
   }
 
   return false;
@@ -178,6 +191,7 @@ void SetHooks() {
   }
 
   for (int i = 0; i < n_arenas; i++) {
+    arena_tracking[i] = 0;
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
@@ -220,6 +234,46 @@ void SetHooks() {
   }
 
 #endif
+}
+
+unsigned GetArenaForThread() {
+#if USE_JEMALLOC
+  unsigned thread_arena{0};
+  size_t size_thread_arena = sizeof(thread_arena);
+  int err = mallctl("thread.arena", &thread_arena, &size_thread_arena, nullptr, 0);
+  if (err) {
+    return -1;
+  }
+  return thread_arena;
+#endif
+  return -1;
+}
+
+bool AddTrackingOnArena(unsigned arena_id) {
+#if USE_JEMALLOC
+  arena_tracking[arena_id].fetch_add(1);
+#endif
+  return false;
+}
+
+bool RemoveTrackingOnArena(unsigned arena_id) {
+#if USE_JEMALLOC
+  arena_tracking[arena_id].fetch_sub(1);
+#endif
+  return true;
+}
+
+void UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
+  std::ostringstream oss;
+  oss << thread_id;
+  thread_id_to_transaction_id[oss.str()] = transaction_id;
+  std::cout << "set:" << oss.str() << std::endl;
+}
+
+void ResetThreadToTransactionId(const std::thread::id &thread_id) {
+  std::ostringstream oss;
+  oss << thread_id;
+  thread_id_to_transaction_id.erase(oss.str());
 }
 
 void PurgeUnusedMemory() {
