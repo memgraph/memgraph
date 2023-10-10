@@ -2074,6 +2074,24 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  struct IndexHint {
+    static const utils::TypeInfo kType;
+    const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
+    memgraph::query::LabelIx label_;
+    std::vector<memgraph::query::PropertyIx> properties_;
+
+    IndexHint Clone(AstStorage *storage) const {
+      IndexHint object;
+      object.label_ = storage->GetLabelIx(label_.name);
+      object.properties_.resize(properties_.size());
+      for (auto i = 0; i < object.properties_.size(); ++i) {
+        object.properties_[i] = storage->GetPropertyIx(properties_[i].name);
+      }
+      return object;
+    }
+  };
+
   CypherQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -2093,6 +2111,9 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::SingleQuery *single_query_{nullptr};
   /// Contains remaining queries that should form and union with `single_query_`.
   std::vector<memgraph::query::CypherUnion *> cypher_unions_;
+  /// Index hint
+  memgraph::query::CypherQuery::IndexHint index_hint_;
+  /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
 
@@ -2103,6 +2124,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     for (auto i5 = 0; i5 < cypher_unions_.size(); ++i5) {
       object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Clone(storage) : nullptr;
     }
+    object->index_hint_ = index_hint_.Clone(storage);
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     return object;

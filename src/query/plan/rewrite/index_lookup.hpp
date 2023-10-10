@@ -41,8 +41,9 @@ Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expr
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
+                      std::vector<CypherQuery::IndexHint> index_hints)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(index_hints) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -487,6 +488,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
+  std::vector<CypherQuery::IndexHint> index_hints_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -509,7 +511,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -520,9 +522,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   storage::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
 
+  bool IsHinted(const LabelIx label) { return false; }
+
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
     std::optional<LabelIx> best_label;
+    if (IsHinted(label)) {
+      return label;
+    }
+
     for (const auto &label : labels) {
       if (!db_->LabelIndexExists(GetLabel(label))) continue;
       if (!best_label) {
@@ -728,8 +736,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
+                                                        TDbAccessor *db,
+                                                        std::vector<CypherQuery::IndexHint> index_hints) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

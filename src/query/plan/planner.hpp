@@ -35,15 +35,20 @@ namespace plan {
 
 class PostProcessor final {
   Parameters parameters_;
+  std::vector<CypherQuery::IndexHint> index_hints_{};
 
  public:
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
   explicit PostProcessor(const Parameters &parameters) : parameters_(parameters) {}
 
+  PostProcessor(const Parameters &parameters, const CypherQuery::IndexHint &index_hint)
+      : parameters_(parameters), index_hints_({index_hint}) {}
+
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    return RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db);
+    return RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db,
+                                  index_hints_);
   }
 
   template <class TVertexCounts>
@@ -118,7 +123,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  PostProcessor post_processor(parameters);
+  PostProcessor post_processor(parameters, context->query->index_hint_);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 

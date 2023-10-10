@@ -202,6 +202,16 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
+  cypher_query->index_hint_ = CypherQuery::IndexHint();
+  if (auto *index_hint_ctx = ctx->indexHint()) {
+    auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+    cypher_query->index_hint_.label_ = label;
+    if (index_hint_ctx->propertyKeyName()) {
+      auto key = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this));
+      cypher_query->index_hint_.properties_ = {key};
+    }
+  }
+
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
     const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {

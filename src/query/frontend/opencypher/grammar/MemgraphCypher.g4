@@ -114,6 +114,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USE
                       | USER
                       | USERS
+                      | USING
                       | VERSION
                       | TERMINATE
                       | TRANSACTIONS
@@ -150,6 +151,8 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       ;
+
+cypherQuery : ( indexHint )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -209,6 +212,8 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
+indexHint : USING INDEX ':' labelName ( '(' propertyKeyName ')' )? ;
+
 callSubquery : CALL '{' cypherQuery '}' ;
 
 streamQuery : checkStream
@@ -259,9 +264,9 @@ userOrRoleName : symbolicName ;
 
 createRole : CREATE ROLE role=userOrRoleName ;
 
-dropRole   : DROP ROLE role=userOrRoleName ;
+dropRole : DROP ROLE role=userOrRoleName ;
 
-showRoles  : SHOW ROLES ;
+showRoles : SHOW ROLES ;
 
 createUser : CREATE USER user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
@@ -347,11 +352,11 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
-dumpQuery: DUMP DATABASE ;
+dumpQuery : DUMP DATABASE ;
 
-analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
+analyzeGraphQuery : ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
-setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
+setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;
 
 showReplicationRole : SHOW REPLICATION ROLE ;
@@ -365,7 +370,7 @@ registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
 
 dropReplica : DROP REPLICA replicaName ;
 
-showReplicas  : SHOW REPLICAS ;
+showReplicas : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
@@ -402,7 +407,7 @@ streamName : symbolicName ;
 
 symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
 
-symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
+symbolicNameWithDotsAndMinus : symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
 
 symbolicTopicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
 
@@ -480,6 +485,6 @@ useDatabase : USE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
 
-showDatabases: SHOW DATABASES ;
+showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
