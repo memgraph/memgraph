@@ -25,8 +25,12 @@ namespace memgraph::io::network {
  * connection address.
  */
 struct Endpoint {
+  static struct needs_resolving_t {
+  } needs_resolving;
+
   Endpoint() = default;
   Endpoint(std::string ip_address, uint16_t port);
+  Endpoint(needs_resolving_t, std::string hostname, uint16_t port);
   Endpoint(Endpoint const &) = default;
   Endpoint(Endpoint &&) noexcept = default;
   Endpoint &operator=(Endpoint const &) = default;
