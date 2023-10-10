@@ -633,7 +633,9 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct};
 }
 
-FilterInfo::FilterInfo() = default;
+// NOTE: matchings is defined here because it can't be defined in hpp because of forward declare -> take care if you add
+// another constructor.
+FilterInfo::FilterInfo() : matchings{} {}
 FilterInfo::~FilterInfo() = default;
 
 FilterInfo::FilterInfo(const FilterInfo &) = default;
@@ -641,7 +643,9 @@ FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
 FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
 FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
 
+// NOTE: matchings is defined here because it can't be defined in hpp because of forward declare -> take care if you add
+// another constructor.
 FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols)
-    : type(type), expression(expression), used_symbols(used_symbols) {}
+    : type(type), expression(expression), used_symbols(used_symbols), matchings{} {}
 
 }  // namespace memgraph::query::plan

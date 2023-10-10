@@ -294,7 +294,8 @@ struct FilterInfo {
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
   /// Matchings for filters that include patterns
-  std::vector<FilterMatching> matchings{};
+  /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
+  std::vector<FilterMatching> matchings;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.

@@ -11,32 +11,26 @@
 
 #pragma once
 
-#include <map>
-#include <string>
+#include <fmt/ostream.h>
 
-#include <fmt/format.h>
-#include <fmt/std.h>
-
-#include "query/typed_value.hpp"
-
-using SingleTypedValue = memgraph::query::TypedValue;
+#include "mg_procedure.h"
 
 template <>
-class fmt::formatter<SingleTypedValue> {
+class fmt::formatter<mgp_log_level> {
  public:
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
   template <typename Context>
-  constexpr auto format(SingleTypedValue const &, Context &ctx) const {
-    return fmt::format_to(ctx.out(), "({})", "TODO: TypedValue");
+  constexpr auto format(mgp_log_level const &, Context &ctx) const {
+    return fmt::format_to(ctx.out(), "({})", "TODO: format mgp_log_level");
   }
 };
 
 template <>
-class fmt::formatter<SingleTypedValue::Type> {
+class fmt::formatter<mgp_error> {
  public:
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
   template <typename Context>
-  constexpr auto format(SingleTypedValue::Type const &, Context &ctx) const {
-    return fmt::format_to(ctx.out(), "({})", "TODO: TypedValue");
+  constexpr auto format(mgp_error const &, Context &ctx) const {
+    return fmt::format_to(ctx.out(), "({})", "TODO: format mgp_error");
   }
 };

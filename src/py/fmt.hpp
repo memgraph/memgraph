@@ -12,7 +12,12 @@
 #pragma once
 
 #include <fmt/ostream.h>
-#include <pulsar/Client.h>
+
+#include "py/py.hpp"
+
+namespace memgraph::py {
+struct ExceptionInfo;
+};
 
 template <>
-class fmt::formatter<::pulsar::Result> : public ostream_formatter {};
+class fmt::formatter<memgraph::py::ExceptionInfo> : public ostream_formatter {};
