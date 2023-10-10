@@ -138,9 +138,14 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip
   family = ip_family;
 }
 
+// NOLINTNEXTLINE
 Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : port(port) {
-  address = ResolveHostnameIntoIpAddress(hostname, port);
-  family = GetIpFamily(address);
+  address = std::move(ResolveHostnameIntoIpAddress(hostname, port));
+  IpFamily ip_family = GetIpFamily(address);
+  if (ip_family == IpFamily::NONE) {
+    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", address);
+  }
+  family = ip_family;
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
