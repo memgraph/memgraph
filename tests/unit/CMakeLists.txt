@@ -109,7 +109,7 @@ add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communicati
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-query mg-glue)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-glue)
 
 add_unit_test(query_plan_operator_to_string.cpp)
 target_link_libraries(${test_prefix}query_plan_operator_to_string mg-query)
@@ -407,3 +407,6 @@ if(MG_ENTERPRISE)
   add_unit_test_with_custom_main(dbms_handler.cpp)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
 endif()
+
+add_unit_test(query_hint_provider.cpp)
+target_link_libraries(${test_prefix}query_hint_provider mg-query mg-glue)

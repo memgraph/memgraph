@@ -15,6 +15,7 @@ set(mg_query_sources
     interpret/eval.cpp
     interpreter.cpp
     metadata.cpp
+    plan/hint_provider.cpp
     plan/operator.cpp
     plan/preprocess.cpp
     plan/pretty_print.cpp

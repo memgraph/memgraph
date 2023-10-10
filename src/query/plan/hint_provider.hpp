@@ -10,9 +10,8 @@
 // licenses/APL.txt.
 
 /// @file
-/// This file provides a plan rewriter which replaces `Filter` and `ScanAll`
-/// operations with `ScanAllBy<Index>` if possible. The public entrypoint is
-/// `RewriteWithIndexLookup`.
+/// This file provides textual information about possible inefficiencies in the query planner.
+/// An inefficiency is for example having a sequential scan with filtering, without the usage of indices.
 
 #pragma once
 
@@ -27,10 +26,11 @@
 
 namespace memgraph::query::plan {
 
-template <class TDbAccessor>
+std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
-  PlanHintsProvider(const SymbolTable &symbol_table, TDbAccessor *db) : symbol_table_(symbol_table), db_(db) {}
+  PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   std::vector<std::string> hints() { return hints_; }
 
@@ -75,7 +75,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Merge &op) override {
     op.input()->Accept(*this);
     op.merge_match_->Accept(*this);
-    return true;
+    return false;
   }
 
   bool PostVisit(Merge &) override { return true; }
@@ -83,7 +83,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &op) override {
     op.input()->Accept(*this);
     op.optional_->Accept(*this);
-    return true;
+    return false;
   }
 
   bool PostVisit(Optional &) override { return true; }
@@ -91,7 +91,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Cartesian &op) override {
     op.left_op_->Accept(*this);
     op.right_op_->Accept(*this);
-    return true;
+    return false;
   }
 
   bool PostVisit(Cartesian &) override { return true; }
@@ -99,7 +99,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Union &op) override {
     op.left_op_->Accept(*this);
     op.right_op_->Accept(*this);
-    return true;
+    return false;
   }
 
   bool PostVisit(Union &) override { return true; }
@@ -182,7 +182,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Foreach &op) override {
     op.input()->Accept(*this);
     op.update_clauses_->Accept(*this);
-    return true;
+    return false;
   }
 
   bool PostVisit(Foreach &) override { return true; }
@@ -194,7 +194,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply &op) override {
     op.input()->Accept(*this);
     op.subquery_->Accept(*this);
-    return true;
+    return false;
   }
 
   bool PostVisit(Apply & /*op*/) override { return true; }
@@ -205,7 +205,6 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
  private:
   const SymbolTable &symbol_table_;
-  TDbAccessor *db_;
   std::vector<std::string> hints_;
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("providing plan hints"); }
@@ -220,8 +219,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
     Filters filters;
     filters.CollectFilterExpression(op.expression_, symbol_table_);
-    const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol), true);
-    const std::string filtered_properties = ExtractAndJoin(filters.FilteredProperties(scan_symbol));
+    const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
+                                                       [](const auto &item) { return fmt::format(":{0}", item.name); });
+    const std::string filtered_properties =
+        ExtractAndJoin(filters.FilteredProperties(scan_symbol), [](const auto &item) { return item.name; });
 
     if (filtered_labels.empty() && filtered_properties.empty()) {
       return;
@@ -249,34 +250,17 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
     if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
       hints_.push_back(fmt::format(
-          "Sequential scan will be used on symbol `{0}` although there is a filter on properties {1}. Consider "
+          "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "
           "creating a label property index.",
           scan_symbol.name(), filtered_properties));
       return;
     }
   }
 
-  std::string ExtractAndJoin(auto &&collection, bool append_semicolon = false) {
-    auto strings = collection | ranges::views::transform([](const auto &item) { return item.name; });
-
-    std::vector<std::string> property_range;
-    property_range.reserve(collection.size());
-
-    for (const auto &item : collection) {
-      auto item_name = append_semicolon ? fmt::format(":{0}", item.name) : item.name;
-      property_range.push_back(std::move(item_name));
-    }
-    return boost::algorithm::join(property_range, ", ");
+  std::string ExtractAndJoin(auto &&collection, auto &&projection) {
+    auto elements = collection | ranges::views::transform(projection);
+    return boost::algorithm::join(elements, ", ");
   }
 };
-
-template <class TDbAccessor>
-std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table,
-                                          TDbAccessor *db) {
-  PlanHintsProvider<TDbAccessor> plan_hinter(symbol_table, db);
-  const_cast<LogicalOperator *>(plan_root)->Accept(plan_hinter);
-
-  return plan_hinter.hints();
-}
 
 }  // namespace memgraph::query::plan
