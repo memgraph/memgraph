@@ -63,6 +63,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
     auto &epoch = repl_state.GetEpoch();
+    // RECOVER DATA
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
                                         &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
@@ -135,6 +136,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
 
   if (config_.durability.restore_replication_state_on_startup) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+    // RECOVER REPLICA CONNECTIONS
+    // migration here
     ReplicationHandler{repl_state, *this}.RestoreReplication();
   } else {
     spdlog::warn(
@@ -720,6 +723,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const &replState = mem_storage->repl_state_;
+  // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();

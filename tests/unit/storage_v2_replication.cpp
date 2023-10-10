@@ -924,9 +924,22 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   auto main_config = configuration;
+  auto replica1_config = configuration;
+  auto replica2_config = configuration;
   main_config.durability.restore_replication_state_on_startup = true;
+
+  std::filesystem::path replica1_storage_directory{std::filesystem::temp_directory_path() / "replica1"};
+  std::filesystem::path replica2_storage_directory{std::filesystem::temp_directory_path() / "replica2"};
+  memgraph::utils::OnScopeExit replica1_directory_cleaner(
+      [&]() { std::filesystem::remove_all(replica1_storage_directory); });
+  memgraph::utils::OnScopeExit replica2_directory_cleaner(
+      [&]() { std::filesystem::remove_all(replica2_storage_directory); });
+
+  replica1_config.durability.storage_directory = replica1_storage_directory;
+  replica2_config.durability.storage_directory = replica2_storage_directory;
+
   std::unique_ptr<Storage> main_store{new InMemoryStorage(main_config)};
-  std::unique_ptr<Storage> replica_store1{new InMemoryStorage(configuration)};
+  std::unique_ptr<Storage> replica_store1{new InMemoryStorage(replica1_config)};
 
   auto replica1_store_handler = ReplicationHandler{replica_store1->repl_state_, *replica_store1};
   replica1_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
@@ -934,7 +947,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       .port = ports[0],
   });
 
-  std::unique_ptr<Storage> replica_store2{new InMemoryStorage(configuration)};
+  std::unique_ptr<Storage> replica_store2{new InMemoryStorage(replica2_config)};
   auto replica2_store_handler = ReplicationHandler{replica_store2->repl_state_, *replica_store2};
   replica2_store_handler.SetReplicationRoleReplica(ReplicationServerConfig{
       .ip_address = local_host,

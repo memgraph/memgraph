@@ -21,6 +21,7 @@
 #include "replication/epoch.hpp"
 #include "replication/mode.hpp"
 #include "replication/role.hpp"
+#include "status.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::replication {
@@ -35,11 +36,6 @@ struct ReplicationState {
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
-  void SetRole(ReplicationRole role) { return replication_role_.store(role); }
-  auto GetRole() const -> ReplicationRole { return replication_role_.load(); }
-  bool IsMain() const { return replication_role_ == ReplicationRole::MAIN; }
-  bool IsReplica() const { return replication_role_ == ReplicationRole::REPLICA; }
-
   auto GetEpoch() const -> const ReplicationEpoch & { return epoch_; }
   auto GetEpoch() -> ReplicationEpoch & { return epoch_; }
 
@@ -47,22 +43,36 @@ struct ReplicationState {
     NOTHING_FETCHED,
     PARSE_ERROR,
   };
-  using ReplicationDataReplica = ReplicationServerConfig;
-  using ReplicationDataMain = std::vector<ReplicationClientConfig>;
-  using ReplicationData = std::variant<ReplicationDataMain, ReplicationDataReplica>;
-  using FetchReplicationResult = utils::BasicResult<FetchReplicationError, ReplicationData>;
-  auto FetchReplicationData() -> FetchReplicationResult;
+  using ReplicationDataReplica_t = ReplicationServerConfig;
+  using ReplicationDataMain_t = std::vector<ReplicationClientConfig>;
+  using ReplicationData_t = std::variant<ReplicationDataMain_t, ReplicationDataReplica_t>;
+  using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
+  auto FetchReplicationData() -> FetchReplicationResult_t;
+
+  auto GetRole() const -> ReplicationRole {
+    return std::holds_alternative<ReplicationDataReplica_t>(replication_data_) ? ReplicationRole::REPLICA
+                                                                               : ReplicationRole::MAIN;
+  }
+  bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
+  bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
   bool TryPersistRoleMain();
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
-  bool TryPersistUnregisterReplica(std::string_view &name);
+  bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
 
+  // TODO: locked access
+  auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
+  auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+
  private:
-  ReplicationEpoch epoch_;
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
+
+  ReplicationEpoch epoch_;  // durability of epoch
+                            //  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
   std::unique_ptr<kvstore::KVStore> durability_;
+  ReplicationData_t replication_data_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

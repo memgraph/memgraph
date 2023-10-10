@@ -21,8 +21,96 @@ constexpr auto *kCheckFrequency = "replica_check_frequency";
 constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
 constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
+constexpr auto *kVersion = "durability_version";
+
+// TODO: use utils::...
+template <class... Ts>
+struct overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
 
 namespace memgraph::replication {
+
+namespace durability {
+
+void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
+  auto processMAIN = [&](MainRole const &main) {
+    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}};
+  };
+  auto processREPLICA = [&](ReplicaRole const &replica) {
+    j = nlohmann::json{
+        {kVersion, p.version},
+        {kReplicationRole, ReplicationRole::REPLICA},
+        {kIpAddress, replica.config.ip_address},
+        {kPort, replica.config.port}
+        // TODO: SSL
+    };
+  };
+  std::visit(overloaded{processMAIN, processREPLICA}, p.role);
+}
+
+void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
+  // This value did not exist in V1, hence default DurabilityVersion::V1
+  DurabilityVersion version = j.value(kVersion, DurabilityVersion::V1);
+  ReplicationRole role;
+  j.at(kReplicationRole).get_to(role);
+  switch (role) {
+    case ReplicationRole::MAIN: {
+      p = ReplicationRoleEntry{.version = version, .role = MainRole{}};
+      break;
+    }
+    case ReplicationRole::REPLICA: {
+      std::string ip_address;
+      uint16_t port;
+      j.at(kIpAddress).get_to(ip_address);
+      j.at(kPort).get_to(port);
+      auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
+      p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
+      break;
+    }
+  }
+}
+
+void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
+  auto common = nlohmann::json{{kReplicaName, p.config.name},
+                               {kIpAddress, p.config.ip_address},
+                               {kPort, p.config.port},
+                               {kSyncMode, p.config.mode},
+                               {kCheckFrequency, p.config.replica_check_frequency.count()}};
+
+  if (p.config.ssl.has_value()) {
+    common[kSSLKeyFile] = p.config.ssl->key_file;
+    common[kSSLCertFile] = p.config.ssl->cert_file;
+  } else {
+    common[kSSLKeyFile] = nullptr;
+    common[kSSLCertFile] = nullptr;
+  }
+  j = std::move(common);
+}
+void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
+  const auto &key_file = j.at(kSSLKeyFile);
+  const auto &cert_file = j.at(kSSLCertFile);
+
+  MG_ASSERT(key_file.is_null() == cert_file.is_null());
+
+  auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
+  auto config = ReplicationClientConfig{
+      .name = j.at(kReplicaName).get<std::string>(),
+      .ip_address = j.at(kIpAddress).get<std::string>(),
+      .port = j.at(kPort).get<uint16_t>(),
+      .mode = j.at(kSyncMode).get<ReplicationMode>(),
+      .replica_check_frequency = std::chrono::seconds{seconds},
+  };
+  if (!key_file.is_null()) {
+    config.ssl = ReplicationClientConfig::SSL{};
+    key_file.get_to(config.ssl->key_file);
+    cert_file.get_to(config.ssl->cert_file);
+  }
+  p = ReplicationReplicaEntry{.config = std::move(config)};
+}
+}  // namespace durability
 
 nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status) {
   auto data = nlohmann::json::object();

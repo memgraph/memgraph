@@ -20,7 +20,6 @@
 #include <optional>
 #include <string>
 
-using namespace memgraph::storage::replication;
 using namespace memgraph::replication;
 
 class ReplicationPersistanceHelperTest : public testing::Test {

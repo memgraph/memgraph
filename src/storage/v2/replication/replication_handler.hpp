@@ -49,11 +49,11 @@ struct ReplicationHandler {
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
 
   // as MAIN, define and connect to REPLICAs
-  auto RegisterReplica(RegistrationMode registration_mode, const memgraph::replication::ReplicationClientConfig &config)
+  auto RegisterReplica(RegistrationMode registered_config, const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;
 
   // as MAIN, remove a REPLICA connection
-  auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
+  auto UnregisterReplica(std::string_view registered_config) -> UnregisterReplicaResult;
 
   // Generic restoration
   // TODO: decouple storage restoration from epoch restoration

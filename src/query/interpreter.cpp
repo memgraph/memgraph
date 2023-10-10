@@ -314,10 +314,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
-    if (name == memgraph::replication::kReservedReplicationRoleName) {
-      throw QueryRuntimeException("This replica name is reserved and can not be used as replica name!");
-    }
-
     auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_ip_and_port =

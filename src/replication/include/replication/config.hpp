@@ -21,7 +21,6 @@ namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
-inline constexpr auto *kReservedReplicationRoleName{"__replication_role"};
 
 struct ReplicationClientConfig {
   std::string name;
