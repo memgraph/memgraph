@@ -25,7 +25,7 @@ namespace memgraph::io::network {
  * connection address.
  */
 struct Endpoint {
-  static struct needs_resolving_t {
+  static const struct needs_resolving_t {
   } needs_resolving;
 
   Endpoint() = default;
