@@ -20,7 +20,8 @@ namespace memgraph::replication {
 
 ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
   if (!durability_dir) return;
-  auto repl_dir = std::move(*durability_dir) / kReplicationDirectory;
+  auto repl_dir = *std::move(durability_dir);
+  repl_dir /= kReplicationDirectory;
   utils::EnsureDirOrDie(repl_dir);
   durability_ = std::make_unique<kvstore::KVStore>(std::move(repl_dir));
 }
@@ -83,38 +84,41 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult {
 
   const auto replication_status = *maybe_replication_status;
   auto role = replication_status.role.value_or(ReplicationRole::MAIN);
-  if (role == ReplicationRole::REPLICA) {
-    return {ReplicationServerConfig{
-        .ip_address = kDefaultReplicationServerIp,
-        .port = replication_status.port,
-    }};
-  } else {
-    auto res = ReplicationState::ReplicationDataMain{};
-    res.reserve(durability_->Size() - 1);
-    for (const auto &[replica_name, replica_data] : *durability_) {
-      if (replica_name == kReservedReplicationRoleName) {
-        continue;
-      }
-
-      const auto maybe_replica_status = JSONToReplicationStatus(nlohmann::json::parse(replica_data));
-      if (!maybe_replica_status.has_value()) {
-        return FetchReplicationError::PARSE_ERROR;
-      }
-
-      auto replica_status = *maybe_replica_status;
-      if (replica_status.name != replica_name) {
-        return FetchReplicationError::PARSE_ERROR;
-      }
-      res.emplace_back(ReplicationClientConfig{
-          .name = replica_status.name,
-          .mode = replica_status.sync_mode,
-          .ip_address = replica_status.ip_address,
-          .port = replica_status.port,
-          .replica_check_frequency = replica_status.replica_check_frequency,
-          .ssl = replica_status.ssl,
-      });
+  switch (role) {
+    case ReplicationRole::REPLICA: {
+      return {ReplicationServerConfig{
+          .ip_address = kDefaultReplicationServerIp,
+          .port = replication_status.port,
+      }};
     }
-    return {std::move(res)};
+    case ReplicationRole::MAIN: {
+      auto res = ReplicationState::ReplicationDataMain{};
+      res.reserve(durability_->Size() - 1);
+      for (const auto &[replica_name, replica_data] : *durability_) {
+        if (replica_name == kReservedReplicationRoleName) {
+          continue;
+        }
+
+        const auto maybe_replica_status = JSONToReplicationStatus(nlohmann::json::parse(replica_data));
+        if (!maybe_replica_status.has_value()) {
+          return FetchReplicationError::PARSE_ERROR;
+        }
+
+        auto replica_status = *maybe_replica_status;
+        if (replica_status.name != replica_name) {
+          return FetchReplicationError::PARSE_ERROR;
+        }
+        res.emplace_back(ReplicationClientConfig{
+            .name = replica_status.name,
+            .mode = replica_status.sync_mode,
+            .ip_address = replica_status.ip_address,
+            .port = replica_status.port,
+            .replica_check_frequency = replica_status.replica_check_frequency,
+            .ssl = replica_status.ssl,
+        });
+      }
+      return {std::move(res)};
+    }
   }
 }
 bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config) {

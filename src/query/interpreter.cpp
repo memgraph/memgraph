@@ -251,7 +251,7 @@ bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &claus
   return false;
 }
 
-auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode) -> replication::ReplicationMode {
+inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode) -> replication::ReplicationMode {
   switch (sync_mode) {
     case ReplicationQuery::SyncMode::ASYNC: {
       return replication::ReplicationMode::ASYNC;
