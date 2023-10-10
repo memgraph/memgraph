@@ -39,8 +39,6 @@ class HintProviderSuite : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    ASSERT_FALSE(db->CreateIndex(label).HasError());
-    ASSERT_FALSE(db->CreateIndex(label, property).HasError());
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());
   }
