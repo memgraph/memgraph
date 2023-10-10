@@ -11,32 +11,26 @@
 
 #pragma once
 
-#include <map>
-#include <string>
-
 #include <fmt/format.h>
-#include <fmt/std.h>
 
 #include "query/typed_value.hpp"
 
-using SingleTypedValue = memgraph::query::TypedValue;
-
 template <>
-class fmt::formatter<SingleTypedValue> {
+class fmt::formatter<memgraph::query::TypedValue> {
  public:
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
   template <typename Context>
-  constexpr auto format(SingleTypedValue const &, Context &ctx) const {
+  constexpr auto format(memgraph::query::TypedValue const &, Context &ctx) const {
     return fmt::format_to(ctx.out(), "({})", "TODO: TypedValue");
   }
 };
 
 template <>
-class fmt::formatter<SingleTypedValue::Type> {
+class fmt::formatter<memgraph::query::TypedValue::Type> {
  public:
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
   template <typename Context>
-  constexpr auto format(SingleTypedValue::Type const &, Context &ctx) const {
-    return fmt::format_to(ctx.out(), "({})", "TODO: TypedValue");
+  constexpr auto format(memgraph::query::TypedValue::Type const &, Context &ctx) const {
+    return fmt::format_to(ctx.out(), "({})", "TODO: format TypedValue::Type");
   }
 };
