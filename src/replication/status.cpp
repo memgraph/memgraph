@@ -8,24 +8,21 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#include "replication/status.hpp"
 
-#include "storage/v2/replication/replication_persistence_helper.hpp"
-
-#include "storage/v2/replication/enums.hpp"
+#include "fmt/format.h"
 #include "utils/logging.hpp"
 
-namespace {
-inline constexpr auto *kReplicaName = "replica_name";
-inline constexpr auto *kIpAddress = "replica_ip_address";
-inline constexpr auto *kPort = "replica_port";
-inline constexpr auto *kSyncMode = "replica_sync_mode";
-inline constexpr auto *kCheckFrequency = "replica_check_frequency";
-inline constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
-inline constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
-inline constexpr auto *kReplicationRole = "replication_role";
-}  // namespace
+constexpr auto *kReplicaName = "replica_name";
+constexpr auto *kIpAddress = "replica_ip_address";
+constexpr auto *kPort = "replica_port";
+constexpr auto *kSyncMode = "replica_sync_mode";
+constexpr auto *kCheckFrequency = "replica_check_frequency";
+constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
+constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
+constexpr auto *kReplicationRole = "replication_role";
 
-namespace memgraph::storage::replication {
+namespace memgraph::replication {
 
 nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status) {
   auto data = nlohmann::json::object();
@@ -51,7 +48,6 @@ nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status) {
 
   return data;
 }
-
 std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) {
   ReplicationStatus replica_status;
 
@@ -73,13 +69,13 @@ std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) 
     MG_ASSERT(key_file.is_null() == cert_file.is_null());
 
     if (!key_file.is_null()) {
-      replica_status.ssl = replication::ReplicationClientConfig::SSL{};
+      replica_status.ssl = ReplicationClientConfig::SSL{};
       data.at(kSSLKeyFile).get_to(replica_status.ssl->key_file);
       data.at(kSSLCertFile).get_to(replica_status.ssl->cert_file);
     }
 
     if (data.find(kReplicationRole) != data.end()) {
-      replica_status.role = replication::ReplicationRole::MAIN;
+      replica_status.role = ReplicationRole::MAIN;
       data.at(kReplicationRole).get_to(replica_status.role.value());
     }
   } catch (const nlohmann::json::type_error &exception) {
@@ -92,4 +88,4 @@ std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) 
 
   return replica_status;
 }
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::replication

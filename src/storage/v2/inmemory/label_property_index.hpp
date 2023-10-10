@@ -13,13 +13,10 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
-
-struct LabelPropertyIndexStats {
-  uint64_t count, distinct_values_count;
-  double statistic, avg_group_size, avg_degree;
-};
 
 /// TODO: andi. Too many copies, extract at one place
 using ParallelizedIndexCreationInfo =
@@ -138,7 +135,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
-  std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
+  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
+                      utils::ReadPrioritizedRWLock>
+      stats_;
 };
 
 }  // namespace memgraph::storage

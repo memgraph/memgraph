@@ -25,6 +25,7 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 
 add_library(mg-utils STATIC ${utils_src_files})
+add_library(mg::utils ALIAS mg-utils)
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog)
 target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags json uuid rt)
 
