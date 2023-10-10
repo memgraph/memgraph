@@ -15,9 +15,10 @@
 import argparse
 import os
 import sys
-from behave.__main__ import main as behave_main
-from behave import configuration
 
+import mgclient
+from behave import configuration
+from behave.__main__ import main as behave_main
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -55,23 +56,16 @@ def main():
     add_config("--test-directory")
 
     # Arguments that should be passed on to Behave
-    add_argument("--db-host", default="127.0.0.1",
-                 help="server host (default is 127.0.0.1)")
-    add_argument("--db-port", default="7687",
-                 help="server port (default is 7687)")
-    add_argument("--db-user", default="memgraph",
-                 help="server user (default is memgraph)")
-    add_argument("--db-pass", default="memgraph",
-                 help="server pass (default is memgraph)")
-    add_argument("--stop", action="store_true",
-                 help="stop testing after first fail")
-    add_argument("--single-fail", action="store_true",
-                 help="pause after failed scenario")
-    add_argument("--single-scenario", action="store_true",
-                 help="pause after every scenario")
-    add_argument("--single-feature", action="store_true",
-                 help="pause after every feature")
+    add_argument("--db-host", default="127.0.0.1", help="server host (default is 127.0.0.1)")
+    add_argument("--db-port", default="7687", help="server port (default is 7687)")
+    add_argument("--db-user", default="memgraph", help="server user (default is memgraph)")
+    add_argument("--db-pass", default="memgraph", help="server pass (default is memgraph)")
+    add_argument("--stop", action="store_true", help="stop testing after first fail")
+    add_argument("--single-fail", action="store_true", help="pause after failed scenario")
+    add_argument("--single-scenario", action="store_true", help="pause after every scenario")
+    add_argument("--single-feature", action="store_true", help="pause after every feature")
     add_argument("--stats-file", default="", help="statistics output file")
+    add_argument("--storage-mode", default="in_memory", help="Memgraph storage mode")
 
     # Parse arguments
     parsed_args = argp.parse_args()
@@ -96,5 +90,5 @@ def main():
     return behave_main(behave_args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

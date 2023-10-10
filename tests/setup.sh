@@ -46,6 +46,7 @@ CFLAGS="-std=c99" python3 setup.py build
 CFLAGS="-std=c99" python3 setup.py install
 popd > /dev/null
 
+
 deactivate
 
 "$DIR"/e2e/graphql/setup.sh
@@ -58,7 +59,7 @@ if [ $# == 1 ]; then
         set +u
         OLD_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
         source $toolchain
-        NEW_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+        NEW_LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"../libs/mgclient/lib"
         deactivate
         set -u
 

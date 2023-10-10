@@ -15,14 +15,14 @@ List of responsibilities:
 import argparse
 import atexit
 import copy
-import os
-import sys
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import time
-import yaml
 
+import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 TESTS_DIR = os.path.join(SCRIPT_DIR, "tests")
@@ -66,7 +66,7 @@ def generate_status(suite, result_path, required):
         if passed == total:
             msg += " &#x1F44D;"  # +1 emoji
         else:
-            msg += " &#x26D4;"   # no entry emoji
+            msg += " &#x26D4;"  # no entry emoji
     return (msg, passed, total)
 
 
@@ -87,7 +87,7 @@ def generate_result_html(data):
     return ret
 
 
-class MemgraphRunner():
+class MemgraphRunner:
     def __init__(self, build_directory):
         self.build_directory = build_directory
         self.proc_mg = None
@@ -102,8 +102,7 @@ class MemgraphRunner():
 
         self.data_directory = tempfile.TemporaryDirectory()
         memgraph_binary = os.path.join(self.build_directory, "memgraph")
-        args_mg = [memgraph_binary, "--storage-properties-on-edges",
-                   "--data-directory", self.data_directory.name]
+        args_mg = [memgraph_binary, "--storage-properties-on-edges", "--data-directory", self.data_directory.name]
         self.proc_mg = subprocess.Popen(args_mg + self.args)
         wait_for_server(7687, 1)
         assert self.is_running(), "The Memgraph process died!"
@@ -135,7 +134,7 @@ def main():
         suites = yaml.safe_load(f)
 
     # venv used to run the qa engine
-    venv_python = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
+    venv_python = os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3")
 
     # Temporary directory for suite results
     output_dir = tempfile.TemporaryDirectory()
@@ -153,29 +152,36 @@ def main():
     mandatory_fails = []
 
     # Run suites
+    old_storage_mode = ""
     for suite in suites:
         print("Starting suite '{}' scenarios.".format(suite["name"]))
 
-        memgraph.start()
+        suite_storage_mode = suite["storage_mode"]
+        if old_storage_mode != suite_storage_mode:
+            memgraph.stop()
+            memgraph.start(["--storage-mode", suite_storage_mode])
+            old_storage_mode = suite_storage_mode
 
-        suite["stats_file"] = os.path.join(output_dir.name,
-                                           suite["name"] + ".json")
-        cmd = [venv_python, "-u",
-               os.path.join(SCRIPT_DIR, "run.py"),
-               "--stats-file", suite["stats_file"],
-               suite["test_suite"]]
+        suite["stats_file"] = os.path.join(output_dir.name, suite["name"] + ".json")
+        cmd = [
+            venv_python,
+            "-u",
+            os.path.join(SCRIPT_DIR, "run.py"),
+            "--stats-file",
+            suite["stats_file"],
+            suite["test_suite"],
+        ]
 
         # The exit code isn't checked here because the `behave` framework
         # returns a non-zero exit code when some tests fail.
         subprocess.run(cmd)
 
-        suite_status, suite_passed, suite_total = \
-            generate_status(suite["name"], suite["stats_file"],
-                            suite["must_pass"])
+        suite_status, suite_passed, suite_total = generate_status(
+            suite["name"], suite["stats_file"], suite["must_pass"]
+        )
 
         status_data.append([suite["name"], suite_status])
-        result_csv += generate_result_csv(suite["name"],
-                                          suite["stats_file"])
+        result_csv += generate_result_csv(suite["name"], suite["stats_file"])
 
         if suite["must_pass"] and suite_passed != suite_total:
             mandatory_fails.append(suite["name"])
@@ -194,12 +200,12 @@ def main():
     with open(result_csv_path, "w") as f:
         f.write(result_csv)
 
-    print(f'CSV status is generated in {result_csv_path}')
-    print(f'HTML status is generated in {result_html_path}')
+    print(f"CSV status is generated in {result_csv_path}")
+    print(f"HTML status is generated in {result_html_path}")
 
     # Check if tests failed
     if mandatory_fails != []:
-        sys.exit(f'Some tests that must pass have failed: {mandatory_fails}')
+        sys.exit(f"Some tests that must pass have failed: {mandatory_fails}")
 
 
 if __name__ == "__main__":
