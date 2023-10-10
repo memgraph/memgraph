@@ -140,7 +140,7 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip
 
 // NOLINTNEXTLINE
 Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : port(port) {
-  address = std::move(ResolveHostnameIntoIpAddress(hostname, port));
+  address = ResolveHostnameIntoIpAddress(hostname, port);
   IpFamily ip_family = GetIpFamily(address);
   if (ip_family == IpFamily::NONE) {
     throw NetworkError("Not a valid IPv4 or IPv6 address: {}", address);
