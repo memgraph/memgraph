@@ -1713,8 +1713,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
-                    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, const std::string &uuid,
-                    std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                    utils::SkipList<Edge> *edges, const std::string &uuid,
+                    const memgraph::replication::ReplicationEpoch &epoch,
+                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
@@ -2023,7 +2024,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteUint(used_ids.size());
     for (auto item : used_ids) {
       snapshot.WriteUint(item);
-      snapshot.WriteString(name_id_mapper->IdToName(item));
+      snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
     }
   }
 

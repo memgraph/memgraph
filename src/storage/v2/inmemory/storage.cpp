@@ -1808,9 +1808,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
-    // Create snapshot.
-    durability::CreateSnapshot(this, &transaction, snapshot_directory_, wal_directory_, &vertices_, &edges_,
-                               name_id_mapper_.get(), uuid_, epoch.id, replication_state_.history, &file_retainer_);
+    durability::CreateSnapshot(this, &transaction, snapshot_directory_, wal_directory_, &vertices_, &edges_, uuid_,
+                               epoch, repl_storage_state_.history, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
 
