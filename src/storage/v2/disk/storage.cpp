@@ -197,26 +197,6 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
   return true;
 }
 
-// template <typename TCacheKey, typename TFuncMainCacheMerger, typename TCache, typename TFuncOnDiskCacheMerger>
-// void GetVerticesWithCacheSync(Transaction& transaction, uint64_t command_id, View view, TCacheKey cache_key, const
-// TFuncMainCacheMerger& merge_with_main_cache,
-//   TCache& index, const TFuncOnDiskCacheMerger& merge_with_ondisk_cache
-// ){
-//   if (transaction.command_id > command_id) {
-//     command_id = transaction.command_id;
-
-//     auto gids = merge_with_main_cache(index);
-//     merge_with_ondisk_cache();
-//   } else {
-//     if (index.contains(cache_key) && view == View::OLD) {
-//       merge_with_main_cache(index);
-//     } else {
-//       auto gids = merge_with_main_cache(index);
-//       merge_with_ondisk_cache();
-//     }
-//   }
-// }
-
 }  // namespace
 
 void DiskStorage::LoadTimestampIfExists() {
@@ -663,7 +643,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                                  *indexed_vertices, label_property_filter);
   };
 
-  // TODO more axuliary ds did not solve the issue, check out the command_id counter/checking per cache solution.
   const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
                                              const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
     return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);

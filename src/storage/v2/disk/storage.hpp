@@ -272,16 +272,12 @@ class DiskStorage final : public Storage {
     using RangeBoundary = std::optional<utils::Bound<PropertyValue>>;
     using LabelPropertyRangeIndex = std::tuple<LabelId, PropertyId, RangeBoundary, RangeBoundary>;
 
-    // TODO rename these.
     std::map<LabelId, utils::SkipList<Vertex>> label_index_cache_;
     uint64_t label_index_cache_ci_{transaction_.command_id};
-
     std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_cache_;
     uint64_t label_property_index_cache_ci_{transaction_.command_id};
-
     std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_cache_;
     uint64_t label_property_val_index_cache_ci_{transaction_.command_id};
-
     std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_cache_;
     uint64_t label_property_range_index_cache_ci_{transaction_.command_id};
 
