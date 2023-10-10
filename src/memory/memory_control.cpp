@@ -267,7 +267,12 @@ void UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t tran
   std::ostringstream oss;
   oss << thread_id;
   thread_id_to_transaction_id[oss.str()] = transaction_id;
-  std::cout << "set:" << oss.str() << std::endl;
+  std::cout << "set tracking for thread:" << oss.str() << ", on transaction: " << transaction_id << std::endl;
+}
+
+void UpdateThreadToTransactionId(const char *thread_id, uint64_t transaction_id) {
+  thread_id_to_transaction_id[std::string(thread_id)] = transaction_id;
+  std::cout << "set tracking:" << std::string(thread_id) << ", on transaction: " << transaction_id << std::endl;
 }
 
 void ResetThreadToTransactionId(const std::thread::id &thread_id) {
@@ -275,6 +280,8 @@ void ResetThreadToTransactionId(const std::thread::id &thread_id) {
   oss << thread_id;
   thread_id_to_transaction_id.erase(oss.str());
 }
+
+void ResetThreadToTransactionId(const char *thread_id) { thread_id_to_transaction_id.erase(std::string(thread_id)); }
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC

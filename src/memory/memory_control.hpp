@@ -27,6 +27,8 @@ bool AddTrackingOnArena(unsigned);
 bool RemoveTrackingOnArena(unsigned);
 void UpdateThreadToTransactionId(const std::thread::id &, uint64_t);
 void ResetThreadToTransactionId(const std::thread::id &);
+void UpdateThreadToTransactionId(const char *, uint64_t);
+void ResetThreadToTransactionId(const char *);
 
 // TODO(AF) : Do we need arena to transaction id and transaction_id to tracker?
 inline std::unordered_map<std::string, uint64_t> thread_id_to_transaction_id;
