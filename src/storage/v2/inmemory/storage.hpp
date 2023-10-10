@@ -326,10 +326,12 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                               const memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationClient> override;
 
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config,
+                               memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationServer> override;
 
  private:

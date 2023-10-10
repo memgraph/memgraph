@@ -93,7 +93,7 @@ memgraph::utils::BasicResult<RegisterReplicaError> ReplicationHandler::RegisterR
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
 
-    auto client = storage_.CreateReplicationClient(config);
+    auto client = storage_.CreateReplicationClient(config, &repl_state_.GetEpoch());
     client->Start();
 
     if (client->State() == replication::ReplicaState::INVALID) {
@@ -116,7 +116,8 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
     return false;
   }
 
-  std::unique_ptr<ReplicationServer> replication_server = storage_.CreateReplicationServer(config);
+  std::unique_ptr<ReplicationServer> replication_server =
+      storage_.CreateReplicationServer(config, &repl_state_.GetEpoch());
   bool res = replication_server->Start();
   if (!res) {
     spdlog::error("Unable to start the replication server.");
@@ -187,7 +188,7 @@ void ReplicationHandler::RestoreReplication() {
 
   /// REPLICA
   auto const recover_replica = [this](ReplicationState::ReplicationDataReplica const &config) {
-    auto replication_server = storage_.CreateReplicationServer(config);
+    auto replication_server = storage_.CreateReplicationServer(config, &repl_state_.GetEpoch());
     if (!replication_server->Start()) {
       LOG_FATAL("Unable to start the replication server.");
     }

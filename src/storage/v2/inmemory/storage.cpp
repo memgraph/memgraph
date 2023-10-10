@@ -2010,16 +2010,16 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                                              const memgraph::replication::ReplicationEpoch *current_epoch)
     -> std::unique_ptr<ReplicationClient> {
-  auto &replState = this->repl_state_;
-  return std::make_unique<InMemoryReplicationClient>(this, config, &replState.GetEpoch());
+  return std::make_unique<InMemoryReplicationClient>(this, config, current_epoch);
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const memgraph::replication::ReplicationServerConfig &config) {
-  auto &replState = this->repl_state_;
-  return std::make_unique<InMemoryReplicationServer>(this, config, &replState.GetEpoch());
+    const memgraph::replication::ReplicationServerConfig &config,
+    memgraph::replication::ReplicationEpoch *current_epoch) {
+  return std::make_unique<InMemoryReplicationServer>(this, config, current_epoch);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
