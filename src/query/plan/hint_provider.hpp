@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
+#include <range/v3/view.hpp>
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -256,6 +257,8 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   }
 
   std::string ExtractAndJoin(auto &&collection, bool append_semicolon = false) {
+    auto strings = collection | ranges::views::transform([](const auto &item) { return item.name; });
+
     std::vector<std::string> property_range;
     property_range.reserve(collection.size());
 
