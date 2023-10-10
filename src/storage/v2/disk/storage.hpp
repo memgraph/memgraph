@@ -65,21 +65,20 @@ class DiskStorage final : public Storage {
                                                                           std::list<Delta> &index_deltas,
                                                                           utils::SkipList<Vertex> &indexed_vertices);
 
-    void LoadVerticesFromDiskLabelIndex(LabelId label, const std::unordered_set<storage::Gid> &gids,
+    void LoadVerticesFromDiskLabelIndex(const std::unordered_set<storage::Gid> &gids, LabelId label,
                                         std::list<Delta> &index_deltas, utils::SkipList<Vertex> &indexed_vertices);
 
     std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
         LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
         utils::SkipList<Vertex> &indexed_vertices, const auto &label_property_filter);
 
-    void LoadVerticesFromDiskLabelPropertyIndex(LabelId label, PropertyId property,
-                                                const std::unordered_set<storage::Gid> &gids,
-                                                std::list<Delta> &index_deltas,
+    void LoadVerticesFromDiskLabelPropertyIndex(const std::unordered_set<storage::Gid> &gids, LabelId label,
+                                                PropertyId property, std::list<Delta> &index_deltas,
                                                 utils::SkipList<Vertex> &indexed_vertices,
                                                 const auto &label_property_filter);
 
-    void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(LabelId label, PropertyId property,
-                                                                    const std::unordered_set<storage::Gid> &gids,
+    void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(const std::unordered_set<storage::Gid> &gids,
+                                                                    LabelId label, PropertyId property,
                                                                     const PropertyValue &value,
                                                                     std::list<Delta> &index_deltas,
                                                                     utils::SkipList<Vertex> &indexed_vertices);
@@ -90,7 +89,7 @@ class DiskStorage final : public Storage {
         utils::SkipList<Vertex> &indexed_vertices);
 
     void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
-        LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
+        const std::unordered_set<storage::Gid> &gids, LabelId label, PropertyId property,
         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
         const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
         utils::SkipList<Vertex> &indexed_vertices);
@@ -274,17 +273,17 @@ class DiskStorage final : public Storage {
     using LabelPropertyRangeIndex = std::tuple<LabelId, PropertyId, RangeBoundary, RangeBoundary>;
 
     // TODO rename these.
-    std::map<LabelId, utils::SkipList<Vertex>> label_index_old_;
-    uint64_t label_index_old_ci_{transaction_.command_id};
+    std::map<LabelId, utils::SkipList<Vertex>> label_index_cache_;
+    uint64_t label_index_cache_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_old_;
-    uint64_t label_property_index_old_ci_{transaction_.command_id};
+    std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_cache_;
+    uint64_t label_property_index_cache_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_old_;
-    uint64_t label_property_val_index_old_ci_{transaction_.command_id};
+    std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_cache_;
+    uint64_t label_property_val_index_cache_ci_{transaction_.command_id};
 
-    std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_old_;
-    uint64_t label_property_range_index_old_ci_{transaction_.command_id};
+    std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_cache_;
+    uint64_t label_property_range_index_cache_ci_{transaction_.command_id};
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
