@@ -83,7 +83,10 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
     }
     MG_ASSERT(!dba->Commit().HasError());
   }
-  MG_ASSERT(!db->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+  {
+    auto unique_acc = db->UniqueAccess();
+    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+  }
 }
 
 static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
@@ -105,7 +108,10 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
     }
     MG_ASSERT(!dba->Commit().HasError());
   }
-  MG_ASSERT(!db->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+  {
+    auto unique_acc = db->UniqueAccess();
+    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+  }
 }
 
 static memgraph::query::CypherQuery *ParseCypherQuery(const std::string &query_string,

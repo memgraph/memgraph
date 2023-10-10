@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <thread>
 #include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
@@ -39,8 +40,14 @@ class InMemoryStorage;
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
+auto ReplicationStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
+  if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
+  return {config.durability.storage_directory};
+}
+
 Storage::Storage(Config config, StorageMode storage_mode)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+    : repl_state_(ReplicationStateHelper(config)),
+      name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
                                                     config.disk.id_name_mapper_directory);
@@ -52,16 +59,28 @@ Storage::Storage(Config config, StorageMode storage_mode)
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      id_(config.name),
-      replication_state_(config_.durability.restore_replication_state_on_startup,
-                         config_.durability.storage_directory) {}
+      id_(config.name) {}
 
-Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
+Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true),
+      creation_storage_mode_(storage_mode) {}
+
+Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode)
+    : storage_(storage),
+      // The lock must be acquired before creating the transaction object to
+      // prevent freshly created transactions from dangling in an active state
+      // during exclusive operations.
+      storage_guard_(storage_->main_lock_, std::defer_lock),
+      unique_guard_(storage_->main_lock_),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
@@ -69,6 +88,7 @@ Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, St
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),
+      unique_guard_(std::move(other.unique_guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
@@ -76,16 +96,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
-}
-
-IndicesInfo Storage::ListAllIndices() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
-}
-
-ConstraintsInfo Storage::ListAllConstraints() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
 }
 
 /// Main lock is taken by the caller.

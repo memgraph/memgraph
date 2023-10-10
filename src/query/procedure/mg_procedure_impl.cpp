@@ -1940,7 +1940,7 @@ void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
+  static_assert(noexcept(*v1 == *v2));
   *result = *v1 == *v2 ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
@@ -2313,7 +2313,7 @@ void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
+  static_assert(noexcept(*e1 == *e2));
   *result = *e1 == *e2 ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }

@@ -249,7 +249,9 @@ jobs:
 
       - name: Run GQL Behave tests
         run: |
-          cd tests/gql_behave
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
           ./continuous_integration
 
       - name: Save quality assurance status
@@ -417,11 +419,12 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
       - name: Run mgbench
         run: |
           cd tests/mgbench
@@ -434,7 +437,7 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
