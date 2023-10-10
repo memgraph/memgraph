@@ -1,15 +1,39 @@
 - name: memgraph_V1
   test_suite: memgraph_V1
+  storage_mode: IN_MEMORY_TRANSACTIONAL
   must_pass: true
 
 - name: openCypher_M09
   test_suite: openCypher_M09
+  storage_mode: IN_MEMORY_TRANSACTIONAL
   must_pass: false
 
 - name: stackoverflow_answers
   test_suite: stackoverflow_answers
+  storage_mode: IN_MEMORY_TRANSACTIONAL
   must_pass: true
 
 - name: unstable
   test_suite: unstable
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  must_pass: false
+
+- name: memgraph_V1_on_disk
+  test_suite: memgraph_V1
+  storage_mode: ON_DISK_TRANSACTIONAL
+  must_pass: true
+
+- name: openCypher_M09_on_disk
+  test_suite: openCypher_M09
+  storage_mode: ON_DISK_TRANSACTIONAL
+  must_pass: false
+
+- name: stackoverflow_answers_on_disk
+  test_suite: stackoverflow_answers
+  storage_mode: ON_DISK_TRANSACTIONAL
+  must_pass: true
+
+- name: unstable_on_disk
+  test_suite: unstable
+  storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: false

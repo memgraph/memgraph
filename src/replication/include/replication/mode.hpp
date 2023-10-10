@@ -10,21 +10,7 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <chrono>
-#include <string>
-
-namespace memgraph::query {
-struct InterpreterConfig {
-  struct Query {
-    bool allow_load_csv{true};
-  } query;
-
-  // The same as \ref memgraph::replication::ReplicationClientConfig
-  std::chrono::seconds replication_replica_check_frequency{1};
-
-  std::string default_kafka_bootstrap_servers;
-  std::string default_pulsar_service_url;
-  uint32_t stream_transaction_conflict_retries;
-  std::chrono::milliseconds stream_transaction_retry_interval;
-};
-}  // namespace memgraph::query
+#include <cstdint>
+namespace memgraph::replication {
+enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+}
