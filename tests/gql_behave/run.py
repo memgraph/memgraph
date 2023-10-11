@@ -65,10 +65,29 @@ def main():
     add_argument("--single-scenario", action="store_true", help="pause after every scenario")
     add_argument("--single-feature", action="store_true", help="pause after every feature")
     add_argument("--stats-file", default="", help="statistics output file")
-    add_argument("--storage-mode", default="in_memory", help="Memgraph storage mode")
+    add_argument("--storage-mode", help="Memgraph storage mode")
 
     # Parse arguments
     parsed_args = argp.parse_args()
+
+    if parsed_args.storage_mode is None:
+        if parsed_args.test_suite == "memgraph_V1_on_disk":
+            parsed_args.storage_mode = "ON_DISK_TRANSACTIONAL"
+        else:
+            parsed_args.storage_mode = "IN_MEMORY_TRANSACTIONAL"
+
+    print(f"Test suite: {parsed_args.test_suite}")
+    print(f"Storage mode: {parsed_args.storage_mode}")
+
+    if parsed_args.test_suite == "memgraph_V1_on_disk" and parsed_args.storage_mode != "ON_DISK_TRANSACTIONAL":
+        raise Exception(
+            "memgraph_V1_on_disk test suite can only be run with ON_DISK_TRANSACTIONAL storage mode. For other storage modes, use memgraph_V1 test suite."
+        )
+
+    if parsed_args.test_suite == "memgraph_V1" and parsed_args.storage_mode == "ON_DISK_TRANSACTIONAL":
+        raise Exception(
+            "memgraph_V1 test suite cannot be run with ON_DISK_TRANSACTIONAL storage mode. For ON_DISK_TRANSACTIONAL storage mode, use memgraph_V1_on_disk test suite."
+        )
 
     # Find tests
     test_directory = os.path.join(SCRIPT_DIR, "tests", parsed_args.test_suite)
