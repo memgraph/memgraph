@@ -15,8 +15,6 @@
 
 namespace memgraph::storage {
 
-InMemoryLabelIndex::InMemoryLabelIndex(Indices *indices, Config config) : LabelIndex(indices, config) {}
-
 void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
   auto it = index_.find(added_label);
   if (it == index_.end()) return;
@@ -99,20 +97,17 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 }
 
 InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
-                                       Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       const Config &config)
+                                       Storage *storage, Transaction *transaction)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
-      transaction_(transaction),
-      indices_(indices),
-      constraints_(constraints),
-      config_(config) {}
+      storage_(storage),
+      transaction_(transaction) {}
 
 InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_.items),
+      current_vertex_accessor_(nullptr, self_->storage_, nullptr),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -128,8 +123,7 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
-    auto accessor = VertexAccessor{index_iterator_->vertex, self_->transaction_, self_->indices_, self_->constraints_,
-                                   self_->config_.items};
+    auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
     auto res = accessor.HasLabel(self_->label_, self_->view_);
     if (!res.HasError() and res.GetValue()) {
       current_vertex_ = accessor.vertex_;
@@ -151,11 +145,11 @@ void InMemoryLabelIndex::RunGC() {
   }
 }
 
-InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Transaction *transaction,
-                                                          Constraints *constraints) {
+InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Storage *storage,
+                                                          Transaction *transaction) {
   const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return {it->second.access(), label, view, transaction, indices_, constraints, config_};
+  return {it->second.access(), label, view, storage, transaction};
 }
 
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {

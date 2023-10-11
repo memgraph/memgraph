@@ -32,7 +32,6 @@ inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key
 
 // Extracts global id from user key. User key must be without timestamp.
 std::string_view ExtractGidFromUserKey(const rocksdb::Slice &key) {
-  assert(key.size() >= 2);
   auto keyStrView = key.ToStringView();
   return keyStrView.substr(keyStrView.find_last_of('|') + 1);
 }
@@ -80,34 +79,5 @@ int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const r
   }
   return 0;
 }
-
-DiskEdgeKey::DiskEdgeKey(storage::Gid src_vertex_gid, storage::Gid dest_vertex_gid, storage::EdgeTypeId edge_type_id,
-                         const storage::EdgeRef edge_ref, bool properties_on_edges) {
-  auto from_gid = utils::SerializeIdType(src_vertex_gid);
-  auto to_gid = utils::SerializeIdType(dest_vertex_gid);
-  auto edge_type = utils::SerializeIdType(edge_type_id);
-  std::string edge_gid;
-
-  if (properties_on_edges) {
-    edge_gid = utils::SerializeIdType(edge_ref.ptr->gid);
-  } else {
-    edge_gid = utils::SerializeIdType(edge_ref.gid);
-  }
-
-  key = fmt::format("{}|{}|{}|{}|{}", from_gid, to_gid, utils::outEdgeDirection, edge_type, edge_gid);
-}
-
-DiskEdgeKey::DiskEdgeKey(const ModifiedEdgeInfo &edge_info, bool properties_on_edges)
-    : DiskEdgeKey(edge_info.src_vertex_gid, edge_info.dest_vertex_gid, edge_info.edge_type_id, edge_info.edge_ref,
-                  properties_on_edges) {}
-
-std::string DiskEdgeKey::GetVertexOutGid() const { return key.substr(0, key.find('|')); }
-
-std::string DiskEdgeKey::GetVertexInGid() const {
-  auto vertex_in_start = key.find('|') + 1;
-  return key.substr(vertex_in_start, key.find('|', vertex_in_start) - vertex_in_start);
-}
-
-std::string DiskEdgeKey::GetEdgeGid() const { return key.substr(key.rfind('|') + 1); }
 
 }  // namespace memgraph::storage
