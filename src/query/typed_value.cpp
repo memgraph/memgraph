@@ -19,6 +19,7 @@
 #include <string_view>
 #include <utility>
 
+#include "query/fmt.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -315,17 +316,20 @@ TypedValue::operator storage::PropertyValue() const {
   throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
 }
 
-#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                                  \
-  type_param &TypedValue::Value##type_enum() {                                                       \
-    if (type_ != Type::type_enum) throw TypedValueException("TODO(gitbuda): Fix typed value type "); \
-    return field;                                                                                    \
-  }                                                                                                  \
-  const type_param &TypedValue::Value##type_enum() const {                                           \
-    if (type_ != Type::type_enum) throw TypedValueException("TODO(gitbuda): Fix typed value type "); \
-    return field;                                                                                    \
-  }                                                                                                  \
+#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
+  type_param &TypedValue::Value##type_enum() {                                                   \
+    if (type_ != Type::type_enum) {                                                              \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
+    }                                                                                            \
+    return field;                                                                                \
+  }                                                                                              \
+  const type_param &TypedValue::Value##type_enum() const {                                       \
+    if (type_ != Type::type_enum) {                                                              \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
+    }                                                                                            \
+    return field;                                                                                \
+  }                                                                                              \
   bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
-// throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum);
 
 DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
@@ -343,16 +347,14 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
 
 Graph &TypedValue::ValueGraph() {
   if (type_ != Type::Graph) {
-    throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-    // throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
   }
   return *graph_v;
 }
 
 const Graph &TypedValue::ValueGraph() const {
   if (type_ != Type::Graph) {
-    throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-    // throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
   }
   return *graph_v;
 }
@@ -733,15 +735,17 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
         return false;
     }
   };
-  if (!is_legal(a.type()) || !is_legal(b.type())) throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-  // throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+  if (!is_legal(a.type()) || !is_legal(b.type())) {
+    throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+  }
 
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) {
+    return TypedValue(a.GetMemoryResource());
+  }
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
-      throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-      // throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.GetMemoryResource());
     }
@@ -749,8 +753,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
     if (a.type() != b.type()) {
-      throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-      // throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     }
 
     switch (a.type()) {
@@ -854,8 +857,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
 TypedValue operator!(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
   if (a.IsBool()) return TypedValue(!a.ValueBool(), a.GetMemoryResource());
-  throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-  // throw TypedValueException("Invalid logical not operand type (!{})", a.type());
+  throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
 /**
@@ -878,16 +880,14 @@ TypedValue operator-(const TypedValue &a) {
   if (a.IsInt()) return TypedValue(-a.ValueInt(), a.GetMemoryResource());
   if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.GetMemoryResource());
   if (a.IsDuration()) return TypedValue(-a.ValueDuration(), a.GetMemoryResource());
-  throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-  // throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
+  throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
 }
 
 TypedValue operator+(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
   if (a.IsInt()) return TypedValue(+a.ValueInt(), a.GetMemoryResource());
   if (a.IsDouble()) return TypedValue(+a.ValueDouble(), a.GetMemoryResource());
-  throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-  // throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
+  throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
 }
 
 /**
@@ -911,8 +911,9 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
   // checked here because they are handled before this check is performed in
   // arithmetic op implementations.
 
-  if (!is_legal(a) || !is_legal(b)) throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-  // throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
+  if (!is_legal(a) || !is_legal(b)) {
+    throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
+  }
 }
 
 namespace {
@@ -1062,9 +1063,9 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
 }
 
 inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const std::string &op_name) {
-  if (!((a.IsBool() || a.IsNull()) && (b.IsBool() || b.IsNull())))
-    throw TypedValueException("TODO(gitbuda): Fix typed value type ");
-  // throw TypedValueException("Invalid {} operand types({} && {})", op_name, a.type(), b.type());
+  if (!((a.IsBool() || a.IsNull()) && (b.IsBool() || b.IsNull()))) {
+    throw TypedValueException("Invalid {} operand types({} && {})", op_name, a.type(), b.type());
+  }
 }
 
 TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
