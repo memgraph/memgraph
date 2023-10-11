@@ -162,8 +162,6 @@ inline auto Edges_ActionMethod(std::vector<std::tuple<EdgeTypeId, Vertex *, Edge
               if (!predicate(delta)) return;
               // Add the edge because we don't see the removal.
               auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-              // DMG_ASSERT(std::find(edges.begin(), edges.end(), link) == edges.end(), "Invalid database state!");
-              // edges.push_back(link);
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
