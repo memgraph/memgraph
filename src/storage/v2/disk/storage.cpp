@@ -21,7 +21,6 @@
 
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
-#include <rocksdb/env.h>
 #include <rocksdb/slice.h>
 
 #include <rocksdb/options.h>
