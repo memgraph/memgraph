@@ -19,6 +19,7 @@
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
+#include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -111,6 +112,8 @@ struct Transaction {
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   ModifiedEdgesMap modified_edges_;
+
+  mutable ConstraintVerificationInfo constraint_verification_info;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

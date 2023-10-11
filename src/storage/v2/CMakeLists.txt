@@ -6,6 +6,7 @@ add_library(mg-storage-v2 STATIC
         commit_log.cpp
         constraints/existence_constraints.cpp
         constraints/constraints.cpp
+        constraint_verification_info.cpp
         temporal.cpp
         durability/durability.cpp
         durability/serialization.cpp

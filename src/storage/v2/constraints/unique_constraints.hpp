@@ -57,7 +57,6 @@ class UniqueConstraints {
                                 uint64_t transaction_start_timestamp) = 0;
 
   virtual std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const = 0;
-
   virtual void Clear() = 0;
 
  protected:
