@@ -177,6 +177,11 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
     return;
   }
 
+  if (ec) {
+    LogError(ec, "read");
+    return;
+  }
+
   if (!IsAuthenticated()) {
     auto response = nlohmann::json();
     auto auth_failed = [this, &response](const std::string &message) {
