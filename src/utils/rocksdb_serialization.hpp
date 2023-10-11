@@ -17,6 +17,7 @@
 #include <iterator>
 #include <numeric>
 #include <string>
+#include <string_view>
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -31,7 +32,6 @@ namespace memgraph::utils {
 static constexpr const char *outEdgeDirection = "0";
 static constexpr const char *inEdgeDirection = "1";
 
-namespace {
 struct StartEndPositions {
   size_t start;
   size_t end;
@@ -57,24 +57,6 @@ inline std::string_view FindPartOfStringView(const std::string_view str, const c
   }
   return startEndPos.Valid() ? str.substr(startEndPos.start, startEndPos.Size()) : str;
 }
-
-inline std::string_view GetViewOfFirstPartOfSplit(const std::string_view src, const char delimiter) {
-  return FindPartOfStringView(src, delimiter, 1);
-}
-
-inline std::string_view GetViewOfSecondPartOfSplit(const std::string_view src, const char delimiter) {
-  return FindPartOfStringView(src, delimiter, 2);
-}
-
-inline std::string_view GetViewOfThirdPartOfSplit(const std::string_view src, const char delimiter) {
-  return FindPartOfStringView(src, delimiter, 3);
-}
-
-inline std::string_view GetViewOfFourthPartOfSplit(const std::string_view src, const char delimiter) {
-  return FindPartOfStringView(src, delimiter, 4);
-}
-
-}  // namespace
 
 /// TODO: try to move this to hpp files so that we can follow jump on readings
 
@@ -144,18 +126,22 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
 }
 
 inline storage::Gid ExtractSrcVertexGidFromEdgeValue(const std::string value) {
-  const std::string_view src_vertex_gid_str = GetViewOfFirstPartOfSplit(value, '|');
+  const std::string_view src_vertex_gid_str = FindPartOfStringView(value, '|', 1);
   return storage::Gid::FromString(src_vertex_gid_str);
 }
 
 inline storage::Gid ExtractDstVertexGidFromEdgeValue(const std::string value) {
-  const std::string_view dst_vertex_gid_str = GetViewOfSecondPartOfSplit(value, '|');
+  const std::string_view dst_vertex_gid_str = FindPartOfStringView(value, '|', 2);
   return storage::Gid::FromString(dst_vertex_gid_str);
 }
 
 inline storage::EdgeTypeId ExtractEdgeTypeIdFromEdgeValue(const std::string_view value) {
-  const std::string_view edge_type_str = GetViewOfThirdPartOfSplit(value, '|');
+  const std::string_view edge_type_str = FindPartOfStringView(value, '|', 3);
   return storage::EdgeTypeId::FromString(edge_type_str);
+}
+
+inline std::string_view GetPropertiesFromEdgeValue(const std::string_view value) {
+  return FindPartOfStringView(value, '|', 4);
 }
 
 inline std::string SerializeEdgeAsValue(const std::string &src_vertex_gid, const std::string &dst_vertex_gid,
@@ -181,12 +167,10 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
   return result + SerializeProperties(property_store);
 }
 
-inline std::string ExtractGidFromKey(const std::string &key) {
-  return std::string(GetViewOfSecondPartOfSplit(key, '|'));
-}
+inline std::string ExtractGidFromKey(const std::string &key) { return std::string(FindPartOfStringView(key, '|', 2)); }
 
 inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const std::string &value) {
-  const std::string_view properties_str = GetViewOfSecondPartOfSplit(value, '|');
+  const std::string_view properties_str = FindPartOfStringView(value, '|', 2);
   return storage::PropertyStore::CreateFromBuffer(properties_str);
 }
 
@@ -205,7 +189,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const 
 }
 
 inline std::vector<std::string> ExtractLabelsFromMainDiskStorage(const std::string &key) {
-  return utils::Split(GetViewOfFirstPartOfSplit(key, '|'), ",");
+  return utils::Split(FindPartOfStringView(key, '|', 1), ",");
 }
 
 inline storage::PropertyStore DeserializePropertiesFromMainDiskStorage(const std::string_view value) {
@@ -234,8 +218,8 @@ inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::Labe
 }
 
 inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
-  const std::string_view firstPartKey = GetViewOfFirstPartOfSplit(key, '|');
-  const std::string_view constraint_key = GetViewOfFirstPartOfSplit(firstPartKey, ',');
+  const std::string_view firstPartKey = FindPartOfStringView(key, '|', 1);
+  const std::string_view constraint_key = FindPartOfStringView(firstPartKey, ',', 1);
   /// TODO: andi Change this to deserialization method directly into the LabelId class
   uint64_t labelID = 0;
   const char *endOfConstraintKey = constraint_key.data() + constraint_key.size();
@@ -268,7 +252,7 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std::string &key,
                                                                        const std::string &value) {
-  std::string labels_str{GetViewOfFirstPartOfSplit(value, '|')};
+  std::string labels_str{FindPartOfStringView(value, '|', 1)};
   std::vector<storage::LabelId> labels{TransformFromStringLabels(utils::Split(labels_str, ","))};
   std::string indexing_label = key.substr(0, key.find('|'));
   labels.emplace_back(storage::LabelId::FromString(indexing_label));
@@ -303,7 +287,7 @@ inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId 
 }
 
 inline std::string ExtractGidFromLabelPropertyIndexStorage(const std::string &key) {
-  return std::string(GetViewOfThirdPartOfSplit(key, '|'));
+  return std::string(FindPartOfStringView(key, '|', 3));
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &key,

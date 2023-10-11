@@ -1541,7 +1541,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
-    auto properties_str = config_.items.properties_on_edges ? utils::GetViewOfFourthPartOfSplit(edge_val_str, '|') : "";
+    auto properties_str = config_.items.properties_on_edges ? utils::GetPropertiesFromEdgeValue(edge_val_str) : "";
 
     const auto edge = std::invoke([this, destination, &edge_val_str, transaction, view, src_vertex, edge_type_id,
                                    edge_gid, &properties_str, &edge_gid_str]() {
@@ -1604,7 +1604,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
-    auto properties_str = utils::GetViewOfFourthPartOfSplit(edge_val_str, '|');
+    auto properties_str = utils::GetPropertiesFromEdgeValue(edge_val_str);
 
     const auto edge = std::invoke([this, source, &edge_val_str, transaction, view, dst_vertex, edge_type_id, edge_gid,
                                    &properties_str, &edge_gid_str]() {
