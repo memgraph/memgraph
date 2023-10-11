@@ -527,3 +527,15 @@ Feature: WHERE exists
           MATCH (n:Two) SET n.prop = exists((n)<-[:TYPE]-()) RETURN n.prop;
           """
       Then an error should be raised
+
+  Scenario: Test exists does not work in RETURN clauses
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n) RETURN exists((n)-[]-());
+          """
+      Then an error should be raised

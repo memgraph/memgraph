@@ -13,15 +13,15 @@
 
 #include "query/interpreter.hpp"
 namespace memgraph::query {
-std::vector<std::vector<TypedValue>> InterpreterContext::KillTransactions(
+std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
-    bool hasTransactionManagementPrivilege, Interpreter &calling_interpreter) {
+    std::function<bool(std::string const &)> privilege_checker) {
   auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
   // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, username, hasTransactionManagementPrivilege,
-                         filter_db_acc = &calling_interpreter.db_acc_](const auto &interpreters) {
+  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, username,
+                         privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
       TransactionStatus alive_status = TransactionStatus::ACTIVE;
       // if it is just checking kill, commit and abort should wait for the end of the check
@@ -38,7 +38,6 @@ std::vector<std::vector<TypedValue>> InterpreterContext::KillTransactions(
           interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
         }
       });
-      if (interpreter->db_acc_ != *filter_db_acc) continue;
       std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
       if (!intr_trans.has_value()) continue;
 
@@ -49,7 +48,11 @@ std::vector<std::vector<TypedValue>> InterpreterContext::KillTransactions(
         // update the maybe_kill_transaction_ids (partitioning not found + killed)
         --not_found_midpoint;
         std::iter_swap(it, not_found_midpoint);
-        if (interpreter->username_ == username || hasTransactionManagementPrivilege) {
+        auto get_interpreter_db_name = [&]() -> std::string const & {
+          static std::string all;
+          return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->id() : all;
+        };
+        if (interpreter->username_ == username || privilege_checker(get_interpreter_db_name())) {
           killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
           spdlog::warn("Transaction {} successfully killed", transaction_id);
         } else {

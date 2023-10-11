@@ -20,6 +20,8 @@ add_subdirectory(auth)
 add_subdirectory(audit)
 add_subdirectory(dbms)
 add_subdirectory(flags)
+add_subdirectory(distributed)
+add_subdirectory(replication)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
