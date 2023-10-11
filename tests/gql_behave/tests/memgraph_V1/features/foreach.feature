@@ -242,7 +242,7 @@ Feature: Foreach
    Given an empty graph
    And having executed
    """
-   FOREACH(i in [1, 2, 3] | FOREACH(j in [2] | MERGE (n { age : i })));
+   FOREACH(i in [1, 2, 3] | FOREACH(j in [1] | MERGE (n { age : i })));
    """
    When executing query:
    """
