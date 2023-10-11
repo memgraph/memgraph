@@ -27,22 +27,21 @@ struct Vertex;
 class VertexAccessor;
 struct Indices;
 struct Constraints;
+class Storage;
 
 class EdgeAccessor final {
  private:
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
+               Transaction *transaction, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
+        storage_(storage),
         transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config),
         for_deleted_(for_deleted) {}
 
   /// @return true if the object is visible from the current transaction
@@ -84,12 +83,7 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Gid Gid() const noexcept {
-    if (config_.properties_on_edges) {
-      return edge_.ptr->gid;
-    }
-    return edge_.gid;
-  }
+  Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
@@ -102,10 +96,8 @@ class EdgeAccessor final {
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
+  Storage *storage_;
   Transaction *transaction_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this
