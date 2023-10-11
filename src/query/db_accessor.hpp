@@ -379,11 +379,17 @@ class DbAccessor final {
     memgraph::memory::AddTrackingOnArena(arena);
   }
 
+  void TrackCurrentThreadAllocations() {
+    memgraph::memory::AddTrackingsOnCurrentThread(*accessor_->GetTransactionId());
+  }
+
   void UntrackThreadAllocations(const char *thread_id) {
     memgraph::memory::ResetThreadToTransactionId(thread_id);
     auto arena = memgraph::memory::GetArenaForThread();
     memgraph::memory::RemoveTrackingOnArena(arena);
   }
+
+  void UntrackCurrentThreadAllocations() { memgraph::memory::RemoveTrackingsOnCurrentThread(); }
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
 
@@ -660,7 +666,11 @@ class SubgraphDbAccessor final {
 
   void TrackThreadAllocations(const char *thread_id);
 
+  void TrackCurrentThreadAllocations();
+
   void UntrackThreadAllocations(const char *thread_id);
+
+  void UntrackCurrentThreadAllocations();
 
   storage::PropertyId NameToProperty(std::string_view name);
 

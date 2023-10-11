@@ -11,6 +11,8 @@
 
 #include <gflags/gflags.h>
 #include <algorithm>
+#include <exception>
+#include <ios>
 #include <iostream>
 #include <mgclient.hpp>
 
@@ -51,10 +53,11 @@ int main(int argc, char **argv) {
     auto result_rows = client->FetchAll();
     if (result_rows) {
       auto row = *result_rows->begin();
-      std::cout << row[0].ValueBool() << std::endl;
+      error = row[0].ValueBool() == false;
+      std::cout << std::boolalpha << error << ", error status" << std::endl;
     }
 
-  } catch (const mg::ClientException &e) {
+  } catch (const std::exception &e) {
     std::cout << e.what() << std::endl;
     error = true;
   }

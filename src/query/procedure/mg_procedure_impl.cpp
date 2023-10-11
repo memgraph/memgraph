@@ -3547,9 +3547,21 @@ mgp_error mgp_track_thread_allocations(mgp_graph *graph, const char *thread_id) 
   });
 }
 
+mgp_error mgp_track_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->TrackCurrentThreadAllocations(); }, graph->impl);
+  });
+}
+
 mgp_error mgp_untrack_thread_allocations(mgp_graph *graph, const char *thread_id) {
   return WrapExceptions([&]() {
     std::visit([thread_id](auto *db_accessor) -> void { db_accessor->UntrackThreadAllocations(thread_id); },
                graph->impl);
+  });
+}
+
+mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->UntrackCurrentThreadAllocations(); }, graph->impl);
   });
 }

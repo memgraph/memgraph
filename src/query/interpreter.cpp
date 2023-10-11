@@ -1268,25 +1268,24 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
                                                                 std::map<std::string, TypedValue> *summary) {
   std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
   MG_ASSERT(transaction_id.has_value());
+  unsigned arena_ind{0};
   if (memory_limit_) {
-    // TODO(af) update for transaction id
+    // TODO (AF) think to isolate this in namespace or make a class
     memgraph::memory::transaction_id_tracker.emplace(std::piecewise_construct, std::forward_as_tuple(*transaction_id),
                                                      std::forward_as_tuple());
     auto &memory_tracker = memgraph::memory::transaction_id_tracker[*transaction_id];
     memory_tracker.SetMaximumHardLimit(static_cast<int64_t>(*memory_limit_));
     memory_tracker.SetHardLimit(static_cast<int64_t>(*memory_limit_));
-
-    auto arena_id = memgraph::memory::GetArenaForThread();
-    memgraph::memory::AddTrackingOnArena(arena_id);
+    arena_ind = memgraph::memory::GetArenaForThread();
+    memgraph::memory::AddTrackingOnArena(arena_ind);
     memgraph::memory::UpdateThreadToTransactionId(std::this_thread::get_id(), *transaction_id);
   }
   utils::OnScopeExit<std::function<void()>> reset_query_limit{
-      [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
+      [memory_limit = memory_limit_, transaction_id = *transaction_id, arena_ind]() {
         if (memory_limit) {
-          // TODO(af) update for transaction with id
+          // TODO (AF) think to isolate this in namespace or make a class
           memgraph::memory::transaction_id_tracker.erase(transaction_id);
-          auto arena_id = memgraph::memory::GetArenaForThread();
-          memgraph::memory::RemoveTrackingOnArena(arena_id);
+          memgraph::memory::RemoveTrackingOnArena(arena_ind);
           memgraph::memory::ResetThreadToTransactionId(std::this_thread::get_id());
         }
       }};
@@ -1314,7 +1313,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 
   ctx_.evaluation_context.memory = &*pool_memory;
-  ctx_.db_accessor->id();
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };

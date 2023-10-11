@@ -22,6 +22,9 @@ namespace memgraph::memory {
 
 void PurgeUnusedMemory();
 void SetHooks();
+
+// TODO(af) This should all be part of memgraph::memory::thread namespace, and moved to different file
+// This should be part of class
 unsigned GetArenaForThread();
 bool AddTrackingOnArena(unsigned);
 bool RemoveTrackingOnArena(unsigned);
@@ -29,10 +32,13 @@ void UpdateThreadToTransactionId(const std::thread::id &, uint64_t);
 void ResetThreadToTransactionId(const std::thread::id &);
 void UpdateThreadToTransactionId(const char *, uint64_t);
 void ResetThreadToTransactionId(const char *);
+void AddTrackingsOnCurrentThread(uint64_t);
+void RemoveTrackingsOnCurrentThread();
 
-// TODO(AF) : Do we need arena to transaction id and transaction_id to tracker?
 inline std::unordered_map<std::string, uint64_t> thread_id_to_transaction_id;
-inline std::unordered_map<int, std::atomic<int>> arena_tracking;
+// TODO(af): think if we need to solve issue of tracking allocations for arena
+// if user forgets to unregister tracking for that thread before it dies.
+inline std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
 inline std::unordered_map<uint64_t, utils::MemoryTracker> transaction_id_tracker;
 
 }  // namespace memgraph::memory

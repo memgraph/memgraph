@@ -11,7 +11,6 @@
 
 #include "memory_control.hpp"
 #include <cstdint>
-#include <iostream>
 #include <sstream>
 #include <thread>
 #include "utils/logging.hpp"
@@ -28,11 +27,23 @@ namespace memgraph::memory {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
 
-std::string get_thread_id() {
+std::string get_string_thread_id(const std::thread::id &thread_id) {
   std::ostringstream oss;
-  oss << std::this_thread::get_id();
+  oss << thread_id;
   return oss.str();
 }
+
+// TODO (af) think if following implementation would make sense
+/*
+std::string get_thread_id() {
+  static thread_local std::thread::id current_thread_id = std::this_thread::get_id();
+  // figure out how to cache this part
+  std::ostringstream oss;
+  oss << current_thread_id;
+  return oss.str();
+}
+*/
+std::string get_thread_id() { return get_string_thread_id(std::this_thread::get_id()); }
 
 #if USE_JEMALLOC
 
@@ -68,9 +79,6 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   if (*commit) [[likely]] {
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (arena_tracking[arena_ind]) [[unlikely]] {
-      std::string thread_id = get_thread_id();
-      std::cout << "aloc:" << thread_id << std::endl;
-      std::cout << "thread id to transaction id" << thread_id_to_transaction_id[get_thread_id()] << std::endl;
       transaction_id_tracker[thread_id_to_transaction_id[get_thread_id()]].Alloc(static_cast<int64_t>(size));
     }
   }
@@ -264,24 +272,28 @@ bool RemoveTrackingOnArena(unsigned arena_id) {
 }
 
 void UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
-  std::ostringstream oss;
-  oss << thread_id;
-  thread_id_to_transaction_id[oss.str()] = transaction_id;
-  std::cout << "set tracking for thread:" << oss.str() << ", on transaction: " << transaction_id << std::endl;
+  thread_id_to_transaction_id[get_string_thread_id(thread_id)] = transaction_id;
 }
 
 void UpdateThreadToTransactionId(const char *thread_id, uint64_t transaction_id) {
   thread_id_to_transaction_id[std::string(thread_id)] = transaction_id;
-  std::cout << "set tracking:" << std::string(thread_id) << ", on transaction: " << transaction_id << std::endl;
 }
 
 void ResetThreadToTransactionId(const std::thread::id &thread_id) {
-  std::ostringstream oss;
-  oss << thread_id;
-  thread_id_to_transaction_id.erase(oss.str());
+  thread_id_to_transaction_id.erase(get_string_thread_id(thread_id));
 }
 
 void ResetThreadToTransactionId(const char *thread_id) { thread_id_to_transaction_id.erase(std::string(thread_id)); }
+
+void AddTrackingsOnCurrentThread(uint64_t transaction_id) {
+  UpdateThreadToTransactionId(std::this_thread::get_id(), transaction_id);
+  AddTrackingOnArena(memgraph::memory::GetArenaForThread());
+}
+
+void RemoveTrackingsOnCurrentThread() {
+  ResetThreadToTransactionId(std::this_thread::get_id());
+  RemoveTrackingOnArena(GetArenaForThread());
+}
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
