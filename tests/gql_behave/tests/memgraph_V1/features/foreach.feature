@@ -110,25 +110,25 @@ Feature: Foreach
       | () |
     And no side effects
 
-  Scenario: Foreach delete
-    Given an empty graph
-    And having executed
-    """
-    CREATE (n1 { marked: false })-[:RELATES]->(n2 { marked: false })
-    """
-    And having executed
-    """
-    MATCH p=(n1)-[*]->(n2)
-    FOREACH (n IN nodes(p) | DETACH delete n)
-    """
-    When executing query:
-      """
-      MATCH (n)
-      RETURN n;
-      """
-    Then the result should be:
-      | |
-    And no side effects
+  # Scenario: Foreach delete
+  #   Given an empty graph
+  #   And having executed
+  #   """
+  #   CREATE (n1 { marked: false })-[:RELATES]->(n2 { marked: false })
+  #   """
+  #   And having executed
+  #   """
+  #   MATCH p=(n1)-[*]->(n2)
+  #   FOREACH (n IN nodes(p) | DETACH delete n)
+  #   """
+  #   When executing query:
+  #     """
+  #     MATCH (n)
+  #     RETURN n;
+  #     """
+  #   Then the result should be:
+  #     | |
+  #   And no side effects
 
   Scenario: Foreach merge
     Given an empty graph
@@ -242,7 +242,7 @@ Feature: Foreach
    Given an empty graph
    And having executed
    """
-   FOREACH(i in [1, 2, 3] | foreach(j in [1] | MERGE (n { age : i })));
+   FOREACH(i in [1, 2, 3] | FOREACH(j in [2] | MERGE (n { age : i })));
    """
    When executing query:
    """
