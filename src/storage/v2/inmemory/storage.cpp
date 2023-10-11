@@ -702,18 +702,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-  } else {
-    // Validate that existence constraints are satisfied for all modified
-    // vertices.
-    for (const auto &delta : transaction_.deltas.use()) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
+  } else if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
+    const auto vertices_to_update =
+        transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
+    for (const auto *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
-      auto validation_result = storage_->constraints_.existence_constraints_->Validate(*prev.vertex);
+      auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
       if (validation_result) {
         Abort();
         return StorageManipulationError{*validation_result};
@@ -738,7 +733,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // Before committing and validating vertices against unique constraints,
         // we have to update unique constraints with the vertices that are going
         // to be validated/committed.
-        auto vertices_to_update = transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+        const auto vertices_to_update =
+            transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
 
         for (const auto *vertex : vertices_to_update) {
           mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
