@@ -28,7 +28,6 @@
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/rocksdb_serialization.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
