@@ -1548,7 +1548,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair, &context](const auto &vertex) {
+    auto expand_from_vertex = [this, &expand_pair](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) expand_pair(edge, edge.To());
