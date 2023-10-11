@@ -110,7 +110,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  transaction_->needs_constraint_verification = true;
+  transaction_->vertices_for_constraint_verification.insert(vertex_);
   indices_->UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
@@ -136,7 +136,6 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  transaction_->needs_constraint_verification = true;
   indices_->UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
@@ -260,7 +259,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  transaction_->needs_constraint_verification = true;
+  transaction_->vertices_for_constraint_verification.insert(vertex_);
   indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
 
@@ -285,7 +284,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
     transaction_->manyDeltasCache.Invalidate(vertex_, property);
   }
-  transaction_->needs_constraint_verification = true;
+  transaction_->vertices_for_constraint_verification.insert(vertex_);
 
   return true;
 }
@@ -310,7 +309,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
     transaction_->manyDeltasCache.Invalidate(vertex_, id);
   }
-  transaction_->needs_constraint_verification = true;
+  transaction_->vertices_for_constraint_verification.insert(vertex_);
 
   return id_old_new_change;
 }
