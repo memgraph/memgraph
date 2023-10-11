@@ -170,8 +170,11 @@ TEST(StorageV2Gc, Indices) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
           .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
-
-  ASSERT_FALSE(storage->CreateIndex(storage->NameToLabel("label")).HasError());
+  {
+    auto unique_acc = storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
   {
     auto acc0 = storage->Access();

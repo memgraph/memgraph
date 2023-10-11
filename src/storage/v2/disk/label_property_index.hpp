@@ -22,7 +22,7 @@ using ParallelizedIndexCreationInfo =
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  DiskLabelPropertyIndex(Indices *indices, const Config &config);
+  explicit DiskLabelPropertyIndex(const Config &config);
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
@@ -43,7 +43,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override;
+                           const Transaction &tx) override{};
 
   bool DropIndex(LabelId label, PropertyId property) override;
 

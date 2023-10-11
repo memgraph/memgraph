@@ -12,12 +12,17 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include "replication/mode.hpp"
 
-#include "storage/v2/replication/enums.hpp"
+namespace memgraph::replication {
 
-namespace memgraph::storage::replication {
+inline constexpr uint16_t kDefaultReplicationPort = 10000;
+inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+inline constexpr auto *kReservedReplicationRoleName{"__replication_role"};
+
 struct ReplicationClientConfig {
   std::string name;
   ReplicationMode mode;
@@ -51,4 +56,4 @@ struct ReplicationServerConfig {
 
   std::optional<SSL> ssl;
 };
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::replication
