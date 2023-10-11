@@ -42,8 +42,19 @@ struct ConstraintVerificationInfo final {
 
   void AddProperty(Vertex const *vertex, PropertyId property);
 
+  auto GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *>;
+  auto GetVerticesForExistenceConstraintChecking() const -> std::unordered_set<Vertex const *>;
+
+  bool NeedsUniqueConstraintVerification() const;
+  bool NeedsExistenceConstraintVerification() const;
+
  private:
+  // Update unique constraints to check whether any vertex already has that value
+  // Update existence constraints to check whether for that label the node has all the properties present
   std::unordered_map<Vertex const *, std::vector<LabelId>> added_labels_;
+
+  // Update unique constraints to check whether any vertex already has that property
+  // No update to existence constraints because we only added a property
   std::unordered_map<Vertex const *, std::vector<PropertyId>> added_properties_;
 };
 }  // namespace memgraph::storage

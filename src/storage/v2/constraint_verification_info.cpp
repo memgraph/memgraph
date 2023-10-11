@@ -49,4 +49,40 @@ void ConstraintVerificationInfo::AddProperty(Vertex const *vertex, PropertyId pr
 
   added_properties_[vertex].push_back(property);
 }
+
+auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *> {
+  std::unordered_set<Vertex const *> vertices{};
+
+  for (const auto &[k, v] : added_labels_) {
+    vertices.insert(k);
+  }
+
+  for (const auto &[k, v] : added_properties_) {
+    vertices.insert(k);
+  }
+
+  return vertices;
+}
+
+auto ConstraintVerificationInfo::GetVerticesForExistenceConstraintChecking() const
+    -> std::unordered_set<Vertex const *> {
+  std::unordered_set<Vertex const *> vertices{};
+
+  for (const auto &[k, v] : added_labels_) {
+    vertices.insert(k);
+  }
+
+  for (const auto &[k, v] : added_properties_) {
+    vertices.insert(k);
+  }
+
+  return vertices;
+}
+
+bool ConstraintVerificationInfo::NeedsUniqueConstraintVerification() const {
+  return !added_labels_.empty() || !added_properties_.empty();
+}
+bool ConstraintVerificationInfo::NeedsExistenceConstraintVerification() const {
+  return !added_labels_.empty() || !added_properties_.empty();
+}
 }  // namespace memgraph::storage

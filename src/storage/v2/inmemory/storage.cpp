@@ -734,15 +734,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
 
-      if (!transaction_.vertices_for_constraint_verification.empty()) {
+      if (!transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
         // we have to update unique constraints with the vertices that are going
         // to be validated/committed.
-        for (const auto *vertex : transaction_.vertices_for_constraint_verification) {
+        auto vertices_to_update = transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+
+        for (const auto *vertex : vertices_to_update) {
           mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
         }
 
-        for (const auto *vertex : transaction_.vertices_for_constraint_verification) {
+        for (const auto *vertex : vertices_to_update) {
           // No need to take any locks here because we modified this vertex and no
           // one else can touch it until we commit.
           unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);

@@ -103,8 +103,6 @@ struct Transaction {
   StorageMode storage_mode;
   bool edge_import_mode_active{false};
 
-  std::unordered_set<Vertex *> vertices_for_constraint_verification{};
-
   // A cache which is consistent to the current transaction_id + command_id.
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.

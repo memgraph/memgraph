@@ -110,7 +110,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  transaction_->vertices_for_constraint_verification.insert(vertex_);
+  transaction_->constraint_verification_info.AddLabel(vertex_, label);
   indices_->UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
@@ -259,7 +259,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  transaction_->vertices_for_constraint_verification.insert(vertex_);
+  transaction_->constraint_verification_info.AddProperty(vertex_, property);
   indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
 
@@ -283,8 +283,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
     indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
     transaction_->manyDeltasCache.Invalidate(vertex_, property);
+    transaction_->constraint_verification_info.AddProperty(vertex_, property);
   }
-  transaction_->vertices_for_constraint_verification.insert(vertex_);
 
   return true;
 }
@@ -308,8 +308,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     indices_->UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
     transaction_->manyDeltasCache.Invalidate(vertex_, id);
+    transaction_->constraint_verification_info.AddProperty(vertex_, id);
   }
-  transaction_->vertices_for_constraint_verification.insert(vertex_);
 
   return id_old_new_change;
 }
