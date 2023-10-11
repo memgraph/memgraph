@@ -22,8 +22,15 @@ class OutOfMemoryException : public utils::BasicException {
   explicit OutOfMemoryException(const std::string &msg) : utils::BasicException(msg) {}
 };
 
+// exapand on tracking procedure allocations by switching mode of allocations for memory tracker
+enum class TrackingMode { Procedure, Default };
+
 class MemoryTracker final {
  private:
+  std::atomic<int64_t> proc_amount_{0};
+  std::atomic<int64_t> proc_peak_{0};
+  std::atomic<int64_t> proc_hard_limit_{0};
+
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
   std::atomic<int64_t> hard_limit_{0};
