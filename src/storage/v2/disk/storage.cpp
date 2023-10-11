@@ -815,7 +815,6 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
     std::string it_value_str = index_it->value().ToString();
     Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key_str));
     /// TODO: andi this will be optimized
-    /// TODO: couple this condition
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     PropertyValue prop_value = properties.GetProperty(property);
     if (!key_str.starts_with(label_property_prefix) || utils::Contains(gids, curr_gid) ||
@@ -1010,8 +1009,9 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
-    /// TODO: (andi) Error handling of modified edge, this just returns void
-    transaction_.RemoveModifiedEdge(edge.Gid());
+    if (!transaction_.RemoveModifiedEdge(edge.Gid())) {
+      throw utils::BasicException("Failed to remove modified edge from transaction.");
+    }
   }
 
   return maybe_result;
@@ -1042,7 +1042,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   }
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
-  /// TODO: (andi) Not sure if here should be modified edge.
+  /// TODO: (andi) Change when decoupled edge creation from edge deletion.
   transaction_.AddModifiedEdge(gid, modified_edge);
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -1117,7 +1117,6 @@ bool DiskStorage::DiskAccessor::WriteEdgeToConnectivityIndex(const std::string &
     return transaction_.disk_transaction_->Put(handle, vertex_gid, value + "," + edge_gid);
   });
 
-  /// TODO: (andi) Error handling in a separate method
   if (put_status.ok()) {
     spdlog::trace("rocksdb: Saved edge {} to {} edges connectivity index for vertex {}", edge_gid, mode, vertex_gid);
     return true;
@@ -1941,7 +1940,6 @@ void DiskStorage::DiskAccessor::Abort() {
 }
 
 void DiskStorage::DiskAccessor::FinalizeTransaction() {
-  /// TODO: (andi) Check the login in InMemoryStorage.
   if (commit_timestamp_) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
