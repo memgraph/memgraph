@@ -8,6 +8,10 @@ on:
       memgraph_version:
         description: "Memgraph version to upload as. If empty upload is skipped. Format: 'X.Y.Z'"
         required: false
+      build_type:
+        description: "Memgraph Build type. Default value is RelWithDebInfo."
+        default: "RelWithDebInfo"
+        required: true
 
 jobs:
   centos-7:
@@ -20,7 +24,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package centos-7
+          ./release/package/run.sh package centos-7 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -37,7 +41,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package centos-9
+          ./release/package/run.sh package centos-9 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -54,7 +58,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package debian-10
+          ./release/package/run.sh package debian-10 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -71,7 +75,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package debian-11
+          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -107,7 +111,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package ubuntu-18.04
+          ./release/package/run.sh package ubuntu-18.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -124,7 +128,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package ubuntu-20.04
+          ./release/package/run.sh package ubuntu-20.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -141,7 +145,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package ubuntu-22.04
+          ./release/package/run.sh package ubuntu-22.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -158,7 +162,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package debian-11 --for-platform
+          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-platform
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -175,7 +179,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package fedora-36
+          ./release/package/run.sh package fedora-36 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -192,7 +196,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package amzn-2
+          ./release/package/run.sh package amzn-2 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -209,7 +213,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package debian-11-arm
+          ./release/package/run.sh package debian-11-arm ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
@@ -226,7 +230,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package ubuntu-22.04-arm
+          ./release/package/run.sh package ubuntu-22.04-arm ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
