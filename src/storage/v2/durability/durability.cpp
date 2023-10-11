@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "replication/epoch.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -210,7 +211,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
 
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
-                                        std::string *epoch_id,
+                                        memgraph::replication::ReplicationEpoch &epoch,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
@@ -263,7 +264,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
-    *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
+    epoch.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory)) {
       const auto par_exec_info = config.durability.allow_parallel_index_creation
@@ -308,7 +309,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
     *uuid = std::move(wal_files.back().uuid);
-    *epoch_id = std::move(wal_files.back().epoch_id);
+    epoch.SetEpoch(std::move(wal_files.back().epoch_id));
   }
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
@@ -364,7 +365,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       previous_seq_num = wal_file.seq_num;
 
-      if (wal_file.epoch_id != *epoch_id) {
+      if (wal_file.epoch_id != epoch.id()) {
         // This way we skip WALs finalized only because of role change.
         // We can also set the last timestamp to 0 if last loaded timestamp
         // is nullopt as this can only happen if the WAL file with seq = 0
@@ -372,7 +373,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         if (last_loaded_timestamp) {
           epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
         }
-        *epoch_id = std::move(wal_file.epoch_id);
+        epoch.SetEpoch(std::move(wal_file.epoch_id));
       }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
