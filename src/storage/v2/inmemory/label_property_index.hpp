@@ -37,7 +37,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
-  InMemoryLabelPropertyIndex(Indices *indices, const Config &config);
+  InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
@@ -64,8 +64,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, const Config &config);
+             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             Transaction *transaction);
 
     class Iterator {
      public:
@@ -98,10 +98,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
     bool bounds_valid_{true};
     View view_;
+    Storage *storage_;
     Transaction *transaction_;
-    Indices *indices_;
-    Constraints *constraints_;
-    Config config_;
   };
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
@@ -129,8 +127,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void RunGC();
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-                    Constraints *constraints);
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction);
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;

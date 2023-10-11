@@ -164,10 +164,6 @@ class Storage {
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
-    virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
-
-    virtual void PrefetchOutEdges(const VertexAccessor &vertex_acc) = 0;
-
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
     virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;

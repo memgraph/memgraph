@@ -45,7 +45,7 @@ bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit
 
 }  // namespace
 
-DiskLabelIndex::DiskLabelIndex(Indices *indices, const Config &config) : LabelIndex(indices, config) {
+DiskLabelIndex::DiskLabelIndex(const Config &config) {
   utils::EnsureDirOrDie(config.disk.label_index_directory);
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;

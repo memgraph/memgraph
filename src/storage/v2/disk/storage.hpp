@@ -166,10 +166,6 @@ class DiskStorage final : public Storage {
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
 
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
-
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override;
-
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
     Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
@@ -201,13 +197,11 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value,
-                                                                       std::string &&ts);
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
@@ -234,16 +228,6 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
 
    private:
-    VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                        std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
-
-    bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
-                            EdgeDirection edge_direction);
-    void PrefetchEdges(const VertexAccessor &vertex_acc, EdgeDirection edge_direction);
-
-    Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
-                                            storage::Gid gid, std::string_view properties, std::string &&old_disk_key,
-                                            std::string &&ts);
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
@@ -264,43 +248,87 @@ class DiskStorage final : public Storage {
     [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
-    bool WriteVertexToDisk(const Vertex &vertex);
-    bool WriteEdgeToDisk(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
-    bool DeleteVertexFromDisk(const std::string &vertex);
-    bool DeleteEdgeFromDisk(const std::string &edge);
+    bool WriteVertexToVertexColumnFamily(const Vertex &vertex);
+    bool WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
+
+    bool WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                      rocksdb::ColumnFamilyHandle *handle, std::string mode);
+
+    bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
+
+    bool DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid);
+    bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
+                            const std::string &dst_vertex_gid);
+    bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                         rocksdb::ColumnFamilyHandle *handle, std::string mode);
+
+    // bool WriteVertexToDisk(const Vertex &vertex);
+    // bool WriteEdgeToDisk(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
+    // bool DeleteVertexFromDisk(const std::string &vertex);
+    // bool DeleteEdgeFromDisk(const std::string &edge);
 
     /// Main storage
-    utils::SkipList<Vertex> vertices_;
+    // utils::SkipList<Vertex> vertices_;
 
-    using LabelIndex = LabelId;
-    using LabelPropertyIndex = std::pair<LabelId, PropertyId>;
-    using LabelPropertyValIndex = std::tuple<LabelId, PropertyId, PropertyValue>;
-    using RangeBoundary = std::optional<utils::Bound<PropertyValue>>;
-    using LabelPropertyRangeIndex = std::tuple<LabelId, PropertyId, RangeBoundary, RangeBoundary>;
+    // using LabelIndex = LabelId;
+    // using LabelPropertyIndex = std::pair<LabelId, PropertyId>;
+    // using LabelPropertyValIndex = std::tuple<LabelId, PropertyId, PropertyValue>;
+    // using RangeBoundary = std::optional<utils::Bound<PropertyValue>>;
+    // using LabelPropertyRangeIndex = std::tuple<LabelId, PropertyId, RangeBoundary, RangeBoundary>;
 
-    std::map<LabelId, utils::SkipList<Vertex>> label_index_cache_;
-    uint64_t label_index_cache_ci_{transaction_.command_id};
-    std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_cache_;
-    uint64_t label_property_index_cache_ci_{transaction_.command_id};
-    std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_cache_;
-    uint64_t label_property_val_index_cache_ci_{transaction_.command_id};
-    std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_cache_;
-    uint64_t label_property_range_index_cache_ci_{transaction_.command_id};
+    // std::map<LabelId, utils::SkipList<Vertex>> label_index_cache_;
+    // uint64_t label_index_cache_ci_{transaction_.command_id};
+    // std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_cache_;
+    // uint64_t label_property_index_cache_ci_{transaction_.command_id};
+    // std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_cache_;
+    // uint64_t label_property_val_index_cache_ci_{transaction_.command_id};
+    // std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_cache_;
+    // uint64_t label_property_range_index_cache_ci_{transaction_.command_id};
 
     /// We need them because query context for indexed reading is cleared after the query is done not after the
     /// transaction is done
-    std::vector<std::list<Delta>> index_deltas_storage_;
-    utils::SkipList<Edge> edges_;
-    Config::Items config_;
-    std::unordered_set<std::string> edges_to_delete_;
-    std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
-    rocksdb::Transaction *disk_transaction_;
-    bool scanned_all_vertices_ = false;
+    // std::vector<std::list<Delta>> index_deltas_storage_;
+    // utils::SkipList<Edge> edges_;
+    // Config::Items config_;
+    // std::unordered_set<std::string> edges_to_delete_;
+    // std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
+    // rocksdb::Transaction *disk_transaction_;
+    // bool scanned_all_vertices_ = false;
   };  // Accessor
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+
+  /// TODO: (andi) Methods working with rocksdb are scattered around DiskStorage and DiskStorage::DiskAccessor
+  /// Two options:
+  /// 1. move everything under DiskStorage level
+  /// 2. propagate DiskStorage::DiskAccessor to vertex and edge accessor.
+  /// Out of scope of this PR
+  VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
+                                      storage::Gid gid, std::vector<LabelId> label_ids, PropertyStore properties,
+                                      Delta *delta);
+
+  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,
+                                                                     const std::string &value, std::string &&ts);
+
+  /// TODO: (andi) I don't think View is necessary
+  std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
+
+  std::optional<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
+                                                 Transaction *transaction, EdgeTypeId edge_type, storage::Gid gid,
+                                                 std::string_view properties, const std::string &old_disk_key,
+                                                 std::string &&ts);
+
+  /// TODO: (andi) Maybe const
+  std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
+                                     const std::vector<EdgeTypeId> &possible_edge_types,
+                                     const VertexAccessor *destination, Transaction *transaction, View view);
+
+  /// TODO: (andi) Maybe const
+  std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex,
+                                    const std::vector<EdgeTypeId> &possible_edge_types, const VertexAccessor *source,
+                                    Transaction *transaction, View view);
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
