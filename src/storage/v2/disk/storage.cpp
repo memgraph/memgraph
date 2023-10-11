@@ -551,11 +551,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   utils::SkipList<memgraph::storage::Vertex> *indexed_vertices{nullptr};
   std::list<storage::Delta> *index_deltas{nullptr};
 
-  // transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  // auto &indexed_vertices = transaction_.index_storage_.back();
-  // transaction_.index_deltas_storage_.emplace_back();
-  // auto &index_deltas = transaction_.index_deltas_storage_.back();
-
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
     index[cache_key] = utils::SkipList<Vertex>();
     indexed_vertices = &index[cache_key];
@@ -583,7 +578,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   }
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
-}  // namespace memgraph::storage
+}
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
@@ -598,10 +593,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
   utils::SkipList<memgraph::storage::Vertex> *indexed_vertices{nullptr};
   std::list<storage::Delta> *index_deltas{nullptr};
-  // transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  // auto &indexed_vertices = transaction_.index_storage_.back();
-  // transaction_.index_deltas_storage_.emplace_back();
-  // auto &index_deltas = transaction_.index_deltas_storage_.back();
 
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
     index[cache_key] = utils::SkipList<Vertex>();
@@ -661,10 +652,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
   utils::SkipList<memgraph::storage::Vertex> *indexed_vertices{nullptr};
   std::list<storage::Delta> *index_deltas{nullptr};
-  // transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-  // auto &indexed_vertices = transaction_.index_storage_.back();
-  // transaction_.index_deltas_storage_.emplace_back();
-  // auto &index_deltas = transaction_.index_deltas_storage_.back();
 
   auto merge_with_main_cache = [&](auto &index) -> std::unordered_set<Gid> {
     index[cache_key] = utils::SkipList<Vertex>();
@@ -725,10 +712,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     indexed_vertices = &index[cache_key];
     transaction_.index_deltas_storage_.emplace_back();
     index_deltas = &transaction_.index_deltas_storage_.back();
-    // transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
-    // auto &indexed_vertices = transaction_.index_storage_.back();
-    // transaction_.index_deltas_storage_.emplace_back();
-    // auto &index_deltas = transaction_.index_deltas_storage_.back();
 
     return MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
         label, property, view, lower_bound, upper_bound, *index_deltas, *indexed_vertices);
@@ -760,8 +743,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelIndexCache(
     LabelId label, View view, std::list<Delta> &index_deltas, utils::SkipList<Vertex> &indexed_vertices) {
   auto main_cache_acc = transaction_.vertices_.access();
-  //   LabelId label, View view, std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices) {
-  // auto main_cache_acc = transaction_.vertices_.access();
   std::unordered_set<Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -814,8 +795,6 @@ std::unordered_set<Gid> DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWit
     LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> &indexed_vertices, const auto &label_property_filter) {
   auto main_cache_acc = transaction_.vertices_.access();
-  //   utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter) {
-  // auto main_cache_acc = transaction_.vertices_.access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -904,8 +883,6 @@ DiskStorage::DiskAccessor::MergeVerticesFromMainCacheWithLabelPropertyIndexCache
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> &indexed_vertices) {
   auto main_cache_acc = transaction_.vertices_.access();
-  //   utils::SkipList<Vertex> *indexed_vertices) {
-  // auto main_cache_acc = transaction_.vertices_.access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
 
