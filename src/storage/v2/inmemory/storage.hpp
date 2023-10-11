@@ -115,16 +115,24 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(label,
-                                                                                                              property);
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      if (mem_storage->constraints_.unique_constraints_->ConstraintExists(label, {property})) {
+        return mem_storage->constraints_.unique_constraints_->ApproximateVertexCount(label, property);
+      }
+
+      return mem_storage->indices_.label_property_index_->ApproximateVertexCount(label, property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
-          label, property, value);
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      if (mem_storage->constraints_.unique_constraints_->ConstraintExists(label, {property})) {
+        return mem_storage->constraints_.unique_constraints_->ApproximateVertexCount(label, property, value);
+      }
+
+      return mem_storage->indices_.label_property_index_->ApproximateVertexCount(label, property, value);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -133,8 +141,12 @@ class InMemoryStorage final : public Storage {
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                     const std::optional<utils::Bound<PropertyValue>> &lower,
                                     const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
-          label, property, lower, upper);
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      if (mem_storage->constraints_.unique_constraints_->ConstraintExists(label, {property})) {
+        return mem_storage->constraints_.unique_constraints_->ApproximateVertexCount(label, property, lower, upper);
+      }
+
+      return mem_storage->indices_.label_property_index_->ApproximateVertexCount(label, property, lower, upper);
     }
 
     template <typename TResult, typename TIndex, typename TIndexKey>
@@ -190,6 +202,8 @@ class InMemoryStorage final : public Storage {
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
     }
+
+    bool UniqueConstraintExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
 

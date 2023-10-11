@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/bound.hpp"
 
 namespace memgraph::storage {
 
@@ -407,6 +410,30 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
   return ret;
 }
 
+uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(LabelId label, PropertyId property) const {
+  auto it = constraints_.find({label, {property}});
+  MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  return 1;
+};
+
+uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(LabelId label, PropertyId property,
+                                                           const PropertyValue &value) const {
+  auto it = constraints_.find({label, {property}});
+  MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  return 1;
+};
+
+uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(
+    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+    const std::optional<utils::Bound<PropertyValue>> &upper) const {
+  auto it = constraints_.find({label, {property}});
+  MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  return 10;
+};
+
 void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
   for (auto &[label_props, storage] : constraints_) {
     auto acc = storage.access();
@@ -432,6 +459,202 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_sta
 void InMemoryUniqueConstraints::Clear() {
   constraints_.clear();
   constraints_by_label_.clear();
+}
+
+InMemoryUniqueConstraints::Iterable::Iterator::Iterator(Iterable *self,
+                                                        utils::SkipList<Entry>::Iterator constraint_iterator)
+    : self_(self),
+      constraint_iterator_(constraint_iterator),
+      current_vertex_accessor_(nullptr, self_->storage_, nullptr),
+      current_vertex_(nullptr) {
+  AdvanceUntilValid();
+}
+
+InMemoryUniqueConstraints::Iterable::Iterator &InMemoryUniqueConstraints::Iterable::Iterator::operator++() {
+  ++constraint_iterator_;
+  AdvanceUntilValid();
+  return *this;
+}
+
+void InMemoryUniqueConstraints::Iterable::Iterator::AdvanceUntilValid() {
+  for (; constraint_iterator_ != self_->constraint_accessor_.end(); ++constraint_iterator_) {
+    if (constraint_iterator_->vertex == current_vertex_) {
+      continue;
+    }
+
+    auto iterator_value = constraint_iterator_->values[0];
+
+    if (self_->lower_bound_) {
+      if (iterator_value < self_->lower_bound_->value()) {
+        continue;
+      }
+      if (!self_->lower_bound_->IsInclusive() && iterator_value == self_->lower_bound_->value()) {
+        continue;
+      }
+    }
+    if (self_->upper_bound_) {
+      if (self_->upper_bound_->value() < iterator_value) {
+        constraint_iterator_ = self_->constraint_accessor_.end();
+        break;
+      }
+      if (!self_->upper_bound_->IsInclusive() && iterator_value == self_->upper_bound_->value()) {
+        constraint_iterator_ = self_->constraint_accessor_.end();
+        break;
+      }
+    }
+
+    if (CurrentVersionHasLabelProperty(*constraint_iterator_->vertex, self_->label_, self_->property_, iterator_value,
+                                       self_->transaction_, self_->view_)) {
+      current_vertex_ = const_cast<Vertex *>(constraint_iterator_->vertex);
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
+      break;
+    }
+  }
+}
+
+// These constants represent the smallest possible value of each type that is
+// contained in a `PropertyValue`. Note that numbers (integers and doubles) are
+// treated as the same "type" in `PropertyValue`.
+const PropertyValue kSmallestBool = PropertyValue(false);
+// NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
+const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
+const PropertyValue kSmallestString = PropertyValue("");
+const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
+const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
+const PropertyValue kSmallestTemporalData =
+    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
+
+InMemoryUniqueConstraints::Iterable::Iterable(utils::SkipList<Entry>::Accessor constraint_accessor, LabelId label,
+                                              PropertyId property,
+                                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                              Storage *storage, Transaction *transaction)
+    : constraint_accessor_(std::move(constraint_accessor)),
+      label_(label),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction) {
+  // We have to fix the bounds that the user provided to us. If the user
+  // provided only one bound we should make sure that only values of that type
+  // are returned by the iterator. We ensure this by supplying either an
+  // inclusive lower bound of the same type, or an exclusive upper bound of the
+  // following type. If neither bound is set we yield all items in the index.
+
+  // First we statically verify that our assumptions about the `PropertyValue`
+  // type ordering holds.
+  static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
+  static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
+  static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);
+  static_assert(PropertyValue::Type::String < PropertyValue::Type::List);
+  static_assert(PropertyValue::Type::List < PropertyValue::Type::Map);
+
+  // Remove any bounds that are set to `Null` because that isn't a valid value.
+  if (lower_bound_ && lower_bound_->value().IsNull()) {
+    lower_bound_ = std::nullopt;
+  }
+  if (upper_bound_ && upper_bound_->value().IsNull()) {
+    upper_bound_ = std::nullopt;
+  }
+
+  // Check whether the bounds are of comparable types if both are supplied.
+  if (lower_bound_ && upper_bound_ &&
+      !PropertyValue::AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
+    bounds_valid_ = false;
+    return;
+  }
+
+  // Set missing bounds.
+  if (lower_bound_ && !upper_bound_) {
+    // Here we need to supply an upper bound. The upper bound is set to an
+    // exclusive lower bound of the following type.
+    switch (lower_bound_->value().type()) {
+      case PropertyValue::Type::Null:
+        // This shouldn't happen because of the nullopt-ing above.
+        LOG_FATAL("Invalid database state!");
+        break;
+      case PropertyValue::Type::Bool:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
+        break;
+      case PropertyValue::Type::Int:
+      case PropertyValue::Type::Double:
+        // Both integers and doubles are treated as the same type in
+        // `PropertyValue` and they are interleaved when sorted.
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
+        break;
+      case PropertyValue::Type::String:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
+        break;
+      case PropertyValue::Type::List:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
+        break;
+      case PropertyValue::Type::Map:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
+        break;
+      case PropertyValue::Type::TemporalData:
+        // This is the last type in the order so we leave the upper bound empty.
+        break;
+    }
+  }
+  if (upper_bound_ && !lower_bound_) {
+    // Here we need to supply a lower bound. The lower bound is set to an
+    // inclusive lower bound of the current type.
+    switch (upper_bound_->value().type()) {
+      case PropertyValue::Type::Null:
+        // This shouldn't happen because of the nullopt-ing above.
+        LOG_FATAL("Invalid database state!");
+        break;
+      case PropertyValue::Type::Bool:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
+        break;
+      case PropertyValue::Type::Int:
+      case PropertyValue::Type::Double:
+        // Both integers and doubles are treated as the same type in
+        // `PropertyValue` and they are interleaved when sorted.
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
+        break;
+      case PropertyValue::Type::String:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
+        break;
+      case PropertyValue::Type::List:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
+        break;
+      case PropertyValue::Type::Map:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
+        break;
+      case PropertyValue::Type::TemporalData:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
+        break;
+    }
+  }
+}
+
+InMemoryUniqueConstraints::Iterable::Iterator InMemoryUniqueConstraints::Iterable::begin() {
+  // If the bounds are set and don't have comparable types we don't yield any
+  // items from the index.
+  if (!bounds_valid_) return {this, constraint_accessor_.end()};
+  auto constraint_iterator = constraint_accessor_.begin();
+  if (lower_bound_) {
+    constraint_iterator = constraint_accessor_.find_equal_or_greater(std::vector<PropertyValue>{lower_bound_->value()});
+  }
+  return {this, constraint_iterator};
+}
+
+InMemoryUniqueConstraints::Iterable::Iterator InMemoryUniqueConstraints::Iterable::end() {
+  return {this, constraint_accessor_.end()};
+}
+
+InMemoryUniqueConstraints::Iterable InMemoryUniqueConstraints::Vertices(
+    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction) {
+  auto it = constraints_.find({label, {property}});
+  MG_ASSERT(it != constraints_.end(), "Constraint for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  return {it->second.access(), label, property, lower_bound, upper_bound, view, storage, transaction};
 }
 
 }  // namespace memgraph::storage

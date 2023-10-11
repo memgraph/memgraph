@@ -16,6 +16,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::storage {
@@ -57,6 +58,12 @@ class UniqueConstraints {
                                 uint64_t transaction_start_timestamp) = 0;
 
   virtual std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const = 0;
+
+  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                          const std::optional<utils::Bound<PropertyValue>> &lower,
+                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
   virtual void Clear() = 0;
 

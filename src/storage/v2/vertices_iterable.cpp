@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertices_iterable.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 
 namespace memgraph::storage {
 
@@ -26,6 +27,11 @@ VerticesIterable::VerticesIterable(InMemoryLabelPropertyIndex::Iterable vertices
   new (&in_memory_vertices_by_label_property_) InMemoryLabelPropertyIndex::Iterable(std::move(vertices));
 }
 
+VerticesIterable::VerticesIterable(InMemoryUniqueConstraints::Iterable vertices)
+    : type_(Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY) {
+  new (&in_memory_vertices_by_unique_constraint_) InMemoryUniqueConstraints::Iterable(std::move(vertices));
+}
+
 VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
@@ -37,6 +43,10 @@ VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(ot
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_vertices_by_label_property_)
           InMemoryLabelPropertyIndex::Iterable(std::move(other.in_memory_vertices_by_label_property_));
+      break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      new (&in_memory_vertices_by_unique_constraint_)
+          InMemoryUniqueConstraints::Iterable(std::move(other.in_memory_vertices_by_unique_constraint_));
       break;
   }
 }
@@ -52,6 +62,9 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       in_memory_vertices_by_label_property_.InMemoryLabelPropertyIndex::Iterable::~Iterable();
       break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      in_memory_vertices_by_unique_constraint_.InMemoryUniqueConstraints::Iterable::~Iterable();
+      break;
   }
   type_ = other.type_;
   switch (other.type_) {
@@ -64,6 +77,10 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_vertices_by_label_property_)
           InMemoryLabelPropertyIndex::Iterable(std::move(other.in_memory_vertices_by_label_property_));
+      break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      new (&in_memory_vertices_by_unique_constraint_)
+          InMemoryUniqueConstraints::Iterable(std::move(other.in_memory_vertices_by_unique_constraint_));
       break;
   }
   return *this;
@@ -80,6 +97,9 @@ VerticesIterable::~VerticesIterable() {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       in_memory_vertices_by_label_property_.InMemoryLabelPropertyIndex::Iterable::~Iterable();
       break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      in_memory_vertices_by_unique_constraint_.InMemoryUniqueConstraints::Iterable::~Iterable();
+      break;
   }
 }
 
@@ -91,6 +111,8 @@ VerticesIterable::Iterator VerticesIterable::begin() {
       return Iterator(in_memory_vertices_by_label_.begin());
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.begin());
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      return Iterator(in_memory_vertices_by_unique_constraint_.begin());
   }
 }
 
@@ -102,6 +124,8 @@ VerticesIterable::Iterator VerticesIterable::end() {
       return Iterator(in_memory_vertices_by_label_.end());
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.end());
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      return Iterator(in_memory_vertices_by_unique_constraint_.end());
   }
 }
 
@@ -121,6 +145,12 @@ VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::Iterable::Itera
   new (&in_memory_by_label_property_it_) InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(it));
 }
 
+VerticesIterable::Iterator::Iterator(InMemoryUniqueConstraints::Iterable::Iterator it)
+    : type_(Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+  new (&in_memory_by_unique_constraint_it_) InMemoryUniqueConstraints::Iterable::Iterator(std::move(it));
+}
+
 VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
@@ -132,6 +162,10 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_by_label_property_it_)
           InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+      break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      new (&in_memory_by_unique_constraint_it_)
+          InMemoryUniqueConstraints::Iterable::Iterator(other.in_memory_by_unique_constraint_it_);
       break;
   }
 }
@@ -151,6 +185,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
       new (&in_memory_by_label_property_it_)
           InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
       break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      new (&in_memory_by_unique_constraint_it_)
+          InMemoryUniqueConstraints::Iterable::Iterator(other.in_memory_by_unique_constraint_it_);
+      break;
   }
   return *this;
 }
@@ -169,6 +207,11 @@ VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcep
       new (&in_memory_by_label_property_it_)
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
+      break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      new (&in_memory_by_unique_constraint_it_)
+          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+          InMemoryUniqueConstraints::Iterable::Iterator(std::move(other.in_memory_by_unique_constraint_it_));
       break;
   }
 }
@@ -190,6 +233,11 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
       break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      new (&in_memory_by_unique_constraint_it_)
+          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+          InMemoryUniqueConstraints::Iterable::Iterator(std::move(other.in_memory_by_unique_constraint_it_));
+      break;
   }
   return *this;
 }
@@ -207,6 +255,9 @@ void VerticesIterable::Iterator::Destroy() noexcept {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       in_memory_by_label_property_it_.InMemoryLabelPropertyIndex::Iterable::Iterator::~Iterator();
       break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      in_memory_by_unique_constraint_it_.InMemoryUniqueConstraints::Iterable::Iterator::~Iterator();
+      break;
   }
 }
 
@@ -218,6 +269,8 @@ VertexAccessor const &VerticesIterable::Iterator::operator*() const {
       return *in_memory_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return *in_memory_by_label_property_it_;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      return *in_memory_by_unique_constraint_it_;
   }
 }
 
@@ -232,6 +285,9 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       ++in_memory_by_label_property_it_;
       break;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      ++in_memory_by_unique_constraint_it_;
+      break;
   }
   return *this;
 }
@@ -244,6 +300,8 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
       return in_memory_by_label_it_ == other.in_memory_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return in_memory_by_label_property_it_ == other.in_memory_by_label_property_it_;
+    case Type::BY_UNIQUE_CONSTRAINT_IN_MEMORY:
+      return in_memory_by_unique_constraint_it_ == other.in_memory_by_unique_constraint_it_;
   }
 }
 

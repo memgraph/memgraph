@@ -87,6 +87,10 @@ class VertexCountCache {
     return db_->GetIndexStats(label, property);
   }
 
+  bool UniqueConstraintExists(storage::LabelId label, storage::PropertyId prop) const {
+    return db_->UniqueConstraintExists(label, prop);
+  }
+
  private:
   typedef std::pair<storage::LabelId, storage::PropertyId> LabelPropertyKey;
 

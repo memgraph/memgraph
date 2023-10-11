@@ -228,6 +228,8 @@ class DiskStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
+    bool UniqueConstraintExists(LabelId label, PropertyId property) const override;
+
    private:
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.

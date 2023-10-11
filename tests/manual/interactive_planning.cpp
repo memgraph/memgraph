@@ -213,6 +213,10 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
+  bool UniqueConstraintExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
+    return true;
+  }
+
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);
   }

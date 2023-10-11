@@ -623,6 +623,14 @@ class DbAccessor final {
                                                                   const std::set<storage::PropertyId> &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
   }
+
+  bool UniqueConstraintExists(storage::LabelId label, storage::PropertyId prop) const {
+    return accessor_->UniqueConstraintExists(label, prop);
+  }
+
+  bool IndexedScanExists(storage::LabelId label, storage::PropertyId prop) const {
+    return LabelPropertyIndexExists(label, prop) || UniqueConstraintExists(label, prop);
+  }
 };
 
 class SubgraphDbAccessor final {

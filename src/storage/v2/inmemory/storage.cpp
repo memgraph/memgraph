@@ -1106,12 +1106,28 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+bool InMemoryStorage::InMemoryAccessor::UniqueConstraintExists(LabelId label, PropertyId property) const {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_unique_constraints =
+      static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
+  return mem_unique_constraints->ConstraintExists(label, {property});
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  if (mem_storage->constraints_.unique_constraints_->ConstraintExists(label, {property})) {
+    auto *mem_unique_constraints =
+        static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
+    return VerticesIterable(
+        mem_unique_constraints->Vertices(label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+  }
+
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
@@ -1120,6 +1136,15 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  if (mem_storage->constraints_.unique_constraints_->ConstraintExists(label, {property})) {
+    auto *mem_unique_constraints =
+        static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
+    return VerticesIterable(mem_unique_constraints->Vertices(label, property, utils::MakeBoundInclusive(value),
+                                                             utils::MakeBoundInclusive(value), view, storage_,
+                                                             &transaction_));
+  }
+
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
@@ -1130,6 +1155,14 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  if (mem_storage->constraints_.unique_constraints_->ConstraintExists(label, {property})) {
+    auto *mem_unique_constraints =
+        static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
+    return VerticesIterable(
+        mem_unique_constraints->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+  }
+
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(

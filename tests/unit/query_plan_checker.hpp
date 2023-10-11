@@ -487,8 +487,17 @@ class FakeDbAccessor {
     return 0;
   }
 
+  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
+                        const memgraph::storage::PropertyValue &value) const {
+    return 0;
+  }
+
   bool LabelIndexExists(memgraph::storage::LabelId label) const {
     return label_index_.find(label) != label_index_.end();
+  }
+
+  bool UniqueConstraintExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {

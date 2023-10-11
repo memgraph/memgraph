@@ -89,10 +89,62 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
+  class Iterable {
+   public:
+    Iterable(utils::SkipList<Entry>::Accessor constraint_accessor, LabelId label, PropertyId property,
+             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             Transaction *transaction);
+
+    class Iterator {
+     public:
+      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator constraint_iterator);
+
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
+
+      bool operator==(const Iterator &other) const { return constraint_iterator_ == other.constraint_iterator_; }
+      bool operator!=(const Iterator &other) const { return constraint_iterator_ != other.constraint_iterator_; }
+
+      Iterator &operator++();
+
+     private:
+      void AdvanceUntilValid();
+
+      Iterable *self_;
+      utils::SkipList<Entry>::Iterator constraint_iterator_;
+      VertexAccessor current_vertex_accessor_;
+      Vertex *current_vertex_;
+    };
+
+    Iterator begin();
+    Iterator end();
+
+   private:
+    utils::SkipList<Entry>::Accessor constraint_accessor_;
+    LabelId label_;
+    PropertyId property_;
+    std::optional<utils::Bound<PropertyValue>> lower_bound_;
+    std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    bool bounds_valid_{true};
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+  };
+
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                  const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+
   /// GC method that removes outdated entries from constraints' storages.
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   void Clear() override;
+
+  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction);
 
  private:
   std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
