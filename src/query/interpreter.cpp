@@ -1204,7 +1204,7 @@ struct PullPlan {
                     std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
+                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = false,
                     FrameChangeCollector *frame_change_collector_ = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
@@ -1288,21 +1288,12 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   char stack_data[stack_size];
 
   utils::ResourceWithOutOfMemoryException resource_with_exception;
-  utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
+  // utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
   std::optional<utils::PoolResource> pool_memory;
   static constexpr auto kMaxBlockPerChunks = 128;
 
-  if (use_monotonic_memory_) {
-    pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &resource_with_exception,
-                        &resource_with_exception);
-  } else {
-    // We can throw on every query because a simple queries for deleting will use only
-    // the stack allocated buffer.
-    // Also, we want to throw only when the query engine requests more memory and not the storage
-    // so we add the exception to the allocator.
-    // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
-  }
+  pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &resource_with_exception,
+                      &resource_with_exception);
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
   if (memory_limit_) {
@@ -1597,7 +1588,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
   spdlog::trace("PrepareCypher has {} encountered all shortest paths and will {} use of monotonic memory",
                 IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
-
+  use_monotonic_memory = false;
   MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
   auto *dba =
       &*current_db
@@ -3663,7 +3654,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     auto const [usePool, hasAllShortestPaths] = [&]() -> std::pair<bool, bool> {
       if (!cypher_query) {
-        return {false, false};
+        return {true, false};
       }
       auto const &clauses = cypher_query->single_query_->clauses_;
       bool hasAllShortestPaths = IsAllShortestPathsQuery(clauses);
