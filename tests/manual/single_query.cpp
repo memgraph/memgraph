@@ -13,6 +13,7 @@
 #include "license/license.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -31,12 +32,16 @@ int main(int argc, char *argv[]) {
   memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::query::InterpreterContext interpreter_context{memgraph::storage::Config{},
-                                                          memgraph::query::InterpreterConfig{}, data_directory};
-  memgraph::query::Interpreter interpreter{&interpreter_context};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(memgraph::storage::Config{
+      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"});
+  auto db_acc_opt = db_gk.access();
+  MG_ASSERT(db_acc_opt, "Failed to access db");
+  auto &db_acc = *db_acc_opt;
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
+  memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};
 
-  ResultStreamFaker stream(interpreter_context.db.get());
-  auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, nullptr);
+  ResultStreamFaker stream(db_acc->storage());
+  auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], {}, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);

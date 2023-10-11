@@ -64,8 +64,6 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
     const auto &v = node_value.ValueVertex();
     EXPECT_TRUE(*v.HasLabel(memgraph::storage::View::NEW, label));
     EXPECT_EQ(v.GetProperty(memgraph::storage::View::NEW, property)->ValueInt(), 42);
-    dba->PrefetchInEdges(v.impl_);
-    dba->PrefetchOutEdges(v.impl_);
     EXPECT_EQ(CountIterable(v.InEdges(memgraph::storage::View::NEW)->edges), 0);
     EXPECT_EQ(CountIterable(v.OutEdges(memgraph::storage::View::NEW)->edges), 0);
     // Invokes LOG(FATAL) instead of erroring out.
@@ -122,7 +120,11 @@ TYPED_TEST(QueryPlan, ScanAll) {
 
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
-  ASSERT_FALSE(this->db->CreateIndex(label).HasError());
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
   {
     auto dba = this->db->Access();
     // Add some unlabeled vertices

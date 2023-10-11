@@ -158,6 +158,11 @@ class ExplicitTransactionUsageException : public QueryRuntimeException {
   using QueryRuntimeException::QueryRuntimeException;
 };
 
+class DatabaseContextRequiredException : public QueryRuntimeException {
+ public:
+  using QueryRuntimeException::QueryRuntimeException;
+};
+
 class WriteVertexOperationInEdgeImportModeException : public QueryException {
  public:
   WriteVertexOperationInEdgeImportModeException()

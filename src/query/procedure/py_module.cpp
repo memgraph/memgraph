@@ -2204,6 +2204,17 @@ PyObject *PyPathExpand(PyPath *self, PyObject *edge) {
   Py_RETURN_NONE;
 }
 
+PyObject *PyPathPop(PyPath *self) {
+  MG_ASSERT(self->path);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+
+  if (RaiseExceptionFromErrorCode(mgp_path_pop(self->path))) {
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
 PyObject *PyPathSize(PyPath *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->path);
   MG_ASSERT(self->py_graph);
@@ -2251,6 +2262,8 @@ static PyMethodDef PyPathMethods[] = {
      "Create a path with a starting vertex."},
     {"expand", reinterpret_cast<PyCFunction>(PyPathExpand), METH_O,
      "Append an edge continuing from the last vertex on the path."},
+    {"pop", reinterpret_cast<PyCFunction>(PyPathPop), METH_NOARGS,
+     "Remove the last node and the last relationship from the path."},
     {"size", reinterpret_cast<PyCFunction>(PyPathSize), METH_NOARGS, "Return the number of edges in a mgp_path."},
     {"vertex_at", reinterpret_cast<PyCFunction>(PyPathVertexAt), METH_VARARGS,
      "Return the vertex from a path at given index."},

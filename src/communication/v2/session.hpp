@@ -110,11 +110,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     return std::shared_ptr<WebsocketSession>(new WebsocketSession(std::forward<Args>(args)...));
   }
 
-#ifdef MG_ENTERPRISE
-  ~WebsocketSession() { session_context_->Delete(session_); }
-#else
   ~WebsocketSession() = default;
-#endif
 
   WebsocketSession(const WebsocketSession &) = delete;
   WebsocketSession &operator=(const WebsocketSession &) = delete;
@@ -171,14 +167,15 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
         output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
-        session_{*session_context, endpoint, input_buffer_.read_end(), &output_stream_},
+        session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
+#ifdef MG_ENTERPRISE
+                 session_context->audit_log
+#endif
+        },
         session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
         service_name_{service_name} {
-#ifdef MG_ENTERPRISE
-    session_context_->Register(session_);
-#endif
   }
 
   void OnAccept(boost::beast::error_code ec) {
@@ -286,11 +283,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::shared_ptr<Session>(new Session(std::forward<Args>(args)...));
   }
 
-#ifdef MG_ENTERPRISE
-  ~Session() { session_context_->Delete(session_); }
-#else
   ~Session() = default;
-#endif
 
   Session(const Session &) = delete;
   Session(Session &&) = delete;
@@ -366,17 +359,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
-        session_{*session_context, endpoint, input_buffer_.read_end(), &output_stream_},
+        session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
+#ifdef MG_ENTERPRISE
+                 session_context->audit_log
+#endif
+        },
         session_context_{session_context},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
-#ifdef MG_ENTERPRISE
-    // TODO Try to remove Register (see comment at SessionInterface declaration)
-    session_context_->Register(session_);
-#endif
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
       socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE

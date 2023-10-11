@@ -128,7 +128,8 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
-      | infoQuery
+      | databaseInfoQuery
+      | systemInfoQuery
       | constraintQuery
       | authQuery
       | dumpQuery

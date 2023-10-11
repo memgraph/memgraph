@@ -63,7 +63,7 @@ struct HeartbeatReq {
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
   HeartbeatReq() {}
   HeartbeatReq(uint64_t main_commit_timestamp, std::string epoch_id)
-      : main_commit_timestamp(main_commit_timestamp), epoch_id(epoch_id) {}
+      : main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
 
   uint64_t main_commit_timestamp;
   std::string epoch_id;

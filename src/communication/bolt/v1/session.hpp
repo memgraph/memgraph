@@ -54,7 +54,7 @@ class SessionException : public utils::BasicException {
  * @tparam TOutputStream type of output stream that will be used
  */
 template <typename TInputStream, typename TOutputStream>
-class Session : public dbms::SessionInterface {
+class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
@@ -208,8 +208,8 @@ class Session : public dbms::SessionInterface {
 
   Version version_;
 
-  std::string GetDatabaseName() const override = 0;
-  std::string UUID() const final { return session_uuid_; }
+  virtual std::string GetCurrentDB() const = 0;
+  std::string UUID() const { return session_uuid_; }
 
  private:
   void ClientFailureInvalidData() {

@@ -10,8 +10,4 @@
 // licenses/APL.txt.
 #include "glue/ServerT.hpp"
 
-#ifdef MG_ENTERPRISE
-template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContextHandler>;
-#else
-template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContext>;
-#endif
+template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;

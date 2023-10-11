@@ -33,9 +33,6 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-InMemoryLabelPropertyIndex::InMemoryLabelPropertyIndex(Indices *indices, const Config &config)
-    : LabelPropertyIndex(indices, config) {}
-
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                              utils::SkipList<Vertex>::Accessor vertices,
                                              const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
@@ -70,7 +67,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
 
-  indices_by_property_[property].insert({label, &index_.at({label, property})});
+  indices_by_property_[property].insert({label, &it->second});
 
   if (!emplaced) {
     // Index already exists.
@@ -165,7 +162,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                          utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_.items),
+      current_vertex_accessor_(nullptr, self_->storage_, nullptr),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -204,8 +201,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_.items);
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
       break;
     }
   }
@@ -228,18 +224,15 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
                                                PropertyId property,
                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                               Transaction *transaction, Indices *indices, Constraints *constraints,
-                                               const Config &config)
+                                               Storage *storage, Transaction *transaction)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
       view_(view),
-      transaction_(transaction),
-      indices_(indices),
-      constraints_(constraints),
-      config_(config) {
+      storage_(storage),
+      transaction_(transaction) {
   // We have to fix the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an
@@ -386,20 +379,23 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  deleted_indexes.reserve(stats_.size());
-  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+  auto locked_stats = stats_.Lock();
+  deleted_indexes.reserve(locked_stats->size());
+  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
                  [](const auto &elem) { return elem.first; });
-  stats_.clear();
+  locked_stats->clear();
   return deleted_indexes;
 }
 
+// stats_ is a map where the key is a pair of label and property, so for one label many pairs can be deleted
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+  auto locked_stats = stats_.Lock();
+  for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
     if (it->first.first == label) {
       deleted_indexes.push_back(it->first);
-      it = stats_.erase(it);
+      it = locked_stats->erase(it);
     } else {
       ++it;
     }
@@ -409,12 +405,14 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIn
 
 void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                                                const LabelPropertyIndexStats &stats) {
-  stats_[key] = stats;
+  auto locked_stats = stats_.Lock();
+  locked_stats->insert_or_assign(key, stats);
 }
 
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
     const std::pair<storage::LabelId, storage::PropertyId> &key) const {
-  if (auto it = stats_.find(key); it != stats_.end()) {
+  auto locked_stats = stats_.ReadLock();
+  if (auto it = locked_stats->find(key); it != locked_stats->end()) {
     return it->second;
   }
   return {};
@@ -428,12 +426,11 @@ void InMemoryLabelPropertyIndex::RunGC() {
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-    Constraints *constraints) {
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction) {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), label,    property,    lower_bound, upper_bound, view,
-          transaction,         indices_, constraints, config_};
+  return {it->second.access(), label, property, lower_bound, upper_bound, view, storage, transaction};
 }
 
 }  // namespace memgraph::storage

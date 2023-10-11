@@ -44,7 +44,7 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
-    explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
     /// TODO: const methods?
     void LoadVerticesToMainMemoryCache();
@@ -146,20 +146,12 @@ class DiskStorage final : public Storage {
       return {};
     }
 
-    std::vector<LabelId> ClearLabelIndexStats() override {
-      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
-    }
-
-    std::vector<std::pair<LabelId, PropertyId>> ClearLabelPropertyIndexStats() override {
-      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
-    }
-
-    std::vector<LabelId> DeleteLabelIndexStats(std::span<std::string> /*labels*/) override {
+    bool DeleteLabelIndexStats(const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const std::span<std::string> /*labels*/) override {
+        const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
@@ -174,10 +166,6 @@ class DiskStorage final : public Storage {
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
-
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
-
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override;
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
@@ -195,18 +183,12 @@ class DiskStorage final : public Storage {
       return disk_storage->indices_.label_property_index_->IndexExists(label, property);
     }
 
-    IndicesInfo ListAllIndices() const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->ListAllIndices();
-    }
+    IndicesInfo ListAllIndices() const override;
 
-    ConstraintsInfo ListAllConstraints() const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->ListAllConstraints();
-    }
+    ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageDataManipulationError, void> Commit(
+    utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     void UpdateObjectsCountOnAbort();
@@ -216,102 +198,107 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(std::string &&key, std::string &&value,
-                                                                       std::string &&ts);
     std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        std::string &&key, std::string &&value, Delta *index_delta,
+        const std::string &key, const std::string &value, Delta *index_delta,
         utils::SkipList<storage::Vertex>::Accessor index_accessor);
 
     std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
                                                          const rocksdb::Slice &ts);
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+        LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                           const std::set<PropertyId> &properties) override;
+
    private:
-    VertexAccessor CreateVertexFromDisk(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                        std::vector<LabelId> &&label_ids, PropertyStore &&properties, Delta *delta);
-
-    bool PrefetchEdgeFilter(const std::string_view disk_edge_key_str, const VertexAccessor &vertex_acc,
-                            EdgeDirection edge_direction);
-    void PrefetchEdges(const VertexAccessor &vertex_acc, EdgeDirection edge_direction);
-
-    Result<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to, EdgeTypeId edge_type,
-                                            storage::Gid gid, std::string_view properties, std::string &&old_disk_key,
-                                            std::string &&ts);
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushIndexCache();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedVertices();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushDeletedEdges();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushVertices(
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
         const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> ClearDanglingVertices();
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices();
 
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckVertexConstraintsBeforeCommit(
+    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
-    bool WriteVertexToDisk(const Vertex &vertex);
-    bool WriteEdgeToDisk(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
-    bool DeleteVertexFromDisk(const std::string &vertex);
-    bool DeleteEdgeFromDisk(const std::string &edge);
+    bool WriteVertexToVertexColumnFamily(const Vertex &vertex);
+    bool WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
 
-    /// Main storage
-    utils::SkipList<Vertex> vertices_;
-    std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+    bool WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                      rocksdb::ColumnFamilyHandle *handle, std::string mode);
 
-    /// We need them because query context for indexed reading is cleared after the query is done not after the
-    /// transaction is done
-    std::vector<std::list<Delta>> index_deltas_storage_;
-    utils::SkipList<Edge> edges_;
-    Config::Items config_;
-    std::unordered_set<std::string> edges_to_delete_;
-    std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
-    rocksdb::Transaction *disk_transaction_;
-    bool scanned_all_vertices_ = false;
+    bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
+
+    bool DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid);
+    bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
+                            const std::string &dst_vertex_gid);
+    bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
+                                         rocksdb::ColumnFamilyHandle *handle, std::string mode);
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    auto isolation_level = override_isolation_level.value_or(isolation_level_);
-    if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-      throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
-    }
-    return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, isolation_level, storage_mode_});
-  }
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+
+  /// TODO: (andi) Methods working with rocksdb are scattered around DiskStorage and DiskStorage::DiskAccessor
+  /// Two options:
+  /// 1. move everything under DiskStorage level
+  /// 2. propagate DiskStorage::DiskAccessor to vertex and edge accessor.
+  /// Out of scope of this PR
+  VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
+                                      storage::Gid gid, std::vector<LabelId> label_ids, PropertyStore properties,
+                                      Delta *delta);
+
+  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,
+                                                                     const std::string &value, std::string &&ts);
+
+  /// TODO: (andi) I don't think View is necessary
+  std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
+
+  std::optional<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
+                                                 Transaction *transaction, EdgeTypeId edge_type, storage::Gid gid,
+                                                 std::string_view properties, const std::string &old_disk_key,
+                                                 std::string &&ts);
+
+  /// TODO: (andi) Maybe const
+  std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
+                                     const std::vector<EdgeTypeId> &possible_edge_types,
+                                     const VertexAccessor *destination, Transaction *transaction, View view);
+
+  /// TODO: (andi) Maybe const
+  std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex,
+                                    const std::vector<EdgeTypeId> &possible_edge_types, const VertexAccessor *source,
+                                    Transaction *transaction, View view);
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
-
-  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -366,22 +353,23 @@ class DiskStorage final : public Storage {
 
   StorageInfo GetInfo() const override;
 
-  void FreeMemory(std::unique_lock<utils::RWLock> /*lock*/) override {}
+  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
-  void EstablishNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+  void PrepareForNewEpoch(std::string prev_epoch) override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
 
-  auto CreateReplicationClient(std::string name, io::network::Endpoint endpoint, replication::ReplicationMode mode,
-                               const replication::ReplicationClientConfig &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }

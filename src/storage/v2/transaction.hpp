@@ -22,6 +22,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -30,6 +31,8 @@
 #include "storage/v2/view.hpp"
 #include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
+
+#include <rocksdb/utilities/transaction.h>
 
 namespace memgraph::storage {
 
@@ -44,6 +47,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         command_id(0),
         deltas(1024UL),
+        md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
@@ -55,6 +59,7 @@ struct Transaction {
         commit_timestamp(std::move(other.commit_timestamp)),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
+        md_deltas(std::move(other.md_deltas)),
         must_abort(other.must_abort),
         isolation_level(other.isolation_level),
         storage_mode(other.storage_mode),
@@ -75,10 +80,8 @@ struct Transaction {
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
 
-  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
-    if (IsDiskStorage()) {
-      modified_edges_.emplace(gid, modified_edge);
-    }
+  bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
+    return modified_edges_.emplace(gid, modified_edge).second;
   }
 
   void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
@@ -93,6 +96,7 @@ struct Transaction {
   uint64_t command_id;
 
   Bond<PmrListDelta> deltas;
+  utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;
@@ -104,7 +108,20 @@ struct Transaction {
   mutable VertexInfoCache manyDeltasCache;
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
+  // Only for disk storage
   ModifiedEdgesMap modified_edges_;
+  rocksdb::Transaction *disk_transaction_;
+  /// Main storage
+  utils::SkipList<Vertex> vertices_;
+  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+
+  /// We need them because query context for indexed reading is cleared after the query is done not after the
+  /// transaction is done
+  std::vector<std::list<Delta>> index_deltas_storage_;
+  utils::SkipList<Edge> edges_;
+  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_;
+  std::map<std::string, std::string> vertices_to_delete_;
+  bool scanned_all_vertices_ = false;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

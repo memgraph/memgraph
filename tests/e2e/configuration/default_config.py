@@ -156,6 +156,11 @@ startup_config_dict = {
         "100000",
         "Issue a 'fsync' call after this amount of transactions are written to the WAL file. Set to 1 for fully synchronous operation.",
     ),
+    "storage_mode": (
+        "IN_MEMORY_TRANSACTIONAL",
+        "IN_MEMORY_TRANSACTIONAL",
+        "Default storage mode Memgraph uses. Allowed values: IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL",
+    ),
     "storage_wal_file_size_kib": ("20480", "20480", "Minimum file size of each WAL file."),
     "storage_delete_on_drop": (
         "true",

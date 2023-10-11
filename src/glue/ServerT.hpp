@@ -12,24 +12,35 @@
 
 #include "communication/v2/server.hpp"
 #include "glue/SessionHL.hpp"
+#include "utils/synchronized.hpp"
 
-#ifdef MG_ENTERPRISE
-#include "dbms/session_context_handler.hpp"
-#else
-#include "dbms/session_context.hpp"
+namespace memgraph::query {
+struct InterpreterContext;
+}
+
+#if MG_ENTERPRISE
+namespace memgraph::audit {
+class Log;
+}
 #endif
 
-#ifdef MG_ENTERPRISE
-extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL,
-                                                          memgraph::dbms::SessionContextHandler>;
-#else
-extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContext>;
+namespace memgraph::auth {
+class Auth;
+}
+namespace memgraph::utils {
+class WritePrioritizedRWLock;
+}
+
+struct Context {
+  memgraph::query::InterpreterContext *ic;
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
+#if MG_ENTERPRISE
+  memgraph::audit::Log *audit_log;
 #endif
+};
+
+extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;
 
 namespace memgraph::glue {
-#ifdef MG_ENTERPRISE
-using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContextHandler>;
-#else
-using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::dbms::SessionContext>;
-#endif
+using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;
 }  // namespace memgraph::glue

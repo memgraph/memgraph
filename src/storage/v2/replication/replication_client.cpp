@@ -15,30 +15,25 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
-#include "storage/v2/transaction.hpp"
-#include "utils/file_locker.hpp"
-#include "utils/logging.hpp"
-#include "utils/message.hpp"
 
 namespace memgraph::storage {
 
-static auto CreateClientContext(const replication::ReplicationClientConfig &config) -> communication::ClientContext {
+static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
+    -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 
-ReplicationClient::ReplicationClient(Storage *storage, std::string name, memgraph::io::network::Endpoint endpoint,
-                                     replication::ReplicationMode mode,
-                                     replication::ReplicationClientConfig const &config)
-    : name_{std::move(name)},
+ReplicationClient::ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
+                                     const memgraph::replication::ReplicationEpoch *epoch)
+    : name_{config.name},
       rpc_context_{CreateClientContext(config)},
-      rpc_client_{std::move(endpoint), &rpc_context_},
+      rpc_client_{io::network::Endpoint(config.ip_address, config.port), &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
-      mode_{mode},
-      storage_{storage} {}
+      mode_{config.mode},
+      storage_{storage},
+      repl_epoch_{epoch} {}
 
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();
@@ -47,21 +42,19 @@ ReplicationClient::~ReplicationClient() {
 }
 
 uint64_t ReplicationClient::LastCommitTimestamp() const {
-  return storage_->replication_state_.last_commit_timestamp_.load();
+  return storage_->repl_storage_state_.last_commit_timestamp_.load();
 }
 
 void ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  const auto &main_epoch = storage_->replication_state_.GetEpoch();
-
-  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->replication_state_.last_commit_timestamp_,
-                                                            main_epoch.id)};
+  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->repl_storage_state_.last_commit_timestamp_,
+                                                            std::string{repl_epoch_->id()})};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
-  if (replica.epoch_id != main_epoch.id && replica.current_commit_timestamp != kTimestampInitialId) {
-    auto const &history = storage_->replication_state_.history;
+  if (replica.epoch_id != repl_epoch_->id() && replica.current_commit_timestamp != kTimestampInitialId) {
+    auto const &history = storage_->repl_storage_state_.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
     });
@@ -83,8 +76,8 @@ void ReplicationClient::InitializeClient() {
 
   current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", name_, current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}", storage_->replication_state_.last_commit_timestamp_.load());
-  if (current_commit_timestamp == storage_->replication_state_.last_commit_timestamp_.load()) {
+  spdlog::trace("Current timestamp on main: {}", storage_->repl_storage_state_.last_commit_timestamp_.load());
+  if (current_commit_timestamp == storage_->repl_storage_state_.last_commit_timestamp_.load()) {
     spdlog::debug("Replica '{}' up to date", name_);
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::READY);
@@ -111,7 +104,7 @@ TimestampInfo ReplicationClient::GetTimestampInfo() {
       replica_state_.store(replication::ReplicaState::INVALID);
       HandleRpcFailure();
     }
-    auto main_time_stamp = storage_->replication_state_.last_commit_timestamp_.load();
+    auto main_time_stamp = storage_->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
   } catch (const rpc::RpcFailedException &) {
@@ -174,7 +167,7 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
       MG_ASSERT(!replica_stream_);
       try {
         replica_stream_.emplace(
-            ReplicaStream{this, storage_->replication_state_.last_commit_timestamp_.load(), current_wal_seq_num});
+            ReplicaStream{this, storage_->repl_storage_state_.last_commit_timestamp_.load(), current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
@@ -183,8 +176,6 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
       return;
   }
 }
-
-auto ReplicationClient::GetEpochId() const -> std::string const & { return storage_->replication_state_.GetEpoch().id; }
 
 bool ReplicationClient::FinalizeTransactionReplication() {
   // We can only check the state because it guarantees to be only
@@ -219,7 +210,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
     return false;
   };
 
-  if (mode_ == replication::ReplicationMode::ASYNC) {
+  if (mode_ == memgraph::replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask([=] { (void)task(); });
     return true;
   }
@@ -291,7 +282,7 @@ ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_co
       stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
 
-  encoder.WriteString(self_->GetEpochId());
+  encoder.WriteString(self->repl_epoch_->id());
 }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
@@ -310,10 +301,12 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
-                                    const std::set<PropertyId> &properties, uint64_t timestamp) {
+void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
+                                    const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                                    const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, timestamp);
+  EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, stats,
+                  property_stats, timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

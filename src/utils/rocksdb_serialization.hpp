@@ -70,6 +70,10 @@ inline std::string_view GetViewOfThirdPartOfSplit(const std::string_view src, co
   return FindPartOfStringView(src, delimiter, 3);
 }
 
+inline std::string_view GetViewOfFourthPartOfSplit(const std::string_view src, const char delimiter) {
+  return FindPartOfStringView(src, delimiter, 4);
+}
+
 }  // namespace
 
 /// TODO: try to move this to hpp files so that we can follow jump on readings
@@ -97,11 +101,12 @@ inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::
   std::vector<storage::LabelId> transformed_labels;
   transformed_labels.reserve(labels.size());
   for (const std::string &label : labels) {
-    transformed_labels.emplace_back(storage::LabelId::FromUint(std::stoull(label)));
+    transformed_labels.emplace_back(storage::LabelId::FromString(label));
   }
   return transformed_labels;
 }
 
+/// TODO: (andi) Change to utils::Join call
 inline std::string SerializeLabels(const std::vector<std::string> &labels) {
   if (labels.empty()) {
     return "";
@@ -136,6 +141,30 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
     result += "," + target_property;
   }
   return result;
+}
+
+inline storage::Gid ExtractSrcVertexGidFromEdgeValue(const std::string value) {
+  const std::string_view src_vertex_gid_str = GetViewOfFirstPartOfSplit(value, '|');
+  return storage::Gid::FromString(src_vertex_gid_str);
+}
+
+inline storage::Gid ExtractDstVertexGidFromEdgeValue(const std::string value) {
+  const std::string_view dst_vertex_gid_str = GetViewOfSecondPartOfSplit(value, '|');
+  return storage::Gid::FromString(dst_vertex_gid_str);
+}
+
+inline storage::EdgeTypeId ExtractEdgeTypeIdFromEdgeValue(const std::string_view value) {
+  const std::string_view edge_type_str = GetViewOfThirdPartOfSplit(value, '|');
+  return storage::EdgeTypeId::FromString(edge_type_str);
+}
+
+inline std::string SerializeEdgeAsValue(const std::string &src_vertex_gid, const std::string &dst_vertex_gid,
+                                        const storage::EdgeTypeId &edge_type, const storage::Edge *edge = nullptr) {
+  auto tmp = src_vertex_gid + "|" + dst_vertex_gid + "|" + SerializeIdType(edge_type) + "|";
+  if (edge) {
+    return tmp + utils::SerializeProperties(edge->properties);
+  }
+  return tmp;
 }
 
 inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,
@@ -242,7 +271,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(const std
   std::string labels_str{GetViewOfFirstPartOfSplit(value, '|')};
   std::vector<storage::LabelId> labels{TransformFromStringLabels(utils::Split(labels_str, ","))};
   std::string indexing_label = key.substr(0, key.find('|'));
-  labels.emplace_back(storage::LabelId::FromUint(std::stoull(indexing_label)));
+  labels.emplace_back(storage::LabelId::FromString(indexing_label));
   return labels;
 }
 

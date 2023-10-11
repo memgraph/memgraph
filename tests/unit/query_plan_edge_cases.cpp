@@ -23,6 +23,8 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
+#include "query/stream/streams.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -32,24 +34,48 @@ template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
   const std::string testSuite = "query_plan_edge_cases";
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
+
   void SetUp() {
-    interpreter_context_.emplace(std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-                                 memgraph::query::InterpreterConfig{}, data_directory);
-    interpreter_.emplace(&*interpreter_context_);
+    auto db_acc_opt = db_gk->access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
+    MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    db_acc_ = std::move(db_acc);
+
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
+    interpreter_.emplace(&*interpreter_context_, *db_acc_);
   }
 
   void TearDown() {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
-
+    db_acc_.reset();
+    db_gk.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
+    std::filesystem::remove_all(data_directory);
   }
 
   /**
@@ -58,9 +84,9 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(this->interpreter_context_->db.get());
+    ResultStreamFaker stream(this->db_acc_->get()->storage());
 
-    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, nullptr);
+    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, {});
     stream.Header(header);
     auto summary = interpreter_->PullAll(&stream);
     stream.Summary(summary);

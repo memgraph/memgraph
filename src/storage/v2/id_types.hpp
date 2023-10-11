@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,14 @@
 
 #pragma once
 
+#include <charconv>
 #include <functional>
+#include <system_error>
 #include <type_traits>
+#include <utils/exceptions.hpp>
 
 #include "utils/cast.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -31,6 +35,7 @@ namespace memgraph::storage {
     static name FromInt(int64_t id) { return name{utils::MemcpyCast<uint64_t>(id)}; }                         \
     uint64_t AsUint() const { return id_; }                                                                   \
     int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
+    static name FromString(std::string_view id) { return name{utils::ParseStringToUint64(id)}; }              \
                                                                                                               \
    private:                                                                                                   \
     uint64_t id_;                                                                                             \
