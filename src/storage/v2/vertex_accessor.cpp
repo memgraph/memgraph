@@ -465,7 +465,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
            transaction->edges_to_delete_.contains(utils::SerializeIdType(edge_acc.Gid()));
   });
   std::unordered_set<storage::Gid> in_mem_edges_set;
-  in_mem_edges_set.reserve(in_memory_edges.size());
+  in_mem_edges_set.reserve(ret.size());
   for (const auto &in_mem_edge_acc : ret) {
     in_mem_edges_set.insert(in_mem_edge_acc.Gid());
   }

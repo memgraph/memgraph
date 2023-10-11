@@ -1025,7 +1025,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
   for (const auto &vertex : deleted_vertices) {
     transaction_.vertices_to_delete_.emplace(utils::SerializeIdType(vertex.vertex_->gid),
                                              utils::SerializeVertex(*vertex.vertex_));
-    spdlog::trace("");
     transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
     disk_storage->vertex_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
@@ -1034,7 +1033,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
     const std::string ser_edge_gid = utils::SerializeIdType(edge.Gid());
     const auto src_vertex_gid = utils::SerializeIdType(edge.from_vertex_->gid);
     const auto dst_vertex_gid = utils::SerializeIdType(edge.to_vertex_->gid);
-    spdlog::trace("Src vertex gid: {} Dst vertex gid: {}", src_vertex_gid, dst_vertex_gid);
     transaction_.edges_to_delete_.emplace(ser_edge_gid, std::make_pair(src_vertex_gid, dst_vertex_gid));
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
@@ -1268,7 +1266,6 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
     const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
-  spdlog::trace("Flushing vertices");
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1309,7 +1306,6 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::ClearDanglingVertices() {
-  spdlog::trace("Clear dangling vertices");
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1346,7 +1342,6 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
   for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction_.vertices_to_delete_) {
-    spdlog::trace("Deleting vertex: {}", vertex_gid);
     if (!DeleteVertexFromDisk(vertex_gid, serialized_vertex_to_delete) ||
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
         !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
@@ -1359,9 +1354,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
-  spdlog::trace("Flushing deleted edges");
   for (const auto &[edge_to_delete, vertices] : transaction_.edges_to_delete_) {
-    spdlog::trace("Started deletion of edge: {}", edge_to_delete);
     const auto &[src_vertex_id, dst_vertex_id] = vertices;
     if (!DeleteEdgeFromDisk(edge_to_delete, src_vertex_id, dst_vertex_id)) {
       return StorageManipulationError{SerializationError{}};
@@ -1377,11 +1370,9 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
     const auto &edge_acc) {
-  spdlog::trace("Flushing modified edges");
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &modified_edge : transaction_.modified_edges_) {
     const std::string edge_gid = utils::SerializeIdType(modified_edge.first);
-    spdlog::trace("Modified edge: {}", edge_gid);
     const Delta::Action root_action = modified_edge.second.delta_action;
     const auto src_vertex_gid = utils::SerializeIdType(modified_edge.second.src_vertex_gid);
     const auto dst_vertex_gid = utils::SerializeIdType(modified_edge.second.dest_vertex_gid);
