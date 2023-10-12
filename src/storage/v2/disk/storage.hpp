@@ -192,25 +192,25 @@ class DiskStorage final : public Storage {
 
     [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
         const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
-
-    bool WriteVertexToVertexColumnFamily(const Vertex &vertex);
-    bool WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
-
-    bool WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                      rocksdb::ColumnFamilyHandle *handle, std::string mode);
-
-    bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
-
-    bool DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid);
-    bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
-                            const std::string &dst_vertex_gid);
-    bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                         rocksdb::ColumnFamilyHandle *handle, std::string mode);
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+
+  /// Writing methods
+  bool WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex);
+  bool WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
+                                   const std::string &serialized_edge_value);
+  bool WriteEdgeToConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
+                                    const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle, std::string mode);
+  bool DeleteVertexFromDisk(Transaction *transaction, const std::string &vertex_gid, const std::string &vertex);
+  bool DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const std::string &edge_gid);
+  bool DeleteEdgeFromDisk(Transaction *transaction, const std::string &edge_gid, const std::string &src_vertex_gid,
+                          const std::string &dst_vertex_gid);
+  bool DeleteEdgeFromConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
+                                       const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
+                                       std::string mode);
 
   void LoadVerticesToMainMemoryCache(Transaction *transaction);
 
@@ -347,7 +347,7 @@ class DiskStorage final : public Storage {
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
-  void PrepareForNewEpoch(std::string prev_epoch) override {
+  void PrepareForNewEpoch(std::string /*prev_epoch*/) override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
@@ -356,17 +356,16 @@ class DiskStorage final : public Storage {
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/)
       -> std::unique_ptr<ReplicationClient> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/)
       -> std::unique_ptr<ReplicationServer> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
- private:
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
 

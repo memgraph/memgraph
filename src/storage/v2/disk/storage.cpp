@@ -1069,52 +1069,51 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*
   return Error::NONEXISTENT_OBJECT;
 }
 
-bool DiskStorage::DiskAccessor::WriteVertexToVertexColumnFamily(const Vertex &vertex) {
-  MG_ASSERT(commit_timestamp_.has_value(), "Writing vertex to disk but commit timestamp not set.");
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex) {
+  MG_ASSERT(transaction->commit_timestamp, "Writing vertex to disk but commit timestamp not set.");
+  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   const auto ser_vertex = utils::SerializeVertex(vertex);
-  auto status = transaction_.disk_transaction_->Put(disk_storage->kvstore_->vertex_chandle, ser_vertex,
+  auto status = transaction->disk_transaction_->Put(kvstore_->vertex_chandle, ser_vertex,
                                                     utils::SerializeProperties(vertex.properties));
   if (status.ok()) {
-    spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex,
-                  *commit_timestamp_);
+    spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
     return true;
   }
-  spdlog::error("rocksdb: Failed to save vertex with key {} and ts {} to vertex column family", ser_vertex,
-                *commit_timestamp_);
+  spdlog::error("rocksdb: Failed to save vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
   return false;
 }
 
-bool DiskStorage::DiskAccessor::WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key,
-                                                            const std::string &serialized_edge_value) {
-  MG_ASSERT(commit_timestamp_.has_value(), "Writing edge to disk but commit timestamp not set.");
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  rocksdb::Status status = transaction_.disk_transaction_->Put(disk_storage->kvstore_->edge_chandle,
-                                                               serialized_edge_key, serialized_edge_value);
+bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
+                                              const std::string &serialized_edge_value) {
+  MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
+  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  rocksdb::Status status =
+      transaction->disk_transaction_->Put(kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
 
   if (status.ok()) {
-    spdlog::trace("rocksdb: Saved edge {} with ts {} to edge column family", serialized_edge_key, *commit_timestamp_);
+    spdlog::trace("rocksdb: Saved edge {} with ts {} to edge column family", serialized_edge_key, commit_ts);
     return true;
   }
-  spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family", serialized_edge_key,
-                *commit_timestamp_);
+  spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family", serialized_edge_key, commit_ts);
   return false;
 }
 
-bool DiskStorage::DiskAccessor::WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                                             rocksdb::ColumnFamilyHandle *handle, std::string mode) {
-  MG_ASSERT(commit_timestamp_.has_value(), "Writing edge to disk but commit timestamp not set.");
+/// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
+                                               const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
+                                               std::string mode) {
+  MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
   std::string value;
-  const auto put_status = std::invoke([this, handle, &value, &vertex_gid, &edge_gid]() {
+  const auto put_status = std::invoke([transaction, handle, &value, &vertex_gid, &edge_gid]() {
     rocksdb::ReadOptions ro;
-    std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
+    std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
     rocksdb::Slice ts(strTs);
     ro.timestamp = &ts;
 
-    if (transaction_.disk_transaction_->Get(ro, handle, vertex_gid, &value).IsNotFound()) {
-      return transaction_.disk_transaction_->Put(handle, vertex_gid, edge_gid);
+    if (transaction->disk_transaction_->Get(ro, handle, vertex_gid, &value).IsNotFound()) {
+      return transaction->disk_transaction_->Put(handle, vertex_gid, edge_gid);
     }
-    return transaction_.disk_transaction_->Put(handle, vertex_gid, value + "," + edge_gid);
+    return transaction->disk_transaction_->Put(handle, vertex_gid, value + "," + edge_gid);
   });
 
   if (put_status.ok()) {
@@ -1127,14 +1126,12 @@ bool DiskStorage::DiskAccessor::WriteEdgeToConnectivityIndex(const std::string &
   return false;
 }
 
-bool DiskStorage::DiskAccessor::DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+bool DiskStorage::DeleteVertexFromDisk(Transaction *transaction, const std::string &vertex_gid,
+                                       const std::string &vertex) {
   /// TODO: (andi) This should be atomic delete.
-  auto vertex_del_status = transaction_.disk_transaction_->Delete(disk_storage->kvstore_->vertex_chandle, vertex);
-  auto vertex_out_conn_status =
-      transaction_.disk_transaction_->Delete(disk_storage->kvstore_->out_edges_chandle, vertex_gid);
-  auto vertex_in_conn_status =
-      transaction_.disk_transaction_->Delete(disk_storage->kvstore_->in_edges_chandle, vertex_gid);
+  auto vertex_del_status = transaction->disk_transaction_->Delete(kvstore_->vertex_chandle, vertex);
+  auto vertex_out_conn_status = transaction->disk_transaction_->Delete(kvstore_->out_edges_chandle, vertex_gid);
+  auto vertex_in_conn_status = transaction->disk_transaction_->Delete(kvstore_->in_edges_chandle, vertex_gid);
 
   if (vertex_del_status.ok() && vertex_out_conn_status.ok() && vertex_in_conn_status.ok()) {
     spdlog::trace("rocksdb: Deleted vertex with key {}", vertex);
@@ -1144,9 +1141,8 @@ bool DiskStorage::DiskAccessor::DeleteVertexFromDisk(const std::string &vertex_g
   return false;
 }
 
-bool DiskStorage::DiskAccessor::DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (!transaction_.disk_transaction_->Delete(disk_storage->kvstore_->edge_chandle, edge_gid).ok()) {
+bool DiskStorage::DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const std::string &edge_gid) {
+  if (!transaction->disk_transaction_->Delete(kvstore_->edge_chandle, edge_gid).ok()) {
     spdlog::error("rocksdb: Failed to delete edge {}", edge_gid);
     return false;
   }
@@ -1157,23 +1153,22 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromEdgeColumnFamily(const std::string
 /// TODO: (andi) This is currently not optimal as it will for each edge deserialize all neighborhood edges
 /// and then remove the edge from the neighborhood edges. This can be optimized by saving vertices together with
 // deleted edges and then modifying the deletion procedure. This is currently bad if we have some supernode.
-bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
-                                                   const std::string &dst_vertex_gid) {
+bool DiskStorage::DeleteEdgeFromDisk(Transaction *transaction, const std::string &edge_gid,
+                                     const std::string &src_vertex_gid, const std::string &dst_vertex_gid) {
   /// TODO: (andi) Should be atomic deletion.
-  if (!DeleteEdgeFromEdgeColumnFamily(edge_gid)) {
+  if (!DeleteEdgeFromEdgeColumnFamily(transaction, edge_gid)) {
     return false;
   }
 
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (!transaction_.vertices_to_delete_.contains(src_vertex_gid)) {
-    if (!DeleteEdgeFromConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle, "OUT")) {
+  if (!transaction->vertices_to_delete_.contains(src_vertex_gid)) {
+    if (!DeleteEdgeFromConnectivityIndex(transaction, src_vertex_gid, edge_gid, kvstore_->out_edges_chandle, "OUT")) {
       spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
       return false;
     }
     spdlog::trace("rocksdb: Deleted edge with key {} from out edges of vertex", edge_gid, src_vertex_gid);
   }
-  if (!transaction_.vertices_to_delete_.contains(dst_vertex_gid)) {
-    if (!DeleteEdgeFromConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle, "IN")) {
+  if (!transaction->vertices_to_delete_.contains(dst_vertex_gid)) {
+    if (!DeleteEdgeFromConnectivityIndex(transaction, dst_vertex_gid, edge_gid, kvstore_->in_edges_chandle, "IN")) {
       spdlog::error("rocksdb: Failed to delete edge with key {}", edge_gid);
       return false;
     }
@@ -1183,16 +1178,17 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge_gid, 
   return true;
 }
 
-bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid,
-                                                                const std::string &edge_gid,
-                                                                rocksdb::ColumnFamilyHandle *handle, std::string mode) {
+/// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
+                                                  const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
+                                                  std::string mode) {
   rocksdb::ReadOptions ro;
-  std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
 
   std::string edges;
-  auto edges_status = transaction_.disk_transaction_->Get(ro, handle, vertex_gid, &edges);
+  auto edges_status = transaction->disk_transaction_->Get(ro, handle, vertex_gid, &edges);
   if (!edges_status.ok()) {
     /// NOTE: Edge could be created and deleted in the same txn, so no need to fail explicitly.
     spdlog::error("rocksdb: Failed to find {} edges collection of vertex {}.", mode, vertex_gid);
@@ -1202,7 +1198,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
   std::vector<std::string> edges_vec = utils::Split(edges, ",");
   MG_ASSERT(std::erase(edges_vec, edge_gid) > 0U, "Edge must be in the edges collection of vertex");
   if (edges_vec.empty()) {
-    if (!transaction_.disk_transaction_->Delete(handle, vertex_gid).ok()) {
+    if (!transaction->disk_transaction_->Delete(handle, vertex_gid).ok()) {
       spdlog::error("rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid,
                     vertex_gid);
       return false;
@@ -1210,7 +1206,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromConnectivityIndex(const std::strin
     return true;
   }
 
-  if (!transaction_.disk_transaction_->Put(handle, vertex_gid, utils::Join(edges_vec, ",")).ok()) {
+  if (!transaction->disk_transaction_->Put(handle, vertex_gid, utils::Join(edges_vec, ",")).ok()) {
     spdlog::error("rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid,
                   vertex_gid);
     return false;
@@ -1237,6 +1233,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
     const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1257,12 +1254,13 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-      if (!DeleteVertexFromDisk(utils::SerializeIdType(vertex.gid), maybe_old_disk_key.value())) {
+      if (!disk_storage->DeleteVertexFromDisk(&transaction_, utils::SerializeIdType(vertex.gid),
+                                              maybe_old_disk_key.value())) {
         return StorageManipulationError{SerializationError{}};
       }
     }
 
-    if (!WriteVertexToVertexColumnFamily(vertex)) {
+    if (!disk_storage->WriteVertexToVertexColumnFamily(&transaction_, vertex)) {
       return StorageManipulationError{SerializationError{}};
     }
 
@@ -1306,6 +1304,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedVertices() {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1313,7 +1312,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
 
   for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction_.vertices_to_delete_) {
-    if (!DeleteVertexFromDisk(vertex_gid, serialized_vertex_to_delete) ||
+    if (!disk_storage->DeleteVertexFromDisk(&transaction_, vertex_gid, serialized_vertex_to_delete) ||
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
         !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
         !disk_label_property_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
@@ -1325,9 +1324,10 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 }
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (const auto &[edge_to_delete, vertices] : transaction_.edges_to_delete_) {
     const auto &[src_vertex_id, dst_vertex_id] = vertices;
-    if (!DeleteEdgeFromDisk(edge_to_delete, src_vertex_id, dst_vertex_id)) {
+    if (!disk_storage->DeleteEdgeFromDisk(&transaction_, edge_to_delete, src_vertex_id, dst_vertex_id)) {
       return StorageManipulationError{SerializationError{}};
     }
   }
@@ -1352,8 +1352,9 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
-          !WriteEdgeToEdgeColumnFamily(edge_gid, utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid,
-                                                                             modified_edge.second.edge_type_id))) {
+          !disk_storage->WriteEdgeToEdgeColumnFamily(
+              &transaction_, edge_gid,
+              utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id))) {
         return StorageManipulationError{SerializationError{}};
       }
     } else {
@@ -1361,7 +1362,8 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       // If the edge was deserialized, only properties can be modified -> key stays the same as when deserialized
       // so we can delete it.
       // This is done to avoid storing multiple versions of the same data.
-      if (root_action == Delta::Action::DELETE_DESERIALIZED_OBJECT && !DeleteEdgeFromEdgeColumnFamily(edge_gid)) {
+      if (root_action == Delta::Action::DELETE_DESERIALIZED_OBJECT &&
+          !disk_storage->DeleteEdgeFromEdgeColumnFamily(&transaction_, edge_gid)) {
         return StorageManipulationError{SerializationError{}};
       }
 
@@ -1370,15 +1372,17 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
 
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
-      if (!WriteEdgeToEdgeColumnFamily(
-              edge_gid,
+      if (!disk_storage->WriteEdgeToEdgeColumnFamily(
+              &transaction_, edge_gid,
               utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, &*edge))) {
         return StorageManipulationError{SerializationError{}};
       }
     }
     if (root_action == Delta::Action::DELETE_OBJECT &&
-        (!WriteEdgeToConnectivityIndex(src_vertex_gid, edge_gid, disk_storage->kvstore_->out_edges_chandle, "OUT") ||
-         !WriteEdgeToConnectivityIndex(dst_vertex_gid, edge_gid, disk_storage->kvstore_->in_edges_chandle, "IN"))) {
+        (!disk_storage->WriteEdgeToConnectivityIndex(&transaction_, src_vertex_gid, edge_gid,
+                                                     disk_storage->kvstore_->out_edges_chandle, "OUT") ||
+         !disk_storage->WriteEdgeToConnectivityIndex(&transaction_, dst_vertex_gid, edge_gid,
+                                                     disk_storage->kvstore_->in_edges_chandle, "IN"))) {
       return StorageManipulationError{SerializationError{}};
     }
   }
