@@ -1,5 +1,30 @@
 #!/bin/bash -e
 
+SUPPORTED_BUILD_TYPES=(
+    Debug
+    Release
+    RelWithDebInfo
+)
+
+# Check if the script has one argument initialize build_type with it, otherwise set default value "release"
+if [[ "$#" -eq 1 ]]; then
+      build_type="$1"
+else
+      build_type="Release"
+fi
+
+is_build_type_ok=false
+for supported_build_type in "${SUPPORTED_BUILD_TYPES[@]}"; do
+      if [[ "$supported_build_type" == "${build_type}" ]]; then
+            is_build_type_ok=true
+      fi
+done
+
+if [[ "$is_build_type_ok" == false ]]; then
+      echo "Unsupported build type: $build_type"
+      exit 1
+fi
+
 # Builds the memgraph tools and installs them in this directory.
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -8,7 +33,7 @@ mkdir -p ${script_dir}/build
 cd ${script_dir}/build
 
 # Setup cmake
-cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+cmake -DCMAKE_BUILD_TYPE=$build_type \
       -DTOOLS=ON \
       -DCMAKE_INSTALL_PREFIX=${script_dir} \
       ${script_dir}/..
