@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "storage/v2/disk/storage.hpp"
+
 #include <atomic>
 #include <charconv>
 #include <cstdint>
@@ -31,12 +33,10 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
-#include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_import_mode.hpp"
