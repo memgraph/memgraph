@@ -29,3 +29,13 @@ class fmt::formatter<SinglePropertyValue> {
     return fmt::format_to(ctx.out(), "({})", "TODO: PropertyValue");
   }
 };
+
+template <>
+class fmt::formatter<SinglePropertyValue::Type> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+  template <typename Context>
+  constexpr auto format(SinglePropertyValue::Type const &, Context &ctx) const {
+    return fmt::format_to(ctx.out(), "({})", "TODO: PropertyValue");
+  }
+};

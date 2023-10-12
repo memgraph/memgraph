@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
         check_index(data, 2, "Node", "id");
         check_index(data, 3, "Node", "id2");
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indices are in-place.");
@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
                     database_endpoint.port);
         }
       } else {
-        LOG_FATAL("Unable to delete statistics from {}", database_endpoints[i]);
+        LOG_FATAL("Unable to delete statistics from {}", database_endpoints[i].SocketAddress());
       }
     }
   }
@@ -164,7 +164,7 @@ int main(int argc, char **argv) {
           LOG_FATAL("Undeleted indices!");
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indices have been deleted.");
