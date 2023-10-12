@@ -48,7 +48,7 @@ static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t,
 class SlkDecodeException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  std::string name() const override { return "SlkDecodeException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkDecodeException)
 };
 
 // Forward declarations for all recursive `Save` and `Load` functions must be

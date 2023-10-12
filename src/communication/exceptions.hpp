@@ -21,6 +21,6 @@ namespace memgraph::communication {
  */
 class SessionClosedException : public utils::BasicException {
   using utils::BasicException::BasicException;
-  std::string name() const override { return "SessionClosedException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionClosedException)
 };
 }  // namespace memgraph::communication

@@ -25,7 +25,7 @@ namespace memgraph::kvstore {
 class KVStoreError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  std::string name() const override { return "KVStoreError"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(KVStoreError)
 };
 
 /**

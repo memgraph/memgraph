@@ -41,7 +41,7 @@ namespace stream {
 class StreamsException : public utils::BasicException {
  public:
   using BasicException::BasicException;
-  std::string name() const override { return "StreamsException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(StreamsException)
 };
 
 template <typename T>

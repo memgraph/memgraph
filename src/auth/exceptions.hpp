@@ -21,6 +21,6 @@ namespace memgraph::auth {
 class AuthException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  std::string name() const override { return "AuthException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(AuthException)
 };
 }  // namespace memgraph::auth

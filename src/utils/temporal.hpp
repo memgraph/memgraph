@@ -54,7 +54,7 @@ bool Underflows(const TType &lhs, const TType &rhs) {
 namespace temporal {
 struct InvalidArgumentException : public utils::BasicException {
   using utils::BasicException::BasicException;
-  std::string name() const override { return "InvalidArgumentException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(InvalidArgumentException)
 };
 }  // namespace temporal
 

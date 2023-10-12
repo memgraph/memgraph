@@ -18,7 +18,7 @@ namespace memgraph::storage::durability {
 /// Exception used to handle errors during recovery.
 class RecoveryFailure : public utils::BasicException {
   using utils::BasicException::BasicException;
-  std::string name() const override { return "RecoveryFailure"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(RecoveryFailure)
 };
 
 }  // namespace memgraph::storage::durability

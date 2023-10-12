@@ -30,7 +30,7 @@ namespace memgraph::communication::bolt {
 class ClientError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  std::string name() const override { return "ClientError"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(ClientError)
 };
 
 /**
@@ -68,7 +68,7 @@ class VerboseError : public utils::BasicException {
         code_(fmt::format("Memgraph.{}.{}.{}", ClassificationToString(classification), category, title)) {}
 
   const std::string &code() const noexcept { return code_; }
-  std::string name() const override { return "VerboseError"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(VerboseError)
 
  private:
   std::string ClassificationToString(Classification classification) {

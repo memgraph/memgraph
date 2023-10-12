@@ -23,7 +23,7 @@ namespace memgraph::storage {
 /// Exception used to signal configuration errors.
 class StorageConfigException : public utils::BasicException {
   using utils::BasicException::BasicException;
-  std::string name() const override { return "StorageConfigException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(StorageConfigException)
 };
 
 /// Pass this class to the \ref Storage constructor to change the behavior of

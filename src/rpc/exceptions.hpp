@@ -29,7 +29,7 @@ class RpcFailedException final : public utils::BasicException {
 
   /// Returns the endpoint associated with the error.
   const io::network::Endpoint &endpoint() const { return endpoint_; }
-  std::string name() const override { return "RpcFailedException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException)
 
  private:
   io::network::Endpoint endpoint_;

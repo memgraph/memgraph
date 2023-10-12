@@ -38,7 +38,7 @@ class Server;
  */
 class SessionException : public utils::BasicException {
   using utils::BasicException::BasicException;
-  std::string name() const override { return "SessionException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionException)
 };
 
 /**

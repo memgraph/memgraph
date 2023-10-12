@@ -67,7 +67,7 @@ class Builder {
 class SlkReaderException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  std::string name() const override { return "SlkReaderException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderException)
 };
 
 /// Reader used to read data from a SLK segment stream.

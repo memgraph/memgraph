@@ -27,7 +27,7 @@ namespace memgraph::storage {
 class PropertyValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  std::string name() const override { return "PropertyValueException"; }
+  SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
 };
 
 /// Encapsulation of a value and its type in a class that has no compile-time

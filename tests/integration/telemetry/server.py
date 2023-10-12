@@ -33,17 +33,17 @@ def build_handler(storage, args):
             assert False
 
         def do_POST(self):
-            # if args.redirect and self.path == args.path:
-            #     # 307 is used instead of 301 to preserve body data
-            #     # https://stackoverflow.com/questions/19070801/curl-loses-body-when-a-post-redirected-from-http-to-https
-            #     self.send_response(307)
-            #     self.send_header("Location", args.redirect_path)
-            #     self.end_headers()
-            #     return
+            if args.redirect and self.path == args.path:
+                # 307 is used instead of 301 to preserve body data
+                # https://stackoverflow.com/questions/19070801/curl-loses-body-when-a-post-redirected-from-http-to-https
+                self.send_response(307)
+                self.send_header("Location", args.redirect_path)
+                self.end_headers()
+                return
 
-            # assert self.headers["user-agent"] == "memgraph/telemetry"
-            # assert self.headers["accept"] == "application/json"
-            # assert self.headers["content-type"] == "application/json"
+            assert self.headers["user-agent"] == "memgraph/telemetry"
+            assert self.headers["accept"] == "application/json"
+            assert self.headers["content-type"] == "application/json"
 
             content_len = int(self.headers.get("content-length", 0))
             data = json.loads(self.rfile.read(content_len).decode("utf-8"))

@@ -83,10 +83,8 @@ void Telemetry::SendData() {
   int count = 0;
   for (auto it = storage_.begin(); it != storage_.end() && count < kMaxBatchSize; ++it, ++count) {
     keys.push_back(it->first);
-    std::cout << "key " << it->first << std::endl;
     try {
       payload.push_back(nlohmann::json::parse(it->second));
-      std::cout << "\tpayload " << nlohmann::json::parse(it->second) << std::endl;
     } catch (const nlohmann::json::parse_error &e) {
       SPDLOG_WARN("Couldn't convert {} to json", it->second);
     }
