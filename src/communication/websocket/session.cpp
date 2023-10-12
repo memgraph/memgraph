@@ -136,8 +136,6 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
 
 void Session::DoRead() {
   ExecuteForWebsocket([this](auto &&ws) {
-    // TODO(gitbuda): Session::DoRead is implemented differently compared to the Boost example ->
-    // https://www.boost.org/doc/libs/1_80_0/libs/beast/example/websocket/server/async/websocket_server_async.cpp
     ws.async_read(buffer_, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
   });
   ;

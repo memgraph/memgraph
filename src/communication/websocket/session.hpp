@@ -81,11 +81,6 @@ class Session : public std::enable_shared_from_this<Session> {
   boost::beast::flat_buffer buffer_;
   std::deque<std::shared_ptr<std::string>> messages_;
   boost::asio::strand<PlainWebSocket::executor_type> strand_;
-  // TODO(gitbuda): This might be a problem because it seems executor_type refers to different places:
-  //   * boost/beast/websocket/stream.hpp
-  //   * boost/asio/ssl/stream.hpp
-  //   * boost/beast/core/tcp_stream.hpp
-  // boost::asio::strand<SSLWebSocket::executor_type> strand_ws_;
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
   bool close_{false};
