@@ -86,8 +86,8 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
 
   res["edges"] = info.edge_count;
   res["vertices"] = info.vertex_count;
-  res["ram_usage"] = info.memory_usage;
-  res["disk_usage"] = info.disk_usage;
+  res["memory"] = info.memory_usage;
+  res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
   res["existence_constraints"] = info.existence_constraints;

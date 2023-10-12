@@ -163,7 +163,7 @@ def verify_storage(storage, args):
             # TODO Missing clients and other usage based data
             assert "client" in item["data"]
             assert "database" in item["data"]
-            assert "disk_usage" in item["data"]["database"][0]
+            assert "disk" in item["data"]["database"][0]
             assert "durability" in item["data"]["database"][0]
             assert "WAL_enabled" in item["data"]["database"][0]["durability"]
             assert "snapshot_enabled" in item["data"]["database"][0]["durability"]
@@ -172,7 +172,7 @@ def verify_storage(storage, args):
             assert "isolation_level" in item["data"]["database"][0]
             assert "label_indices" in item["data"]["database"][0]
             assert "label_prop_indices" in item["data"]["database"][0]
-            assert "ram_usage" in item["data"]["database"][0]
+            assert "memory" in item["data"]["database"][0]
             assert "storage_mode" in item["data"]["database"][0]
             assert "unique_constraints" in item["data"]["database"][0]
             assert "vertices" in item["data"]["database"][0]
