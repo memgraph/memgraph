@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "utils/algorithm.hpp"
 
 namespace memgraph::storage {
 
@@ -261,6 +262,44 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
     }
 
     for (auto &[props, storage] : constraints_by_label_.at(label)) {
+      auto values = vertex->properties.ExtractPropertyValues(props);
+
+      if (!values) {
+        continue;
+      }
+
+      auto acc = storage->access();
+      acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
+    }
+  }
+}
+
+void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, std::unordered_set<LabelId> &added_labels,
+                                                   std::unordered_set<PropertyId> &added_properties,
+                                                   const Transaction &tx) {
+  std::vector<LabelId> added_labels_vec{};
+  added_labels_vec.reserve(added_labels.size());
+  added_labels_vec.insert(added_labels_vec.end(), added_labels.begin(), added_labels.end());
+
+  auto labels = !added_properties.empty() ? vertex->labels : added_labels_vec;
+  for (const auto &label : labels) {
+    if (!constraints_by_label_.contains(label)) {
+      continue;
+    }
+
+    for (auto &[props, storage] : constraints_by_label_.at(label)) {
+      if (added_labels.empty()) {
+        bool found_prop_intersection = false;
+        for (const auto &prop : props) {
+          if (utils::Contains(added_properties, prop)) {
+            found_prop_intersection = true;
+            break;
+          }
+        }
+        if (!found_prop_intersection) {
+          continue;
+        }
+      }
       auto values = vertex->properties.ExtractPropertyValues(props);
 
       if (!values) {

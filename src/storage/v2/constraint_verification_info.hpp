@@ -34,20 +34,22 @@ struct ConstraintVerificationInfo final {
   ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept;
   ConstraintVerificationInfo &operator=(ConstraintVerificationInfo &&) noexcept;
 
-  auto GetAddedLabels(Vertex const *vertex) const -> std::vector<LabelId>;
+  auto GetAddedLabels(Vertex const *vertex) const -> std::unordered_set<LabelId>;
 
   void AddLabel(Vertex const *vertex, LabelId label);
 
-  auto GetAddedProperties(Vertex const *vertex) const -> std::vector<PropertyId>;
+  auto GetAddedProperties(Vertex const *vertex) const -> std::unordered_set<PropertyId>;
 
   void AddProperty(Vertex const *vertex, PropertyId property);
 
-  auto GetRemovedProperties(Vertex const *vertex) const -> std::vector<PropertyId>;
+  auto GetRemovedProperties(Vertex const *vertex) const -> std::unordered_set<PropertyId>;
 
   void RemoveProperty(Vertex const *vertex, PropertyId property);
 
-  auto GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *>;
-  auto GetVerticesForExistenceConstraintChecking() const -> std::unordered_set<Vertex const *>;
+  auto GetVerticesInfoForUniqueConstraintChecking() const
+      -> std::unordered_map<Vertex const *, std::pair<std::unordered_set<LabelId>, std::unordered_set<PropertyId>>>;
+  auto GetVerticesInfoForExistenceConstraintChecking() const
+      -> std::unordered_map<Vertex const *, std::pair<std::unordered_set<LabelId>, std::unordered_set<PropertyId>>>;
 
   bool NeedsUniqueConstraintVerification() const;
   bool NeedsExistenceConstraintVerification() const;
@@ -55,14 +57,14 @@ struct ConstraintVerificationInfo final {
  private:
   // Update unique constraints to check whether any vertex already has that value
   // Update existence constraints to check whether for that label the node has all the properties present
-  std::unordered_map<Vertex const *, std::vector<LabelId>> added_labels_;
+  std::unordered_map<Vertex const *, std::unordered_set<LabelId>> added_labels_;
 
   // Update unique constraints to check whether any vertex already has that property
   // No update to existence constraints because we only added a property
-  std::unordered_map<Vertex const *, std::vector<PropertyId>> added_properties_;
+  std::unordered_map<Vertex const *, std::unordered_set<PropertyId>> added_properties_;
 
   // No update to unique constraints because uniqueness is preserved
   // Update existence constraints because it might be the referenced property of the constraint
-  std::unordered_map<Vertex const *, std::vector<PropertyId>> removed_properties_;
+  std::unordered_map<Vertex const *, std::unordered_set<PropertyId>> removed_properties_;
 };
 }  // namespace memgraph::storage

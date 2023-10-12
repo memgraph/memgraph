@@ -704,8 +704,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
     const auto vertices_to_update =
-        transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
-    for (const auto *vertex : vertices_to_update) {
+        transaction_.constraint_verification_info.GetVerticesInfoForExistenceConstraintChecking();
+    for (const auto &[vertex, info] : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
       auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
@@ -734,13 +734,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // we have to update unique constraints with the vertices that are going
         // to be validated/committed.
         const auto vertices_to_update =
-            transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+            transaction_.constraint_verification_info.GetVerticesInfoForUniqueConstraintChecking();
 
-        for (const auto *vertex : vertices_to_update) {
+        for (const auto &[vertex, info] : vertices_to_update) {
           mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
         }
 
-        for (const auto *vertex : vertices_to_update) {
+        for (const auto &[vertex, info] : vertices_to_update) {
           // No need to take any locks here because we modified this vertex and no
           // one else can touch it until we commit.
           unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
