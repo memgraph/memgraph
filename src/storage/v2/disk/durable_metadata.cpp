@@ -91,19 +91,22 @@ std::optional<std::vector<std::string>> DurableMetadata::LoadInfoFromAuxiliarySt
 }
 
 bool DurableMetadata::PersistLabelIndexCreation(LabelId label) {
+  const auto serialized_label = label.ToString();
   if (auto label_index_store = durability_kvstore_.Get(label_index_str); label_index_store.has_value()) {
     std::string &value = label_index_store.value();
-    value += "|" + utils::SerializeIdType(label);
+    value += "|";
+    value += serialized_label;
     return durability_kvstore_.Put(label_index_str, value);
   }
-  return durability_kvstore_.Put(label_index_str, utils::SerializeIdType(label));
+  return durability_kvstore_.Put(label_index_str, serialized_label);
 }
 
 bool DurableMetadata::PersistLabelIndexDeletion(LabelId label) {
+  const auto serialized_label = label.ToString();
   if (auto label_index_store = durability_kvstore_.Get(label_index_str); label_index_store.has_value()) {
     const std::string &value = label_index_store.value();
     std::vector<std::string> labels = utils::Split(value, "|");
-    std::erase(labels, utils::SerializeIdType(label));
+    std::erase(labels, serialized_label);
     if (labels.empty()) {
       return durability_kvstore_.Delete(label_index_str);
     }
@@ -114,20 +117,23 @@ bool DurableMetadata::PersistLabelIndexDeletion(LabelId label) {
 
 bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property,
                                                                               const char *key) {
+  const std::string label_property_pair = label.ToString() + "," + property.ToString();
   if (auto label_property_index_store = durability_kvstore_.Get(key); label_property_index_store.has_value()) {
     std::string &value = label_property_index_store.value();
-    value += "|" + utils::SerializeIdType(label) + "," + utils::SerializeIdType(property);
+    value += "|";
+    value += label_property_pair;
     return durability_kvstore_.Put(key, value);
   }
-  return durability_kvstore_.Put(key, utils::SerializeIdType(label) + "," + utils::SerializeIdType(property));
+  return durability_kvstore_.Put(key, label_property_pair);
 }
 
 bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
                                                                               const char *key) {
+  const std::string label_property_pair = label.ToString() + "," + property.ToString();
   if (auto label_property_index_store = durability_kvstore_.Get(key); label_property_index_store.has_value()) {
     const std::string &value = label_property_index_store.value();
     std::vector<std::string> label_properties = utils::Split(value, "|");
-    std::erase(label_properties, utils::SerializeIdType(label) + "," + utils::SerializeIdType(property));
+    std::erase(label_properties, label_property_pair);
     if (label_properties.empty()) {
       return durability_kvstore_.Delete(key);
     }

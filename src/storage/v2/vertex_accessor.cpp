@@ -460,8 +460,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
   /// TODO: (andi) Maybe this check can be done in build_result without damaging anything else.
   std::erase_if(ret, [transaction = this->transaction_, view](const EdgeAccessor &edge_acc) {
     return !edge_acc.IsVisible(view) || !edge_acc.FromVertex().IsVisible(view) ||
-           !edge_acc.ToVertex().IsVisible(view) ||
-           transaction->edges_to_delete_.contains(utils::SerializeIdType(edge_acc.Gid()));
+           !edge_acc.ToVertex().IsVisible(view) || transaction->edges_to_delete_.contains(edge_acc.Gid().ToString());
   });
   std::unordered_set<storage::Gid> in_mem_edges_set;
   in_mem_edges_set.reserve(ret.size());
@@ -470,7 +469,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
   }
 
   for (const auto &disk_edge_acc : disk_edges) {
-    auto const edge_gid_str = utils::SerializeIdType(disk_edge_acc.Gid());
+    auto const edge_gid_str = disk_edge_acc.Gid().ToString();
     if (in_mem_edges_set.contains(disk_edge_acc.Gid()) ||
         (view == View::NEW && transaction_->edges_to_delete_.contains(edge_gid_str))) {
       continue;

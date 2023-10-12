@@ -190,9 +190,10 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  const std::string serialized_label = label.ToString();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
-    if (key.starts_with(utils::SerializeIdType(label))) {
+    if (key.starts_with(label.ToString())) {
       disk_transaction->Delete(it->key().ToString());
     }
   }

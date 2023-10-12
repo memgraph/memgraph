@@ -58,8 +58,6 @@ inline std::string_view FindPartOfStringView(const std::string_view str, const c
   return startEndPos.Valid() ? str.substr(startEndPos.start, startEndPos.Size()) : str;
 }
 
-inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
-
 inline bool SerializedVertexHasLabels(const std::string &labels) { return !labels.empty(); }
 
 template <typename T>
@@ -72,7 +70,7 @@ inline std::vector<std::string> TransformIDsToString(const TCollection &col) {
   std::vector<std::string> transformed_col;
   transformed_col.reserve(col.size());
   for (const auto &elem : col) {
-    transformed_col.emplace_back(SerializeIdType(elem));
+    transformed_col.emplace_back(elem.ToString());
   }
   return transformed_col;
 }
@@ -136,7 +134,7 @@ inline std::string_view GetPropertiesFromEdgeValue(const std::string_view value)
 
 inline std::string SerializeEdgeAsValue(const std::string &src_vertex_gid, const std::string &dst_vertex_gid,
                                         const storage::EdgeTypeId &edge_type, const storage::Edge *edge = nullptr) {
-  std::string edge_type_str = SerializeIdType(edge_type);
+  std::string edge_type_str = edge_type.ToString();
   std::string result;
   result.reserve(src_vertex_gid.size() + 3 + dst_vertex_gid.size() + edge_type_str.size());
   result += src_vertex_gid;
@@ -173,7 +171,7 @@ inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(const s
 
 inline std::string SerializeVertex(const storage::Vertex &vertex) {
   std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
-  return result + utils::SerializeIdType(vertex.gid);
+  return result + vertex.gid.ToString();
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &key) {
@@ -199,10 +197,10 @@ inline std::string_view ExtractGidFromUniqueConstraintStorage(const std::string 
 inline std::string GetKeyForUniqueConstraintsDurability(storage::LabelId label,
                                                         const std::set<storage::PropertyId> &properties) {
   std::string entry;
-  entry += utils::SerializeIdType(label);
+  entry += label.ToString();
   for (auto property : properties) {
     entry += ",";
-    entry += utils::SerializeIdType(property);
+    entry += property.ToString();
   }
   return entry;
 }
@@ -210,8 +208,8 @@ inline std::string GetKeyForUniqueConstraintsDurability(storage::LabelId label,
 inline std::string SerializeVertexAsKeyForUniqueConstraint(const storage::LabelId &constraint_label,
                                                            const std::set<storage::PropertyId> &constraint_properties,
                                                            std::string_view gid) {
-  auto key_for_indexing = PutIndexingLabelAndPropertiesFirst(SerializeIdType(constraint_label),
-                                                             TransformIDsToString(constraint_properties));
+  auto key_for_indexing =
+      PutIndexingLabelAndPropertiesFirst(constraint_label.ToString(), TransformIDsToString(constraint_properties));
   key_for_indexing += "|";
   key_for_indexing += gid;
   return key_for_indexing;
@@ -243,7 +241,7 @@ inline std::string SerializeVertexAsKeyForLabelIndex(const std::string &indexing
 }
 
 inline std::string SerializeVertexAsKeyForLabelIndex(storage::LabelId label, storage::Gid gid) {
-  return SerializeVertexAsKeyForLabelIndex(SerializeIdType(label), utils::SerializeIdType(gid));
+  return SerializeVertexAsKeyForLabelIndex(label.ToString(), gid.ToString());
 }
 
 inline std::string_view ExtractGidFromLabelIndexStorage(const std::string &key) { return ExtractGidFromKey(key); }
@@ -287,8 +285,7 @@ inline std::string SerializeVertexAsKeyForLabelPropertyIndex(const std::string &
 
 inline std::string SerializeVertexAsKeyForLabelPropertyIndex(storage::LabelId label, storage::PropertyId property,
                                                              storage::Gid gid) {
-  return SerializeVertexAsKeyForLabelPropertyIndex(SerializeIdType(label), SerializeIdType(property),
-                                                   utils::SerializeIdType(gid));
+  return SerializeVertexAsKeyForLabelPropertyIndex(label.ToString(), property.ToString(), gid.ToString());
 }
 
 inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId indexing_label,
