@@ -328,6 +328,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, value);
     indices_->UpdateOnSetProperty(property, PropertyValue(), vertex_, *transaction_);
+    transaction_->constraint_verification_info.RemoveProperty(vertex_, property);
     transaction_->manyDeltasCache.Invalidate(vertex_, property);
   }
 

@@ -42,6 +42,10 @@ struct ConstraintVerificationInfo final {
 
   void AddProperty(Vertex const *vertex, PropertyId property);
 
+  auto GetRemovedProperties(Vertex const *vertex) const -> std::vector<PropertyId>;
+
+  void RemoveProperty(Vertex const *vertex, PropertyId property);
+
   auto GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *>;
   auto GetVerticesForExistenceConstraintChecking() const -> std::unordered_set<Vertex const *>;
 
@@ -56,5 +60,9 @@ struct ConstraintVerificationInfo final {
   // Update unique constraints to check whether any vertex already has that property
   // No update to existence constraints because we only added a property
   std::unordered_map<Vertex const *, std::vector<PropertyId>> added_properties_;
+
+  // No update to unique constraints because uniqueness is preserved
+  // Update existence constraints because it might be the referenced property of the constraint
+  std::unordered_map<Vertex const *, std::vector<PropertyId>> removed_properties_;
 };
 }  // namespace memgraph::storage

@@ -11,6 +11,8 @@
 
 #include "storage/v2/constraint_verification_info.hpp"
 
+#include <algorithm>
+
 namespace memgraph::storage {
 
 ConstraintVerificationInfo::ConstraintVerificationInfo() = default;
@@ -50,8 +52,25 @@ void ConstraintVerificationInfo::AddProperty(Vertex const *vertex, PropertyId pr
   added_properties_[vertex].push_back(property);
 }
 
+auto ConstraintVerificationInfo::GetRemovedProperties(Vertex const *vertex) const -> std::vector<PropertyId> {
+  if (!removed_properties_.contains(vertex)) {
+    return {};
+  }
+
+  return removed_properties_.at(vertex);
+}
+
+void ConstraintVerificationInfo::RemoveProperty(Vertex const *vertex, PropertyId property) {
+  if (!removed_properties_.contains(vertex)) {
+    removed_properties_[vertex] = {};
+  }
+
+  removed_properties_[vertex].push_back(property);
+}
+
 auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *> {
   std::unordered_set<Vertex const *> vertices{};
+  vertices.reserve(std::max(added_labels_.size(), added_properties_.size()));
 
   for (const auto &[k, v] : added_labels_) {
     vertices.insert(k);
@@ -67,12 +86,13 @@ auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const 
 auto ConstraintVerificationInfo::GetVerticesForExistenceConstraintChecking() const
     -> std::unordered_set<Vertex const *> {
   std::unordered_set<Vertex const *> vertices{};
+  vertices.reserve(std::max(added_labels_.size(), removed_properties_.size()));
 
   for (const auto &[k, v] : added_labels_) {
     vertices.insert(k);
   }
 
-  for (const auto &[k, v] : added_properties_) {
+  for (const auto &[k, v] : removed_properties_) {
     vertices.insert(k);
   }
 
@@ -83,6 +103,6 @@ bool ConstraintVerificationInfo::NeedsUniqueConstraintVerification() const {
   return !added_labels_.empty() || !added_properties_.empty();
 }
 bool ConstraintVerificationInfo::NeedsExistenceConstraintVerification() const {
-  return !added_labels_.empty() || !added_properties_.empty();
+  return !added_labels_.empty() || !removed_properties_.empty();
 }
 }  // namespace memgraph::storage
