@@ -1430,7 +1430,6 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
       transaction->disk_transaction_->GetIterator(read_opts, kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
-    /// TODO: (andi) Here no need to create new string, string_view would suffice
     if (Gid::FromString(utils::ExtractGidFromKey(key)) == gid) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
@@ -2077,7 +2076,6 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
-    /// TODO: when we introduce replication to the disk storage, take care of start_timestamp
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
   }

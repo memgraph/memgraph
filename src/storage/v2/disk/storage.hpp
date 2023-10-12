@@ -258,7 +258,6 @@ class DiskStorage final : public Storage {
   std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,
                                                                      const std::string &value, std::string &&ts);
 
-  /// TODO: (andi) I don't think View is necessary
   std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
 
   std::optional<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
@@ -266,12 +265,10 @@ class DiskStorage final : public Storage {
                                                  std::string_view properties, const std::string &old_disk_key,
                                                  std::string &&ts);
 
-  /// TODO: (andi) Maybe const
   std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
                                      const std::vector<EdgeTypeId> &possible_edge_types,
                                      const VertexAccessor *destination, Transaction *transaction, View view);
 
-  /// TODO: (andi) Maybe const
   std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex,
                                     const std::vector<EdgeTypeId> &possible_edge_types, const VertexAccessor *source,
                                     Transaction *transaction, View view);
@@ -339,9 +336,6 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
-  std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
-
   auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/)
       -> std::unique_ptr<ReplicationClient> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
@@ -354,7 +348,8 @@ class DiskStorage final : public Storage {
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   std::unique_ptr<kvstore::KVStore> durability_kvstore_;
-
+  EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
+  std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
   std::atomic<uint64_t> vertex_count_{0};
 };
 
