@@ -9,9 +9,12 @@ on:
         description: "Memgraph version to upload as. If empty upload is skipped. Format: 'X.Y.Z'"
         required: false
       build_type:
-        description: "Memgraph Build type. Default value is RelWithDebInfo."
-        default: "RelWithDebInfo"
-        required: true
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
 
 jobs:
   centos-7:

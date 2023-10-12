@@ -2,6 +2,15 @@ name: Release CentOS 8
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+
   schedule:
     - cron: "0 22 * * *"
 
@@ -33,7 +42,7 @@ jobs:
 
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
+          cmake -DCMAKE_BUILD_TYPE=${{ github.event.inputs.build_type }} -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -190,7 +199,7 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+          cmake -DCMAKE_BUILD_TYPE=${{ github.event.inputs.build_type }} ..
           make -j$THREADS
 
       - name: Create enterprise RPM package
