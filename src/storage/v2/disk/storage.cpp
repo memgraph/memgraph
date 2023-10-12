@@ -1212,16 +1212,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   return true;
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void>
-DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
-  if (auto existence_constraint_validation_result = storage_->constraints_.existence_constraints_->Validate(vertex);
+  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
       existence_constraint_validation_result.has_value()) {
     return StorageManipulationError{existence_constraint_validation_result.value()};
   }
 
-  auto *disk_unique_constraints =
-      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
       unique_constraint_validation_result.has_value()) {
     return StorageManipulationError{unique_constraint_validation_result.value()};
@@ -1229,15 +1227,13 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushVertices(
-    const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto *disk_unique_constraints =
-      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushVertices(
+    Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+  auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   for (const Vertex &vertex : vertex_acc) {
     if (!VertexNeedsToBeSerialized(vertex)) {
       continue;
@@ -1252,19 +1248,18 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-      if (!disk_storage->DeleteVertexFromDisk(&transaction_, utils::SerializeIdType(vertex.gid),
-                                              maybe_old_disk_key.value())) {
+      if (!DeleteVertexFromDisk(transaction, utils::SerializeIdType(vertex.gid), maybe_old_disk_key.value())) {
         return StorageManipulationError{SerializationError{}};
       }
     }
 
-    if (!disk_storage->WriteVertexToVertexColumnFamily(&transaction_, vertex)) {
+    if (!WriteVertexToVertexColumnFamily(transaction, vertex)) {
       return StorageManipulationError{SerializationError{}};
     }
 
-    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_) ||
-        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_) ||
-        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, *commit_timestamp_)) {
+    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, commit_ts) ||
+        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, commit_ts) ||
+        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, commit_ts)) {
       return StorageManipulationError{SerializationError{}};
     }
   }
@@ -1272,28 +1267,27 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::ClearDanglingVertices() {
-  auto *disk_unique_constraints =
-      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::ClearDanglingVertices(
+    Transaction *transaction) {
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+  auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp,
-                                                                         *commit_timestamp_) ||
-      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp, *commit_timestamp_) ||
-      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction_.start_timestamp,
-                                                                         *commit_timestamp_)) {
+  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
+      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts) ||
+      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts)) {
     return StorageManipulationError{SerializationError{}};
   }
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushIndexCache() {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushIndexCache(
+    Transaction *transaction) {
   std::vector<std::vector<PropertyValue>> unique_storage;
 
-  for (const auto &vec : transaction_.index_storage_) {
-    if (auto vertices_res = FlushVertices(vec->access(), unique_storage); vertices_res.HasError()) {
+  for (const auto &vec : transaction->index_storage_) {
+    if (auto vertices_res = FlushVertices(transaction, vec->access(), unique_storage); vertices_res.HasError()) {
       return vertices_res.GetError();
     }
   }
@@ -1301,19 +1295,18 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedVertices() {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto *disk_unique_constraints =
-      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushDeletedVertices(
+    Transaction *transaction) {
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+  auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction_.vertices_to_delete_) {
-    if (!disk_storage->DeleteVertexFromDisk(&transaction_, vertex_gid, serialized_vertex_to_delete) ||
-        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
-        !disk_label_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_) ||
-        !disk_label_property_index->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
+  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction->vertices_to_delete_) {
+    if (!DeleteVertexFromDisk(transaction, vertex_gid, serialized_vertex_to_delete) ||
+        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, commit_ts) ||
+        !disk_label_index->ClearDeletedVertex(vertex_gid, commit_ts) ||
+        !disk_label_property_index->ClearDeletedVertex(vertex_gid, commit_ts)) {
       return StorageManipulationError{SerializationError{}};
     }
   }
@@ -1321,11 +1314,11 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushDeletedEdges() {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  for (const auto &[edge_to_delete, vertices] : transaction_.edges_to_delete_) {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushDeletedEdges(
+    Transaction *transaction) {
+  for (const auto &[edge_to_delete, vertices] : transaction->edges_to_delete_) {
     const auto &[src_vertex_id, dst_vertex_id] = vertices;
-    if (!disk_storage->DeleteEdgeFromDisk(&transaction_, edge_to_delete, src_vertex_id, dst_vertex_id)) {
+    if (!DeleteEdgeFromDisk(transaction, edge_to_delete, src_vertex_id, dst_vertex_id)) {
       return StorageManipulationError{SerializationError{}};
     }
   }
@@ -1337,21 +1330,20 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
 /// std::map<src_vertex_gid, ...>
 /// std::map<dst_vertex_gid, ...>
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::FlushModifiedEdges(
-    const auto &edge_acc) {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  for (const auto &modified_edge : transaction_.modified_edges_) {
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushModifiedEdges(
+    Transaction *transaction, const auto &edge_acc) {
+  for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = utils::SerializeIdType(modified_edge.first);
     const Delta::Action root_action = modified_edge.second.delta_action;
     const auto src_vertex_gid = utils::SerializeIdType(modified_edge.second.src_vertex_gid);
     const auto dst_vertex_gid = utils::SerializeIdType(modified_edge.second.dest_vertex_gid);
 
-    if (!storage_->config_.items.properties_on_edges) {
+    if (!config_.items.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
-          !disk_storage->WriteEdgeToEdgeColumnFamily(
-              &transaction_, edge_gid,
+          !WriteEdgeToEdgeColumnFamily(
+              transaction, edge_gid,
               utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id))) {
         return StorageManipulationError{SerializationError{}};
       }
@@ -1361,7 +1353,7 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
       // so we can delete it.
       // This is done to avoid storing multiple versions of the same data.
       if (root_action == Delta::Action::DELETE_DESERIALIZED_OBJECT &&
-          !disk_storage->DeleteEdgeFromEdgeColumnFamily(&transaction_, edge_gid)) {
+          !DeleteEdgeFromEdgeColumnFamily(transaction, edge_gid)) {
         return StorageManipulationError{SerializationError{}};
       }
 
@@ -1370,17 +1362,15 @@ DiskStorage::DiskAccessor::CheckVertexConstraintsBeforeCommit(
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
 
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
-      if (!disk_storage->WriteEdgeToEdgeColumnFamily(
-              &transaction_, edge_gid,
+      if (!WriteEdgeToEdgeColumnFamily(
+              transaction, edge_gid,
               utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, &*edge))) {
         return StorageManipulationError{SerializationError{}};
       }
     }
     if (root_action == Delta::Action::DELETE_OBJECT &&
-        (!disk_storage->WriteEdgeToConnectivityIndex(&transaction_, src_vertex_gid, edge_gid,
-                                                     disk_storage->kvstore_->out_edges_chandle, "OUT") ||
-         !disk_storage->WriteEdgeToConnectivityIndex(&transaction_, dst_vertex_gid, edge_gid,
-                                                     disk_storage->kvstore_->in_edges_chandle, "IN"))) {
+        (!WriteEdgeToConnectivityIndex(transaction, src_vertex_gid, edge_gid, kvstore_->out_edges_chandle, "OUT") ||
+         !WriteEdgeToConnectivityIndex(transaction, dst_vertex_gid, edge_gid, kvstore_->in_edges_chandle, "IN"))) {
       return StorageManipulationError{SerializationError{}};
     }
   }
@@ -1760,43 +1750,47 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
-      if (auto res = FlushModifiedEdges(disk_storage->edge_import_mode_cache_->AccessToEdges()); res.HasError()) {
+      if (auto res =
+              disk_storage->FlushModifiedEdges(&transaction_, disk_storage->edge_import_mode_cache_->AccessToEdges());
+          res.HasError()) {
         Abort();
         return res;
       }
-      if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
+      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); del_edges_res.HasError()) {
         Abort();
         return del_edges_res.GetError();
       }
     } else {
       std::vector<std::vector<PropertyValue>> unique_storage;
-      if (auto vertices_flush_res = FlushVertices(transaction_.vertices_.access(), unique_storage);
+      if (auto vertices_flush_res =
+              disk_storage->FlushVertices(&transaction_, transaction_.vertices_.access(), unique_storage);
           vertices_flush_res.HasError()) {
         Abort();
         return vertices_flush_res.GetError();
       }
 
-      if (auto del_vertices_res = FlushDeletedVertices(); del_vertices_res.HasError()) {
+      if (auto del_vertices_res = disk_storage->FlushDeletedVertices(&transaction_); del_vertices_res.HasError()) {
         Abort();
         return del_vertices_res.GetError();
       }
 
-      if (auto modified_edges_res = FlushModifiedEdges(transaction_.edges_.access()); modified_edges_res.HasError()) {
+      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_.access());
+          modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();
       }
 
-      if (auto del_edges_res = FlushDeletedEdges(); del_edges_res.HasError()) {
+      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); del_edges_res.HasError()) {
         Abort();
         return del_edges_res.GetError();
       }
 
-      if (auto clear_dangling_res = ClearDanglingVertices(); clear_dangling_res.HasError()) {
+      if (auto clear_dangling_res = disk_storage->ClearDanglingVertices(&transaction_); clear_dangling_res.HasError()) {
         Abort();
         return clear_dangling_res.GetError();
       }
 
-      if (auto index_flush_res = FlushIndexCache(); index_flush_res.HasError()) {
+      if (auto index_flush_res = disk_storage->FlushIndexCache(&transaction_); index_flush_res.HasError()) {
         Abort();
         return index_flush_res.GetError();
       }

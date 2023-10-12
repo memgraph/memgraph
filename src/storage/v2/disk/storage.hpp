@@ -149,9 +149,6 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value,
-                                                         const rocksdb::Slice &ts);
-
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
@@ -171,32 +168,26 @@ class DiskStorage final : public Storage {
 
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
-
-   private:
-    /// Flushes vertices and edges to the disk with the commit timestamp.
-    /// At the time of calling, the commit_timestamp_ must already exist.
-    /// After this method, the vertex and edge caches are cleared.
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
-        const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
-        const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+
+  /// Flushing methods
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
+
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
+      Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
+
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
+      const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
+
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices(Transaction *transaction);
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges(Transaction *transaction);
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(Transaction *transaction,
+                                                                                      const auto &edge_acc);
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices(Transaction *transaction);
 
   /// Writing methods
   bool WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex);
@@ -260,11 +251,6 @@ class DiskStorage final : public Storage {
       const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices);
 
-  /// TODO: (andi) Methods working with rocksdb are scattered around DiskStorage and DiskStorage::DiskAccessor
-  /// Two options:
-  /// 1. move everything under DiskStorage level
-  /// 2. propagate DiskStorage::DiskAccessor to vertex and edge accessor.
-  /// Out of scope of this PR
   VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
                                       storage::Gid gid, std::vector<LabelId> label_ids, PropertyStore properties,
                                       Delta *delta);
