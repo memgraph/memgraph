@@ -27,13 +27,6 @@
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 
 class InMemoryStorage;

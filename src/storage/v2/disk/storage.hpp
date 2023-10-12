@@ -13,6 +13,7 @@
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -282,38 +283,7 @@ class DiskStorage final : public Storage {
   EdgeImportMode GetEdgeImportMode() const;
 
  private:
-  void LoadIndexInfoIfExists() const;
-
-  /// TODO (andi): Maybe good to separate these methods and durability kvstore into a separate class
-  bool PersistLabelIndexCreation(LabelId label) const;
-
-  bool PersistLabelIndexDeletion(LabelId label) const;
-
-  void LoadLabelIndexInfoIfExists() const;
-
-  bool PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property,
-                                                               const char *key) const;
-
-  bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
-                                                               const char *key) const;
-
-  void LoadLabelPropertyIndexInfoIfExists() const;
-
-  void LoadConstraintsInfoIfExists() const;
-
-  void LoadExistenceConstraintInfoIfExists() const;
-
-  bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties) const;
-
-  bool PersistUniqueConstraintDeletion(LabelId label, const std::set<PropertyId> &properties) const;
-
-  void LoadUniqueConstraintInfoIfExists() const;
-
   uint64_t GetDiskSpaceUsage() const;
-
-  void LoadTimestampIfExists();
-
-  void LoadVertexAndEdgeCountIfExists();
 
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
@@ -347,7 +317,7 @@ class DiskStorage final : public Storage {
   }
 
   std::unique_ptr<RocksDBStorage> kvstore_;
-  std::unique_ptr<kvstore::KVStore> durability_kvstore_;
+  DurableMetadata durable_metadata_;
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
   std::atomic<uint64_t> vertex_count_{0};

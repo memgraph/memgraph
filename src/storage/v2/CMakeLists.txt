@@ -25,6 +25,7 @@ add_library(mg-storage-v2 STATIC
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/unique_constraints.cpp
+        disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/storage.cpp
         disk/rocksdb_storage.cpp
