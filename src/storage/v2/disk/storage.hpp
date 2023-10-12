@@ -283,6 +283,8 @@ class DiskStorage final : public Storage {
   EdgeImportMode GetEdgeImportMode() const;
 
  private:
+  void LoadPersistingMetadataInfo();
+
   uint64_t GetDiskSpaceUsage() const;
 
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(

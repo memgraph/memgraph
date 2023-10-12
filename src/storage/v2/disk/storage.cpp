@@ -201,34 +201,7 @@ DiskStorage::DiskStorage(Config config)
     : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
-  /// TODO: (andi) Move into a method
-  if (auto last_timestamp = durable_metadata_.LoadTimestampIfExists(); last_timestamp.has_value()) {
-    timestamp_ = last_timestamp.value();
-  }
-  if (auto vertex_count = durable_metadata_.LoadVertexCountIfExists(); vertex_count.has_value()) {
-    vertex_count_ = vertex_count.value();
-  }
-  if (auto edge_count = durable_metadata_.LoadEdgeCountIfExists(); edge_count.has_value()) {
-    edge_count_ = edge_count.value();
-  }
-  if (auto label_index = durable_metadata_.LoadLabelIndexInfoIfExists(); label_index.has_value()) {
-    auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
-    disk_label_index->LoadIndexInfo(label_index.value());
-  }
-  if (auto label_property_index = durable_metadata_.LoadLabelPropertyIndexInfoIfExists();
-      label_property_index.has_value()) {
-    auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
-    disk_label_property_index->LoadIndexInfo(label_property_index.value());
-  }
-  if (auto existence_constraints = durable_metadata_.LoadExistenceConstraintInfoIfExists();
-      existence_constraints.has_value()) {
-    constraints_.existence_constraints_->LoadExistenceConstraints(existence_constraints.value());
-  }
-  if (auto unique_constraints = durable_metadata_.LoadUniqueConstraintInfoIfExists(); unique_constraints.has_value()) {
-    auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
-    disk_unique_constraints->LoadUniqueConstraints(unique_constraints.value());
-  }
-
+  LoadPersistingMetadataInfo();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
@@ -297,10 +270,37 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   if (is_transaction_active_) {
     Abort();
   }
-
   FinalizeTransaction();
-
   transaction_.deltas.~Bond<PmrListDelta>();
+}
+
+void DiskStorage::LoadPersistingMetadataInfo() {
+  if (auto last_timestamp = durable_metadata_.LoadTimestampIfExists(); last_timestamp.has_value()) {
+    timestamp_ = last_timestamp.value();
+  }
+  if (auto vertex_count = durable_metadata_.LoadVertexCountIfExists(); vertex_count.has_value()) {
+    vertex_count_ = vertex_count.value();
+  }
+  if (auto edge_count = durable_metadata_.LoadEdgeCountIfExists(); edge_count.has_value()) {
+    edge_count_ = edge_count.value();
+  }
+  if (auto label_index = durable_metadata_.LoadLabelIndexInfoIfExists(); label_index.has_value()) {
+    auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+    disk_label_index->LoadIndexInfo(label_index.value());
+  }
+  if (auto label_property_index = durable_metadata_.LoadLabelPropertyIndexInfoIfExists();
+      label_property_index.has_value()) {
+    auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
+    disk_label_property_index->LoadIndexInfo(label_property_index.value());
+  }
+  if (auto existence_constraints = durable_metadata_.LoadExistenceConstraintInfoIfExists();
+      existence_constraints.has_value()) {
+    constraints_.existence_constraints_->LoadExistenceConstraints(existence_constraints.value());
+  }
+  if (auto unique_constraints = durable_metadata_.LoadUniqueConstraintInfoIfExists(); unique_constraints.has_value()) {
+    auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+    disk_unique_constraints->LoadUniqueConstraints(unique_constraints.value());
+  }
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelIndexCache(
