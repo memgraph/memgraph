@@ -24,6 +24,8 @@
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
+DECLARE_bool(cartesian_product_enabled);
+
 namespace memgraph::query::plan {
 
 /// @brief Context which contains variables commonly used during planning.
@@ -484,6 +486,19 @@ class RuleBasedPlanner {
                                                     std::vector<Symbol> &new_symbols,
                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                                     Filters &filters, storage::View view) {
+    if (FLAGS_cartesian_product_enabled) {
+      return HandleExpansionsWithCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                           new_symbols, named_paths, filters, view);
+    }
+
+    return HandleExpansionsWithoutCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                            new_symbols, named_paths, filters, view);
+  }
+
+  std::unique_ptr<LogicalOperator> HandleExpansionsWithCartesian(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
+      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
     if (matching.expansions.empty()) {
       return last_op;
     }
@@ -566,6 +581,18 @@ class RuleBasedPlanner {
 
     MG_ASSERT(visited_isomorphic_expansions.size() == all_isomorphic_expansions.size(),
               "Did not create expansions for all isomorphic expansions in the planner!");
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> HandleExpansionsWithoutCartesian(
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
+      std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
+    for (const auto &expansion : matching.expansions) {
+      last_op = GenerateOperatorsForExpansion(std::move(last_op), matching, expansion, symbol_table, storage,
+                                              bound_symbols, new_symbols, named_paths, filters, view);
+    }
 
     return last_op;
   }
