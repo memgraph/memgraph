@@ -112,25 +112,36 @@ antlrcpp::Any CypherMainVisitor::visitProfileQuery(MemgraphCypher::ProfileQueryC
   return profile_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitInfoQuery(MemgraphCypher::InfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 2, "InfoQuery should have exactly two children!");
-  auto *info_query = storage_->Create<InfoQuery>();
+antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::DatabaseInfoQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 2, "DatabaseInfoQuery should have exactly two children!");
+  auto *info_query = storage_->Create<DatabaseInfoQuery>();
+  query_ = info_query;
+  if (ctx->indexInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::INDEX;
+    return info_query;
+  }
+  if (ctx->constraintInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
+    return info_query;
+  }
+  // Should never get here
+  throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
+}
+
+antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 2, "SystemInfoQuery should have exactly two children!");
+  auto *info_query = storage_->Create<SystemInfoQuery>();
   query_ = info_query;
   if (ctx->storageInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::STORAGE;
+    info_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
     return info_query;
-  } else if (ctx->indexInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::INDEX;
-    return info_query;
-  } else if (ctx->constraintInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
-    return info_query;
-  } else if (ctx->buildInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::BUILD;
-    return info_query;
-  } else {
-    throw utils::NotYetImplemented("Info query: '{}'", ctx->getText());
   }
+  if (ctx->buildInfo()) {
+    info_query->info_type_ = SystemInfoQuery::InfoType::BUILD;
+    return info_query;
+  }
+  // Should never get here
+  throw utils::NotYetImplemented("System info query: '{}'", ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) {

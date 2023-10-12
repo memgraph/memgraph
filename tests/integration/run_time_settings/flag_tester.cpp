@@ -47,7 +47,6 @@ int main(int argc, char **argv) {
   MG_ASSERT(res.fields[0] == "setting_name", "Expected \"setting_name\" field in the query result.");
   MG_ASSERT(res.fields[1] == "setting_value", "Expected \"setting_value\" field in the query result.");
 
-  unsigned i = 0;
   for (const auto &record : res.records) {
     const auto &settings_name = record[0].ValueString();
     if (settings_name == FLAGS_field) {

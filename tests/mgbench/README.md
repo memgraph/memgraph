@@ -342,6 +342,12 @@ Benchgraph is currently a passive benchmark since resource usage and saturation 
 
 Latest version: https://memgraph.com/benchgraph
 
+### Release v3 (latest) - 2023-02-10
+
+- Improvements have been made for the sake of Memgraph internal performance testing.
+  - https://github.com/memgraph/memgraph/pull/1286
+  - https://github.com/memgraph/memgraph/pull/1280
+
 ### Release v2 (latest) - 2023-25-04
 
 - Benchmark process changes:

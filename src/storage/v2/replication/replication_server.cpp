@@ -11,13 +11,13 @@
 
 #include "replication_server.hpp"
 #include "io/network/endpoint.hpp"
+#include "replication/config.hpp"
 #include "rpc.hpp"
-#include "storage/v2/replication/config.hpp"
 
 namespace memgraph::storage {
 namespace {
 
-auto CreateServerContext(const replication::ReplicationServerConfig &config) -> communication::ServerContext {
+auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config) -> communication::ServerContext {
   return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
                                                      config.ssl->verify_peer}
                       : communication::ServerContext{};
@@ -30,7 +30,7 @@ auto CreateServerContext(const replication::ReplicationServerConfig &config) -> 
 constexpr auto kReplictionServerThreads = 1;
 }  // namespace
 
-ReplicationServer::ReplicationServer(const replication::ReplicationServerConfig &config)
+ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
                   kReplictionServerThreads} {
