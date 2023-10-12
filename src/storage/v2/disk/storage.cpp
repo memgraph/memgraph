@@ -1009,9 +1009,7 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
-    if (!transaction_.RemoveModifiedEdge(edge.Gid())) {
-      throw utils::BasicException("Failed to remove modified edge from transaction.");
-    }
+    transaction_.RemoveModifiedEdge(edge.Gid());
   }
 
   return maybe_result;
