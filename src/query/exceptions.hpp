@@ -169,11 +169,13 @@ class WriteVertexOperationInEdgeImportModeException : public QueryException {
       : QueryException("Write operations on vertices are forbidden while the edge import mode is active.") {}
 };
 
-class TransactionSerializationException : public QueryException {
+// This one is inherited from BasicException and will be treated as
+// TransientError, i. e. client will be encouraged to retry execution because it
+// could succeed if executed again.
+class TransactionSerializationException : public utils::BasicException {
  public:
-  using QueryException::QueryException;
   TransactionSerializationException()
-      : QueryException(
+      : utils::BasicException(
             "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction "
             "is finished") {}
 };
