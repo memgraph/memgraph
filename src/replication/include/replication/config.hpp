@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,23 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include "replication/mode.hpp"
 
-namespace memgraph::storage::replication {
+namespace memgraph::replication {
+
+inline constexpr uint16_t kDefaultReplicationPort = 10000;
+inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+inline constexpr auto *kReservedReplicationRoleName{"__replication_role"};
+
 struct ReplicationClientConfig {
+  std::string name;
+  ReplicationMode mode;
+  std::string ip_address;
+  uint16_t port;
+
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.
@@ -33,6 +45,8 @@ struct ReplicationClientConfig {
 };
 
 struct ReplicationServerConfig {
+  std::string ip_address;
+  uint16_t port;
   struct SSL {
     std::string key_file;
     std::string cert_file;
@@ -42,4 +56,4 @@ struct ReplicationServerConfig {
 
   std::optional<SSL> ssl;
 };
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::replication
