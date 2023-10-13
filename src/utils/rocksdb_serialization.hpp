@@ -107,8 +107,7 @@ inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_
 
 inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_label,
                                                       const std::vector<std::string> &target_properties) {
-  std::string result;
-  result += target_label;
+  std::string result = target_label;
   for (const auto &target_property : target_properties) {
     result += ",";
     result += target_property;

@@ -75,14 +75,14 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
-constexpr const char *deserializeTimestamp = "0";
-constexpr const char *vertexHandle = "vertex";
-constexpr const char *edgeHandle = "edge";
-constexpr const char *defaultHandle = "default";
-constexpr const char *outEdgesHandle = "out_edges";
-constexpr const char *inEdgesHandle = "in_edges";
-constexpr const char *label_property_index_str = "label_property_index";
-constexpr const char *existence_constraints_str = "existence_constraints";
+constexpr const char *kDeserializeTimestamp = "0";
+constexpr const char *kVertexHandle = "vertex";
+constexpr const char *kEdgeHandle = "edge";
+constexpr const char *kDefaultHandle = "default";
+constexpr const char *kOutEdgesHandle = "out_edges";
+constexpr const char *kInEdgesHandle = "in_edges";
+constexpr const char *kLabelPropertyIndexStr = "label_property_index";
+constexpr const char *kExistenceConstraintsStr = "existence_constraints";
 
 /// TODO: (andi) Maybe a better way of checking would be if the first delta is DELETE_DESERIALIZED
 /// then we now that the vertex has only been deserialized and nothing more has been done on it.
@@ -211,11 +211,11 @@ DiskStorage::DiskStorage(Config config)
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   if (utils::DirExists(config.disk.main_storage_directory)) {
-    column_families.emplace_back(vertexHandle, kvstore_->options_);
-    column_families.emplace_back(edgeHandle, kvstore_->options_);
-    column_families.emplace_back(defaultHandle, kvstore_->options_);
-    column_families.emplace_back(outEdgesHandle, kvstore_->options_);
-    column_families.emplace_back(inEdgesHandle, kvstore_->options_);
+    column_families.emplace_back(kVertexHandle, kvstore_->options_);
+    column_families.emplace_back(kEdgeHandle, kvstore_->options_);
+    column_families.emplace_back(kDefaultHandle, kvstore_->options_);
+    column_families.emplace_back(kOutEdgesHandle, kvstore_->options_);
+    column_families.emplace_back(kInEdgesHandle, kvstore_->options_);
 
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory, column_families,
@@ -229,13 +229,13 @@ DiskStorage::DiskStorage(Config config)
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory, &kvstore_->db_));
     logging::AssertRocksDBStatus(
-        kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, kVertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
-        kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, kEdgeHandle, &kvstore_->edge_chandle));
     logging::AssertRocksDBStatus(
-        kvstore_->db_->CreateColumnFamily(kvstore_->options_, outEdgesHandle, &kvstore_->out_edges_chandle));
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, kOutEdgesHandle, &kvstore_->out_edges_chandle));
     logging::AssertRocksDBStatus(
-        kvstore_->db_->CreateColumnFamily(kvstore_->options_, inEdgesHandle, &kvstore_->in_edges_chandle));
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, kInEdgesHandle, &kvstore_->in_edges_chandle));
   }
 }
 
@@ -340,7 +340,7 @@ void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     // We should pass it->timestamp().ToString() instead of "0"
     // This is hack until RocksDB will support timestamp() in WBWI iterator
-    LoadVertexToMainMemoryCache(transaction, it->key().ToString(), it->value().ToString(), deserializeTimestamp);
+    LoadVertexToMainMemoryCache(transaction, it->key().ToString(), it->value().ToString(), kDeserializeTimestamp);
   }
 }
 
@@ -365,7 +365,7 @@ void DiskStorage::LoadVerticesFromMainStorageToEdgeImportCache(Transaction *tran
     std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
     CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
-                         CreateDeleteDeserializedObjectDelta(transaction, std::move(key), deserializeTimestamp));
+                         CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
   }
 }
 
@@ -398,7 +398,7 @@ void DiskStorage::LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
       CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
-                           CreateDeleteDeserializedObjectDelta(transaction, std::move(key), deserializeTimestamp));
+                           CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
     }
   }
 }
@@ -448,7 +448,7 @@ void DiskStorage::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(Tra
       std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
       CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
-                           CreateDeleteDeserializedObjectDelta(transaction, std::move(key), deserializeTimestamp));
+                           CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
     }
   }
 }
@@ -629,7 +629,7 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelIndexCache(
           transaction, index_it->key().ToString(), index_it->value().ToString(),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), deserializeTimestamp),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), kDeserializeTimestamp),
           indexed_vertices->access());
     }
   }
@@ -680,7 +680,7 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndex(Transaction *transactio
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(
           transaction, index_it->key().ToString(), index_it->value().ToString(),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), deserializeTimestamp),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), kDeserializeTimestamp),
           indexed_vertices->access());
     }
   }
@@ -710,7 +710,7 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(
           transaction, index_it->key().ToString(), index_it->value().ToString(),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), deserializeTimestamp),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), kDeserializeTimestamp),
           indexed_vertices->access());
     }
   }
@@ -771,7 +771,7 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
     // This is hack until RocksDB will support timestamp() in WBWI iterator
     LoadVertexToLabelPropertyIndexCache(
         transaction, index_it->key().ToString(), index_it->value().ToString(),
-        CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key_str), deserializeTimestamp),
+        CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key_str), kDeserializeTimestamp),
         indexed_vertices->access());
   }
 }
@@ -1306,7 +1306,7 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
     if (Gid::FromString(utils::ExtractGidFromKey(key)) == gid) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
-      return LoadVertexToMainMemoryCache(transaction, key, it->value().ToString(), deserializeTimestamp);
+      return LoadVertexToMainMemoryCache(transaction, key, it->value().ToString(), kDeserializeTimestamp);
     }
   }
   return std::nullopt;
@@ -1401,7 +1401,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
           return std::optional<EdgeAccessor>{};
 
         return CreateEdgeFromDisk(src_vertex, &*dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
-                                  edge_gid_str, deserializeTimestamp);
+                                  edge_gid_str, kDeserializeTimestamp);
       }
       /// This is needed for filtering
       /// Second check not needed I think
@@ -1410,7 +1410,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       }
 
       return CreateEdgeFromDisk(src_vertex, destination, transaction, edge_type_id, edge_gid, properties_str,
-                                edge_gid_str, deserializeTimestamp);
+                                edge_gid_str, kDeserializeTimestamp);
     });
     if (edge.has_value()) result.emplace_back(*edge);
   }
@@ -1464,14 +1464,14 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
           return std::optional<EdgeAccessor>{};
 
         return CreateEdgeFromDisk(&*src_vertex, dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
-                                  edge_gid_str, deserializeTimestamp);
+                                  edge_gid_str, kDeserializeTimestamp);
       }
       /// TODO: (andi) 2nd check not needed I think
       if (src_vertex_gid != source->Gid() || source->vertex_->deleted) {
         return std::optional<EdgeAccessor>{};
       }
       return CreateEdgeFromDisk(source, dst_vertex, transaction, edge_type_id, edge_gid, properties_str, edge_gid_str,
-                                deserializeTimestamp);
+                                kDeserializeTimestamp);
     });
 
     if (edge.has_value()) result.emplace_back(*edge);
@@ -1553,7 +1553,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
-                  info.label, info.property, label_property_index_str)) {
+                  info.label, info.property, kLabelPropertyIndexStr)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
@@ -1565,7 +1565,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintDeletion(
-                  info.label, info.property, label_property_index_str)) {
+                  info.label, info.property, kLabelPropertyIndexStr)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
@@ -1584,14 +1584,14 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
-                  info.label, info.property, existence_constraints_str)) {
+                  info.label, info.property, kExistenceConstraintsStr)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintDeletion(
-                  info.label, info.property, existence_constraints_str)) {
+                  info.label, info.property, kExistenceConstraintsStr)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;

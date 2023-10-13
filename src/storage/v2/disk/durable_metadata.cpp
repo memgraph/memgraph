@@ -20,13 +20,15 @@
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
-constexpr const char *lastTransactionStartTimeStamp = "last_transaction_start_timestamp";
-constexpr const char *vertex_count_descr = "vertex_count";
-constexpr const char *edge_count_descr = "edge_count";
-constexpr const char *label_index_str = "label_index";
-constexpr const char *label_property_index_str = "label_property_index";
-constexpr const char *existence_constraints_str = "existence_constraints";
-constexpr const char *unique_constraints_str = "unique_constraints";
+namespace {
+constexpr const char *kLastTransactionStartTimeStamp = "last_transaction_start_timestamp";
+constexpr const char *kVertexCountDescr = "vertex_count";
+constexpr const char *kEdgeDountDescr = "edge_count";
+constexpr const char *kLabelIndexStr = "label_index";
+constexpr const char *kLabelPropertyIndexStr = "label_property_index";
+constexpr const char *kExistenceConstraintsStr = "existence_constraints";
+constexpr const char *kUniqueConstraintsStr = "unique_constraints";
+}  // namespace
 
 namespace memgraph::storage {
 
@@ -40,50 +42,50 @@ DurableMetadata::DurableMetadata(DurableMetadata &&other) noexcept
     : durability_kvstore_(std::move(other.durability_kvstore_)), config_(std::move(other.config_)) {}
 
 void DurableMetadata::SaveBeforeClosingDB(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count) {
-  durability_kvstore_.Put(lastTransactionStartTimeStamp, std::to_string(timestamp));
-  durability_kvstore_.Put(vertex_count_descr, std::to_string(vertex_count));
-  durability_kvstore_.Put(edge_count_descr, std::to_string(edge_count));
+  durability_kvstore_.Put(kLastTransactionStartTimeStamp, std::to_string(timestamp));
+  durability_kvstore_.Put(kVertexCountDescr, std::to_string(vertex_count));
+  durability_kvstore_.Put(kEdgeDountDescr, std::to_string(edge_count));
 }
 
 std::optional<uint64_t> DurableMetadata::LoadTimestampIfExists() const {
-  return LoadPropertyIfExists(lastTransactionStartTimeStamp);
+  return LoadPropertyIfExists(kLastTransactionStartTimeStamp);
 }
 
 std::optional<uint64_t> DurableMetadata::LoadVertexCountIfExists() const {
-  return LoadPropertyIfExists(vertex_count_descr);
+  return LoadPropertyIfExists(kVertexCountDescr);
 }
 
-std::optional<uint64_t> DurableMetadata::LoadEdgeCountIfExists() const {
-  return LoadPropertyIfExists(edge_count_descr);
-}
+std::optional<uint64_t> DurableMetadata::LoadEdgeCountIfExists() const { return LoadPropertyIfExists(kEdgeDountDescr); }
 
-std::optional<uint64_t> DurableMetadata::LoadPropertyIfExists(const char *property) const {
+std::optional<uint64_t> DurableMetadata::LoadPropertyIfExists(const std::string &property) const {
   if (auto count = durability_kvstore_.Get(property); count.has_value()) {
     auto last_count = count.value();
     uint64_t count_to_return{0U};
-    std::from_chars(last_count.data(), last_count.data() + last_count.size(), count_to_return);
-    return count_to_return;
+    if (std::from_chars(last_count.data(), last_count.data() + last_count.size(), count_to_return).ec == std::errc()) {
+      return count_to_return;
+    }
   }
   return {};
 }
 
 std::optional<std::vector<std::string>> DurableMetadata::LoadLabelIndexInfoIfExists() const {
-  return LoadInfoFromAuxiliaryStorages(label_index_str);
+  return LoadInfoFromAuxiliaryStorages(kLabelIndexStr);
 }
 
 std::optional<std::vector<std::string>> DurableMetadata::LoadLabelPropertyIndexInfoIfExists() const {
-  return LoadInfoFromAuxiliaryStorages(label_property_index_str);
+  return LoadInfoFromAuxiliaryStorages(kLabelPropertyIndexStr);
 }
 
 std::optional<std::vector<std::string>> DurableMetadata::LoadExistenceConstraintInfoIfExists() const {
-  return LoadInfoFromAuxiliaryStorages(existence_constraints_str);
+  return LoadInfoFromAuxiliaryStorages(kExistenceConstraintsStr);
 }
 
 std::optional<std::vector<std::string>> DurableMetadata::LoadUniqueConstraintInfoIfExists() const {
-  return LoadInfoFromAuxiliaryStorages(unique_constraints_str);
+  return LoadInfoFromAuxiliaryStorages(kUniqueConstraintsStr);
 }
 
-std::optional<std::vector<std::string>> DurableMetadata::LoadInfoFromAuxiliaryStorages(const char *property) const {
+std::optional<std::vector<std::string>> DurableMetadata::LoadInfoFromAuxiliaryStorages(
+    const std::string &property) const {
   if (auto maybe_props = durability_kvstore_.Get(property); maybe_props.has_value()) {
     return utils::Split(maybe_props.value(), "|");
   }
@@ -92,31 +94,31 @@ std::optional<std::vector<std::string>> DurableMetadata::LoadInfoFromAuxiliarySt
 
 bool DurableMetadata::PersistLabelIndexCreation(LabelId label) {
   const auto serialized_label = label.ToString();
-  if (auto label_index_store = durability_kvstore_.Get(label_index_str); label_index_store.has_value()) {
+  if (auto label_index_store = durability_kvstore_.Get(kLabelIndexStr); label_index_store.has_value()) {
     std::string &value = label_index_store.value();
     value += "|";
     value += serialized_label;
-    return durability_kvstore_.Put(label_index_str, value);
+    return durability_kvstore_.Put(kLabelIndexStr, value);
   }
-  return durability_kvstore_.Put(label_index_str, serialized_label);
+  return durability_kvstore_.Put(kLabelIndexStr, serialized_label);
 }
 
 bool DurableMetadata::PersistLabelIndexDeletion(LabelId label) {
   const auto serialized_label = label.ToString();
-  if (auto label_index_store = durability_kvstore_.Get(label_index_str); label_index_store.has_value()) {
+  if (auto label_index_store = durability_kvstore_.Get(kLabelIndexStr); label_index_store.has_value()) {
     const std::string &value = label_index_store.value();
     std::vector<std::string> labels = utils::Split(value, "|");
     std::erase(labels, serialized_label);
     if (labels.empty()) {
-      return durability_kvstore_.Delete(label_index_str);
+      return durability_kvstore_.Delete(kLabelIndexStr);
     }
-    return durability_kvstore_.Put(label_index_str, utils::Join(labels, "|"));
+    return durability_kvstore_.Put(kLabelIndexStr, utils::Join(labels, "|"));
   }
   return true;
 }
 
 bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property,
-                                                                              const char *key) {
+                                                                              const std::string &key) {
   const std::string label_property_pair = label.ToString() + "," + property.ToString();
   if (auto label_property_index_store = durability_kvstore_.Get(key); label_property_index_store.has_value()) {
     std::string &value = label_property_index_store.value();
@@ -128,7 +130,7 @@ bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintCreation(La
 }
 
 bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
-                                                                              const char *key) {
+                                                                              const std::string &key) {
   const std::string label_property_pair = label.ToString() + "," + property.ToString();
   if (auto label_property_index_store = durability_kvstore_.Get(key); label_property_index_store.has_value()) {
     const std::string &value = label_property_index_store.value();
@@ -145,25 +147,25 @@ bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(La
 bool DurableMetadata::PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties) {
   const std::string entry = utils::GetKeyForUniqueConstraintsDurability(label, properties);
 
-  if (auto unique_store = durability_kvstore_.Get(unique_constraints_str); unique_store.has_value()) {
+  if (auto unique_store = durability_kvstore_.Get(kUniqueConstraintsStr); unique_store.has_value()) {
     std::string &value = unique_store.value();
     value += "|" + entry;
-    return durability_kvstore_.Put(unique_constraints_str, value);
+    return durability_kvstore_.Put(kUniqueConstraintsStr, value);
   }
-  return durability_kvstore_.Put(unique_constraints_str, entry);
+  return durability_kvstore_.Put(kUniqueConstraintsStr, entry);
 }
 
 bool DurableMetadata::PersistUniqueConstraintDeletion(LabelId label, const std::set<PropertyId> &properties) {
   const std::string entry = utils::GetKeyForUniqueConstraintsDurability(label, properties);
 
-  if (auto unique_store = durability_kvstore_.Get(unique_constraints_str); unique_store.has_value()) {
+  if (auto unique_store = durability_kvstore_.Get(kUniqueConstraintsStr); unique_store.has_value()) {
     const std::string &value = unique_store.value();
     std::vector<std::string> unique_constraints = utils::Split(value, "|");
     std::erase(unique_constraints, entry);
     if (unique_constraints.empty()) {
-      return durability_kvstore_.Delete(unique_constraints_str);
+      return durability_kvstore_.Delete(kUniqueConstraintsStr);
     }
-    return durability_kvstore_.Put(unique_constraints_str, utils::Join(unique_constraints, "|"));
+    return durability_kvstore_.Put(kUniqueConstraintsStr, utils::Join(unique_constraints, "|"));
   }
   return true;
 }

@@ -47,17 +47,19 @@ class DurableMetadata {
 
   bool PersistLabelIndexDeletion(LabelId label);
 
-  bool PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property, const char *key);
+  bool PersistLabelPropertyIndexAndExistenceConstraintCreation(LabelId label, PropertyId property,
+                                                               const std::string &key);
 
-  bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property, const char *key);
+  bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
+                                                               const std::string &key);
 
   bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties);
 
   bool PersistUniqueConstraintDeletion(LabelId label, const std::set<PropertyId> &properties);
 
  private:
-  std::optional<uint64_t> LoadPropertyIfExists(const char *property) const;
-  std::optional<std::vector<std::string>> LoadInfoFromAuxiliaryStorages(const char *property) const;
+  std::optional<uint64_t> LoadPropertyIfExists(const std::string &property) const;
+  std::optional<std::vector<std::string>> LoadInfoFromAuxiliaryStorages(const std::string &property) const;
 
   kvstore::KVStore durability_kvstore_;
   Config config_;
