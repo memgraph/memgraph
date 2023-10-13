@@ -64,13 +64,13 @@ def test_change_rel_type_rollback(connection):
     execute_and_fetch_all(
         cursor, "MATCH (n:Node1)-[r:Relationship]->(m:Node2) CALL transaction_rollback.change_type(r, 'Rel');"
     )
-    connection.commit()
+    connection.rollback()
 
     result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN r"))
     assert len(result) == 1
     rel = result[0][0]
 
-    assert rel.type == "Rel"
+    assert rel.type == "Relationship"
 
 
 if __name__ == "__main__":
