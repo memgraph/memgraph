@@ -15,6 +15,7 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include "storage/v2/id_types.hpp"
 #include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
@@ -92,6 +93,14 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetTo(EdgeAccessor *edge, 
   }
   auto result = db_accessor_.EdgeSetTo(edge, new_to_impl);
   return result;
+}
+
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeChangeType(EdgeAccessor *edge,
+                                                                 storage::EdgeTypeId new_edge_type) {
+  if (!this->graph_->ContainsEdge(*edge)) {
+    throw std::logic_error{"Projected graph must contain edge!"};
+  }
+  return db_accessor_.EdgeChangeType(edge, new_edge_type);
 }
 
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(

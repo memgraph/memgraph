@@ -54,5 +54,24 @@ def test_change_to_rollback(connection):
     assert list(node_to.labels)[0] == "Node2"
 
 
+def test_change_rel_type_rollback(connection):
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    execute_and_fetch_all(cursor, "CREATE (n:Node1) CREATE (m:Node2) CREATE (n)-[:Relationship]->(m);")
+    connection.commit()
+
+    execute_and_fetch_all(
+        cursor, "MATCH (n:Node1)-[r:Relationship]->(m:Node2) CALL transaction_rollback.change_type(r, 'Rel');"
+    )
+    connection.commit()
+
+    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN r"))
+    assert len(result) == 1
+    rel = result[0][0]
+
+    assert rel.type == "Rel"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
