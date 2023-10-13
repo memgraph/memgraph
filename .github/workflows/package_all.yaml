@@ -96,7 +96,7 @@ jobs:
       - name: "Build package"
         run: |
           cd release/package
-          ./run.sh package debian-11 --for-docker
+          ./run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-docker
           ./run.sh docker
       - name: "Upload package"
         uses: actions/upload-artifact@v3
