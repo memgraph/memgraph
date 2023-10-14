@@ -19,7 +19,6 @@
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/fmt.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"

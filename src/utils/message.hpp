@@ -12,14 +12,19 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <type_traits>
 
 namespace memgraph::utils {
 
-// TODO(gitbuda): fmt.get() isn't there in toolchain-v4 -> probably make ifdef.
 template <typename... Args>
 std::string MessageWithLink(fmt::format_string<Args...> fmt, Args &&...args) {
+#if FMT_VERSION > 90000
   return fmt::format(fmt::runtime(fmt::format(fmt::runtime("{} For more details, visit {{}}."), fmt.get())),
                      std::forward<Args>(args)...);
+#else
+  return fmt::format(fmt::runtime(fmt::format(fmt::runtime("{} For more details, visit {{}}."), fmt)),
+                     std::forward<Args>(args)...);
+#endif
 }
 
 }  // namespace memgraph::utils

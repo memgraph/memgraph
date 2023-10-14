@@ -19,7 +19,6 @@
 #include <string_view>
 #include <utility>
 
-#include "query/fmt.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"

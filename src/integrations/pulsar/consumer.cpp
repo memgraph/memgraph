@@ -15,18 +15,22 @@
 #include <chrono>
 #include <thread>
 
-#include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
-#include "integrations/pulsar/fmt.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/result.hpp"
 #include "utils/thread.hpp"
+
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<memgraph::integrations::pulsar::pulsar_client::Result> : public fmt::ostream_formatter {};
+#endif
 
 namespace memgraph::integrations::pulsar {
 

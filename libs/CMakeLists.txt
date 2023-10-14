@@ -14,12 +14,7 @@ find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
-# TODO(gitbuda): Make fmt + spdlog in both cases; toolchains v4 & v5
-#    * v4 fmt 8.0.1 spdlog 1.9.2
-#    * v5
-#        * fmt 9.1.0  spdlog 1.11.0
-#        * fmt 10.1.0 spdlog 1.12.0
-find_package(fmt 10.1.0 REQUIRED)
+find_package(fmt 8.0.1 REQUIRED)
 find_package(Jemalloc REQUIRED)
 find_package(ZLIB 1.2.11 REQUIRED)
 

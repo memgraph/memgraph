@@ -24,7 +24,7 @@
 #include <gflags/gflags.h>
 #include <json/json.hpp>
 
-#include "communication/bolt/v1/fmt.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "io/network/utils.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/timer.hpp"

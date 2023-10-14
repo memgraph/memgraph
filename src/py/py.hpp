@@ -27,7 +27,6 @@
 #error "Minimum supported Python API is 3.5"
 #endif
 
-#include "py/fmt.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::py {
@@ -275,3 +274,8 @@ inline void RestoreError(ExceptionInfo exc_info) {
 }
 
 }  // namespace memgraph::py
+
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<memgraph::py::ExceptionInfo> : public fmt::ostream_formatter {};
+#endif

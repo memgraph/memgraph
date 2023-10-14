@@ -289,3 +289,13 @@ std::ostream &operator<<(std::ostream &os, const Path &path);
 std::ostream &operator<<(std::ostream &os, const Value &value);
 std::ostream &operator<<(std::ostream &os, const Value::Type type);
 }  // namespace memgraph::communication::bolt
+
+#if FMT_VERSION > 90000
+using MgSingleBoltValue = memgraph::communication::bolt::Value;
+template <>
+class fmt::formatter<MgSingleBoltValue> : public ostream_formatter {};
+template <>
+class fmt::formatter<std::vector<MgSingleBoltValue>> : public ostream_formatter {};
+template <>
+class fmt::formatter<std::map<std::string, MgSingleBoltValue>> : public ostream_formatter {};
+#endif

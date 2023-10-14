@@ -14,5 +14,7 @@
 #include <fmt/ostream.h>
 #include <boost/asio/ip/tcp.hpp>
 
+#if FMT_VERSION > 90000
 template <>
 class fmt::formatter<boost::asio::ip::tcp::endpoint> : public ostream_formatter {};
+#endif

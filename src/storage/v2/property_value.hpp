@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <fmt/ostream.h>
 #include <iostream>
 #include <map>
 #include <string>
@@ -492,3 +493,10 @@ inline void PropertyValue::DestroyValue() noexcept {
 }
 
 }  // namespace memgraph::storage
+
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<memgraph::storage::PropertyValue> : public fmt::ostream_formatter {};
+template <>
+class fmt::formatter<memgraph::storage::PropertyValue::Type> : public fmt::ostream_formatter {};
+#endif

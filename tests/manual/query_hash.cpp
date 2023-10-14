@@ -15,7 +15,6 @@
 #include <gflags/gflags.h>
 
 #include "query/frontend/stripped.hpp"
-#include "storage/v2/fmt.hpp"
 
 DEFINE_string(q, "CREATE (n) RETURN n", "Query");
 
