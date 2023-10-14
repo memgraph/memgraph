@@ -18,6 +18,7 @@
 #include <string>
 #include <variant>
 
+#include "replication/epoch.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -109,7 +110,7 @@ void RecoverIndicesAndConstraints(
 /// @throw std::bad_alloc
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
-                                        std::string *epoch_id,
+                                        memgraph::replication::ReplicationEpoch &epoch,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,

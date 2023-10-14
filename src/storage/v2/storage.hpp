@@ -19,6 +19,7 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
+#include "replication/config.hpp"
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -27,11 +28,10 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
-#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
@@ -164,10 +164,6 @@ class Storage {
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
-    virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
-
-    virtual void PrefetchOutEdges(const VertexAccessor &vertex_acc) = 0;
-
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
     virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
@@ -297,37 +293,22 @@ class Storage {
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
-  virtual void EstablishNewEpoch() = 0;
+  virtual void PrepareForNewEpoch(std::string prev_epoch) = 0;
 
-  virtual auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
+  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> = 0;
 
-  virtual auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
+  virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
-  /// REPLICATION
-  bool SetReplicaRole(const replication::ReplicationServerConfig &config) {
-    return replication_state_.SetReplicaRole(config, this);
-  }
-  bool SetMainReplicationRole() { return replication_state_.SetMainReplicationRole(this); }
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  auto RegisterReplica(const replication::RegistrationMode registration_mode,
-                       const replication::ReplicationClientConfig &config) {
-    return replication_state_.RegisterReplica(registration_mode, config, this);
-  }
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name) { return replication_state_.UnregisterReplica(name); }
-  replication::ReplicationRole GetReplicationRole() const { return replication_state_.GetRole(); }
-  auto ReplicasInfo() { return replication_state_.ReplicasInfo(); }
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) {
-    return replication_state_.GetReplicaState(name);
+  auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(); }
+  auto GetReplicaState(std::string_view name) -> std::optional<replication::ReplicaState> {
+    return repl_storage_state_.GetReplicaState(name);
   }
 
- protected:
-  void RestoreReplicas() { return replication_state_.RestoreReplicas(this); }
-  void RestoreReplicationRole() { return replication_state_.RestoreReplicationRole(this); }
+  // TODO: make non-public
+  memgraph::replication::ReplicationState repl_state_;
+  ReplicationStorageState repl_storage_state_;
 
  public:
   // Main storage lock.
@@ -360,9 +341,6 @@ class Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   const std::string id_;  //!< High-level assigned ID
-
- protected:
-  ReplicationState replication_state_;
 };
 
 }  // namespace memgraph::storage
