@@ -13,8 +13,6 @@
 #include <string_view>
 
 #include <gflags/gflags.h>
-// TODO(gitbuda): Check with the toolchain v4
-// #include <spdlog/fmt/bundled/core.h>
 #include <mgclient.hpp>
 #include "common.hpp"
 #include "utils/logging.hpp"

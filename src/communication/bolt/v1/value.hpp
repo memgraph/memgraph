@@ -130,7 +130,6 @@ struct Path {
   std::vector<int64_t> indices;
 };
 
-// TODO(gitbuda): Format bolt::Value to work with FMT
 /** Value represents supported values in the Bolt protocol. */
 class Value {
  public:

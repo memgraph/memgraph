@@ -12,7 +12,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <type_traits>
 
 namespace memgraph::utils {
 

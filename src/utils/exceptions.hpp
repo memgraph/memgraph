@@ -23,28 +23,6 @@
 
 #include "utils/stacktrace.hpp"
 
-// TODO(gitbuda): This is a massive cluster fuck because BasicException has to be aware of the specific types because it
-// has to be able to print the correct message. IMPORTANT: There has to be a better way.
-//
-// All this is too deep -> add all functionality under query/typed_value
-//
-// PROBLEM: Redefinition of the TypedValue + we actuall need here the full type because of the printing.
-// namespace memgraph::query {
-// class TypedValue {
-//  public:
-//   enum class Type;
-//   };
-//   }  // namespace memgraph::query
-// template <>
-// class fmt::formatter<memgraph::query::TypedValue::Type> {
-//  public:
-//   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
-//   template <typename Context>
-//   constexpr auto format(memgraph::query::TypedValue::Type const &, Context &ctx) const {
-//     return fmt::format_to(ctx.out(), "({})", "TODO: format TypedValue::Type");
-//   }
-// };
-
 namespace memgraph::utils {
 
 /**

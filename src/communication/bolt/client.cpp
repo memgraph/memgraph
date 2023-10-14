@@ -205,7 +205,6 @@ std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::st
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
-  // TODO(gitbuda): Format map<string, bolt::Value> routing
   spdlog::debug("Sending route message with routing: {}; bookmarks: {}; db: {}", routing, bookmarks,
                 db.has_value() ? *db : Value());
 

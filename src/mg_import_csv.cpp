@@ -135,15 +135,10 @@ struct NodeId {
   std::string id_space;
 };
 
+#if FMT_VERSION > 90000
 template <>
-class fmt::formatter<NodeId> {
- public:
-  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
-  template <typename Context>
-  constexpr auto format(NodeId const &node, Context &ctx) const {
-    return fmt::format_to(ctx.out(), "({}, {})", node.id, node.id_space);
-  }
-};
+class fmt::formatter<NodeId> : public fmt::ostream_formatter {};
+#endif
 
 bool operator==(const NodeId &a, const NodeId &b) { return a.id == b.id && a.id_space == b.id_space; }
 
