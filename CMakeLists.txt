@@ -215,10 +215,13 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# Use lld linker to speedup build
-# TODO(gitbuda): Figure out why lld produces linker errors -> probably because clang inside toolchain is linked with gold -> check...
-# add_link_options(-fuse-ld=lld)
-# TODO: use mold linker -> the issue is licensing in case we build for Mac.
+# Use lld linker to speedup build and use less memory.
+add_link_options(-fuse-ld=lld)
+# NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
+# without explicit link_directories call.
+string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+separate_arguments(LD_LIBS)
+link_directories(${LD_LIBS})
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
