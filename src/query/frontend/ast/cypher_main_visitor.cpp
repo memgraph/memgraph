@@ -203,7 +203,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
   }
 
   if (auto *index_hints_ctx = ctx->indexHints()) {
-    for (auto index_hint_ctx : index_hints_ctx->indexHint()) {
+    for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
       auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
       if (!index_hint_ctx->propertyKeyName()) {
         cypher_query->index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
