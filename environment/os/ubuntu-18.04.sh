@@ -25,7 +25,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libgmp-dev # for gdb
     gperf # for proxygen
     libssl-dev
-    libedit-dev libpcre3-dev automake bison # swig
+    libedit-dev libpcre2-dev libpcre3-dev automake bison # swig
 )
 
 TOOLCHAIN_RUN_DEPS=(
