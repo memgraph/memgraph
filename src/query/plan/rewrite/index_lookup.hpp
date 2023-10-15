@@ -38,11 +38,18 @@ namespace impl {
 // given expression tree.
 Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
+struct HashPair {
+  template <class T1, class T2>
+  std::size_t operator()(const std::pair<T1, T2> &pair) const {
+    return utils::HashCombine<T1, T2>{}(pair.first, pair.second);
+  }
+};
+
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
-                      std::vector<CypherQuery::IndexHint> index_hints)
+                      std::vector<IndexHint> index_hints)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(index_hints) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -488,7 +495,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
-  std::vector<CypherQuery::IndexHint> index_hints_;
+  std::vector<IndexHint> index_hints_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -522,15 +529,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   storage::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
 
-  bool IsHinted(const LabelIx label) { return false; }
-
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
-    std::optional<LabelIx> best_label;
-    if (IsHinted(label)) {
-      return label;
+
+    for (const auto &[index_type, label, _] : index_hints_) {
+      if (index_type != IndexHint::IndexType::LABEL) continue;
+
+      if (!db_->LabelIndexExists(GetLabel(label))) {
+        throw QueryRuntimeException("Index for label {} doesn't exist", label.name);
+      }
+
+      if (labels.contains(label)) {
+        return label;
+      }
     }
 
+    std::optional<LabelIx> best_label;
     for (const auto &label : labels) {
       if (!db_->LabelIndexExists(GetLabel(label))) continue;
       if (!best_label) {
@@ -582,7 +596,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
     };
 
-    std::optional<LabelPropertyIndex> found;
+    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices;
+    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup;
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
         if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
@@ -592,44 +607,74 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // cannot scan `n` by property index.
           continue;
         }
+
         const auto &property = filter.property_filter->property_;
         if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
-        auto is_better_type = [&found](PropertyFilter::Type type) {
-          // Order the types by the most preferred index lookup type.
-          static const PropertyFilter::Type kFilterTypeOrder[] = {
-              PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
-          auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
-          auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
-          return type_sort_ix < found_sort_ix;
-        };
 
-        int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-        std::optional<storage::LabelPropertyIndexStats> new_stats =
-            db_->GetIndexStats(GetLabel(label), GetProperty(property));
+        candidate_indices.emplace_back(std::make_pair(
+            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label, .property_ = property},
+            filter));
+        candidate_index_lookup.insert({std::make_pair(label, property), filter});
+      }
+    }
 
-        // Conditions, from more to less important:
-        // the index with 10x less vertices is better.
-        // the index with smaller average group size is better.
-        // the index with equal avg group size and distribution closer to the uniform is better.
-        // the index with less vertices is better.
-        // the index with same number of vertices but more optimized filter is better.
-        if (!found || vertex_count * 10 < found->vertex_count) {
-          found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
-          continue;
-        }
+    for (const auto &[index_type, label, maybe_property] : index_hints_) {
+      if (index_type != IndexHint::IndexType::LABEL_PROPERTY) continue;
+      auto property = *maybe_property;
 
-        if (int cmp_res = compare_indices(found, new_stats, vertex_count);
-            cmp_res == -1 ||
-            cmp_res == 0 && (found->vertex_count > vertex_count ||
-                             found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
-          found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
-        }
+      if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
+        throw QueryRuntimeException("Index for label {} and property {} doesn't exist", label.name, property.name);
+      }
+
+      if (candidate_index_lookup.contains(std::make_pair(label, property))) {
+        return LabelPropertyIndex{.label = label,
+                                  .filter = candidate_index_lookup.at(std::make_pair(label, property)),
+                                  .vertex_count = std::numeric_limits<std::int64_t>::max()};
+      }
+    }
+
+    std::optional<LabelPropertyIndex> found;
+    for (const auto &[candidate, filter] : candidate_indices) {
+      const auto &[_, label, maybe_property] = candidate;
+      auto property = *maybe_property;
+
+      auto is_better_type = [&found](PropertyFilter::Type type) {
+        // Order the types by the most preferred index lookup type.
+        static const PropertyFilter::Type kFilterTypeOrder[] = {
+            PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
+        auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
+        auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
+        return type_sort_ix < found_sort_ix;
+      };
+
+      // Conditions, from more to less important:
+      // the index with 10x less vertices is better.
+      // the index with smaller average group size is better.
+      // the index with equal avg group size and distribution closer to the uniform is better.
+      // the index with less vertices is better.
+      // the index with same number of vertices but more optimized filter is better.
+
+      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+      std::optional<storage::LabelPropertyIndexStats> new_stats =
+          db_->GetIndexStats(GetLabel(label), GetProperty(property));
+
+      if (!found || vertex_count * 10 < found->vertex_count) {
+        found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
+        continue;
+      }
+
+      if (int cmp_res = compare_indices(found, new_stats, vertex_count);
+          cmp_res == -1 ||
+          cmp_res == 0 && (found->vertex_count > vertex_count ||
+                           found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
+        found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
       }
     }
     return found;
   }
+
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
@@ -643,6 +688,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &view = scan.view_;
     const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+    // TODO ante remove: za cartesian < ova provjera bi trebala garantirati da se krivi indeksi ne koriste :D
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -736,8 +782,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db,
-                                                        std::vector<CypherQuery::IndexHint> index_hints) {
+                                                        TDbAccessor *db, std::vector<IndexHint> index_hints) {
   impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {

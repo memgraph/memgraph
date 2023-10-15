@@ -152,7 +152,7 @@ query : cypherQuery
       | edgeImportModeQuery
       ;
 
-cypherQuery : ( indexHint )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -212,7 +212,9 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHint : USING INDEX ':' labelName ( '(' propertyKeyName ')' )? ;
+indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+
+indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
 callSubquery : CALL '{' cypherQuery '}' ;
 

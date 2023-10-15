@@ -60,3 +60,5 @@ src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.hpp
 src/transactions/distributed/engine_rpc_messages.hpp
 /tests/manual/js/transaction_timeout/package-lock.json
 /tests/manual/js/transaction_timeout/node_modules/
+.vscode/
+src/query/frontend/opencypher/grammar/.antlr/*
