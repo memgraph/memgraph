@@ -893,15 +893,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       if (self_.common_.existing_node) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
-          context.db_accessor->PrefetchInEdges(vertex);
 
           auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
           in_edges_.emplace(edges_result.edges);
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
-        context.db_accessor->PrefetchInEdges(vertex);
-
         auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
         in_edges_.emplace(edges_result.edges);
         num_expanded_first = edges_result.expanded_count;
@@ -916,15 +913,11 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       if (self_.common_.existing_node) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
-          context.db_accessor->PrefetchOutEdges(vertex);
-
           auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
           out_edges_.emplace(edges_result.edges);
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
-        context.db_accessor->PrefetchOutEdges(vertex);
-
         auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
         out_edges_.emplace(edges_result.edges);
         num_expanded_second = edges_result.expanded_count;
@@ -1011,7 +1004,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
       memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
-    db_accessor->PrefetchInEdges(vertex);
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types)).edges;
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
@@ -1019,7 +1011,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   }
 
   if (direction != EdgeAtom::Direction::IN) {
-    db_accessor->PrefetchOutEdges(vertex);
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types)).edges;
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
@@ -1379,7 +1370,6 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          context.db_accessor->PrefetchOutEdges(vertex);
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -1406,7 +1396,6 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          dba.PrefetchInEdges(vertex);
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
@@ -1447,7 +1436,6 @@ class STShortestPathCursor : public query::plan::Cursor {
       // reversed.
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          context.db_accessor->PrefetchOutEdges(vertex);
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -1473,7 +1461,6 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          dba.PrefetchInEdges(vertex);
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
@@ -1565,12 +1552,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        context.db_accessor->PrefetchOutEdges(vertex);
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) expand_pair(edge, edge.To());
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        context.db_accessor->PrefetchInEdges(vertex);
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) expand_pair(edge, edge.From());
       }
@@ -1768,14 +1753,12 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair, &context](const VertexAccessor &vertex, const TypedValue &weight,
                                                              int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        context.db_accessor->PrefetchOutEdges(vertex);
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        context.db_accessor->PrefetchInEdges(vertex);
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
           expand_pair(edge, edge.From(), weight, depth);
@@ -2034,7 +2017,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_vertex, &context](const VertexAccessor &vertex, const TypedValue &weight,
                                                                int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        context.db_accessor->PrefetchOutEdges(vertex);
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
@@ -2049,7 +2031,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        context.db_accessor->PrefetchInEdges(vertex);
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE

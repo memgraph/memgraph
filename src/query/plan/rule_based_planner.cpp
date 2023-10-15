@@ -21,6 +21,8 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
+
 namespace memgraph::query::plan {
 
 namespace {

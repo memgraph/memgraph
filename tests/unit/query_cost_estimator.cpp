@@ -50,8 +50,16 @@ class QueryCostEstimator : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    ASSERT_FALSE(db->CreateIndex(label).HasError());
-    ASSERT_FALSE(db->CreateIndex(label, property).HasError());
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());
   }

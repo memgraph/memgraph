@@ -1940,7 +1940,7 @@ void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
+  static_assert(noexcept(*v1 == *v2));
   *result = *v1 == *v2 ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
@@ -2114,14 +2114,6 @@ void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
 mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
-        auto dbAccessor = v->graph->impl;
-        if (std::holds_alternative<memgraph::query::DbAccessor *>(dbAccessor)) {
-          std::get<memgraph::query::DbAccessor *>(dbAccessor)
-              ->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(v->impl));
-        } else {
-          std::get<memgraph::query::SubgraphDbAccessor *>(dbAccessor)
-              ->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(v->impl));
-        }
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
         MG_ASSERT(it != nullptr);
 
@@ -2173,14 +2165,6 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
-        auto dbAccessor = v->graph->impl;
-        if (std::holds_alternative<memgraph::query::DbAccessor *>(dbAccessor)) {
-          std::get<memgraph::query::DbAccessor *>(dbAccessor)
-              ->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(v->impl));
-        } else {
-          std::get<memgraph::query::SubgraphDbAccessor *>(dbAccessor)
-              ->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(v->impl));
-        }
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
         MG_ASSERT(it != nullptr);
         auto maybe_edges = std::visit([v](auto &impl) { return impl.OutEdges(v->graph->view); }, v->impl);
@@ -2313,7 +2297,7 @@ void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
+  static_assert(noexcept(*e1 == *e2));
   *result = *e1 == *e2 ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
