@@ -213,11 +213,6 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
           IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
                     .label_ = label,
                     .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
-      //               cypher_query->index_hints_.emplace_back(
-      // IndexHint{.index_type_ =  index_hint_ctx->propertyKeyName() ? IndexHint::IndexType::LABEL :
-      // IndexHint::IndexType::LABEL_PROPERTY,
-      //           .label_ = label,
-      //           .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
     }
   }
 

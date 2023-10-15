@@ -688,7 +688,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &view = scan.view_;
     const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
-    // TODO ante remove: za cartesian < ova provjera bi trebala garantirati da se krivi indeksi ne koriste :D
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
