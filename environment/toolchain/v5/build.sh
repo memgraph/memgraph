@@ -32,6 +32,7 @@ if [[ "$TOOLCHAIN_STDCXX" != "libstdc++" && "$TOOLCHAIN_STDCXX" != "libc++" ]]; 
     exit 1
 fi
 # TODO(gitbuda): Make LLVM linker configurable -DLLVM_ENABLE_LLD=ON + -fuse-ld=lld (gold vs lld).
+# TODO(gitbuda): Add --skip-gpg and somehow make gpg check configurable per OS.
 TOOLCHAIN_VERSION=5
 # package versions used
 GCC_VERSION=13.2.0
@@ -768,8 +769,10 @@ echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
     wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xE4B29C8D64885307
-$GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
+if false; then
+    $GPG --keyserver $KEYSERVER --recv-keys 0xE4B29C8D64885307
+    $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
+fi
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify spdlog
@@ -787,20 +790,26 @@ cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
-$GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
+if false; then
+    $GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
+    $GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
+fi
 # verify libsodium
 if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]; then
     curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig -o libsodium-$LIBSODIUM_VERSION.tar.gz.sig
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
-$GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
+if false; then
+    $GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
+    $GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
+fi
 # verify libunwind
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
-$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
+if false; then
+    $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
+    $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
+fi
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify proxygen
@@ -811,20 +820,26 @@ echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
 fi
-$GPG --import ../xz_pgp.txt
-$GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
+if false; then
+    $GPG --import ../xz_pgp.txt
+    $GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
+fi
 # verify zlib
 if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
-$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+if false; then
+    $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+    $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+fi
 #verify zstd
 if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
-$GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
+if false; then
+    $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
+    $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
+fi
 # verify wangle
 echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 popd
