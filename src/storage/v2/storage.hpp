@@ -347,7 +347,7 @@ class Storage {
       -> std::unique_ptr<ReplicationClient> = 0;
 
   virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config,
-                                       memgraph::replication::ReplicationEpoch *current_epoch)
+                                       memgraph::replication::ReplicationState *repl_state)
       -> std::unique_ptr<ReplicationServer> = 0;
 
   auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }

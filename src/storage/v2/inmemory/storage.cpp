@@ -62,9 +62,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
   auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
-    auto &epoch = repl_state.GetEpoch();
     // RECOVER DATA
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
+    // TODO: decouple repl_state (epoch recovery from storage)
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_state,
                                         &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
@@ -2021,9 +2021,8 @@ auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::Repli
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const memgraph::replication::ReplicationServerConfig &config,
-    memgraph::replication::ReplicationEpoch *current_epoch) {
-  return std::make_unique<InMemoryReplicationServer>(this, config, current_epoch);
+    const memgraph::replication::ReplicationServerConfig &config, memgraph::replication::ReplicationState *repl_state) {
+  return std::make_unique<InMemoryReplicationServer>(this, config, repl_state);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {

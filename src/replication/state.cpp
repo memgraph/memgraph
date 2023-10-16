@@ -207,9 +207,9 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   return false;
 }
 bool ReplicationState::SetReplicationRoleMain() {
-  auto prev_epoch = epoch_.NewEpoch();  // TODO: need Epoch to be part of the durability state
+  auto prev_epoch = NewEpoch();  // TODO: need Epoch to be part of the durability state
   if (!TryPersistRoleMain()) {
-    epoch_.SetEpoch(std::move(prev_epoch));
+    SetEpoch(std::move(prev_epoch));
     return false;
   }
   replication_data_ = ReplicationDataMain_t{};

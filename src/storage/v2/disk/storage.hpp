@@ -310,12 +310,14 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/,const memgraph::replication::ReplicationEpoch */*current_epoch*/)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/,
+                               const memgraph::replication::ReplicationEpoch * /*current_epoch*/)
       -> std::unique_ptr<ReplicationClient> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/, memgraph::replication::ReplicationEpoch */*current_epoch*/)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/,
+                               memgraph::replication::ReplicationState * /*current_epoch*/)
       -> std::unique_ptr<ReplicationServer> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }

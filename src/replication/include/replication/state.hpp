@@ -42,6 +42,9 @@ struct ReplicationState {
   auto GetEpoch() const -> const ReplicationEpoch & { return epoch_; }
   auto GetEpoch() -> ReplicationEpoch & { return epoch_; }
 
+  auto NewEpoch() -> std::string { return std::exchange(epoch_.id_, memgraph::utils::GenerateUUID()); }
+  auto SetEpoch(std::string new_epoch) -> std::string { return std::exchange(epoch_.id_, std::move(new_epoch)); }
+
   enum class FetchReplicationError : uint8_t {
     NOTHING_FETCHED,
     PARSE_ERROR,

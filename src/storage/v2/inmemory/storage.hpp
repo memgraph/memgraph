@@ -331,7 +331,7 @@ class InMemoryStorage final : public Storage {
       -> std::unique_ptr<ReplicationClient> override;
 
   auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config,
-                               memgraph::replication::ReplicationEpoch *current_epoch)
+                               memgraph::replication::ReplicationState *repl_state)
       -> std::unique_ptr<ReplicationServer> override;
 
  private:

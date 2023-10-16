@@ -26,8 +26,8 @@ struct ReplicationEpoch {
 
   auto id() const -> std::string_view { return id_; }
 
-  auto NewEpoch() -> std::string { return std::exchange(id_, memgraph::utils::GenerateUUID()); }
-  auto SetEpoch(std::string new_epoch) -> std::string { return std::exchange(id_, std::move(new_epoch)); }
+  // TODO: passkey idiom
+  friend struct ReplicationState;
 
  private:
   // UUID to distinguish different main instance runs for replication process

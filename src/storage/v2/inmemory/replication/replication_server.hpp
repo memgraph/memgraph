@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "replication/epoch.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
@@ -23,7 +23,7 @@ class InMemoryReplicationServer : public ReplicationServer {
  public:
   explicit InMemoryReplicationServer(InMemoryStorage *storage,
                                      const memgraph::replication::ReplicationServerConfig &config,
-                                     memgraph::replication::ReplicationEpoch *repl_epoch);
+                                     memgraph::replication::ReplicationState *repl_state);
 
  private:
   // RPC handlers
@@ -39,14 +39,14 @@ class InMemoryReplicationServer : public ReplicationServer {
 
   void TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void LoadWal(InMemoryStorage *storage, memgraph::replication::ReplicationEpoch &epoch,
+  static void LoadWal(InMemoryStorage *storage, memgraph::replication::ReplicationState *repl_state,
                       replication::Decoder *decoder);
 
   static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder, uint64_t version);
 
   InMemoryStorage *storage_;
 
-  memgraph::replication::ReplicationEpoch *repl_epoch_;
+  memgraph::replication::ReplicationState *repl_state_;
 };
 
 }  // namespace memgraph::storage

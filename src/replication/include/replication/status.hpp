@@ -36,7 +36,9 @@ enum class DurabilityVersion : uint8_t {
   V2,  // this version, epoch, replica prefix introduced
 };
 
-struct MainRole {};
+struct MainRole {
+  //  ReplicationEpoch epoch;
+};
 
 struct ReplicaRole {
   ReplicationServerConfig config;
