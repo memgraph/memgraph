@@ -27,7 +27,7 @@ print_help () {
     echo "$0 init|package|docker|test {os} {build_type} [--for-docker|--for-platform]"
     echo ""
     echo "    OSs: ${SUPPORTED_OS[*]}"
-    echo "    Build types: ${SUPPORTED_BULD_TYPES[*]}"
+    echo "    Build types: ${SUPPORTED_BUILD_TYPES[*]}"
     exit 1
 }
 
@@ -52,7 +52,7 @@ make_package () {
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     telemetry_id_override_flag=""
-    if [[ "$#" -gt 1 ]]; then
+    if [[ "$#" -gt 2 ]]; then
         if [[ "$3" == "--for-docker" ]]; then
             telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
         elif [[ "$3" == "--for-platform" ]]; then
@@ -149,20 +149,18 @@ case "$1" in
 
     package)
         shift 1
-        if [[ "$#" -lt 1 ]]; then
+        if [[ "$#" -lt 2 ]]; then
             print_help
         fi
         os="$1"
         build_type="$2"
-        shift 1
-        shift 1
+        shift 2
         is_os_ok=false
         for supported_os in "${SUPPORTED_OS[@]}"; do
             if [[ "$supported_os" == "${os}" ]]; then
                 is_os_ok=true
             fi
         done
-
         is_build_type_ok=false
         for supported_build_type in "${SUPPORTED_BUILD_TYPES[@]}"; do
             if [[ "$supported_build_type" == "${build_type}" ]]; then
