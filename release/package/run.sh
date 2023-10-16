@@ -155,6 +155,7 @@ case "$1" in
         os="$1"
         build_type="$2"
         shift 1
+        shift 1
         is_os_ok=false
         for supported_os in "${SUPPORTED_OS[@]}"; do
             if [[ "$supported_os" == "${os}" ]]; then
