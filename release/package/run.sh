@@ -72,7 +72,6 @@ make_package () {
     if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
         git fetch origin master:master
     fi
-    docker exec "$build_container" bash -c "export CCACHE_DISABLE=1"
     docker exec "$build_container" mkdir -p /memgraph
     # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
@@ -160,12 +159,14 @@ case "$1" in
         for supported_os in "${SUPPORTED_OS[@]}"; do
             if [[ "$supported_os" == "${os}" ]]; then
                 is_os_ok=true
+                break
             fi
         done
         is_build_type_ok=false
         for supported_build_type in "${SUPPORTED_BUILD_TYPES[@]}"; do
             if [[ "$supported_build_type" == "${build_type}" ]]; then
                 is_build_type_ok=true
+                break
             fi
         done
         if [[ "$is_os_ok" == true && "$is_build_type_ok" == true ]]; then
