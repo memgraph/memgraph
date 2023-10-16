@@ -112,6 +112,7 @@ make_package () {
 
 case "$1" in
     init)
+        # TODO(gitbuda): Add support for different toolchains on different operating systems at the same time.
         cd "$SCRIPT_DIR"
         if ! which "docker-compose" >/dev/null; then
             docker_compose_cmd="docker compose"
