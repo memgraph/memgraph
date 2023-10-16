@@ -709,8 +709,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   transaction_.manyDeltasCache.Invalidate(from_vertex, new_edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, new_edge_type, EdgeDirection::IN);
 
-  return EdgeAccessor(edge_ref, new_edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge_ref, new_edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
