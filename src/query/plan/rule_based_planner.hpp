@@ -861,13 +861,11 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    auto all_filters = filters;
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
 
     if (filter_expr) {
-      last_op =
-          std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr, std::move(all_filters));
+      last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr);
     }
     return last_op;
   }

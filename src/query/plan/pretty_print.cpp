@@ -186,7 +186,7 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([](auto &out) { out << "* Filter"; });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }

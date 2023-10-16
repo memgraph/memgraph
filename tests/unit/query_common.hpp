@@ -533,7 +533,6 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   this->storage.template Create<memgraph::query::MapProjectionLiteral>( \
       (memgraph::query::Expression *){map_variable},                    \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
-#define LABELS_TEST(expr, labels) this->storage.template Create<memgraph::query::LabelsTest>(expr, labels)
 #define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
 #define ALL_PROPERTIES_LOOKUP(expr) memgraph::query::test_common::GetAllPropertiesLookup(this->storage, expr)

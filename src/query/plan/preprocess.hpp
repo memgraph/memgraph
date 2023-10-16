@@ -20,6 +20,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/operator.hpp"
 
 namespace memgraph::query::plan {
 
@@ -254,7 +255,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
 /// Stores the symbols and expression used to filter a property.
 class PropertyFilter {
  public:
-  using Bound = utils::Bound<Expression *>;
+  using Bound = ScanAllByLabelPropertyRange::Bound;
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
@@ -328,8 +329,6 @@ struct FilterInfo {
 /// expressions that should be generated.
 class Filters final {
  public:
-  std::vector<FilterInfo> all_filters_;
-
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
@@ -411,6 +410,8 @@ class Filters final {
 
  private:
   void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
+
+  std::vector<FilterInfo> all_filters_;
 };
 
 /// Normalized representation of a single or multiple Match clauses.
