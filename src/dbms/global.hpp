@@ -48,6 +48,7 @@ enum class SetForResult : uint8_t {
 class UnknownSessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(UnknownSessionException)
 };
 
 /**
@@ -58,6 +59,7 @@ class UnknownSessionException : public utils::BasicException {
 class UnknownDatabaseException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(UnknownDatabaseException)
 };
 
 }  // namespace memgraph::dbms

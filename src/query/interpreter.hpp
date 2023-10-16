@@ -39,6 +39,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_trigger.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/settings.hpp"
@@ -51,6 +52,9 @@
 
 namespace memgraph::metrics {
 extern const Event FailedQuery;
+extern const Event FailedPrepare;
+extern const Event FailedPull;
+extern const Event SuccessfulQuery;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query {
@@ -439,12 +443,18 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
+    // Trigger first failed query
+    metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
     AbortCommand(&query_execution);
     throw;
   }
 
   if (maybe_summary) {
+    // Toggle first successfully completed query
+    metrics::FirstSuccessfulQuery();
+    memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);
