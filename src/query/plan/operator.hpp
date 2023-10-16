@@ -2565,7 +2565,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   };
 };
 
-/// Operator for producing a hash join product from 2 input branches
+/// Operator for producing the hash join of two input branches
 class HashJoin : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
@@ -2596,7 +2596,11 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> right_symbols_;
   EqualOperator *hash_join_condition_;
 
-  std::string ToString() const override { return "HashJoin"; }
+  std::string ToString() const override {
+    return fmt::format("HashJoin {{{} : {}}}",
+                       utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<HashJoin>();
