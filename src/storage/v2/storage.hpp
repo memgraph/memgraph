@@ -301,8 +301,8 @@ class Storage {
   virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
-  auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(); }
-  auto GetReplicaState(std::string_view name) -> std::optional<replication::ReplicaState> {
+  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }
+  auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
 
@@ -310,7 +310,6 @@ class Storage {
   memgraph::replication::ReplicationState repl_state_;
   ReplicationStorageState repl_storage_state_;
 
- public:
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing
