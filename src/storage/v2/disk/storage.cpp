@@ -794,16 +794,38 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
          durability_disk_storage_size;
 }
 
-StorageInfo DiskStorage::GetInfo() const {
-  uint64_t edge_count = edge_count_.load(std::memory_order_acquire);
-  uint64_t vertex_count = vertex_count_.load(std::memory_order_acquire);
-  double average_degree = 0.0;
-  if (vertex_count) {
+StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
+  StorageInfo info{};
+  info.vertex_count = vertex_count_;
+  info.edge_count = edge_count_.load(std::memory_order_acquire);
+  if (info.vertex_count) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * edge_count / static_cast<double>(vertex_count);
+    info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
+  info.memory_usage = utils::GetMemoryUsage();
+  info.disk_usage = GetDiskSpaceUsage();
+  return info;
+}
 
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(), GetDiskSpaceUsage()};
+StorageInfo DiskStorage::GetInfo(bool force_dir) {
+  StorageInfo info = GetBaseInfo(force_dir);
+  {
+    auto access = Access(std::nullopt);
+    const auto &lbl = access->ListAllIndices();
+    info.label_indices = lbl.label.size();
+    info.label_property_indices = lbl.label_property.size();
+    const auto &con = access->ListAllConstraints();
+    info.existence_constraints = con.existence.size();
+    info.unique_constraints = con.unique.size();
+  }
+  info.storage_mode = storage_mode_;
+  info.isolation_level = isolation_level_;
+  info.durability_snapshot_enabled =
+      config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+      config_.durability.snapshot_on_exit;
+  info.durability_wal_enabled =
+      config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  return info;
 }
 
 void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {

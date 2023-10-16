@@ -55,7 +55,8 @@ target_link_libraries(mg-query PUBLIC dl
                                       mg-memory
                                       mg::csv
                                       mg-flags
-                                      mg-dbms)
+                                      mg-dbms
+                                      mg-events)
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
 endif()
