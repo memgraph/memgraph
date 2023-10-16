@@ -228,7 +228,7 @@ add_unit_test(utils_exceptions.cpp)
 target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 
 add_unit_test(utils_histogram.cpp)
-target_link_libraries(${test_prefix}utils_histogram mg-utils)
+target_link_libraries(${test_prefix}utils_histogram mg-utils mg-events)
 
 add_unit_test(utils_file.cpp)
 target_link_libraries(${test_prefix}utils_file mg-utils)
@@ -354,6 +354,12 @@ target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 add_unit_test(storage_v2_show_storage_info.cpp)
 target_link_libraries(${test_prefix}storage_v2_show_storage_info mg-storage-v2)
 
+add_unit_test(storage_v2_get_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_get_info mg-storage-v2)
+
+add_unit_test(database_get_info.cpp)
+target_link_libraries(${test_prefix}database_get_info mg-storage-v2 mg-glue mg-dbms)
+
 add_unit_test(storage_v2_storage_mode.cpp)
 target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
 
@@ -411,8 +417,8 @@ if(MG_ENTERPRISE)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
 endif()
 
-
 # Test distributed
 add_unit_test(distributed_lamport_clock.cpp)
 target_link_libraries(${test_prefix}distributed_lamport_clock mg-distributed)
 target_include_directories(${test_prefix}distributed_lamport_clock PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
