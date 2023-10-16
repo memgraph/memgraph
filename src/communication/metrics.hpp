@@ -41,21 +41,7 @@ class BoltMetrics {
     std::atomic_int sessions;                                      //!< Number of sessions using the same driver
     std::atomic_int queries;                                       //!< Queries executed by the driver
 
-    nlohmann::json ToJson() const {
-      nlohmann::json res;
-
-      res["name"] = name;
-      res["supported_bolt_versions"] = nlohmann::json::array();
-      for (const auto &sbv : supported_bolt_v) {
-        res["supported_bolt_versions"].push_back(sbv);
-      }
-      res["bolt_version"] = bolt_v;
-      res["connection_types"] = {{ConnectionTypeStr((ConnectionType)0), connection_types[0].load()},
-                                 {ConnectionTypeStr((ConnectionType)1), connection_types[1].load()}};
-      res["sessions"] = sessions.load();
-      res["queries"] = queries.load();
-      return res;
-    }
+    nlohmann::json ToJson() const;
 
    private:
     friend class Metrics;
@@ -110,8 +96,6 @@ class BoltMetrics {
                                 std::forward_as_tuple(std::move(name), std::move(bolt_v), std::move(supported_bolt_v)));
     return Metrics(it->second);
   }
-
-  void CleanUp() {}
 
   nlohmann::json ToJson() {
     std::unique_lock<std::mutex> l(mtx);

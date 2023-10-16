@@ -11,8 +11,32 @@
 
 #include "metrics.hpp"
 
+namespace {
+constexpr auto kName = "name";
+constexpr auto kSupportedBoltVersions = "supported_bolt_versions";
+constexpr auto kBoltVersion = "bolt_version";
+constexpr auto kConnectionTypes = "connection_types";
+constexpr auto kSessions = "sessions";
+constexpr auto kQueries = "queries";
+}  // namespace
 namespace memgraph::communication {
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 BoltMetrics bolt_metrics;
 
+nlohmann::json BoltMetrics::Info::ToJson() const {
+  nlohmann::json res;
+
+  res[kName] = name;
+  res[kSupportedBoltVersions] = nlohmann::json::array();
+  for (const auto &sbv : supported_bolt_v) {
+    res[kSupportedBoltVersions].push_back(sbv);
+  }
+  res[kBoltVersion] = bolt_v;
+  res[kConnectionTypes] = {{ConnectionTypeStr((ConnectionType)0), connection_types[0].load()},
+                           {ConnectionTypeStr((ConnectionType)1), connection_types[1].load()}};
+  res[kSessions] = sessions.load();
+  res[kQueries] = queries.load();
+  return res;
+}
 }  // namespace memgraph::communication
