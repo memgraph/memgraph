@@ -5,7 +5,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "debian-11"
+check_operating_system "debian-12"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
