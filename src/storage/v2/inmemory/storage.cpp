@@ -15,7 +15,6 @@
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"

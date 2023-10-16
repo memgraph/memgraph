@@ -15,7 +15,6 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
-#include "storage/v2/id_types.hpp"
 #include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
