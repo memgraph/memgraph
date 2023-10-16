@@ -294,7 +294,6 @@ TYPED_TEST(TestPlanner, MatchMultiPatternWithHashJoin) {
   // Test MATCH (a:label)-[r1]->(b), (c:label)-[r2]->(d) WHERE c.id = a.id return a, b, c, d;
   FakeDbAccessor dba;
   const auto label_name = "label";
-  const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "id");
 
   auto *query = QUERY(
@@ -760,15 +759,16 @@ TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
 
   // We expect both ScanAll to come before filters (2 are joined into one),
   // because they need to populate the symbol values.
-  // They are combined by a cartesian to generate values from both symbols respectively and independently
-  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll()};
-  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll()};
+  // They are combined in a Cartesian (rewritten to HashJoin) to generate values from both symbols respectively and
+  // independently
+  std::list<BaseOpChecker *> left_hash_join_ops{new ExpectScanAll()};
+  std::list<BaseOpChecker *> right_hash_join_ops{new ExpectScanAll()};
 
-  CheckPlan<TypeParam>(query, this->storage, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectFilter(),
+  CheckPlan<TypeParam>(query, this->storage, ExpectHashJoin(left_hash_join_ops, right_hash_join_ops), ExpectFilter(),
                        ExpectProduce());
 
-  DeleteListContent(&left_cartesian_ops);
-  DeleteListContent(&right_cartesian_ops);
+  DeleteListContent(&left_hash_join_ops);
+  DeleteListContent(&right_hash_join_ops);
 }
 
 TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
@@ -1266,6 +1266,26 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
 
   CheckPlan(planner.plan(), symbol_table, ExpectIndexedJoin(left_index_join_ops, right_index_join_ops),
             ExpectProduce());
+
+  DeleteListContent(&left_index_join_ops);
+  DeleteListContent(&right_index_join_ops);
+}
+
+TYPED_TEST(TestPlanner, UnableToUseSecondPropertyIndex) {
+  // Test MATCH (n :label), (m :label) WHERE m.property = n.property RETURN n
+  FakeDbAccessor dba;
+  auto property = PROPERTY_PAIR(dba, "property");
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", property);
+  auto m_prop = PROPERTY_LOOKUP(dba, "m", property);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label")), PATTERN(NODE("m", "label"))),
+                                   WHERE(EQ(m_prop, n_prop)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_index_join_ops{new ExpectScanAll(), new ExpectFilter()};
+  std::list<BaseOpChecker *> right_index_join_ops{new ExpectScanAll(), new ExpectFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectHashJoin(left_index_join_ops, right_index_join_ops), ExpectProduce());
 
   DeleteListContent(&left_index_join_ops);
   DeleteListContent(&right_index_join_ops);

@@ -172,7 +172,7 @@ Feature: Cartesian
             """
         Then the result should be empty
 
-    Scenario: Multiple match with WHERE 01
+    Scenario: Multiple match with WHERE x = y 01
         Given an empty graph
         And having executed
             """
@@ -186,7 +186,7 @@ Feature: Cartesian
             | a            | b            |
             | (:A {id: 1}) | (:B {id: 1}) |
 
-    Scenario: Multiple match with WHERE 02
+    Scenario: Multiple match with WHERE x = y 02
         Given an empty graph
         And having executed
             """
@@ -201,7 +201,7 @@ Feature: Cartesian
             | (:A {id: 1}) | (:B {id: 1}) |
             | (:A {id: 2}) | (:B {id: 2}) |
 
-    Scenario: Multiple match with WHERE 03
+    Scenario: Multiple match with WHERE x = y 03
         Given an empty graph
         And having executed
             """
@@ -213,16 +213,17 @@ Feature: Cartesian
             """
         Then the result should be:
             | a                     | b                     |
-            | (:A {prop: 1, id: 1}) | (:A {prop: 1, id: 1}) |
-            | (:A {prop: 1, id: 1}) | (:A {prop: 1, id: 2}) |
-            | (:A {prop: 2, id: 2}) | (:A {prop: 2, id: 2}) |
-            | (:A {prop: 2, id: 2}) | (:B {prop: 2, id: 3}) |
-            | (:A {prop: 1, id: 2}) | (:A {prop: 1, id: 1}) |
-            | (:A {prop: 1, id: 2}) | (:A {prop: 1, id: 2}) |
-            | (:B {prop: 2, id: 3}) | (:A {prop: 2, id: 2}) |
-            | (:B {prop: 2, id: 3}) | (:B {prop: 2, id: 3}) |
+            | (:A {id: 1, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 1, prop: 1}) | (:A {id: 2, prop: 1}) |
+            | (:A {id: 2, prop: 2}) | (:A {id: 2, prop: 2}) |
+            | (:A {id: 2, prop: 2}) | (:B {id: 3, prop: 2}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 2, prop: 1}) |
+            | (:B {id: 3, prop: 2}) | (:A {id: 2, prop: 2}) |
+            | (:B {id: 3, prop: 2}) | (:B {id: 3, prop: 2}) |
 
-    Scenario: Multiple match with WHERE 04
+
+    Scenario: Multiple match with WHERE x = y 04
         Given an empty graph
         And having executed
             """
@@ -234,11 +235,47 @@ Feature: Cartesian
             """
         Then the result should be:
             | a                     | b                     |
-            | (:A {prop: 1, id: 1}) | (:A {prop: 1, id: 1}) |
-            | (:A {prop: 1, id: 1}) | (:A {prop: 1, id: 2}) |
-            | (:A {prop: 2, id: 2}) | (:A {prop: 2, id: 2}) |
-            | (:A {prop: 1, id: 2}) | (:A {prop: 1, id: 1}) |
-            | (:A {prop: 1, id: 2}) | (:A {prop: 1, id: 2}) |
+            | (:A {id: 1, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 1, prop: 1}) | (:A {id: 2, prop: 1}) |
+            | (:A {id: 2, prop: 2}) | (:A {id: 2, prop: 2}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 2, prop: 1}) |
+
+    Scenario: Multiple match with WHERE x = y 05: nothing on the left side
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:B {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:A) MATCH (b:B) WHERE a.id = b.id RETURN a, b
+            """
+        Then the result should be empty
+
+    Scenario: Multiple match with WHERE x = y 06: nothing on the right side
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1}), (:A {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:A) MATCH (b:B) WHERE a.id = b.id RETURN a, b
+            """
+        Then the result should be empty
+
+    Scenario: Multiple match with WHERE x = y 07: sides never equal
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1}), (:B {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:A) MATCH (b:B) WHERE a.id = b.id RETURN a, b
+            """
+        Then the result should be empty
 
     Scenario: Multiple match + with 01
         Given an empty graph

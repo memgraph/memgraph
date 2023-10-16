@@ -521,3 +521,16 @@ TYPED_TEST(OperatorToStringTest, Apply) {
   std::string expected_string{"Apply"};
   EXPECT_EQ(last_op.ToString(), expected_string);
 }
+
+TYPED_TEST(OperatorToStringTest, HashJoin) {
+  Symbol lhs_sym = this->GetSymbol("node1");
+  Symbol rhs_sym = this->GetSymbol("node2");
+
+  std::shared_ptr<LogicalOperator> lhs_match = std::make_shared<ScanAll>(nullptr, lhs_sym);
+  std::shared_ptr<LogicalOperator> rhs_match = std::make_shared<ScanAll>(nullptr, rhs_sym);
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<HashJoin>(
+      lhs_match, std::vector<Symbol>{lhs_sym}, rhs_match, std::vector<Symbol>{rhs_sym}, nullptr);
+
+  std::string expected_string{"HashJoin {node1 : node2}"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
