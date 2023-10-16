@@ -27,6 +27,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libipt libipt-devel # intel
     patch
     perl # for openssl
+    git
 )
 
 TOOLCHAIN_RUN_DEPS=(
