@@ -5,7 +5,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "fedora-36"
+check_operating_system "fedora-38"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -41,7 +41,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make cmake pkgconf-pkg-config # build system
+    make pkgconf-pkg-config # build system
     wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
@@ -52,21 +52,10 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    java-11-openjdk-devel java-17-openjdk-devel custom-maven3.9.3 # for driver tests
-    which zip unzip
-    nodejs golang custom-golang1.18.9 # for driver tests
+    which nodejs golang zip unzip java-11-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
-    cyrus-sasl-devel
-)
-
-MEMGRAPH_RUN_DEPS=(
-    logrotate openssl python3 libseccomp
-)
-
-NEW_DEPS=(
-    wget curl tar gzip
 )
 
 list() {
@@ -74,26 +63,14 @@ list() {
 }
 
 check() {
-    local missing=""
     if [ -v LD_LIBRARY_PATH ]; then
-        # On Fedora yum/dnf and python10 use newer glibc which is not compatible
-        # with ours, so we need to momentarely disable env
-        local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
-        LD_LIBRARY_PATH=""
+      # On Fedora 38 yum/dnf and python11 use newer glibc which is not compatible
+      # with ours, so we need to momentarely disable env
+      local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
+      LD_LIBRARY_PATH=""
     fi
+    local missing=""
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-              missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-              missing="$pkg $missing"
-            fi
-            continue
-        fi
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -103,8 +80,8 @@ check() {
         exit 1
     fi
     if [ -v OLD_LD_LIBRARY_PATH ]; then
-        echo "Restoring LD_LIBRARY_PATH..."
-        LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
+      echo "Restoring LD_LIBRARY_PATH..."
+      LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
     fi
 }
 
@@ -122,25 +99,7 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
     dnf update -y
-
     for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == java-17-openjdk-devel ]; then
-            if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
-                dnf install -y "$pkg"
-                # The default Java version should be Java 11
-                update-alternatives --set java java-11-openjdk.x86_64
-                update-alternatives --set javac java-11-openjdk.x86_64
-            fi
-            continue
-        fi
         dnf install -y "$pkg"
     done
 }
