@@ -7,7 +7,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
 
-source "$DIR/../util.sh"
+source "$DIR/../../util.sh"
 DISTRO="$(operating_system)"
 
 function log_tool_name () {
@@ -51,17 +51,13 @@ CPPCHECK_VERSION=2.6
 LLVM_VERSION=13.0.0
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
-# Set the right env script
-ENV_SCRIPT="$DIR/../os/$DISTRO.sh"
+# Set the right operating system setup script.
+ENV_SCRIPT="$DIR/../../os/$DISTRO.sh"
 if [[ "$for_arm" = true ]]; then
-    ENV_SCRIPT="$DIR/../os/$DISTRO-arm.sh"
+    ENV_SCRIPT="$DIR/../../os/$DISTRO-arm.sh"
 fi
-
-# Check for the toolchain build dependencies.
 echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS
-
-# Check for the toolchain run dependencies.
 echo "ALL RUN PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_RUN_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_RUN_DEPS
 
@@ -658,7 +654,7 @@ In order to be able to run all of these tools you should install the following
 packages:
 
 \`\`\`
-$($DIR/../os/$ENV_SCRIPT.sh list TOOLCHAIN_RUN_DEPS)
+$($DIR/../../os/$ENV_SCRIPT.sh list TOOLCHAIN_RUN_DEPS)
 \`\`\`
 
 ## Usage
