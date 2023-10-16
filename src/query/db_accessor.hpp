@@ -374,27 +374,19 @@ class DbAccessor final {
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackThreadAllocations(const char *thread_id) {
-#if USE_JEMALLOC
     memgraph::memory::StartTrackingThreadTransaction(thread_id, *accessor_->GetTransactionId());
-#endif
   }
 
   void TrackCurrentThreadAllocations() {
-#if USE_JEMALLOC
     memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
-#endif
   }
 
   void UntrackThreadAllocations(const char *thread_id) {
-#if USE_JEMALLOC
     memgraph::memory::StopTrackingThreadTransaction(thread_id, *accessor_->GetTransactionId());
-#endif
   }
 
   void UntrackCurrentThreadAllocations() {
-#if USE_JEMALLOC
     memgraph::memory::StopTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
-#endif
   }
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
