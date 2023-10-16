@@ -707,6 +707,8 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
   auto node_3 = graph.CreateNode();
 
   auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+  relationship.SetProperty("property", mgp::Value(true));
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   graph.SetFrom(relationship, node_3);
@@ -714,6 +716,7 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
   ASSERT_EQ(std::string(relationship.Type()), "Edge");
   ASSERT_EQ(relationship.From().Id(), node_3.Id());
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
 
 TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
@@ -730,6 +733,8 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
   auto node_3 = graph.CreateNode();
 
   auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+  relationship.SetProperty("property", mgp::Value(true));
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
   graph.SetTo(relationship, node_3);
@@ -737,6 +742,7 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
   ASSERT_EQ(std::string(relationship.Type()), "Edge");
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   ASSERT_EQ(relationship.To().Id(), node_3.Id());
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
 
 TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
@@ -774,8 +780,11 @@ TYPED_TEST(CppApiTestFixture, TestChangeRelationshipType) {
   auto node_2 = graph.CreateNode();
 
   auto relationship = graph.CreateRelationship(node_1, node_2, "Type");
+  relationship.SetProperty("property", mgp::Value(true));
   ASSERT_EQ(relationship.Type(), "Type");
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 
   graph.ChangeType(relationship, "NewType");
   ASSERT_EQ(relationship.Type(), "NewType");
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
