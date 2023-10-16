@@ -1,8 +1,7 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 SUPPORTED_OS=(
     centos-7 centos-9
     debian-10 debian-11 debian-11-arm
@@ -10,8 +9,8 @@ SUPPORTED_OS=(
     fedora-36
     amzn-2
 )
-
 PROJECT_ROOT="$SCRIPT_DIR/../.."
+# TODO(gitbuda): Toolchain is now specific for a given OS -> ADJUST.
 TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
