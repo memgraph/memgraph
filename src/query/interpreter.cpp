@@ -40,7 +40,8 @@
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
-#include "memory/memory_control.hpp"
+#include "memory/global_memory_control.hpp"
+#include "memory/query_memory_control.hpp"
 #include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -1268,27 +1269,17 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
                                                                 std::map<std::string, TypedValue> *summary) {
   std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
   MG_ASSERT(transaction_id.has_value());
-  unsigned arena_ind{0};
+
   if (memory_limit_) {
-    // TODO (AF) think to isolate this in namespace or make a class
-    memgraph::memory::transaction_id_tracker.emplace(std::piecewise_construct, std::forward_as_tuple(*transaction_id),
-                                                     std::forward_as_tuple());
-    auto &memory_tracker = memgraph::memory::transaction_id_tracker[*transaction_id];
-    memory_tracker.SetMaximumHardLimit(static_cast<int64_t>(*memory_limit_));
-    memory_tracker.SetHardLimit(static_cast<int64_t>(*memory_limit_));
-    arena_ind = memgraph::memory::GetArenaForThread();
-    memgraph::memory::AddTrackingOnArena(arena_ind);
-    memgraph::memory::UpdateThreadToTransactionId(std::this_thread::get_id(), *transaction_id);
+    memgraph::memory::StartTrackingOnTransaction(*transaction_id, *memory_limit_);
   }
   utils::OnScopeExit<std::function<void()>> reset_query_limit{
-      [memory_limit = memory_limit_, transaction_id = *transaction_id, arena_ind]() {
+      [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
         if (memory_limit) {
-          // TODO (AF) think to isolate this in namespace or make a class
-          memgraph::memory::transaction_id_tracker.erase(transaction_id);
-          memgraph::memory::RemoveTrackingOnArena(arena_ind);
-          memgraph::memory::ResetThreadToTransactionId(std::this_thread::get_id());
+          memgraph::memory::StopTrackingOnTransaction(transaction_id);
         }
       }};
+
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.

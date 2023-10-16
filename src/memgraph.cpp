@@ -22,7 +22,7 @@
 #include "glue/run_id.hpp"
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
-#include "memory/memory_control.hpp"
+#include "memory/global_memory_control.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"

@@ -17,7 +17,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
-#include "memory/memory_control.hpp"
+#include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -374,22 +374,28 @@ class DbAccessor final {
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackThreadAllocations(const char *thread_id) {
-    memgraph::memory::UpdateThreadToTransactionId(thread_id, *accessor_->GetTransactionId());
-    auto arena = memgraph::memory::GetArenaForThread();
-    memgraph::memory::AddTrackingOnArena(arena);
+#if USE_JEMALLOC
+    memgraph::memory::StartTrackingThreadTransaction(thread_id, *accessor_->GetTransactionId());
+#endif
   }
 
   void TrackCurrentThreadAllocations() {
-    memgraph::memory::AddTrackingsOnCurrentThread(*accessor_->GetTransactionId());
+#if USE_JEMALLOC
+    memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+#endif
   }
 
   void UntrackThreadAllocations(const char *thread_id) {
-    memgraph::memory::ResetThreadToTransactionId(thread_id);
-    auto arena = memgraph::memory::GetArenaForThread();
-    memgraph::memory::RemoveTrackingOnArena(arena);
+#if USE_JEMALLOC
+    memgraph::memory::StopTrackingThreadTransaction(thread_id, *accessor_->GetTransactionId());
+#endif
   }
 
-  void UntrackCurrentThreadAllocations() { memgraph::memory::RemoveTrackingsOnCurrentThread(); }
+  void UntrackCurrentThreadAllocations() {
+#if USE_JEMALLOC
+    memgraph::memory::StopTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+#endif
+  }
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
 
