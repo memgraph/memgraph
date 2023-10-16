@@ -94,6 +94,17 @@ class DiskStorage final : public Storage {
         const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
         utils::SkipList<Vertex> &indexed_vertices);
 
+    template <typename TIndex, typename TIndexCacheKey, typename TMergeFunc>
+    void SyncDeletedVertices(TIndex &index, TIndexCacheKey &cache_key,
+                             std::vector<std::list<Delta>> &index_delta_storage, View view, TMergeFunc &merge_func) {
+      if (!transaction_.vertices_to_delete_.empty()) {
+        index[cache_key] = utils::SkipList<Vertex>();
+        if (view == View::OLD) {
+          merge_func(index, index_delta_storage);
+        }
+      }
+    }
+
    public:
     DiskAccessor(const DiskAccessor &) = delete;
     DiskAccessor &operator=(const DiskAccessor &) = delete;
