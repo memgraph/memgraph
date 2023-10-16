@@ -50,7 +50,7 @@ void ChangeType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
   const auto arguments = mgp::List(args);
   try {
     auto rel{arguments[0].ValueRelationship()};
-    auto new_type{arguments[0].ValueString()};
+    auto new_type{arguments[1].ValueString()};
     mgp::Graph graph{memgraph_graph};
     graph.ChangeType(rel, new_type);
   } catch (const std::exception &e) {
