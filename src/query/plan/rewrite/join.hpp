@@ -143,6 +143,15 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(IndexedJoin &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(IndexedJoin &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(HashJoin &op) override {
     prev_ops_.push_back(&op);
     RewriteBranch(&op.left_op_);
