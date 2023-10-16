@@ -56,12 +56,21 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
                                                    .config = config,
                                                }};
 
-  if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
-    role_persisted = RolePersisted::YES;
-    return true;
+  if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
+    spdlog::error("Error when saving REPLICA replication role in settings.");
+    return false;
   }
-  spdlog::error("Error when saving REPLICA replication role in settings.");
-  return false;
+  role_persisted = RolePersisted::YES;
+
+  // Cleanup remove registered replicas (assume successful delete)
+  // NOTE: we could do the alternative which would be on REPLICA -> MAIN we recover these registered replicas
+  auto b = durability_->begin(durability::kReplicationReplicaPrefix);
+  auto e = durability_->end(durability::kReplicationReplicaPrefix);
+  for (; b != e; ++b) {
+    durability_->Delete(b->first);
+  }
+
+  return true;
 }
 bool ReplicationState::TryPersistRoleMain() {
   if (!ShouldPersist()) return true;
@@ -196,5 +205,60 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   if (durability_->Put(key, nlohmann::json(data).dump())) return true;
   spdlog::error("Error when saving replica {} in settings.", config.name);
   return false;
+}
+bool ReplicationState::SetReplicationRoleMain() {
+  auto prev_epoch = epoch_.NewEpoch();  // TODO: need Epoch to be part of the durability state
+  if (!TryPersistRoleMain()) {
+    epoch_.SetEpoch(std::move(prev_epoch));
+    return false;
+  }
+  replication_data_ = ReplicationDataMain_t{};
+  return true;
+}
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
+  if (!TryPersistRoleReplica(config)) {
+    return false;
+  }
+  replication_data_ = ReplicationDataReplica_t{config};
+  return true;
+}
+auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError {
+  auto const replica_handler = [](ReplicationState::ReplicationDataReplica_t &) -> RegisterReplicaError {
+    return RegisterReplicaError::NOT_MAIN;
+  };
+  auto const main_handler = [this, &config](ReplicationState::ReplicationDataMain_t &mainData) -> RegisterReplicaError {
+    // name check
+    auto name_check = [&config](ReplicationState::ReplicationDataMain_t &replicas) {
+      auto name_matches = [&name = config.name](ReplicationClientConfig const &registered_config) {
+        return registered_config.name == name;
+      };
+      return std::any_of(replicas.begin(), replicas.end(), name_matches);
+    };
+    if (name_check(mainData)) {
+      return RegisterReplicaError::NAME_EXISTS;
+    }
+
+    // endpoint check
+    auto endpoint_check = [&](ReplicationState::ReplicationDataMain_t &replicas) {
+      auto endpoint_matches = [&config](ReplicationClientConfig const &registered_config) {
+        return registered_config.ip_address == config.ip_address && registered_config.port == config.port;
+      };
+      return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
+    };
+    if (endpoint_check(mainData)) {
+      return RegisterReplicaError::END_POINT_EXISTS;
+    }
+
+    // Durability
+    if (!TryPersistRegisteredReplica(config)) {
+      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+    }
+
+    // set
+    mainData.emplace_back(config);
+    return RegisterReplicaError::SUCCESS;
+  };
+
+  return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
 }
 }  // namespace memgraph::replication

@@ -54,13 +54,8 @@ bool ReplicationHandler::SetReplicationRoleMain() {
   }
 
   // STEP 2) Change to MAIN
-  repl_state_.GetEpoch().NewEpoch();  // TODO: need Epoch to be part of the durability state
-  if (!repl_state_.TryPersistRoleMain()) {
-    // TODO: On failure restore old epoch? restore replication servers?
-    return false;
-  }
-  repl_state_.ReplicationData() = memgraph::replication::ReplicationState::ReplicationDataMain_t{};
-  return true;
+  // TODO: restore replication servers if false?
+  return repl_state_.SetReplicationRoleMain();
 }
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
@@ -69,89 +64,59 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
     return false;
   }
 
+  // Remove registered replicas
+  storage_.repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+
+  // Start
   std::unique_ptr<ReplicationServer> replication_server =
       storage_.CreateReplicationServer(config, &repl_state_.GetEpoch());
-  bool res = replication_server->Start();
-  if (!res) {
+  if (!replication_server->Start()) {
     spdlog::error("Unable to start the replication server.");
     return false;
   }
   storage_.repl_storage_state_.replication_server_ = std::move(replication_server);
 
-  if (!repl_state_.TryPersistRoleReplica(config)) {
-    return false;
-  }
-
-  repl_state_.ReplicationData() = memgraph::replication::ReplicationState::ReplicationDataReplica_t{config};
-  return true;
+  // TODO: restore main on false?
+  return repl_state_.SetReplicationRoleReplica(config);
 }
 
 auto ReplicationHandler::RegisterReplica(const RegistrationMode registration_mode,
                                          const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
-  auto &repl_data = repl_state_.ReplicationData();
+  MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
 
-  auto const replica_handler =
-      [](ReplicationState::ReplicationDataReplica_t &) -> utils::BasicResult<RegisterReplicaError> {
-    MG_ASSERT(false, "Only main instance can register a replica!");
-    __builtin_unreachable();
-  };
-  auto const main_handler =
-      [this, registration_mode,
-       &config](ReplicationState::ReplicationDataMain_t &mainData) -> utils::BasicResult<RegisterReplicaError> {
-    // TODO: decouple the RegisterReplica to be replica state agnostic during restore
-    if (registration_mode != RegistrationMode::RESTORE) {
-      // name check
-      auto name_check = [&config](ReplicationState::ReplicationDataMain_t &replicas) {
-        auto name_matches = [&name = config.name](ReplicationClientConfig const &registered_config) {
-          return registered_config.name == name;
-        };
-        return std::any_of(replicas.begin(), replicas.end(), name_matches);
-      };
-      if (name_check(mainData)) {
-        return RegisterReplicaError::NAME_EXISTS;
-      }
-
-      // endpoint check
-      auto endpoint_check = [&](ReplicationState::ReplicationDataMain_t &replicas) {
-        auto endpoint_matches = [&config](ReplicationClientConfig const &registered_config) {
-          return registered_config.ip_address == config.ip_address && registered_config.port == config.port;
-        };
-        return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
-      };
-      if (endpoint_check(mainData)) {
-        return RegisterReplicaError::END_POINT_EXISTS;
-      }
-
-      // Durability
-      if (!repl_state_.TryPersistRegisteredReplica(config)) {
-        return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      }
-
-      // set
-      mainData.emplace_back(config);
+  if (registration_mode != RegistrationMode::RESTORE) {
+    auto res = repl_state_.RegisterReplica(config);
+    switch (res) {
+      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+        MG_ASSERT(false, "Only main instance can register a replica!");
+        return {};
+      case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+        return memgraph::storage::RegisterReplicaError::NAME_EXISTS;
+      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
+        return memgraph::storage::RegisterReplicaError::END_POINT_EXISTS;
+      case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+        return memgraph::storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+      case memgraph::replication::RegisterReplicaError::SUCCESS:
+        break;
     }
+  }
+  return storage_.repl_storage_state_.replication_clients_.WithLock(
+      [this, registration_mode, &config](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
+        auto client = storage_.CreateReplicationClient(config, &repl_state_.GetEpoch());
+        client->Start();
 
-    // TODO: Per storage
-    return storage_.repl_storage_state_.replication_clients_.WithLock(
-        [this, registration_mode, &config](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
-          auto client = storage_.CreateReplicationClient(config, &repl_state_.GetEpoch());
-          client->Start();
-
-          if (client->State() == replication::ReplicaState::INVALID) {
-            if (registration_mode == RegistrationMode::MUST_BE_INSTANTLY_VALID) {
-              return RegisterReplicaError::CONNECTION_FAILED;
-            }
-
-            spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
-                         client->Name());
+        if (client->State() == replication::ReplicaState::INVALID) {
+          if (registration_mode == RegistrationMode::MUST_BE_INSTANTLY_VALID) {
+            return RegisterReplicaError::CONNECTION_FAILED;
           }
-          clients.push_back(std::move(client));
-          return {};
-        });
-  };
 
-  return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_data);
+          spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
+                       client->Name());
+        }
+        clients.push_back(std::move(client));
+        return {};
+      });
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {

@@ -28,6 +28,9 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
+enum class RegistrationMode : uint8_t { MUST_BE_INSTANTLY_VALID, RESTORE };
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+
 struct ReplicationState {
   ReplicationState(std::optional<std::filesystem::path> durability_dir);
 
@@ -65,6 +68,11 @@ struct ReplicationState {
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+  auto RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError;
+
+  bool SetReplicationRoleMain();
+
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
