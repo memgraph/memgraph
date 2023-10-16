@@ -100,14 +100,14 @@ check() {
 
 install() {
     cat >/etc/apt/sources.list <<EOF
-deb http://deb.debian.org/debian bullseye main
-deb-src http://deb.debian.org/debian bullseye main
+deb http://deb.debian.org/debian bookworm main
+deb-src http://deb.debian.org/debian bookworm main
 
-deb http://deb.debian.org/debian-security/ bullseye-security main
-deb-src http://deb.debian.org/debian-security/ bullseye-security main
+deb http://deb.debian.org/debian-security/ bookworm-security main
+deb-src http://deb.debian.org/debian-security/ bookworm-security main
 
-deb http://deb.debian.org/debian bullseye-updates main
-deb-src http://deb.debian.org/debian bullseye-updates main
+deb http://deb.debian.org/debian bookworm-updates main
+deb-src http://deb.debian.org/debian bookworm-updates main
 EOF
     cd "$DIR"
     apt update
