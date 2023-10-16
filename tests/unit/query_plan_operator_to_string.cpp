@@ -14,7 +14,6 @@
 #include "disk_test_utils.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
-#include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
 
 #include "query_common.hpp"
