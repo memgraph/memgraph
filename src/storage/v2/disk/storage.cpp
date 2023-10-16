@@ -540,7 +540,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  const auto cache_key = label;
 
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     HandleLoadingLabelForEdgeImportCache(label);
@@ -552,40 +551,40 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   std::list<storage::Delta> *index_deltas{nullptr};
 
   auto merge_with_main_cache = [&](auto &index, auto &index_delta_storage) -> std::unordered_set<Gid> {
-    indexed_vertices = &index[cache_key];
+    indexed_vertices = &index[label];
     index_delta_storage.emplace_back();
     index_deltas = &index_delta_storage.back();
 
-    return MergeVerticesFromMainCacheWithLabelIndexCache(cache_key, view, *index_deltas, *indexed_vertices);
+    return MergeVerticesFromMainCacheWithLabelIndexCache(label, view, *index_deltas, *indexed_vertices);
   };
 
   auto &cache = transaction_.label_index_cache_;
   auto &cache_ci = transaction_.label_index_cache_ci_;
   auto &index_delta_storage = transaction_.index_deltas_storage_;
 
-  SyncDeletedVertices(cache, cache_key, index_delta_storage, view, merge_with_main_cache);
+  SyncDeletedVertices(cache, label, index_delta_storage, view, merge_with_main_cache);
 
   if (transaction_.command_id > cache_ci) {
     cache_ci = transaction_.command_id;
   } else {
-    if (cache.contains(cache_key)) {
+    if (cache.contains(label)) {
       if (view == View::OLD) {
         // TODO
         // we do not need this merge if we can make sure that
         // the removing and re-adding the same label to a given
         // vertex within one transaction is not permitted.
         merge_with_main_cache(cache, index_delta_storage);
-        return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
+        return VerticesIterable(AllVerticesIterable(cache[label].access(), storage_, &transaction_, view));
       }
-      cache[cache_key] = utils::SkipList<Vertex>();
+      cache[label] = utils::SkipList<Vertex>();
       merge_with_main_cache(cache, index_delta_storage);
-      return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
+      return VerticesIterable(AllVerticesIterable(cache[label].access(), storage_, &transaction_, view));
     }
 
-    cache[cache_key] = utils::SkipList<Vertex>();
+    cache[label] = utils::SkipList<Vertex>();
     index_delta_storage.emplace_back();
     index_deltas = &index_delta_storage.back();
-    LoadVerticesFromDiskLabelIndex({}, cache_key, *index_deltas, transaction_.vertices_);
+    LoadVerticesFromDiskLabelIndex({}, label, *index_deltas, transaction_.vertices_);
   }
 
   merge_with_main_cache(cache, index_delta_storage);
