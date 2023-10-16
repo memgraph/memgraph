@@ -52,11 +52,11 @@ TEST_F(ShowStorageInfoTest, CountOnAbort) {
   ASSERT_EQ(edge.EdgeType(), et);
   ASSERT_EQ(edge.FromVertex(), src_vertex);
   ASSERT_EQ(edge.ToVertex(), dest_vertex);
-  memgraph::storage::StorageInfo info_before_abort = this->storage->GetInfo();
+  memgraph::storage::StorageInfo info_before_abort = this->storage->GetBaseInfo();
   ASSERT_EQ(info_before_abort.vertex_count, 2);
   ASSERT_EQ(info_before_abort.edge_count, 1);
   acc->Abort();
-  memgraph::storage::StorageInfo info_after_abort = this->storage->GetInfo();
+  memgraph::storage::StorageInfo info_after_abort = this->storage->GetBaseInfo();
   ASSERT_EQ(info_after_abort.vertex_count, 0);
   ASSERT_EQ(info_after_abort.edge_count, 0);
 }

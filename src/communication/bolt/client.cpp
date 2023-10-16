@@ -264,4 +264,5 @@ bool Client::ReadMessageData(Marker marker, Value &ret) {
   }
   return false;
 }
+
 }  // namespace memgraph::communication::bolt

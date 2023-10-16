@@ -566,6 +566,7 @@ class TypedValue {
 class TypedValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
 
 // binary bool operators

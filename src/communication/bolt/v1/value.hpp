@@ -276,6 +276,7 @@ class ValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   ValueException() : BasicException("Incompatible template param and type!") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ValueException)
 };
 
 /**

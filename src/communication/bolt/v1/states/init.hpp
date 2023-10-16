@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <optional>
 
@@ -18,6 +19,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "communication/metrics.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -201,6 +203,9 @@ State StateInitRunV1(TSession &session, const Marker marker, const Signature sig
     return result.value();
   }
 
+  // Register session to metrics
+  RegisterNewSession(session, *maybeMetadata);
+
   return SendSuccessMessage(session);
 }
 
@@ -227,6 +232,9 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
     return result.value();
   }
 
+  // Register session to metrics
+  RegisterNewSession(session, *maybeMetadata);
+
   return SendSuccessMessage(session);
 }
 
@@ -247,6 +255,10 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
     if (SendSuccessMessage(session) == State::Close) {
       return State::Close;
     }
+
+    // Register session to metrics
+    TouchNewSession(session, *maybeMetadata);
+
     // Stay in Init
     return State::Init;
   }
@@ -274,6 +286,10 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
     if (SendSuccessMessage(session) == State::Close) {
       return State::Close;
     }
+
+    // Register session to metrics
+    UpdateNewSession(session, *maybeMetadata);
+
     return State::Idle;
   }
 

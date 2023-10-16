@@ -62,6 +62,7 @@
 #include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
+#include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
@@ -2641,14 +2642,14 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
@@ -2679,7 +2680,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             }
 
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
-            if (auto vertex_cnt_approx = in.storage()->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+            if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
                   "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
@@ -3077,16 +3078,18 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
                  next_transaction_isolation_level] {
-        auto info = storage->GetInfo();
+        auto info = storage->GetBaseInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("memory_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_usage)))},
+            {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+            {TypedValue("memory_allocated"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("allocation_limit"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
@@ -3834,7 +3837,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
+    // Trigger first failed query
+    metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -3860,10 +3866,12 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  bool decrement = true;
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
       transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
+      decrement = false;
       break;
     }
     expected = TransactionStatus::ACTIVE;
@@ -3879,7 +3887,10 @@ void Interpreter::Abort() {
   current_timeout_timer_.reset();
   current_transaction_.reset();
 
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  if (decrement) {
+    // Decrement only if the transaction was active when we started to Abort
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  }
 
   // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);
