@@ -971,20 +971,6 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(HashJoin &op) {
-  json self;
-  self["name"] = "HashJoin";
-
-  op.left_op_->Accept(*this);
-  self["left"] = PopOutput();
-
-  op.right_op_->Accept(*this);
-  self["right"] = PopOutput();
-
-  output_ = std::move(self);
-  return false;
-}
-
 }  // namespace impl
 
 }  // namespace memgraph::query::plan
