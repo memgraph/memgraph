@@ -20,6 +20,7 @@
 #include "json/json.hpp"
 
 #include "replication/config.hpp"
+#include "replication/epoch.hpp"
 #include "replication/role.hpp"
 
 namespace memgraph::replication {
@@ -29,27 +30,30 @@ namespace durability {
 // Keys
 constexpr auto *kReplicationRoleName{"__replication_role"};
 constexpr auto *kReplicationReplicaPrefix{"__replication_replica:"};  // introduced in V2
-constexpr auto *kReplicationEpoch{"__replication_epoch"};             // introduced in V2
 
 enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
   V2,  // this version, epoch, replica prefix introduced
 };
 
+// fragment of key: "__replication_role"
 struct MainRole {
-  //  ReplicationEpoch epoch;
+  ReplicationEpoch epoch{};
 };
 
+// fragment of key: "__replication_role"
 struct ReplicaRole {
   ReplicationServerConfig config;
 };
 
+// from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
       DurabilityVersion::V2;  // if not latest then migration required for kReplicationReplicaPrefix
   std::variant<MainRole, ReplicaRole> role;
 };
 
+// from key: "__replication_replica:"
 struct ReplicationReplicaEntry {
   ReplicationClientConfig config;
 };

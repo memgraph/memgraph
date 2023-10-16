@@ -38,7 +38,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
         spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
-        replication_data_ = ReplicationState::ReplicationDataMain_t{};
+        replication_data_ = RoleMainData{};
         return;
       }
       case PARSE_ERROR: {
@@ -72,10 +72,10 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
 
   return true;
 }
-bool ReplicationState::TryPersistRoleMain() {
+bool ReplicationState::TryPersistRoleMain(std::string const &new_epoch) {
   if (!ShouldPersist()) return true;
 
-  auto data = durability::ReplicationRoleEntry{.role = durability::MainRole{}};
+  auto data = durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{new_epoch}}};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
@@ -121,10 +121,12 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = ReplicationState::ReplicationDataMain_t{};
+              auto res = RoleMainData{
+                  .epoch_ = std::move(r.epoch),
+              };
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
-              res.reserve(durability_->Size(durability::kReplicationReplicaPrefix));
+              res.registered_replicas_.reserve(durability_->Size(durability::kReplicationReplicaPrefix));
               for (; b != e; ++b) {
                 auto const &[replica_name, replica_data] = *b;
                 auto json = nlohmann::json::parse(replica_data, nullptr, false);
@@ -135,7 +137,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
                   }
-                  res.emplace_back(std::move(data.config));
+                  res.registered_replicas_.emplace_back(std::move(data.config));
                 } catch (...) {
                   return FetchReplicationError::PARSE_ERROR;
                 }
@@ -143,7 +145,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
-              return {ReplicationDataReplica_t{std::move(r.config)}};
+              return {RoleReplicaData{std::move(r.config)}};
             },
         },
         std::move(data.role));
@@ -160,7 +162,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       std::vector<std::string> to_delete;
       for (auto [old_key, old_data] : *durability_) {
         // skip reserved keys
-        if (old_key == durability::kReplicationRoleName || old_key == durability::kReplicationEpoch) {
+        if (old_key == durability::kReplicationRoleName) {
           continue;
         }
 
@@ -177,7 +179,9 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
         }
         to_delete.push_back(std::move(old_key));
       }
+      // Set version
       data.version = durability::DurabilityVersion::V2;
+      // Re-serialise (to include version + epoch)
       to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
       if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;  // some reason couldn't persist
       [[fallthrough]];
@@ -196,7 +200,7 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
-    if (!TryPersistRoleMain()) return false;
+    if (!TryPersistRoleMain(std::string())) return false;
   }
 
   auto data = durability::ReplicationReplicaEntry{.config = config};
@@ -207,45 +211,44 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   return false;
 }
 bool ReplicationState::SetReplicationRoleMain() {
-  auto prev_epoch = NewEpoch();  // TODO: need Epoch to be part of the durability state
-  if (!TryPersistRoleMain()) {
-    SetEpoch(std::move(prev_epoch));
+  auto new_epoch = utils::GenerateUUID();
+  if (!TryPersistRoleMain(new_epoch)) {
     return false;
   }
-  replication_data_ = ReplicationDataMain_t{};
+  replication_data_ = RoleMainData{.epoch_ = ReplicationEpoch{new_epoch}};
   return true;
 }
 bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
   if (!TryPersistRoleReplica(config)) {
     return false;
   }
-  replication_data_ = ReplicationDataReplica_t{config};
+  replication_data_ = RoleReplicaData{config};
   return true;
 }
 auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError {
-  auto const replica_handler = [](ReplicationState::ReplicationDataReplica_t &) -> RegisterReplicaError {
+  auto const replica_handler = [](RoleReplicaData const &) -> RegisterReplicaError {
     return RegisterReplicaError::NOT_MAIN;
   };
-  auto const main_handler = [this, &config](ReplicationState::ReplicationDataMain_t &mainData) -> RegisterReplicaError {
+  auto const main_handler = [this, &config](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
-    auto name_check = [&config](ReplicationState::ReplicationDataMain_t &replicas) {
+    auto name_check = [&config](auto const &replicas) {
       auto name_matches = [&name = config.name](ReplicationClientConfig const &registered_config) {
         return registered_config.name == name;
       };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
     };
-    if (name_check(mainData)) {
+    if (name_check(mainData.registered_replicas_)) {
       return RegisterReplicaError::NAME_EXISTS;
     }
 
     // endpoint check
-    auto endpoint_check = [&](ReplicationState::ReplicationDataMain_t &replicas) {
+    auto endpoint_check = [&](auto const &replicas) {
       auto endpoint_matches = [&config](ReplicationClientConfig const &registered_config) {
         return registered_config.ip_address == config.ip_address && registered_config.port == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
-    if (endpoint_check(mainData)) {
+    if (endpoint_check(mainData.registered_replicas_)) {
       return RegisterReplicaError::END_POINT_EXISTS;
     }
 
@@ -255,7 +258,7 @@ auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) ->
     }
 
     // set
-    mainData.emplace_back(config);
+    mainData.registered_replicas_.emplace_back(config);
     return RegisterReplicaError::SUCCESS;
   };
 

@@ -27,6 +27,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -111,7 +112,7 @@ void RecoverIndicesAndConstraints(
 /// @throw std::bad_alloc
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
-                                        memgraph::replication::ReplicationState &repl_state,
+                                        ReplicationStorageState &repl_storage_state,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,

@@ -304,9 +304,7 @@ class DiskStorage final : public Storage {
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
-  void PrepareForNewEpoch(std::string /*prev_epoch*/) override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
+  void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

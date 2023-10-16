@@ -49,7 +49,7 @@ struct ReplicationStorageState {
   auto ReplicasInfo() const -> std::vector<ReplicaInfo>;
 
   // History
-  void AddEpochToHistory(std::string prev_epoch);
+  void TrackLatestHistory();
   void AddEpochToHistoryForce(std::string prev_epoch);
 
   void Reset();
@@ -80,6 +80,8 @@ struct ReplicationStorageState {
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
   ReplicationClientList replication_clients_;
+
+  memgraph::replication::ReplicationEpoch epoch_;
 };
 
 }  // namespace memgraph::storage

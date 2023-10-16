@@ -35,8 +35,8 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
 
 InMemoryReplicationServer::InMemoryReplicationServer(InMemoryStorage *storage,
                                                      const memgraph::replication::ReplicationServerConfig &config,
-                                                     memgraph::replication::ReplicationState *repl_state)
-    : ReplicationServer{config}, storage_(storage), repl_state_{repl_state} {
+                                                     memgraph::replication::ReplicationEpoch *epoch)
+    : ReplicationServer{config}, storage_(storage), replica_epoch_{epoch} {
   rpc_server_.Register<replication::HeartbeatRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received HeartbeatRpc");
     this->HeartbeatHandler(req_reader, res_builder);
@@ -68,7 +68,7 @@ void InMemoryReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::B
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   replication::HeartbeatRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load(),
-                                std::string{repl_state_->GetEpoch().id()}};
+                                std::string{replica_epoch_->id()}};
   slk::Save(res, res_builder);
 }
 
@@ -82,13 +82,13 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
   auto &repl_storage_state = storage_->repl_storage_state_;
-  if (*maybe_epoch_id != repl_state_->GetEpoch().id()) {
-    auto prev_epoch = repl_state_->SetEpoch(*maybe_epoch_id);
+  if (*maybe_epoch_id != replica_epoch_->id()) {
+    auto prev_epoch = replica_epoch_->SetEpoch(*maybe_epoch_id);
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
   if (storage_->wal_file_) {
-    if (req.seq_num > storage_->wal_file_->SequenceNumber() || *maybe_epoch_id != repl_state_->GetEpoch().id()) {
+    if (req.seq_num > storage_->wal_file_->SequenceNumber() || *maybe_epoch_id != replica_epoch_->id()) {
       storage_->wal_file_->FinalizeWal();
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
@@ -155,7 +155,7 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
     storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
-    repl_state_->SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
+    replica_epoch_->SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
     storage_->vertex_id_ = recovery_info.next_vertex_id;
     storage_->edge_id_ = recovery_info.next_edge_id;
@@ -207,7 +207,7 @@ void InMemoryReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Bu
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
-    LoadWal(storage_, repl_state_, &decoder);
+    LoadWal(storage_, replica_epoch_, &decoder);
   }
 
   replication::WalFilesRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
@@ -223,14 +223,15 @@ void InMemoryReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::
 
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
-  LoadWal(storage_, repl_state_, &decoder);
+  LoadWal(storage_, replica_epoch_, &decoder);
 
   replication::CurrentWalRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
-void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, memgraph::replication::ReplicationState *repl_state,
+void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage,
+                                        memgraph::replication::ReplicationEpoch *replica_epoch,
                                         replication::Decoder *decoder) {
   const auto temp_wal_directory = std::filesystem::temp_directory_path() / "memgraph" / durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
@@ -243,8 +244,8 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage, memgraph::repl
       storage->uuid_ = wal_info.uuid;
     }
 
-    if (wal_info.epoch_id != repl_state->GetEpoch().id()) {
-      auto prev_epoch = repl_state->SetEpoch(wal_info.epoch_id);
+    if (wal_info.epoch_id != replica_epoch->id()) {
+      auto prev_epoch = replica_epoch->SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }
 

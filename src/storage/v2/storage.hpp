@@ -340,7 +340,7 @@ class Storage {
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
-  virtual void PrepareForNewEpoch(std::string prev_epoch) = 0;
+  virtual void PrepareForNewEpoch() = 0;
 
   virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
                                        const memgraph::replication::ReplicationEpoch *current_epoch)

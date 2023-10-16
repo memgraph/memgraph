@@ -31,6 +31,13 @@ enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 enum class RegistrationMode : uint8_t { MUST_BE_INSTANTLY_VALID, RESTORE };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
+struct RoleMainData {
+  ReplicationEpoch epoch_;
+  std::vector<ReplicationClientConfig> registered_replicas_;
+};
+
+using RoleReplicaData = ReplicationServerConfig;
+
 struct ReplicationState {
   ReplicationState(std::optional<std::filesystem::path> durability_dir);
 
@@ -39,31 +46,28 @@ struct ReplicationState {
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
+  // TODO: make just MAIN
+  // ??????
   auto GetEpoch() const -> const ReplicationEpoch & { return epoch_; }
-  auto GetEpoch() -> ReplicationEpoch & { return epoch_; }
-
-  auto NewEpoch() -> std::string { return std::exchange(epoch_.id_, memgraph::utils::GenerateUUID()); }
-  auto SetEpoch(std::string new_epoch) -> std::string { return std::exchange(epoch_.id_, std::move(new_epoch)); }
 
   enum class FetchReplicationError : uint8_t {
     NOTHING_FETCHED,
     PARSE_ERROR,
   };
-  using ReplicationDataReplica_t = ReplicationServerConfig;
-  using ReplicationDataMain_t = std::vector<ReplicationClientConfig>;
-  using ReplicationData_t = std::variant<ReplicationDataMain_t, ReplicationDataReplica_t>;
+
+  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
   using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
   auto GetRole() const -> ReplicationRole {
-    return std::holds_alternative<ReplicationDataReplica_t>(replication_data_) ? ReplicationRole::REPLICA
-                                                                               : ReplicationRole::MAIN;
+    return std::holds_alternative<RoleReplicaData>(replication_data_) ? ReplicationRole::REPLICA
+                                                                      : ReplicationRole::MAIN;
   }
   bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
-  bool TryPersistRoleMain();
+  bool TryPersistRoleMain(std::string const &new_epoch);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);

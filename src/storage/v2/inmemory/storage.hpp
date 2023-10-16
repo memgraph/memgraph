@@ -379,7 +379,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void PrepareForNewEpoch(std::string prev_epoch) override;
+  void PrepareForNewEpoch() override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;

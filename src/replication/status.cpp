@@ -21,6 +21,7 @@ constexpr auto *kCheckFrequency = "replica_check_frequency";
 constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
 constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
+constexpr auto *kEpoch = "epoch";
 constexpr auto *kVersion = "durability_version";
 
 // TODO: use utils::...
@@ -37,7 +38,7 @@ namespace durability {
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}};
+    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}, {kEpoch, main.epoch.id()}};
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     j = nlohmann::json{
@@ -58,7 +59,10 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   j.at(kReplicationRole).get_to(role);
   switch (role) {
     case ReplicationRole::MAIN: {
-      p = ReplicationRoleEntry{.version = version, .role = MainRole{}};
+      auto json_epoch = j.value(kEpoch, std::string{});
+      auto epoch = ReplicationEpoch{};
+      if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
+      p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch)}};
       break;
     }
     case ReplicationRole::REPLICA: {
@@ -98,9 +102,9 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
+      .mode = j.at(kSyncMode).get<ReplicationMode>(),
       .ip_address = j.at(kIpAddress).get<std::string>(),
       .port = j.at(kPort).get<uint16_t>(),
-      .mode = j.at(kSyncMode).get<ReplicationMode>(),
       .replica_check_frequency = std::chrono::seconds{seconds},
   };
   if (!key_file.is_null()) {

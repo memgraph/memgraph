@@ -64,7 +64,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   if (config_.durability.recover_on_startup) {
     // RECOVER DATA
     // TODO: decouple repl_state (epoch recovery from storage)
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_state,
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_,
                                         &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
@@ -1633,8 +1633,7 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  auto &replState = repl_state_;
-  if (!InitializeWalFile(replState.GetEpoch())) {
+  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
   // Traverse deltas and append them to the WAL file.
@@ -1804,8 +1803,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  auto &replState = repl_state_;
-  if (!InitializeWalFile(replState.GetEpoch())) {
+  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
 
@@ -1920,7 +1918,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  auto const &epoch = replicationState.GetEpoch();
+  auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
@@ -1980,13 +1978,13 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-void InMemoryStorage::PrepareForNewEpoch(std::string prev_epoch) {
+void InMemoryStorage::PrepareForNewEpoch() {
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  repl_storage_state_.AddEpochToHistory(std::move(prev_epoch));
+  repl_storage_state_.TrackLatestHistory();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -2022,7 +2020,7 @@ auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::Repli
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
     const memgraph::replication::ReplicationServerConfig &config, memgraph::replication::ReplicationState *repl_state) {
-  return std::make_unique<InMemoryReplicationServer>(this, config, repl_state);
+  return std::make_unique<InMemoryReplicationServer>(this, config, &this->repl_storage_state_.epoch_);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {

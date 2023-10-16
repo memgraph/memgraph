@@ -16,6 +16,8 @@
 
 using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationState;
+using memgraph::replication::RoleMainData;
+using memgraph::replication::RoleReplicaData;
 
 namespace memgraph::storage {
 
@@ -45,7 +47,6 @@ bool ReplicationHandler::SetReplicationRoleMain() {
   }
 
   // STEP 1) bring down all REPLICA servers
-  auto current_epoch = std::string(repl_state_.GetEpoch().id());
   {  // TODO: foreach storage
     // ensure replica server brought down
     storage_.repl_storage_state_.replication_server_.reset(nullptr);
@@ -55,7 +56,12 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
   // STEP 2) Change to MAIN
   // TODO: restore replication servers if false?
-  return repl_state_.SetReplicationRoleMain();
+  if (!repl_state_.SetReplicationRoleMain()) {
+    return false;
+  }
+  // update storage local epoch
+  storage_.repl_storage_state_.epoch_ = repl_state_.GetEpoch();
+  return true;
 }
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
@@ -102,7 +108,7 @@ auto ReplicationHandler::RegisterReplica(const RegistrationMode registration_mod
   }
   return storage_.repl_storage_state_.replication_clients_.WithLock(
       [this, registration_mode, &config](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
-        auto client = storage_.CreateReplicationClient(config, &repl_state_.GetEpoch());
+        auto client = storage_.CreateReplicationClient(config, &storage_.repl_storage_state_.epoch_);
         client->Start();
 
         if (client->State() == replication::ReplicaState::INVALID) {
@@ -119,15 +125,16 @@ auto ReplicationHandler::RegisterReplica(const RegistrationMode registration_mod
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
-  auto const replica_handler = [](ReplicationState::ReplicationDataReplica_t const &) -> UnregisterReplicaResult {
+  auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {
     return UnregisterReplicaResult::NOT_MAIN;
   };
-  auto const main_handler = [this, name](ReplicationState::ReplicationDataMain_t &mainData) -> UnregisterReplicaResult {
+  auto const main_handler = [this, name](RoleMainData &mainData) -> UnregisterReplicaResult {
     if (!repl_state_.TryPersistUnregisterReplica(name)) {
       return UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
     }
-    auto const n_unregistered = std::erase_if(
-        mainData, [&](ReplicationClientConfig const &registered_config) { return registered_config.name == name; });
+    auto const n_unregistered =
+        std::erase_if(mainData.registered_replicas_,
+                      [&](ReplicationClientConfig const &registered_config) { return registered_config.name == name; });
 
     // don't care how many got erased
     storage_.repl_storage_state_.replication_clients_.WithLock(
@@ -147,9 +154,9 @@ void ReplicationHandler::RestoreReplication() {
   spdlog::info("Restoring replication role.");
 
   /// MAIN
-  auto const recover_main = [this](ReplicationState::ReplicationDataMain_t const &configs) {
+  auto const recover_main = [this](RoleMainData const &mainData) {
     storage_.repl_storage_state_.replication_server_.reset();
-    for (const auto &config : configs) {
+    for (const auto &config : mainData.registered_replicas_) {
       spdlog::info("Replica {} restored for {}.", config.name, storage_.id());
       auto ret = RegisterReplica(RegistrationMode::RESTORE, config);
       if (ret.HasError()) {
@@ -162,7 +169,7 @@ void ReplicationHandler::RestoreReplication() {
   };
 
   /// REPLICA
-  auto const recover_replica = [this](ReplicationState::ReplicationDataReplica_t const &config) {
+  auto const recover_replica = [this](RoleReplicaData const &config) {
     auto replication_server = storage_.CreateReplicationServer(config, &repl_state_);
     if (!replication_server->Start()) {
       LOG_FATAL("Unable to start the replication server.");
