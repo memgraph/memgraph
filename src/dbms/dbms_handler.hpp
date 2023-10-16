@@ -25,6 +25,7 @@
 
 #include "auth/auth.hpp"
 #include "constants.hpp"
+#include "dbms/database.hpp"
 #include "dbms/database_handler.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
@@ -32,6 +33,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -41,6 +43,43 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
+
+struct Statistics {
+  uint64_t num_vertex;           //!< Sum of vertexes in every database
+  uint64_t num_edges;            //!< Sum of edges in every database
+  uint64_t triggers;             //!< Sum of triggers in every database
+  uint64_t streams;              //!< Sum of streams in every database
+  uint64_t users;                //!< Number of defined users
+  uint64_t num_databases;        //!< Number of isolated databases
+  uint64_t indices;              //!< Sum of indices in every database
+  uint64_t constraints;          //!< Sum of constraints in every database
+  uint64_t storage_modes[3];     //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
+  uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
+  uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
+  uint64_t wal_enabled;          //!< Number of databases with WAL enabled
+};
+
+static inline nlohmann::json ToJson(const Statistics &stats) {
+  nlohmann::json res;
+
+  res["edges"] = stats.num_edges;
+  res["vertices"] = stats.num_vertex;
+  res["triggers"] = stats.triggers;
+  res["streams"] = stats.streams;
+  res["users"] = stats.users;
+  res["databases"] = stats.num_databases;
+  res["indices"] = stats.indices;
+  res["constraints"] = stats.constraints;
+  res["storage_modes"] = {{storage::StorageModeToString((storage::StorageMode)0), stats.storage_modes[0]},
+                          {storage::StorageModeToString((storage::StorageMode)1), stats.storage_modes[1]},
+                          {storage::StorageModeToString((storage::StorageMode)2), stats.storage_modes[2]}};
+  res["isolation_levels"] = {{storage::IsolationLevelToString((storage::IsolationLevel)0), stats.isolation_levels[0]},
+                             {storage::IsolationLevelToString((storage::IsolationLevel)1), stats.isolation_levels[1]},
+                             {storage::IsolationLevelToString((storage::IsolationLevel)2), stats.isolation_levels[2]}};
+  res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
+
+  return res;
+}
 
 #ifdef MG_ENTERPRISE
 
@@ -53,12 +92,6 @@ class DbmsHandler {
  public:
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
-
-  struct Statistics {
-    uint64_t num_vertex;     //!< Sum of vertexes in every database
-    uint64_t num_edges;      //!< Sum of edges in every database
-    uint64_t num_databases;  //! number of isolated databases
-  };
 
   /**
    * @brief Initialize the handler.
@@ -180,25 +213,51 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Return the number of vertex across all databases.
+   * @brief Return the statistics all databases.
    *
-   * @return uint64_t
+   * @return Statistics
    */
-  Statistics Info() {
+  Statistics Stats() {
+    Statistics stats{};
     // TODO: Handle overflow?
-    uint64_t nv = 0;
-    uint64_t ne = 0;
     std::shared_lock<LockT> rd(lock_);
-    const uint64_t ndb = std::distance(db_handler_.cbegin(), db_handler_.cend());
     for (auto &[_, db_gk] : db_handler_) {
       auto db_acc_opt = db_gk.access();
       if (!db_acc_opt) continue;
       auto &db_acc = *db_acc_opt;
       const auto &info = db_acc->GetInfo();
-      nv += info.vertex_count;
-      ne += info.edge_count;
+      const auto &storage_info = info.storage_info;
+      stats.num_vertex += storage_info.vertex_count;
+      stats.num_edges += storage_info.edge_count;
+      stats.triggers += info.triggers;
+      stats.streams += info.streams;
+      ++stats.num_databases;
+      stats.indices += storage_info.label_indices + storage_info.label_property_indices;
+      stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
+      ++stats.storage_modes[(int)storage_info.storage_mode];
+      ++stats.isolation_levels[(int)storage_info.isolation_level];
+      stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
+      stats.wal_enabled += storage_info.durability_wal_enabled;
     }
-    return {nv, ne, ndb};
+    return stats;
+  }
+
+  /**
+   * @brief Return a vector with all database info.
+   *
+   * @return std::vector<DatabaseInfo>
+   */
+  std::vector<DatabaseInfo> Info() {
+    std::vector<DatabaseInfo> res;
+    res.reserve(std::distance(db_handler_.cbegin(), db_handler_.cend()));
+    std::shared_lock<LockT> rd(lock_);
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc_opt = db_gk.access();
+      if (!db_acc_opt) continue;
+      auto &db_acc = *db_acc_opt;
+      res.push_back(db_acc->GetInfo());
+    }
+    return res;
   }
 
   /**
