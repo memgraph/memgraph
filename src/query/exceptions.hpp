@@ -273,6 +273,12 @@ class IsolationLevelModificationInAnalyticsException : public QueryException {
             "you can think about it as an equivalent to READ_UNCOMMITED.") {}
 };
 
+class IsolationLevelModificationInDiskTransactionalException : public QueryException {
+ public:
+  IsolationLevelModificationInDiskTransactionalException()
+      : QueryException("Snapshot isolation level is the only supported isolation level for disk storage.") {}
+};
+
 class StorageModeModificationInMulticommandTxException : public QueryException {
  public:
   StorageModeModificationInMulticommandTxException()

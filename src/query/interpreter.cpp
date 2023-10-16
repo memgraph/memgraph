@@ -2612,25 +2612,26 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
   MG_ASSERT(isolation_level_query);
 
   const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
+  MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw IsolationLevelModificationInAnalyticsException();
+  }
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+      isolation_level != storage::IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw IsolationLevelModificationInDiskTransactionalException();
+  }
 
   std::function<void()> callback;
   switch (isolation_level_query->isolation_level_scope_) {
-    case IsolationLevelQuery::IsolationLevelScope::GLOBAL:  // TODO:.....not GLOBAL is it?!
-    {
-      MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
-      storage::Storage *storage = current_db.db_acc_->get()->storage();
+    case IsolationLevelQuery::IsolationLevelScope::GLOBAL: {
       callback = [storage, isolation_level] {
-        if (auto maybe_error = storage->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
-              throw IsolationLevelModificationInAnalyticsException();
-              break;
-          }
+        if (auto res = storage->SetIsolationLevel(isolation_level); res.HasError()) {
+          throw utils::BasicException("Failed setting global isolation level");
         }
       };
       break;
     }
-
     case IsolationLevelQuery::IsolationLevelScope::SESSION: {
       callback = [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       break;
@@ -2641,14 +2642,14 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
