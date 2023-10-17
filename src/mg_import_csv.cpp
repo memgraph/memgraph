@@ -162,6 +162,7 @@ struct hash<NodeId> {
 class LoadException : public memgraph::utils::BasicException {
  public:
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(LoadException)
 };
 
 enum class CsvParserState {

@@ -19,7 +19,7 @@ namespace memgraph::storage {
 
 class LabelIndex {
  public:
-  LabelIndex(Indices *indices, const Config &config) : indices_(indices), config_(config) {}
+  LabelIndex() = default;
 
   LabelIndex(const LabelIndex &) = delete;
   LabelIndex(LabelIndex &&) = delete;
@@ -30,6 +30,7 @@ class LabelIndex {
 
   virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
+  // Not used for in-memory
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
   virtual bool DropIndex(LabelId label) = 0;
@@ -39,11 +40,6 @@ class LabelIndex {
   virtual std::vector<LabelId> ListIndices() const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
-
- protected:
-  /// TODO: andi maybe no need for have those in abstract class if disk storage isn't using it
-  Indices *indices_;
-  Config config_;
 };
 
 }  // namespace memgraph::storage

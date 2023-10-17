@@ -20,6 +20,7 @@ namespace memgraph::utils {
 class OutOfMemoryException : public utils::BasicException {
  public:
   explicit OutOfMemoryException(const std::string &msg) : utils::BasicException(msg) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(OutOfMemoryException)
 };
 
 class MemoryTracker final {

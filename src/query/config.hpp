@@ -19,7 +19,7 @@ struct InterpreterConfig {
     bool allow_load_csv{true};
   } query;
 
-  // The same as \ref memgraph::storage::replication::ReplicationClientConfig
+  // The same as \ref memgraph::replication::ReplicationClientConfig
   std::chrono::seconds replication_replica_check_frequency{1};
 
   std::string default_kafka_bootstrap_servers;
