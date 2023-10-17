@@ -116,18 +116,10 @@ struct Transaction {
 
   using LabelIndex = LabelId;
   using LabelPropertyIndex = std::pair<LabelId, PropertyId>;
-  using LabelPropertyValIndex = std::tuple<LabelId, PropertyId, PropertyValue>;
-  using RangeBoundary = std::optional<utils::Bound<PropertyValue>>;
-  using LabelPropertyRangeIndex = std::tuple<LabelId, PropertyId, RangeBoundary, RangeBoundary>;
-
   std::map<LabelId, utils::SkipList<Vertex>> label_index_cache_;
   uint64_t label_index_cache_ci_{command_id};
   std::map<LabelPropertyIndex, utils::SkipList<Vertex>> label_property_index_cache_;
   uint64_t label_property_index_cache_ci_{command_id};
-  std::map<LabelPropertyValIndex, utils::SkipList<Vertex>> label_property_val_index_cache_;
-  uint64_t label_property_val_index_cache_ci_{command_id};
-  std::map<LabelPropertyRangeIndex, utils::SkipList<Vertex>> label_property_range_index_cache_;
-  uint64_t label_property_range_index_cache_ci_{command_id};
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done

@@ -33,13 +33,13 @@ class Bound {
   Bound &operator=(const Bound &other) = default;
   Bound &operator=(Bound &&other) = default;
 
-  bool operator<(const Bound &other) const {
-    return std::make_tuple(value_, type_) < std::make_tuple(other.value_, other.type_);
-  }
+  // bool operator<(const Bound &other) const {
+  //   return std::make_tuple(value_, type_) < std::make_tuple(other.value_, other.type_);
+  // }
 
-  bool operator==(const Bound &other) const {
-    return std::make_tuple(value_, type_) == std::make_tuple(other.value_, other.type_);
-  }
+  // bool operator==(const Bound &other) const {
+  //   return std::make_tuple(value_, type_) == std::make_tuple(other.value_, other.type_);
+  // }
 
   /** Value for the bound. */
   const auto &value() const { return value_; }
