@@ -88,36 +88,32 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   return repl_state_.SetReplicationRoleReplica(config);
 }
 
-auto ReplicationHandler::RegisterReplica(const RegistrationMode registration_mode,
-                                         const memgraph::replication::ReplicationClientConfig &config)
+auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
   MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
 
-  if (registration_mode != RegistrationMode::RESTORE) {
-    auto res = repl_state_.RegisterReplica(config);
-    switch (res) {
-      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-        MG_ASSERT(false, "Only main instance can register a replica!");
-        return {};
-      case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-        return memgraph::storage::RegisterReplicaError::NAME_EXISTS;
-      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-        return memgraph::storage::RegisterReplicaError::END_POINT_EXISTS;
-      case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-        return memgraph::storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      case memgraph::replication::RegisterReplicaError::SUCCESS:
-        break;
-    }
+  auto res = repl_state_.RegisterReplica(config);
+  switch (res) {
+    case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+      MG_ASSERT(false, "Only main instance can register a replica!");
+      return {};
+    case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+      return memgraph::storage::RegisterReplicaError::NAME_EXISTS;
+    case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
+      return memgraph::storage::RegisterReplicaError::END_POINT_EXISTS;
+    case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+      return memgraph::storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+    case memgraph::replication::RegisterReplicaError::SUCCESS:
+      break;
   }
+
   return storage_.repl_storage_state_.replication_clients_.WithLock(
-      [this, registration_mode, &config](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
+      [this, &config](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
         auto client = storage_.CreateReplicationClient(config, &storage_.repl_storage_state_.epoch_);
         client->Start();
 
         if (client->State() == replication::ReplicaState::INVALID) {
-          if (registration_mode == RegistrationMode::MUST_BE_INSTANTLY_VALID) {
-            return RegisterReplicaError::CONNECTION_FAILED;
-          }
+          return RegisterReplicaError::CONNECTION_FAILED;
 
           spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
                        client->Name());
@@ -149,35 +145,59 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
   return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
 }
 
-void ReplicationHandler::RestoreReplication() {
-  if (!repl_state_.ShouldPersist()) {
+auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRole { return repl_state_.GetRole(); }
+
+bool ReplicationHandler::IsMain() const { return repl_state_.IsMain(); }
+
+bool ReplicationHandler::IsReplica() const { return repl_state_.IsReplica(); }
+
+void RestoreReplication(const ReplicationState &repl_state, Storage &storage) {
+  MG_ASSERT(repl_state.IsMain(), "Only main instance can register a replica!");
+
+  if (!repl_state.ShouldPersist()) {
     return;
   }
-
   spdlog::info("Restoring replication role.");
 
   /// MAIN
-  auto const recover_main = [this](RoleMainData const &mainData) {
-    storage_.repl_storage_state_.replication_server_.reset();
+  auto const recover_main = [&storage](RoleMainData const &mainData) {
+    storage.repl_storage_state_.replication_server_.reset();
     for (const auto &config : mainData.registered_replicas_) {
-      spdlog::info("Replica {} restored for {}.", config.name, storage_.id());
-      auto ret = RegisterReplica(RegistrationMode::RESTORE, config);
+      spdlog::info("Replica {} restored for {}.", config.name, storage.id());
+
+      auto register_replica = [&storage](const memgraph::replication::ReplicationClientConfig &config)
+          -> memgraph::utils::BasicResult<RegisterReplicaError> {
+        return storage.repl_storage_state_.replication_clients_.WithLock(
+            [&storage, &config](auto &clients) -> utils::BasicResult<RegisterReplicaError> {
+              auto client = storage.CreateReplicationClient(config, &storage.repl_storage_state_.epoch_);
+              client->Start();
+
+              if (client->State() == replication::ReplicaState::INVALID) {
+                spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
+                             client->Name());
+              }
+              clients.push_back(std::move(client));
+              return {};
+            });
+      };
+
+      auto ret = register_replica(config);
       if (ret.HasError()) {
         MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
         LOG_FATAL("Failure when restoring replica {}: {}.", config.name, RegisterReplicaErrorToString(ret.GetError()));
       }
-      spdlog::info("Replica {} restored for {}.", config.name, storage_.id());
+      spdlog::info("Replica {} restored for {}.", config.name, storage.id());
     }
     spdlog::info("Replication role restored to MAIN.");
   };
 
   /// REPLICA
-  auto const recover_replica = [this](RoleReplicaData const &config) {
-    auto replication_server = storage_.CreateReplicationServer(config);
+  auto const recover_replica = [&storage](RoleReplicaData const &config) {
+    auto replication_server = storage.CreateReplicationServer(config);
     if (!replication_server->Start()) {
       LOG_FATAL("Unable to start the replication server.");
     }
-    storage_.repl_storage_state_.replication_server_ = std::move(replication_server);
+    storage.repl_storage_state_.replication_server_ = std::move(replication_server);
     spdlog::info("Replication role restored to REPLICA.");
   };
 
@@ -186,12 +206,6 @@ void ReplicationHandler::RestoreReplication() {
           recover_main,
           recover_replica,
       },
-      std::as_const(repl_state_).ReplicationData());
+      std::as_const(repl_state).ReplicationData());
 }
-
-auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRole { return repl_state_.GetRole(); }
-
-bool ReplicationHandler::IsMain() const { return repl_state_.IsMain(); }
-
-bool ReplicationHandler::IsReplica() const { return repl_state_.IsReplica(); }
 }  // namespace memgraph::storage

@@ -328,7 +328,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                          .replica_check_frequency = replica_check_frequency,
                                                          .ssl = std::nullopt};
       using storage::RegistrationMode;
-      auto ret = handler_.RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, config);
+      auto ret = handler_.RegisterReplica(config);
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }

@@ -131,24 +131,6 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   } else {
     commit_log_.emplace(timestamp_);
   }
-
-  // if (config_.durability.restore_replication_state_on_startup) {
-  //   spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-  //   // RECOVER REPLICA CONNECTIONS
-  //   // migration here
-  //   ReplicationHandler{repl_state, *this}.RestoreReplication();
-  // } else {
-  //   spdlog::warn(
-  //       "Replication configuration will NOT be stored. When the server restarts, replication state will be "
-  //       "forgotten.");
-  // }
-
-  // if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
-  //   spdlog::warn(
-  //       "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider
-  //       " "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-  //       "without write-ahead logs this instance is not replicating any data.");
-  // }
 }
 
 InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {}

@@ -39,13 +39,15 @@ int main(int argc, char **argv) {
 
   memgraph::storage::Config db_config;
   memgraph::storage::UpdatePaths(db_config, data_directory);
+  memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(db_config));
 
 #ifdef MG_ENTERPRISE
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, &auth_, false, false);
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &auth_handler, &auth_checker);
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state, &auth_, false, false);
+  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, &auth_handler,
+                                                           &auth_checker);
 #else
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
-  memgraph::query::InterpreterContext interpreter_context_({}, nullptr, &auth_handler, &auth_checker);
+  memgraph::query::InterpreterContext interpreter_context_({}, nullptr, &repl_state, &auth_handler, &auth_checker);
 #endif
 
   memgraph::requests::Init();

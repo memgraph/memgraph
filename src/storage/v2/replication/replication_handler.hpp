@@ -49,7 +49,7 @@ struct ReplicationHandler {
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
 
   // as MAIN, define and connect to REPLICAs
-  auto RegisterReplica(RegistrationMode registered_config, const memgraph::replication::ReplicationClientConfig &config)
+  auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;
 
   // as MAIN, remove a REPLICA connection
@@ -68,4 +68,9 @@ struct ReplicationHandler {
   memgraph::replication::ReplicationState &repl_state_;
   Storage &storage_;
 };
+
+/// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
+/// TODO: extend to do multiple storages
+void RestoreReplication(const memgraph::replication::ReplicationState &replState, Storage &storage);
+
 }  // namespace memgraph::storage

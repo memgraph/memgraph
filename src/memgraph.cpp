@@ -75,11 +75,6 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   file.close();
 }
 
-auto ReplicationStateHelper(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
-  if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
-  return {config.durability.storage_directory};
-}
-
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.

@@ -84,6 +84,11 @@ struct Config {
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
 };
 
+inline auto ReplicationStateHelper(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
+  if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
+  return {config.durability.storage_directory};
+}
+
 static inline void UpdatePaths(Config &config, const std::filesystem::path &storage_dir) {
   auto contained = [](const auto &path, const auto &base) -> std::optional<std::filesystem::path> {
     auto rel = std::filesystem::relative(path, base);

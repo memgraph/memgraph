@@ -60,9 +60,9 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() : interpreter_context({}, kNoHandler) {}
+  InterpreterTest() : interpreter_context({}, kNoHandler, &repl_state) {}
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
@@ -75,6 +75,8 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
+  memgraph::replication::ReplicationState repl_state(memgraph::storage::ReplicationStateHelper(config));
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
