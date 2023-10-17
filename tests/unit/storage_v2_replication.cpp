@@ -1022,8 +1022,8 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto main_config = main_conf;
   main_config.durability.restore_replication_state_on_startup = true;
 
-  std::optional<memgraph::replication::ReplicationState> main_repl_state(ReplicationStateHelper(main_conf));
-  std::optional<memgraph::dbms::Database> main_db(std::in_place, main_conf, *main_repl_state);
+  std::optional<memgraph::replication::ReplicationState> main_repl_state(ReplicationStateHelper(main_config));
+  std::optional<memgraph::dbms::Database> main_db(std::in_place, main_config, *main_repl_state);
   memgraph::replication::ReplicationState replica1_repl_state(ReplicationStateHelper(repl_conf));
   memgraph::dbms::Database replica1_db(repl_conf, replica1_repl_state);
 
