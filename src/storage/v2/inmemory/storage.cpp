@@ -60,13 +60,11 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               "process!",
               config_.durability.storage_directory);
   }
-  auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
     // RECOVER DATA
-    // TODO: decouple repl_state (epoch recovery from storage)
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_,
-                                        &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
-                                        name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
+    auto info =
+        durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_, &vertices_, &edges_,
+                                &edge_count_, name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -104,10 +102,10 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
           "those files into a .backup directory inside the storage directory.");
     }
   }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED &&
+      create_snapshot_handler) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      auto const &repl_state = repl_state_;
-      if (auto maybe_error = this->CreateSnapshot(repl_state, {true}); maybe_error.HasError()) {
+      if (auto maybe_error = create_snapshot_handler(true); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
@@ -134,23 +132,23 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     commit_log_.emplace(timestamp_);
   }
 
-  if (config_.durability.restore_replication_state_on_startup) {
-    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    // RECOVER REPLICA CONNECTIONS
-    // migration here
-    ReplicationHandler{repl_state, *this}.RestoreReplication();
-  } else {
-    spdlog::warn(
-        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
-        "forgotten.");
-  }
+  // if (config_.durability.restore_replication_state_on_startup) {
+  //   spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+  //   // RECOVER REPLICA CONNECTIONS
+  //   // migration here
+  //   ReplicationHandler{repl_state, *this}.RestoreReplication();
+  // } else {
+  //   spdlog::warn(
+  //       "Replication configuration will NOT be stored. When the server restarts, replication state will be "
+  //       "forgotten.");
+  // }
 
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
+  // if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
+  //   spdlog::warn(
+  //       "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider
+  //       " "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+  //       "without write-ahead logs this instance is not replicating any data.");
+  // }
 }
 
 InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {}
@@ -170,9 +168,8 @@ InMemoryStorage::~InMemoryStorage() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Stop();
   }
-  if (config_.durability.snapshot_on_exit) {
-    auto const &repl_state = repl_state_;
-    if (auto maybe_error = this->CreateSnapshot(repl_state, {false}); maybe_error.HasError()) {
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+    if (auto maybe_error = this->create_snapshot_handler(false); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
@@ -191,8 +188,8 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.items) {}
+                                                    StorageMode storage_mode, bool is_main)
+    : Accessor(tag, storage, isolation_level, storage_mode, is_main), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -714,7 +711,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp) {
+    const std::optional<uint64_t> desired_commit_timestamp, bool is_main) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -722,7 +719,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const &replState = mem_storage->repl_state_;
   // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
@@ -743,14 +739,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+    if (is_main || desired_commit_timestamp.has_value()) {
       could_replicate_all_sync_replicas =
           mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
       transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
       // Replica can only update the last commit timestamp with
       // the commits received from main.
-      if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+      if (is_main || desired_commit_timestamp.has_value()) {
         // Update the last commit timestamp
         mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
       }
@@ -824,7 +820,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+        if (is_main || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
         }
@@ -835,7 +831,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                                              std::memory_order_release);  // protected by engine_guard
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+        if (is_main || desired_commit_timestamp.has_value()) {
           // Update the last commit timestamp
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(
               *commit_timestamp_);  // protected by engine_guard
@@ -1199,7 +1195,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1214,11 +1210,10 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    auto const &replState = repl_state_;
-    if (replState.IsReplica()) {
-      start_timestamp = timestamp_;
-    } else {
+    if (is_main) {
       start_timestamp = timestamp_++;
+    } else {
+      start_timestamp = timestamp_;
     }
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
@@ -1912,12 +1907,7 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic) {
-  if (replicationState.IsReplica()) {
-    return CreateSnapshotError::DisabledForReplica;
-  }
-
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(bool is_periodic) {
   auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
@@ -1945,7 +1935,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     } else {
       std::unique_lock main_guard{main_lock_};
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-        if (is_periodic && *is_periodic) {
+        if (is_periodic) {
           return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
         }
         snapshot_creator();
@@ -2019,18 +2009,21 @@ auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::Repli
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const memgraph::replication::ReplicationServerConfig &config, memgraph::replication::ReplicationState *repl_state) {
+    const memgraph::replication::ReplicationServerConfig &config) {
   return std::make_unique<InMemoryReplicationServer>(this, config, &this->repl_storage_state_.epoch_);
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+                                                           bool is_main) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, is_main});
 }
-std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                                 bool is_main) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, is_main});
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);

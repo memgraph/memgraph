@@ -130,8 +130,10 @@ class Storage {
     static constexpr struct UniqueAccess {
     } unique_access;
 
-    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
-    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             bool is_main = true);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             bool is_main = true);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -211,7 +213,7 @@ class Storage {
 
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
+        std::optional<uint64_t> desired_commit_timestamp = {}, bool is_main = true) = 0;
 
     virtual void Abort() = 0;
 
@@ -307,11 +309,15 @@ class Storage {
 
   void FreeMemory() { FreeMemory({}); }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
+  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                           bool is_main = true) = 0;
+  std::unique_ptr<Accessor> Access(bool is_main = true) { return Access(std::optional<IsolationLevel>{}, is_main); }
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                 bool is_main = true) = 0;
+  std::unique_ptr<Accessor> UniqueAccess(bool is_main = true) {
+    return UniqueAccess(std::optional<IsolationLevel>{}, is_main);
+  }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -338,7 +344,9 @@ class Storage {
     return GetInfo(force_dir);
   }
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
+  // NOLINTNEXTLINE(google-default-arguments)
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                        bool is_main = true) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 
@@ -346,8 +354,7 @@ class Storage {
                                        const memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationClient> = 0;
 
-  virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config,
-                                       memgraph::replication::ReplicationState *repl_state)
+  virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
   auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }
@@ -356,7 +363,6 @@ class Storage {
   }
 
   // TODO: make non-public
-  memgraph::replication::ReplicationState repl_state_;
   ReplicationStorageState repl_storage_state_;
 
   // Main storage lock.

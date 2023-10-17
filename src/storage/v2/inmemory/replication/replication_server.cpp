@@ -298,9 +298,9 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<Storage::Accessor> acc = nullptr;
       if (unique) {
-        acc = storage->UniqueAccess(std::nullopt);
+        acc = storage->UniqueAccess(std::nullopt, false /*not main*/);
       } else {
-        acc = storage->Access(std::nullopt);
+        acc = storage->Access(std::nullopt, false /*not main*/);
       }
       auto inmem_acc = std::unique_ptr<InMemoryStorage::InMemoryAccessor>(
           static_cast<InMemoryStorage::InMemoryAccessor *>(acc.release()));
@@ -474,7 +474,8 @@ uint64_t InMemoryReplicationServer::ReadAndApplyDelta(InMemoryStorage *storage, 
         spdlog::trace("       Transaction end");
         if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != timestamp)
           throw utils::BasicException("Invalid commit data!");
-        auto ret = commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first);
+        auto ret =
+            commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first, false /* not main */);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         commit_timestamp_and_accessor = std::nullopt;
         break;

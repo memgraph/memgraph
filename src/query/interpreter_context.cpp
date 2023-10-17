@@ -13,6 +13,20 @@
 
 #include "query/interpreter.hpp"
 namespace memgraph::query {
+
+#ifdef MG_ENTERPRISE
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *handler,
+                                       replication::ReplicationState *rs, query::AuthQueryHandler *ah,
+                                       query::AuthChecker *ac)
+    : db_handler(handler), config(interpreter_config), repl_state(rs), auth(ah), auth_checker(ac) {}
+#else
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config,
+                                       utils::Gatekeeper<dbms::Database> *db_gatekeeper,
+                                       replication::ReplicationState *rs, query::AuthQueryHandler *ah,
+                                       query::AuthChecker *ac)
+    : db_gatekeeper(db_gatekeeper), config(interpreter_config), repl_state(rs), auth(ah), auth_checker(ac) {}
+#endif
+
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
     std::function<bool(std::string const &)> privilege_checker) {

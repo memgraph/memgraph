@@ -21,6 +21,7 @@
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "replication/state.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -49,12 +50,12 @@ class Interpreter;
  */
 struct InterpreterContext {
 #ifdef MG_ENTERPRISE
-  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *db_handler,
-                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
+  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *db_handler,
+                     replication::ReplicationState *rs, AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
 #else
-  InterpreterContext(InterpreterConfig interpreter_config,
-                     memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
-                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
+  InterpreterContext(InterpreterConfig interpreter_config, utils::Gatekeeper<dbms::Database> *db_gatekeeper,
+                     replication::ReplicationState *rs, query::AuthQueryHandler *ah = nullptr,
+                     query::AuthChecker *ac = nullptr);
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -69,6 +70,7 @@ struct InterpreterContext {
   memgraph::utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
+  memgraph::replication::ReplicationState *repl_state;
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 

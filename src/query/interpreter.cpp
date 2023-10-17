@@ -270,7 +270,8 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_(db), handler_{db_->repl_state_, *db_} {}
+  explicit ReplQueryHandler(storage::Storage *db, memgraph::replication::ReplicationState *repl_state)
+      : db_(db), handler_{*repl_state, *db_} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -354,8 +355,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    auto const &replState = db_->repl_state_;
-    if (replState.IsReplica()) {
+    if (handler_.IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -699,7 +699,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters, storage::Storage *storage,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
+                                memgraph::replication::ReplicationState *repl_state) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -719,7 +720,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{storage}, role = repl_query->role_, maybe_port]() mutable {
+      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, role = repl_query->role_, maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -731,7 +732,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{storage}] {
+      callback.fn = [handler = ReplQueryHandler{storage, repl_state}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -750,7 +751,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = config.replication_replica_check_frequency;
 
-      callback.fn = [handler = ReplQueryHandler{storage}, name, socket_address, sync_mode,
+      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, name, socket_address, sync_mode,
                      replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -761,7 +762,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{storage}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -773,7 +774,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{storage}, replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -1395,37 +1396,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
 
-bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
-                                     const query::plan::ReadWriteTypeChecker::RWType query_type) {
-  if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
-                                                     storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto const &replState = storage->repl_state_;
-    return replState.IsReplica() && (query_type == RWType::W || query_type == RWType::RW);
-  }
-  return false;
-}
-
-bool IsReplica(storage::Storage *storage) {
-  if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
-                                                     storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto const &replState = storage->repl_state_;
-    return replState.IsReplica();
-  }
-  return false;
+bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
+  return query_type == RWType::W || query_type == RWType::RW;
 }
 
 }  // namespace
-
-#ifdef MG_ENTERPRISE
-InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *handler,
-                                       query::AuthQueryHandler *ah, query::AuthChecker *ac)
-    : db_handler(handler), config(interpreter_config), auth(ah), auth_checker(ac) {}
-#else
-InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config,
-                                       memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
-                                       query::AuthQueryHandler *ah, query::AuthChecker *ac)
-    : db_gatekeeper(db_gatekeeper), config(interpreter_config), auth(ah), auth_checker(ac) {}
-#endif
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -2281,7 +2256,8 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, CurrentDB &current_db,
-                                      const InterpreterConfig &config) {
+                                      const InterpreterConfig &config,
+                                      memgraph::replication::ReplicationState *repl_state) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
@@ -2294,7 +2270,8 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, storage, config, notifications);
+  auto callback =
+      HandleReplicationQuery(replication_query, parsed_query.parameters, storage, config, notifications, repl_state);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2830,7 +2807,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       std::move(parsed_query.required_privileges),
       [storage](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-        if (auto maybe_error = mem_storage->CreateSnapshot(storage->repl_state_, {}); maybe_error.HasError()) {
+        if (auto maybe_error = mem_storage->CreateSnapshot({}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
@@ -3371,14 +3348,15 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                         InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb) {
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb,
+                                        memgraph::replication::ReplicationState *repl_state) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
   if (!current_db.db_acc_) throw DatabaseContextRequiredException("Multi database queries require a defined database.");
-  if (IsReplica(current_db.db_acc_->get()->storage())) {
+  if (repl_state->IsReplica()) {
     throw QueryException("Query forbidden on the replica!");
   }
 
@@ -3519,11 +3497,6 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
-  }
-  // TODO: Remove once replicas support multi-tenant replication
-  auto &replState = storage->repl_state_;
-  if (replState.IsReplica()) {
-    throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 
   // TODO pick directly from ic
@@ -3788,7 +3761,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       /// TODO: make replication DB agnostic
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  current_db_, interpreter_context_->config);
+                                  current_db_, interpreter_context_->config, interpreter_context_->repl_state);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
@@ -3828,8 +3801,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw MultiDatabaseQueryInMulticommandTxException();
       }
       /// SYSTEM (Replication) + INTERPRETER
-      prepared_query =
-          PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_,
+                                                 interpreter_context_->repl_state);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       /// SYSTEM PURE ("SHOW DATABASES")
       /// INTERPRETER (TODO: "SHOW DATABASE")
@@ -3851,7 +3824,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (IsWriteQueryOnMainMemoryReplica(current_db_.db_acc_->get()->storage(), rw_type)) {
+    if (interpreter_context_->repl_state->IsReplica() && IsQueryWrite(rw_type)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }
@@ -4080,7 +4053,8 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_repplicas = true;
 
-  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit();
+  auto maybe_commit_error =
+      current_db_.db_transactional_accessor_->Commit(std::nullopt, interpreter_context_->repl_state->IsMain());
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 

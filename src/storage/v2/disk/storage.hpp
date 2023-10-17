@@ -142,8 +142,8 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
+                                                              bool is_main = true) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -172,9 +172,11 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                            bool is_main = true) override;
 
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                  bool is_main = true) override;
 
   /// Flushing methods
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
@@ -277,7 +279,8 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  // NOLINTNEXTLINE(google-default-arguments)
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main = true) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 
@@ -314,8 +317,7 @@ class DiskStorage final : public Storage {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/,
-                               memgraph::replication::ReplicationState * /*current_epoch*/)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/)
       -> std::unique_ptr<ReplicationServer> override {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }

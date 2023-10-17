@@ -101,8 +101,12 @@ class DbmsHandler {
    * @param recovery_on_startup restore databases (and its content) and authentication data
    * @param delete_on_drop when dropping delete any associated directories on disk
    */
-  DbmsHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
-      : lock_{utils::RWLock::Priority::READ}, default_config_{std::move(config)}, delete_on_drop_(delete_on_drop) {
+  DbmsHandler(storage::Config config, const replication::ReplicationState &repl_state, auto *auth,
+              bool recovery_on_startup, bool delete_on_drop)
+      : lock_{utils::RWLock::Priority::READ},
+        default_config_{std::move(config)},
+        repl_state_(repl_state),
+        delete_on_drop_(delete_on_drop) {
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
     storage::UpdatePaths(*default_config_, default_config_->durability.storage_directory / "databases");
@@ -351,7 +355,7 @@ class DbmsHandler {
       return NewError::DEFUNCT;
     }
 
-    auto new_db = db_handler_.New(name, storage_config);
+    auto new_db = db_handler_.New(name, storage_config, repl_state_);
     if (new_db.HasValue()) {
       // Success
       if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
@@ -437,12 +441,13 @@ class DbmsHandler {
   }
 
   // Should storage objects ever be deleted?
-  mutable LockT lock_;                             //!< protective lock
-  DatabaseHandler db_handler_;                     //!< multi-tenancy storage handler
-  std::optional<storage::Config> default_config_;  //!< Storage configuration used when creating new databases
-  std::unique_ptr<kvstore::KVStore> durability_;   //!< list of active dbs (pointer so we can postpone its creation)
-  std::set<std::string> defunct_dbs_;              //!< Databases that are in an unknown state due to various failures
-  bool delete_on_drop_;                            //!< Flag defining if dropping storage also deletes its directory
+  mutable LockT lock_;                               //!< protective lock
+  DatabaseHandler db_handler_;                       //!< multi-tenancy storage handler
+  std::optional<storage::Config> default_config_;    //!< Storage configuration used when creating new databases
+  const replication::ReplicationState &repl_state_;  //!< Global replication state
+  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
+  std::set<std::string> defunct_dbs_;                //!< Databases that are in an unknown state due to various failures
+  bool delete_on_drop_;                              //!< Flag defining if dropping storage also deletes its directory
 };
 #endif
 

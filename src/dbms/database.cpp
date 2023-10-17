@@ -19,14 +19,23 @@ template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
 
-Database::Database(const storage::Config &config)
+Database::Database(const storage::Config &config, const replication::ReplicationState &repl_state)
     : trigger_store_(config.durability.storage_directory / "triggers"),
-      streams_{config.durability.storage_directory / "streams"} {
+      streams_{config.durability.storage_directory / "streams"},
+      repl_state_(&repl_state) {
   if (config.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(config);
   } else {
     storage_ = std::make_unique<storage::InMemoryStorage>(config, config.storage_mode);
+    auto *storage = static_cast<storage::InMemoryStorage *>(storage_.get());
+    storage->CreateSnapshotHandler(
+        [storage, &repl_state](bool is_periodic) -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
+          if (repl_state.IsReplica()) {
+            return storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+          }
+          return storage->CreateSnapshot(is_periodic);
+        });
   }
 }
 

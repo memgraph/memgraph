@@ -77,7 +77,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   storage_.repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
 
   // Start
-  std::unique_ptr<ReplicationServer> replication_server = storage_.CreateReplicationServer(config, &repl_state_);
+  std::unique_ptr<ReplicationServer> replication_server = storage_.CreateReplicationServer(config);
   if (!replication_server->Start()) {
     spdlog::error("Unable to start the replication server.");
     return false;
@@ -173,7 +173,7 @@ void ReplicationHandler::RestoreReplication() {
 
   /// REPLICA
   auto const recover_replica = [this](RoleReplicaData const &config) {
-    auto replication_server = storage_.CreateReplicationServer(config, &repl_state_);
+    auto replication_server = storage_.CreateReplicationServer(config);
     if (!replication_server->Start()) {
       LOG_FATAL("Unable to start the replication server.");
     }
