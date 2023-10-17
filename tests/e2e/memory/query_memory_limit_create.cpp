@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
   }
 
   const auto *create_query =
-      "UNWIND range(1, 50000) as u CREATE (n {string: 'Some longer string'}) RETURN n QUERY MEMORY LIMIT 20MB;";
+      "UNWIND range(1, 50000) as u CREATE (n {string: 'Some longer string'}) RETURN n QUERY MEMORY LIMIT 30MB;";
 
   try {
     client->Execute(create_query);
