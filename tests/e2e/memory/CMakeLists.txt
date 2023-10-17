@@ -19,3 +19,7 @@ target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create gflags mgc
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_proc query_memory_limit_proc.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_proc gflags mgclient mg-utils mg-io)
+
+
+add_executable(memgraph__e2e__memory__limit_query_alloc_create_multi_thread query_memory_limit_multi_thread.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create_multi_thread gflags mgclient mg-utils mg-io Threads::Threads)
