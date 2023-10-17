@@ -30,6 +30,10 @@ namespace memgraph::memory {
 // it is necessary to restart tracking at the beginning of new query for that transaction.
 class QueriesMemoryControl {
  public:
+  /*
+  Arena stats
+  */
+
   static unsigned GetArenaForThread();
 
   // Add counter on threads allocating inside arena
@@ -42,8 +46,22 @@ class QueriesMemoryControl {
   // Multiple threads can allocate inside one arena
   bool IsArenaTracked(unsigned);
 
-  // Get arena counter
-  std::atomic<int> &GetArenaCounter(unsigned);
+  // Initialize arena counter
+  void InitializeArenaCounter(unsigned);
+
+  /*
+    Transaction id <-> tracker
+  */
+
+  // Create new tracker for transaction_id with initial limit
+  void CreateTransactionIdTracker(uint64_t, size_t);
+
+  // Remove current tracker for transaction_id
+  bool EraseTransactionIdTracker(uint64_t);
+
+  /*
+  Thread handlings
+  */
 
   // Map thread to transaction with given id
   // This way we can know which thread belongs to which transaction
@@ -52,25 +70,13 @@ class QueriesMemoryControl {
 
   // Remove tracking of thread from transaction.
   // Important to reset if one thread gets reused for different transaction
-  void ResetThreadToTransactionId(const std::thread::id &);
+  void EraseThreadToTransactionId(const std::thread::id &, uint64_t);
 
   // C-API functionality for thread to transaction mapping
   void UpdateThreadToTransactionId(const char *, uint64_t);
 
   // C-API functionality for thread to transaction unmapping
-  void ResetThreadToTransactionId(const char *);
-
-  // Create new tracker for transaction_id
-  utils::MemoryTracker &CreateTransactionIdTracker(uint64_t);
-
-  // Remove current tracker for transaction_id
-  bool EraseTransactionIdTracker(uint64_t);
-
-  // Add tracker for current thread on given transaction id
-  void AddTrackingsOnCurrentThread(uint64_t);
-
-  // Remove tracking for current thread
-  void RemoveTrackingsOnCurrentThread();
+  void EraseThreadToTransactionId(const char *, uint64_t);
 
   utils::MemoryTracker &GetTrackerCurrentThread();
 

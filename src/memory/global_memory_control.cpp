@@ -183,7 +183,7 @@ void SetHooks() {
   }
 
   for (int i = 0; i < n_arenas; i++) {
-    GetQueriesMemoryControl().GetArenaCounter(i).store(0, std::memory_order_relaxed);
+    GetQueriesMemoryControl().InitializeArenaCounter(i);
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
