@@ -550,7 +550,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   utils::SkipList<memgraph::storage::Vertex> *indexed_vertices{nullptr};
   std::list<storage::Delta> *index_deltas{nullptr};
 
-auto merge_with_main_cache = [&](auto &index, auto &index_delta_storage) -> std::unordered_set<Gid> {
+  auto merge_with_main_cache = [&](auto &index, auto &index_delta_storage) -> std::unordered_set<Gid> {
     indexed_vertices = &index[label];
     index_deltas = &index_delta_storage.emplace_back();
     return MergeVerticesFromMainCacheWithLabelIndexCache(label, view, *index_deltas, *indexed_vertices);
@@ -569,7 +569,7 @@ auto merge_with_main_cache = [&](auto &index, auto &index_delta_storage) -> std:
   }
   if (cache.contains(label)) {
     if (view == View::NEW) {
-      cache[label] = utils::SkipList<Vertex>();      
+      cache[label] = utils::SkipList<Vertex>();
     }
     // TODO
     // we do not need this merge if we can make sure that
@@ -620,39 +620,33 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
   };
 
-  auto &label_property_index_cache = transaction_.label_property_index_cache_;
-  auto &label_property_index_cache_ci = transaction_.label_property_index_cache_ci_;
+  auto &cache = transaction_.label_property_index_cache_;
+  auto &cache_ci = transaction_.label_property_index_cache_ci_;
   auto &index_delta_storage = transaction_.index_deltas_storage_;
 
-  SyncDeletedVertices(label_property_index_cache, cache_key, index_delta_storage, view, merge_with_main_cache);
+  SyncDeletedVertices(cache, cache_key, index_delta_storage, view, merge_with_main_cache);
 
-  if (transaction_.command_id > label_property_index_cache_ci) {
-    label_property_index_cache_ci = transaction_.command_id;
-  } else {
-    if (label_property_index_cache.contains(cache_key)) {
-      if (view == View::OLD) {
-        // TODO
-        // we do not need this merge if we can make sure that
-        // the removing and re-adding the same label to a given
-        // vertex within one transaction is not permitted.
-        merge_with_main_cache(label_property_index_cache, index_delta_storage);
-        return VerticesIterable(
-            AllVerticesIterable(label_property_index_cache[cache_key].access(), storage_, &transaction_, view));
-      }
-      label_property_index_cache[cache_key] = utils::SkipList<Vertex>();
-      merge_with_main_cache(label_property_index_cache, index_delta_storage);
-      return VerticesIterable(
-          AllVerticesIterable(label_property_index_cache[cache_key].access(), storage_, &transaction_, view));
-    }
-
-    label_property_index_cache[cache_key] = utils::SkipList<Vertex>();
-    index_delta_storage.emplace_back();
-    index_deltas = &index_delta_storage.back();
-    LoadVerticesFromDiskLabelPropertyIndex({}, label, property, *index_deltas, transaction_.vertices_,
-                                           disk_label_property_filter);
+  if (transaction_.command_id > cache_ci) {
+    cache_ci = transaction_.command_id;
+    merge_with_main_cache(cache, index_delta_storage);
+    return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
   }
-
-  merge_with_main_cache(label_property_index_cache, index_delta_storage);
+  if (cache.contains(cache_key)) {
+    if (view == View::NEW) {
+      cache[cache_key] = utils::SkipList<Vertex>();
+    }
+    // TODO
+    // we do not need this merge if we can make sure that
+    // the removing and re-adding the same label to a given
+    // vertex within one transaction is not permitted.
+    merge_with_main_cache(cache, index_delta_storage);
+    return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
+  }
+  cache[cache_key] = utils::SkipList<Vertex>();
+  index_deltas = &index_delta_storage.emplace_back();
+  LoadVerticesFromDiskLabelPropertyIndex({}, label, property, *index_deltas, transaction_.vertices_,
+                                         disk_label_property_filter);
+  merge_with_main_cache(cache, index_delta_storage);
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
 
@@ -696,28 +690,24 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
   if (transaction_.command_id > cache_ci) {
     cache_ci = transaction_.command_id;
-  } else {
-    if (cache.contains(cache_key)) {
-      if (view == View::OLD) {
-        // TODO
-        // we do not need this merge if we can make sure that
-        // the removing and re-adding the same label to a given
-        // vertex within one transaction is not permitted.
-        merge_with_main_cache(cache, index_delta_storage);
-        return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
-      }
-      cache[cache_key] = utils::SkipList<Vertex>();
-      merge_with_main_cache(cache, index_delta_storage);
-      return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
-    }
-
-    cache[cache_key] = utils::SkipList<Vertex>();
-    index_delta_storage.emplace_back();
-    index_deltas = &index_delta_storage.back();
-    LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup({}, label, property, value, *index_deltas,
-                                                               transaction_.vertices_);
+    merge_with_main_cache(cache, index_delta_storage);
+    return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
   }
-
+  if (cache.contains(cache_key)) {
+    if (view == View::NEW) {
+      cache[cache_key] = utils::SkipList<Vertex>();
+    }
+    // TODO
+    // we do not need this merge if we can make sure that
+    // the removing and re-adding the same label to a given
+    // vertex within one transaction is not permitted.
+    merge_with_main_cache(cache, index_delta_storage);
+    return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
+  }
+  cache[cache_key] = utils::SkipList<Vertex>();
+  index_deltas = &index_delta_storage.emplace_back();
+  LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup({}, label, property, value, *index_deltas,
+                                                             transaction_.vertices_);
   merge_with_main_cache(cache, index_delta_storage);
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
@@ -756,28 +746,24 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
   if (transaction_.command_id > cache_ci) {
     cache_ci = transaction_.command_id;
-  } else {
-    if (cache.contains(cache_key)) {
-      if (view == View::OLD) {
-        // TODO
-        // we do not need this merge if we can make sure that
-        // the removing and re-adding the same label to a given
-        // vertex within one transaction is not permitted.
-        merge_with_main_cache(cache, index_delta_storage);
-        return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
-      }
-      cache[cache_key] = utils::SkipList<Vertex>();
-      merge_with_main_cache(cache, index_delta_storage);
-      return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
-    }
-
-    cache[cache_key] = utils::SkipList<Vertex>();
-    index_delta_storage.emplace_back();
-    index_deltas = &index_delta_storage.back();
-    LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch({}, label, property, lower_bound, upper_bound,
-                                                            *index_deltas, transaction_.vertices_);
+    merge_with_main_cache(cache, index_delta_storage);
+    return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
   }
-
+  if (cache.contains(cache_key)) {
+    if (view == View::NEW) {
+      cache[cache_key] = utils::SkipList<Vertex>();
+    }
+    // TODO
+    // we do not need this merge if we can make sure that
+    // the removing and re-adding the same label to a given
+    // vertex within one transaction is not permitted.
+    merge_with_main_cache(cache, index_delta_storage);
+    return VerticesIterable(AllVerticesIterable(cache[cache_key].access(), storage_, &transaction_, view));
+  }
+  cache[cache_key] = utils::SkipList<Vertex>();
+  index_deltas = &index_delta_storage.emplace_back();
+  LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch({}, label, property, lower_bound, upper_bound, *index_deltas,
+                                                          transaction_.vertices_);
   merge_with_main_cache(cache, index_delta_storage);
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }

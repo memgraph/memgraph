@@ -98,7 +98,7 @@ class DiskStorage final : public Storage {
     void SyncDeletedVertices(TIndex &index, TIndexCacheKey &cache_key,
                              std::vector<std::list<Delta>> &index_delta_storage, View view, TMergeFunc &merge_func) {
       if (transaction_.vertices_to_delete_.empty()) {
-        continue;
+        return;
       }
       index[cache_key] = utils::SkipList<Vertex>();
       if (view == View::OLD) {
