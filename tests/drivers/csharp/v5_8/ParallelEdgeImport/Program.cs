@@ -10,8 +10,7 @@ public class ParallelEdgeImport {
     var nodeCount = 100;
     using (var driver = GraphDatabase.Driver(
                "bolt://localhost:7687", AuthTokens.None,
-               (builder) => builder.WithEncryptionLevel(EncryptionLevel.None)
-                                .WithMaxTransactionRetryTime(TimeSpan.FromSeconds(15)))) {
+               (builder) => builder.WithEncryptionLevel(EncryptionLevel.None))) {
       ClearDatabase(driver);
 
       // Create root
