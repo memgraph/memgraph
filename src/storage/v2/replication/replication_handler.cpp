@@ -39,29 +39,32 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 }  // namespace
 
 bool ReplicationHandler::SetReplicationRoleMain() {
-  // We don't want to generate new epoch_id and do the
-  // cleanup if we're already a MAIN
+  auto const main_handler = [](RoleMainData const &) {
+    // If we are already MAIN, we don't want to change anything
+    return false;
+  };
+  auto const replica_handler = [this](RoleReplicaData const &) {
+    // STEP 1) bring down all REPLICA servers
+    // TODO: foreach storage
+    {
+      // ensure replica server brought down
+      storage_.repl_storage_state_.replication_server_.reset(nullptr);
+      // Remember old epoch + storage timestamp association
+      storage_.PrepareForNewEpoch();
+    }
+
+    // STEP 2) Change to MAIN
+    // TODO: restore replication servers if false?
+    if (!repl_state_.SetReplicationRoleMain()) {
+      return false;
+    }
+    // We are now MAIN, update storage local epoch
+    storage_.repl_storage_state_.epoch_ = std::get<RoleMainData>(std::as_const(repl_state_).ReplicationData()).epoch_;
+    return true;
+  };
+
   // TODO: under lock
-  if (repl_state_.IsMain()) {
-    return false;
-  }
-
-  // STEP 1) bring down all REPLICA servers
-  {  // TODO: foreach storage
-    // ensure replica server brought down
-    storage_.repl_storage_state_.replication_server_.reset(nullptr);
-    // Remember old epoch + storage timestamp association
-    storage_.PrepareForNewEpoch(current_epoch);
-  }
-
-  // STEP 2) Change to MAIN
-  // TODO: restore replication servers if false?
-  if (!repl_state_.SetReplicationRoleMain()) {
-    return false;
-  }
-  // update storage local epoch
-  storage_.repl_storage_state_.epoch_ = repl_state_.GetEpoch();
-  return true;
+  return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
 }
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
@@ -183,7 +186,7 @@ void ReplicationHandler::RestoreReplication() {
           recover_main,
           recover_replica,
       },
-      std::as_const(repl_state_.ReplicationData()));
+      std::as_const(repl_state_).ReplicationData());
 }
 
 auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRole { return repl_state_.GetRole(); }

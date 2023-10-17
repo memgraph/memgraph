@@ -46,10 +46,6 @@ struct ReplicationState {
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
-  // TODO: make just MAIN
-  // ??????
-  auto GetEpoch() const -> const ReplicationEpoch & { return epoch_; }
-
   enum class FetchReplicationError : uint8_t {
     NOTHING_FETCHED,
     PARSE_ERROR,
@@ -84,8 +80,6 @@ struct ReplicationState {
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
-  ReplicationEpoch epoch_;  // durability of epoch
-                            //  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
