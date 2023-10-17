@@ -46,8 +46,8 @@ int main(int argc, char **argv) {
   }
 
   MG_ASSERT(
-      client->Execute("CALL libquery_memory_limit_proc.regular() YIELD allocated RETURN "
-                      "allocated QUERY MEMORY LIMIT 250MB"));
+      client->Execute("CALL libquery_memory_limit_proc_multi_thread.dual_thread() YIELD allocated_all RETURN "
+                      "allocated_all QUERY MEMORY LIMIT 500MB"));
   bool error{false};
   try {
     auto result_rows = client->FetchAll();

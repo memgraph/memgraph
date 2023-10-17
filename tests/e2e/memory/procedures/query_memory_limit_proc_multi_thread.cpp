@@ -82,38 +82,12 @@ void DualThread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
   }
 }
 
-void Regular(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
-  const auto arguments = mgp::List(args);
-  const auto record_factory = mgp::RecordFactory(result);
-
-  try {
-    void *ptr{nullptr};
-
-    memgraph::utils::OnScopeExit<std::function<void(void)>> cleanup{[&ptr]() {
-      if (nullptr == ptr) {
-        return;
-      }
-      mgp_global_free(ptr);
-    }};
-
-    const enum mgp_error alloc_err = Alloc(ptr);
-    auto new_record = record_factory.NewRecord();
-    new_record.Insert("allocated", alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
-  } catch (std::exception &e) {
-    record_factory.SetErrorMessage(e.what());
-  }
-}
-
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::memory = memory;
 
     AddProcedure(DualThread, std::string("dual_thread").c_str(), mgp::ProcedureType::Read, {},
                  {mgp::Return(std::string("allocated_all").c_str(), mgp::Type::Bool)}, module, memory);
-
-    AddProcedure(Regular, std::string("regular").c_str(), mgp::ProcedureType::Read, {},
-                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
 
   } catch (const std::exception &e) {
     return 1;

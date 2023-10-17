@@ -84,6 +84,12 @@ workloads:
     proc: "tests/e2e/memory/procedures/"
     <<: *disk_cluster
 
+  - name: "Memory control query limit proc"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_proc"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_query_limit_cluster
+
   - name: "Memory control query limit proc multi thread"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_proc_multi_thread"
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
