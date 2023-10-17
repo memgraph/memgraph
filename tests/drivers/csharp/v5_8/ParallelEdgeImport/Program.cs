@@ -7,7 +7,7 @@ using Neo4j.Driver;
 
 public class ParallelEdgeImport {
   public static async Task Main(string[] args) {
-    var nodeCount = 100;
+    var nodeCount = 30;
     using (var driver = GraphDatabase.Driver(
                "bolt://localhost:7687", AuthTokens.None,
                (builder) => builder.WithEncryptionLevel(EncryptionLevel.None)
