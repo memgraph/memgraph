@@ -71,6 +71,6 @@ struct ReplicationHandler {
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
-void RestoreReplication(const memgraph::replication::ReplicationState &replState, Storage &storage);
+void RestoreReplication(const memgraph::replication::ReplicationState &repl_state, Storage &storage);
 
 }  // namespace memgraph::storage

@@ -152,8 +152,6 @@ bool ReplicationHandler::IsMain() const { return repl_state_.IsMain(); }
 bool ReplicationHandler::IsReplica() const { return repl_state_.IsReplica(); }
 
 void RestoreReplication(const ReplicationState &repl_state, Storage &storage) {
-  MG_ASSERT(repl_state.IsMain(), "Only main instance can register a replica!");
-
   if (!repl_state.ShouldPersist()) {
     return;
   }
