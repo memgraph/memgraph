@@ -29,6 +29,16 @@ class QueryException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(QueryException)
 };
 
+/**
+ * @brief Base class of all query language related exceptions which can be retried.
+ * All exceptions derived from this one will be interpreted as TransientError-s,
+ * i.e. client will be encouraged to retry the queries.
+ */
+class RetryBasicException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(RetryBasicException)
+};
+
 class LexingException : public QueryException {
  public:
   using QueryException::QueryException;
@@ -139,13 +149,12 @@ enum class AbortReason : uint8_t {
   TIMEOUT = 3,
 };
 
-// This one is inherited from BasicException and will be treated as
+// This one is inherited from RetryBasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
-class HintedAbortError : public utils::BasicException {
+class HintedAbortError : public RetryBasicException {
  public:
-  using utils::BasicException::BasicException;
-  explicit HintedAbortError(AbortReason reason) : utils::BasicException(AsMsg(reason)), reason_{reason} {}
+  explicit HintedAbortError(AbortReason reason) : RetryBasicException(AsMsg(reason)), reason_{reason} {}
   SPECIALIZE_GET_EXCEPTION_NAME(HintedAbortError)
 
   auto Reason() const -> AbortReason { return reason_; }
@@ -190,10 +199,10 @@ class WriteVertexOperationInEdgeImportModeException : public QueryException {
 // This one is inherited from BasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
-class TransactionSerializationException : public utils::BasicException {
+class TransactionSerializationException : public RetryBasicException {
  public:
   TransactionSerializationException()
-      : utils::BasicException(
+      : RetryBasicException(
             "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction "
             "is finished") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
