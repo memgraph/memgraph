@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/auth_query_handler.hpp"
+#include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -51,15 +52,18 @@ class TestEnvironment : public ::testing::Environment {
     auth =
         std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
             storage_directory / "auth");
-    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, auth.get(), false, true);
+    repl_state_.emplace(memgraph::storage::ReplicationStateHelper(storage_conf));
+    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state_, auth.get(), false, true);
   }
 
   void TearDown() override {
     ptr_.reset();
     auth.reset();
+    repl_state_.reset();
   }
 
   static std::unique_ptr<memgraph::dbms::DbmsHandler> ptr_;
+  std::optional<memgraph::replication::ReplicationState> repl_state_;
 };
 
 std::unique_ptr<memgraph::dbms::DbmsHandler> TestEnvironment::ptr_ = nullptr;

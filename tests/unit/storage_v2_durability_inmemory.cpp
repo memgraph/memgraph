@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gmock/gmock.h>
+#include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -22,6 +23,9 @@
 #include <iostream>
 #include <thread>
 
+#include "dbms/database.hpp"
+#include "replication/state.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -333,7 +337,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
-          const auto &i = acc->ListAllIndices();
           const auto l_stats = acc->GetIndexStats(base_label_unindexed);
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 1);
@@ -790,13 +793,14 @@ INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, DurabilityTest, ::testing::Value
 TEST_P(DurabilityTest, SnapshotOnExit) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), GetParam());
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
-    CreateExtendedDataset(store.get());
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -805,16 +809,17 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -824,12 +829,14 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
 TEST_P(DurabilityTest, SnapshotPeriodic) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                        .snapshot_interval = std::chrono::milliseconds(2000)}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                       .snapshot_interval = std::chrono::milliseconds(2000)}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
@@ -839,16 +846,17 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -863,14 +871,16 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     auto const expected_write_time = std::chrono::milliseconds(750);
     auto const snapshot_interval = std::chrono::milliseconds(3000);
 
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-             .snapshot_interval = snapshot_interval,
-             .snapshot_retention_count = 10,  // We don't anticipate that we make this many
-         }}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+            .snapshot_interval = snapshot_interval,
+            .snapshot_retention_count = 10,  // We don't anticipate that we make this many
+        }};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
 
     auto const ensure_snapshot_is_written = [&](auto &&func) {
       auto const pre_count = GetSnapshotsList().size();
@@ -885,9 +895,9 @@ TEST_P(DurabilityTest, SnapshotFallback) {
       // its oldest active should be newer than the transaction used when running `func`
     };
 
-    ensure_snapshot_is_written([&]() { CreateBaseDataset(store.get(), GetParam()); });
+    ensure_snapshot_is_written([&]() { CreateBaseDataset(db.storage(), GetParam()); });
     number_to_save = GetSnapshotsList().size();
-    ensure_snapshot_is_written([&]() { CreateExtendedDataset(store.get()); });
+    ensure_snapshot_is_written([&]() { CreateExtendedDataset(db.storage()); });
   }
 
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
@@ -906,16 +916,17 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   }
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -925,10 +936,12 @@ TEST_P(DurabilityTest, SnapshotFallback) {
 TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Create unrelated snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -951,14 +964,17 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
 
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                        .snapshot_interval = std::chrono::milliseconds(2000)}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                       .snapshot_interval = std::chrono::milliseconds(2000)}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-    CreateExtendedDataset(store.get());
+    CreateExtendedDataset(db.storage());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
@@ -990,23 +1006,26 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   }
 
   // Recover snapshot.
-  ASSERT_DEATH(
-      {
-        std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-      },
-      "");
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .items = {.properties_on_edges = GetParam()},
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+                 memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+                 memgraph::dbms::Database db{config, repl_state};
+               }())  // iile
+               ,
+               "");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotRetention) {
   // Create unrelated snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1020,15 +1039,17 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                        .snapshot_interval = std::chrono::milliseconds(2000),
-                        .snapshot_retention_count = 3}}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                       .snapshot_interval = std::chrono::milliseconds(2000),
+                       .snapshot_retention_count = 3}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
-    CreateBaseDataset(store.get(), GetParam());
+    CreateBaseDataset(db.storage(), GetParam());
     // Allow approximately 5 snapshots to be created.
     std::this_thread::sleep_for(std::chrono::milliseconds(10000));
   }
@@ -1057,16 +1078,17 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   }
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1076,13 +1098,14 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), GetParam());
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
-    CreateExtendedDataset(store.get());
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1092,19 +1115,22 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 
   // Recover snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
   }
 
   // Create another snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), GetParam());
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1121,16 +1147,17 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1140,10 +1167,11 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 TEST_P(DurabilityTest, SnapshotBackup) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1157,11 +1185,13 @@ TEST_P(DurabilityTest, SnapshotBackup) {
 
   // Start storage without recovery.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                        .snapshot_interval = std::chrono::minutes(20)}}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                       .snapshot_interval = std::chrono::minutes(20)}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1174,13 +1204,14 @@ TEST_P(DurabilityTest, SnapshotBackup) {
 TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnEdges) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = false},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), false);
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, false);
-    CreateExtendedDataset(store.get());
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, false);
+    memgraph::storage::Config config{.items = {.properties_on_edges = false},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), false);
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, false);
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false);
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1189,16 +1220,17 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = true},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, false);
+  memgraph::storage::Config config{.items = {.properties_on_edges = true},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false);
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1208,13 +1240,14 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
 TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnEdges) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = true},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), true);
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, true);
-    CreateExtendedDataset(store.get());
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, true);
+    memgraph::storage::Config config{.items = {.properties_on_edges = true},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), true);
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, true);
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, true);
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1223,29 +1256,32 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  ASSERT_DEATH(
-      {
-        std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-            {.items = {.properties_on_edges = false},
-             .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-      },
-      "");
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .items = {.properties_on_edges = false},
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+                 memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+                 memgraph::dbms::Database db{config, repl_state};
+               }())  // iile
+               ,
+               "");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutPropertiesOnEdges) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = true},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), true);
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, true);
-    CreateExtendedDataset(store.get());
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, true);
+    memgraph::storage::Config config{.items = {.properties_on_edges = true},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), true);
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, true);
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, true);
     // Remove properties from edges.
     {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.HasValue());
@@ -1278,16 +1314,17 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = false},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, false);
+  memgraph::storage::Config config{.items = {.properties_on_edges = false},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false);
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1297,15 +1334,17 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
 TEST_P(DurabilityTest, WalBasic) {
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateBaseDataset(store.get(), GetParam());
-    CreateExtendedDataset(store.get());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    CreateExtendedDataset(db.storage());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1314,16 +1353,17 @@ TEST_P(DurabilityTest, WalBasic) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1333,15 +1373,17 @@ TEST_P(DurabilityTest, WalBasic) {
 TEST_P(DurabilityTest, WalBackup) {
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1356,12 +1398,14 @@ TEST_P(DurabilityTest, WalBackup) {
 
   // Start storage without recovery.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20)}}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20)}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1374,14 +1418,16 @@ TEST_P(DurabilityTest, WalBackup) {
 TEST_P(DurabilityTest, WalAppendToExisting) {
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1391,23 +1437,27 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
 
   // Recover WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
   }
 
   // Recover WALs and create more WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .recover_on_startup = true,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateExtendedDataset(store.get());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .recover_on_startup = true,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateExtendedDataset(db.storage());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1416,16 +1466,17 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1438,34 +1489,37 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     auto v1 = acc->CreateVertex();
     gid_v1 = v1.Gid();
     auto v2 = acc->CreateVertex();
     gid_v2 = v2.Gid();
-    auto e1Res = acc->CreateEdge(&v1, &v2, store->NameToEdgeType("e1"));
+    auto e1Res = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("e1"));
     ASSERT_TRUE(e1Res.HasValue());
     auto e1 = std::move(e1Res.GetValue());
     gid_e1 = e1.Gid();
-    ASSERT_TRUE(v1.AddLabel(store->NameToLabel("l11")).HasValue());
-    ASSERT_TRUE(v1.AddLabel(store->NameToLabel("l12")).HasValue());
-    ASSERT_TRUE(v1.AddLabel(store->NameToLabel("l13")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l11")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l12")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l13")).HasValue());
     if (GetParam()) {
       ASSERT_TRUE(
-          e1.SetProperty(store->NameToProperty("test"), memgraph::storage::PropertyValue("nandare")).HasValue());
+          e1.SetProperty(db.storage()->NameToProperty("test"), memgraph::storage::PropertyValue("nandare")).HasValue());
     }
-    ASSERT_TRUE(v2.AddLabel(store->NameToLabel("l21")).HasValue());
-    ASSERT_TRUE(v2.SetProperty(store->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(db.storage()->NameToLabel("l21")).HasValue());
+    ASSERT_TRUE(
+        v2.SetProperty(db.storage()->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
     auto v3 = acc->CreateVertex();
     gid_v3 = v3.Gid();
-    ASSERT_TRUE(v3.SetProperty(store->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(v3.SetProperty(db.storage()->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -1475,11 +1529,12 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
 
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
@@ -1492,8 +1547,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(v1);
       auto labels = v1->Labels(memgraph::storage::View::OLD);
       ASSERT_TRUE(labels.HasValue());
-      ASSERT_THAT(*labels, UnorderedElementsAre(store->NameToLabel("l11"), store->NameToLabel("l12"),
-                                                store->NameToLabel("l13")));
+      ASSERT_THAT(*labels, UnorderedElementsAre(db.storage()->NameToLabel("l11"), db.storage()->NameToLabel("l12"),
+                                                db.storage()->NameToLabel("l13")));
       auto props = v1->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
       ASSERT_EQ(props->size(), 0);
@@ -1508,7 +1563,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
-        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(store->NameToProperty("test"),
+        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
                                                                      memgraph::storage::PropertyValue("nandare"))));
       } else {
         ASSERT_EQ(edge_props->size(), 0);
@@ -1519,10 +1574,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(v2);
       auto labels = v2->Labels(memgraph::storage::View::OLD);
       ASSERT_TRUE(labels.HasValue());
-      ASSERT_THAT(*labels, UnorderedElementsAre(store->NameToLabel("l21")));
+      ASSERT_THAT(*labels, UnorderedElementsAre(db.storage()->NameToLabel("l21")));
       auto props = v2->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
-      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(store->NameToProperty("hello"),
+      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("hello"),
                                                               memgraph::storage::PropertyValue("world"))));
       auto in_edges = v2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
@@ -1532,7 +1587,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
-        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(store->NameToProperty("test"),
+        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
                                                                      memgraph::storage::PropertyValue("nandare"))));
       } else {
         ASSERT_EQ(edge_props->size(), 0);
@@ -1549,8 +1604,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_EQ(labels->size(), 0);
       auto props = v3->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
-      ASSERT_THAT(*props, UnorderedElementsAre(
-                              std::make_pair(store->NameToProperty("v3"), memgraph::storage::PropertyValue(42))));
+      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("v3"),
+                                                              memgraph::storage::PropertyValue(42))));
       auto in_edges = v3->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->edges.size(), 0);
@@ -1562,9 +1617,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1574,49 +1629,51 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateBaseDataset(store.get(), GetParam());
-    CreateExtendedDataset(store.get());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    CreateExtendedDataset(db.storage());
     auto indices = [&] {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto res = acc->ListAllIndices();
       acc->Commit();
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
-      auto unique_acc = store->UniqueAccess();
+      auto unique_acc = db.storage()->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &index : indices.label_property) {
-      auto unique_acc = store->UniqueAccess();
+      auto unique_acc = db.storage()->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto constraints = [&] {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto res = acc->ListAllConstraints();
       acc->Commit();
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {
-      auto unique_acc = store->UniqueAccess();
+      auto unique_acc = db.storage()->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &constraint : constraints.unique) {
-      auto unique_acc = store->UniqueAccess();
+      auto unique_acc = db.storage()->UniqueAccess();
       ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
     }
@@ -1629,11 +1686,12 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_property.size(), 0);
@@ -1650,9 +1708,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1665,39 +1723,44 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
 
   // Create WAL.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 100000,
-             .wal_file_flush_every_n_tx = kFlushWalEvery,
-         }}));
-    auto acc1 = store->Access();
-    auto acc2 = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 100000,
+            .wal_file_flush_every_n_tx = kFlushWalEvery,
+        }};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc1 = db.storage()->Access();
+    auto acc2 = db.storage()->Access();
 
     // Create vertex in transaction 2.
     {
       auto vertex2 = acc2->CreateVertex();
       gid2 = vertex2.Gid();
-      ASSERT_TRUE(vertex2.SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(2)).HasValue());
+      ASSERT_TRUE(
+          vertex2.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(2)).HasValue());
     }
 
-    auto acc3 = store->Access();
+    auto acc3 = db.storage()->Access();
 
     // Create vertex in transaction 3.
     {
       auto vertex3 = acc3->CreateVertex();
       gid3 = vertex3.Gid();
-      ASSERT_TRUE(vertex3.SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(3)).HasValue());
+      ASSERT_TRUE(
+          vertex3.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(3)).HasValue());
     }
 
     // Create vertex in transaction 1.
     {
       auto vertex1 = acc1->CreateVertex();
       gid1 = vertex1.Gid();
-      ASSERT_TRUE(vertex1.SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(1)).HasValue());
+      ASSERT_TRUE(
+          vertex1.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(1)).HasValue());
     }
 
     // Commit transaction 3, then 1, then 2.
@@ -1760,11 +1823,12 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   }
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     for (auto [gid, id] : std::vector<std::pair<memgraph::storage::Gid, int64_t>>{{gid1, 1}, {gid2, 2}, {gid3, 3}}) {
       auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
@@ -1774,15 +1838,15 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       auto props = vertex->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
       ASSERT_EQ(props->size(), 1);
-      ASSERT_EQ(props->at(store->NameToProperty("id")), memgraph::storage::PropertyValue(id));
+      ASSERT_EQ(props->at(db.storage()->NameToProperty("id")), memgraph::storage::PropertyValue(id));
     }
   }
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1792,18 +1856,20 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
 TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateBaseDataset(store.get(), GetParam());
-    CreateExtendedDataset(store.get());
-    auto label_indexed = store->NameToLabel("base_indexed");
-    auto label_unindexed = store->NameToLabel("base_unindexed");
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    CreateExtendedDataset(db.storage());
+    auto label_indexed = db.storage()->NameToLabel("base_indexed");
+    auto label_unindexed = db.storage()->NameToLabel("base_unindexed");
+    auto acc = db.storage()->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       auto has_indexed = vertex.HasLabel(label_indexed, memgraph::storage::View::OLD);
       ASSERT_TRUE(has_indexed.HasValue());
@@ -1820,16 +1886,17 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1841,16 +1908,18 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   if (pid == 0) {
     // Create WALs.
     {
-      std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-          {.items = {.properties_on_edges = GetParam()},
-           .durability = {
-               .storage_directory = storage_directory,
-               .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-               .snapshot_interval = std::chrono::minutes(20),
-               .wal_file_flush_every_n_tx = kFlushWalEvery}}));
+      memgraph::storage::Config config{
+          .items = {.properties_on_edges = GetParam()},
+          .durability = {
+              .storage_directory = storage_directory,
+              .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+              .snapshot_interval = std::chrono::minutes(20),
+              .wal_file_flush_every_n_tx = kFlushWalEvery}};
+      memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+      memgraph::dbms::Database db{config, repl_state};
       // Create one million vertices.
       for (uint64_t i = 0; i < 1000000; ++i) {
-        auto acc = store->Access();
+        auto acc = db.storage()->Access();
         acc->CreateVertex();
         MG_ASSERT(!acc->Commit().HasError(), "Couldn't commit transaction!");
       }
@@ -1876,17 +1945,19 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   const uint64_t kExtraItems = 1000;
   uint64_t count = 0;
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .recover_on_startup = true,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery,
-         }}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .recover_on_startup = true,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery,
+        }};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
     {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto iterable = acc->Vertices(memgraph::storage::View::OLD);
       for (auto it = iterable.begin(); it != iterable.end(); ++it) {
         ++count;
@@ -1895,7 +1966,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     }
 
     {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       for (uint64_t i = 0; i < kExtraItems; ++i) {
         acc->CreateVertex();
       }
@@ -1909,12 +1980,13 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
   {
     uint64_t current = 0;
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {
       ++current;
@@ -1924,9 +1996,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1936,15 +2008,17 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 TEST_P(DurabilityTest, WalMissingSecond) {
   // Create unrelated WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1960,29 +2034,32 @@ TEST_P(DurabilityTest, WalMissingSecond) {
 
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
     const uint64_t kNumVertices = 1000;
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->SetProperty(store->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
-                      .HasValue());
+      ASSERT_TRUE(
+          vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
+              .HasValue());
       ASSERT_FALSE(acc->Commit().HasError());
     }
   }
@@ -2010,28 +2087,32 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   }
 
   // Recover WALs.
-  ASSERT_DEATH(
-      {
-        std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-      },
-      "");
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .items = {.properties_on_edges = GetParam()},
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+                 memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+                 memgraph::dbms::Database db{config, repl_state};
+               }())  // iile
+               ,
+               "");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalCorruptSecond) {
   // Create unrelated WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -2047,29 +2128,32 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
 
   // Create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
     const uint64_t kNumVertices = 1000;
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->SetProperty(store->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
-                      .HasValue());
+      ASSERT_TRUE(
+          vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
+              .HasValue());
       ASSERT_FALSE(acc->Commit().HasError());
     }
   }
@@ -2096,29 +2180,33 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   }
 
   // Recover WALs.
-  ASSERT_DEATH(
-      {
-        std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-      },
-      "");
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .items = {.properties_on_edges = GetParam()},
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+                 memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+                 memgraph::dbms::Database db{config, repl_state};
+               }())  // iile
+               ,
+               "");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   // Create WALs
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateBaseDataset(store.get(), GetParam());
-    CreateExtendedDataset(store.get(), /* single_transaction = */ true);
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    CreateExtendedDataset(db.storage(), /* single_transaction = */ true);
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2135,18 +2223,19 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   }
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
   // The extended dataset shouldn't be recovered because its WAL transaction was
   // corrupt.
-  VerifyDataset(store.get(), DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS, GetParam());
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2156,15 +2245,17 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
 TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   // Create WALs
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     ASSERT_TRUE(vertex1.AddLabel(acc->NameToLabel("nandare")).HasValue());
@@ -2205,11 +2296,12 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     uint64_t count = 0;
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {
@@ -2220,9 +2312,9 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2232,16 +2324,18 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
 TEST_P(DurabilityTest, WalAndSnapshot) {
   // Create snapshot and WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::milliseconds(2000),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::milliseconds(2000),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-    CreateExtendedDataset(store.get());
+    CreateExtendedDataset(db.storage());
   }
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
@@ -2250,16 +2344,17 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2269,10 +2364,11 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
 TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -2282,23 +2378,27 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 
   // Recover snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
   }
 
   // Recover snapshot and create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .recover_on_startup = true,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateExtendedDataset(store.get());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .recover_on_startup = true,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateExtendedDataset(db.storage());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -2307,16 +2407,17 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2326,10 +2427,11 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Create snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -2339,23 +2441,27 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 
   // Recover snapshot.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-    VerifyDataset(store.get(), DatasetType::ONLY_BASE, GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
   }
 
   // Recover snapshot and create WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .recover_on_startup = true,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    CreateExtendedDataset(store.get());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .recover_on_startup = true,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateExtendedDataset(db.storage());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -2366,21 +2472,23 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Recover snapshot and WALs and create more WALs.
   memgraph::storage::Gid vertex_gid;
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .recover_on_startup = true,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .recover_on_startup = true,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
     vertex_gid = vertex.Gid();
     if (GetParam()) {
       ASSERT_TRUE(
-          vertex.SetProperty(store->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
+          vertex.SetProperty(db.storage()->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2391,13 +2499,14 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam(),
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(),
                 /* verify_info = */ false);
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
     auto labels = vertex->Labels(memgraph::storage::View::OLD);
@@ -2406,8 +2515,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     auto props = vertex->Properties(memgraph::storage::View::OLD);
     ASSERT_TRUE(props.HasValue());
     if (GetParam()) {
-      ASSERT_THAT(*props, UnorderedElementsAre(
-                              std::make_pair(store->NameToProperty("meaning"), memgraph::storage::PropertyValue(42))));
+      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("meaning"),
+                                                              memgraph::storage::PropertyValue(42))));
     } else {
       ASSERT_EQ(props->size(), 0);
     }
@@ -2415,9 +2524,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2427,15 +2536,17 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   // Create unrelated WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::minutes(20),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = kFlushWalEvery}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::minutes(20),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -2453,20 +2564,22 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
 
   // Create snapshot and WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::seconds(2),
-             .wal_file_size_kibibytes = 1,
-             .wal_file_flush_every_n_tx = 1}}));
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::seconds(2),
+            .wal_file_size_kibibytes = 1,
+            .wal_file_flush_every_n_tx = 1}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
     memgraph::utils::Timer timer;
     // Allow at least 6 snapshots to be created.
     while (timer.Elapsed().count() < 13.0) {
-      auto acc = store->Access();
+      auto acc = db.storage()->Access();
       acc->CreateVertex();
       ASSERT_FALSE(acc->Commit().HasError());
       ++items_created;
@@ -2486,10 +2599,12 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
 
     // Recover and verify data.
     {
-      std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-          {.items = {.properties_on_edges = GetParam()},
-           .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-      auto acc = store->Access();
+      memgraph::storage::Config config{
+          .items = {.properties_on_edges = GetParam()},
+          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+      memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+      memgraph::dbms::Database db{config, repl_state};
+      auto acc = db.storage()->Access();
       for (uint64_t j = 0; j < items_created; ++j) {
         auto vertex = acc->FindVertex(memgraph::storage::Gid::FromUint(j), memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
@@ -2502,26 +2617,30 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
 
   // Recover data after all of the snapshots have been destroyed. The recovery
   // shouldn't be possible because the initial WALs are already deleted.
-  ASSERT_DEATH(
-      {
-        std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-      },
-      "");
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .items = {.properties_on_edges = GetParam()},
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+                 memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+                 memgraph::dbms::Database db{config, repl_state};
+               }())  // iile
+               ,
+               "");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Create unrelated snapshot and WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::seconds(2)}}));
-    auto acc = store->Access();
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::seconds(2)}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    auto acc = db.storage()->Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -2536,15 +2655,17 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
 
   // Create snapshot and WALs.
   {
-    std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {
-             .storage_directory = storage_directory,
-             .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-             .snapshot_interval = std::chrono::seconds(2)}}));
-    CreateBaseDataset(store.get(), GetParam());
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {
+            .storage_directory = storage_directory,
+            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            .snapshot_interval = std::chrono::seconds(2)}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-    CreateExtendedDataset(store.get());
+    CreateExtendedDataset(db.storage());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
@@ -2562,16 +2683,17 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
-      {.items = {.properties_on_edges = GetParam()},
-       .durability = {.storage_directory = storage_directory, .recover_on_startup = true}}));
-  VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
   {
-    auto acc = store->Access();
+    auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }

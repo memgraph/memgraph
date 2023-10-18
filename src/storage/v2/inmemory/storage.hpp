@@ -326,7 +326,29 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool is_periodic = false);
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb) {
-    create_snapshot_handler = cb;
+    create_snapshot_handler = [cb](bool is_periodic) {
+      if (auto maybe_error = cb(is_periodic); maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case CreateSnapshotError::DisabledForReplica:
+            spdlog::warn(
+                utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+            break;
+          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                                "https://memgr.ph/durability"));
+            break;
+          case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
+            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+            break;
+        }
+      }
+    };
+
+    // Run the snapshot thread (if enabled)
+    if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+      snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                           [this]() { this->create_snapshot_handler(true); });
+    }
   }
 
   // NOLINTNEXTLINE(google-default-arguments)
@@ -453,7 +475,7 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> create_snapshot_handler{};
+  std::function<void(bool)> create_snapshot_handler{};
 };
 
 }  // namespace memgraph::storage

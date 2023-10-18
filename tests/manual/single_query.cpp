@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
                                       .disk.main_storage_directory = data_directory / "disk"};
 
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(db_config));
+  memgraph::replication::ReplicationState repl_state(memgraph::storage::ReplicationStateHelper(db_config));
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(db_config, repl_state);
   auto db_acc_opt = db_gk.access();
   MG_ASSERT(db_acc_opt, "Failed to access db");

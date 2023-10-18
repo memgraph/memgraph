@@ -25,6 +25,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -295,7 +296,7 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state(memgraph::storage::ReplicationStateHelper(config));
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
@@ -814,8 +815,8 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     config.force_on_disk = true;
   }
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(config));
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
+  memgraph::replication::ReplicationState repl_state{ReplicationStateHelper(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;

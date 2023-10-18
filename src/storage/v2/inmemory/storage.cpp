@@ -102,30 +102,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
           "those files into a .backup directory inside the storage directory.");
     }
   }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED &&
-      create_snapshot_handler) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = create_snapshot_handler(true); maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case CreateSnapshotError::DisabledForReplica:
-            spdlog::warn(
-                utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-            break;
-          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                "https://memgr.ph/durability"));
-            break;
-          case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-            break;
-        }
-      }
-    });
-  }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
   }
-
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
   } else {
@@ -151,20 +130,7 @@ InMemoryStorage::~InMemoryStorage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
-    if (auto maybe_error = this->create_snapshot_handler(false); maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
-        case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
-        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                              "https://memgr.ph/replication"));
-          break;
-        case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-          break;
-      }
-    }
+    create_snapshot_handler(false);
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }

@@ -36,7 +36,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
     config.disk.main_storage_directory = data_directory / "disk";
-    db_gk.emplace(std::move(config), repl_state);
+    db_gk.emplace(std::move(config), *repl_state);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;

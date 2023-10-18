@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, &auth_handler,
                                                            &auth_checker);
 #else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config, repl_state};
   memgraph::query::InterpreterContext interpreter_context_({}, nullptr, &repl_state, &auth_handler, &auth_checker);
 #endif
 
