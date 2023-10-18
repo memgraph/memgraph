@@ -62,9 +62,11 @@
 #include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
+#include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "replication/config.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
@@ -72,7 +74,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/replication/config.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
@@ -98,6 +99,8 @@
 #include "dbms/dbms_handler.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
+#include "replication/state.hpp"
+#include "storage/v2/replication/replication_handler.hpp"
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -144,7 +147,6 @@ constexpr auto kAlwaysFalse = false;
 
 namespace {
 template <typename T, typename K>
-
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
 }
@@ -156,13 +158,15 @@ void Sort(std::vector<TypedValue, K> &vec) {
 }
 
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const TypedValue &lv, const TypedValue &rv) {
+[[maybe_unused]] bool Same(const TypedValue &lv, const TypedValue &rv) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const std::string &lv, const TypedValue &rv) { return lv == std::string(TypedValue(rv).ValueString()); }
+[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
+  return lv == std::string(TypedValue(rv).ValueString());
+}
 // NOLINTNEXTLINE (misc-unused-parameters)
 bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
@@ -248,24 +252,40 @@ bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &claus
   return false;
 }
 
+inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode) -> replication::ReplicationMode {
+  switch (sync_mode) {
+    case ReplicationQuery::SyncMode::ASYNC: {
+      return replication::ReplicationMode::ASYNC;
+    }
+    case ReplicationQuery::SyncMode::SYNC: {
+      return replication::ReplicationMode::SYNC;
+    }
+  }
+  // TODO: C++23 std::unreachable()
+  return replication::ReplicationMode::ASYNC;
+}
+
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
+  explicit ReplQueryHandler(storage::Storage *db) : db_(db), handler_{db_->repl_state_, *db_} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!db_->SetMainReplicationRole()) {
+      if (!handler_.SetReplicationRoleMain()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
     } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
-      if (!db_->SetReplicaRole(storage::replication::ReplicationServerConfig{
-              .ip_address = storage::replication::kDefaultReplicationServerIp,
-              .port = static_cast<uint16_t>(*port),
-          })) {
+
+      auto const config = memgraph::replication::ReplicationServerConfig{
+          .ip_address = memgraph::replication::kDefaultReplicationServerIp,
+          .port = static_cast<uint16_t>(*port),
+      };
+
+      if (!handler_.SetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -273,10 +293,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
-    switch (db_->GetReplicationRole()) {
-      case storage::replication::ReplicationRole::MAIN:
+    switch (handler_.GetRole()) {
+      case memgraph::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::replication::ReplicationRole::REPLICA:
+      case memgraph::replication::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -286,39 +306,29 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
-    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    if (handler_.IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
-    if (name == storage::replication::kReservedReplicationRoleName) {
+    if (name == memgraph::replication::kReservedReplicationRoleName) {
       throw QueryRuntimeException("This replica name is reserved and can not be used as replica name!");
     }
 
-    storage::replication::ReplicationMode repl_mode;
-    switch (sync_mode) {
-      case ReplicationQuery::SyncMode::ASYNC: {
-        repl_mode = storage::replication::ReplicationMode::ASYNC;
-        break;
-      }
-      case ReplicationQuery::SyncMode::SYNC: {
-        repl_mode = storage::replication::ReplicationMode::SYNC;
-        break;
-      }
-    }
+    auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, storage::replication::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(
-          storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
-          storage::replication::ReplicationClientConfig{.name = name,
-                                                        .mode = repl_mode,
-                                                        .ip_address = ip,
-                                                        .port = port,
-                                                        .replica_check_frequency = replica_check_frequency,
-                                                        .ssl = std::nullopt});
+      auto config = replication::ReplicationClientConfig{.name = name,
+                                                         .mode = repl_mode,
+                                                         .ip_address = ip,
+                                                         .port = port,
+                                                         .replica_check_frequency = replica_check_frequency,
+                                                         .ssl = std::nullopt};
+      using storage::RegistrationMode;
+      auto ret = handler_.RegisterReplica(RegistrationMode::MUST_BE_INSTANTLY_VALID, config);
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -327,20 +337,26 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
   }
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  void DropReplica(const std::string &replica_name) override {
-    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
-      // replica can't unregister a replica
-      throw QueryRuntimeException("Replica can't unregister a replica!");
-    }
-    if (!db_->UnregisterReplica(replica_name)) {
-      throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
+  /// @throw QueryRuntimeException if an error occurred.
+  void DropReplica(std::string_view replica_name) override {
+    auto const result = handler_.UnregisterReplica(replica_name);
+    switch (result) {
+      using enum memgraph::storage::UnregisterReplicaResult;
+      case NOT_MAIN:
+        throw QueryRuntimeException("Replica can't unregister a replica!");
+      case COULD_NOT_BE_PERSISTED:
+        [[fallthrough]];
+      case CAN_NOT_UNREGISTER:
+        throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
+      case SUCCESS:
+        break;
     }
   }
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    if (db_->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) {
+    auto const &replState = db_->repl_state_;
+    if (replState.IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -354,10 +370,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
       switch (repl_info.mode) {
-        case storage::replication::ReplicationMode::SYNC:
+        case memgraph::replication::ReplicationMode::SYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
-        case storage::replication::ReplicationMode::ASYNC:
+        case memgraph::replication::ReplicationMode::ASYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
       }
@@ -390,6 +406,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
  private:
   storage::Storage *db_;
+  storage::ReplicationHandler handler_;
 };
 
 /// returns false if the replication role can't be set
@@ -1370,18 +1387,19 @@ bool IsWriteQueryOnMainMemoryReplica(storage::Storage *storage,
                                      const query::plan::ReadWriteTypeChecker::RWType query_type) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return (storage->GetReplicationRole() == storage::replication::ReplicationRole::REPLICA) &&
-           (query_type == RWType::W || query_type == RWType::RW);
+    auto const &replState = storage->repl_state_;
+    return replState.IsReplica() && (query_type == RWType::W || query_type == RWType::RW);
   }
   return false;
 }
 
-storage::replication::ReplicationRole GetReplicaRole(storage::Storage *storage) {
+bool IsReplica(storage::Storage *storage) {
   if (auto storage_mode = storage->GetStorageMode(); storage_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL ||
                                                      storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return storage->GetReplicationRole();
+    auto const &replState = storage->repl_state_;
+    return replState.IsReplica();
   }
-  return storage::replication::ReplicationRole::MAIN;
+  return false;
 }
 
 }  // namespace
@@ -2624,14 +2642,14 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
@@ -2662,7 +2680,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             }
 
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
-            if (auto vertex_cnt_approx = in.storage()->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+            if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
                   "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
@@ -2784,7 +2802,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       std::move(parsed_query.required_privileges),
       [storage](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-        if (auto maybe_error = mem_storage->CreateSnapshot({}); maybe_error.HasError()) {
+        if (auto maybe_error = mem_storage->CreateSnapshot(storage->repl_state_, {}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
@@ -3060,16 +3078,18 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
                  next_transaction_isolation_level] {
-        auto info = storage->GetInfo();
+        auto info = storage->GetBaseInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("memory_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_usage)))},
+            {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+            {TypedValue("memory_allocated"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("allocation_limit"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
@@ -3328,7 +3348,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   }
   // TODO: Remove once replicas support multi-tenant replication
   if (!current_db.db_acc_) throw DatabaseContextRequiredException("Multi database queries require a defined database.");
-  if (GetReplicaRole(current_db.db_acc_->get()->storage()) == storage::replication::ReplicationRole::REPLICA) {
+  if (IsReplica(current_db.db_acc_->get()->storage())) {
     throw QueryException("Query forbidden on the replica!");
   }
 
@@ -3471,7 +3491,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
   // TODO: Remove once replicas support multi-tenant replication
-  if (GetReplicaRole(storage) == storage::replication::ReplicationRole::REPLICA) {
+  auto &replState = storage->repl_state_;
+  if (replState.IsReplica()) {
     throw QueryException("SHOW DATABASES forbidden on the replica!");
   }
 
@@ -3816,7 +3837,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
+    // Trigger first failed query
+    metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -3842,10 +3866,12 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  bool decrement = true;
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
       transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
+      decrement = false;
       break;
     }
     expected = TransactionStatus::ACTIVE;
@@ -3861,7 +3887,10 @@ void Interpreter::Abort() {
   current_timeout_timer_.reset();
   current_transaction_.reset();
 
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  if (decrement) {
+    // Decrement only if the transaction was active when we started to Abort
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  }
 
   // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);

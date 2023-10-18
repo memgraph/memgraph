@@ -33,6 +33,8 @@
 #include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
 
+#include <rocksdb/utilities/transaction.h>
+
 namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
@@ -79,13 +81,11 @@ struct Transaction {
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
 
-  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
-    if (IsDiskStorage()) {
-      modified_edges_.emplace(gid, modified_edge);
-    }
+  bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
+    return modified_edges_.emplace(gid, modified_edge).second;
   }
 
-  void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
+  bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
   uint64_t transaction_id;
   uint64_t start_timestamp;
@@ -108,10 +108,24 @@ struct Transaction {
   // chain involved in rebuilding that info.
   mutable VertexInfoCache manyDeltasCache;
 
+  mutable ConstraintVerificationInfo constraint_verification_info;
+
   // Store modified edges GID mapped to changed Delta and serialized edge key
+  // Only for disk storage
   ModifiedEdgesMap modified_edges_;
 
-  mutable ConstraintVerificationInfo constraint_verification_info;
+  rocksdb::Transaction *disk_transaction_;
+  /// Main storage
+  utils::SkipList<Vertex> vertices_;
+  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+
+  /// We need them because query context for indexed reading is cleared after the query is done not after the
+  /// transaction is done
+  std::vector<std::list<Delta>> index_deltas_storage_;
+  utils::SkipList<Edge> edges_;
+  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_;
+  std::map<std::string, std::string> vertices_to_delete_;
+  bool scanned_all_vertices_ = false;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

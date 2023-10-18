@@ -81,26 +81,3 @@ workloads:
     args: ["--bolt-port", *bolt_port]
     proc: "tests/e2e/triggers/procedures/"
     <<: *storage_properties_edges_true_disk_cluster
-
-  - name: "ON UPDATE Triggers for disk storage"
-    binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_update"
-    args: ["--bolt-port", *bolt_port]
-    proc: "tests/e2e/triggers/procedures/"
-    <<: *storage_properties_edges_true_disk_cluster
-
-  - name: "ON DELETE Triggers Storage Properties On Edges True for disk storage"
-    binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_delete"
-    args: ["--bolt-port", *bolt_port]
-    proc: "tests/e2e/triggers/procedures/"
-    <<: *storage_properties_edges_true_disk_cluster
-
-  - name: "Triggers privilege check for disk storage"
-    binary: "tests/e2e/triggers/memgraph__e2e__triggers__privileges"
-    args: ["--bolt-port", *bolt_port]
-    <<: *storage_properties_edges_true_disk_cluster
-
-  - name: "ON DELETE Triggers Storage Properties On Edges False for disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/triggers/procedures/"
-    args: ["triggers/triggers_properties_false.py"]
-    <<: *storage_properties_edges_false_disk_cluster

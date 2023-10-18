@@ -21,10 +21,9 @@
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "storage/v2/replication/config.hpp"
+#include "replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication.hpp"
-#include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
@@ -87,9 +86,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), &transaction_, view,
-                                                  &mem_storage->indices_, &mem_storage->constraints_,
-                                                  mem_storage->config_.items));
+      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -178,10 +175,6 @@ class InMemoryStorage final : public Storage {
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
-
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override{};
-
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override{};
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
@@ -326,14 +319,15 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  auto CreateReplicationClient(replication::ReplicationClientConfig const &config)
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> override;
 
-  auto CreateReplicationServer(const replication::ReplicationServerConfig &config)
+  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override;
 
  private:
@@ -351,10 +345,12 @@ class InMemoryStorage final : public Storage {
   template <bool force>
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
 
-  bool InitializeWalFile();
+  bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
 
-  StorageInfo GetInfo() const override;
+  StorageInfo GetBaseInfo(bool force_directory) override;
+  StorageInfo GetInfo(bool force_directory) override;
+
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
@@ -379,7 +375,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void EstablishNewEpoch() override;
+  void PrepareForNewEpoch(std::string prev_epoch) override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
