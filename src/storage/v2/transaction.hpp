@@ -107,13 +107,11 @@ struct Transaction {
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
   mutable VertexInfoCache manyDeltasCache;
-
   mutable ConstraintVerificationInfo constraint_verification_info;
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
   ModifiedEdgesMap modified_edges_;
-
   rocksdb::Transaction *disk_transaction_;
   /// Main storage
   utils::SkipList<Vertex> vertices_;

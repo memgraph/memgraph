@@ -11,7 +11,6 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "dbms/constants.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -724,7 +723,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
 
-      if (!transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+      if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
         // we have to update unique constraints with the vertices that are going
         // to be validated/committed.
