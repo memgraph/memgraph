@@ -35,6 +35,7 @@ namespace memgraph::csv {
 
 class CsvReadException : public utils::BasicException {
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(CsvReadException)
 };
 
 class FileCsvSource {

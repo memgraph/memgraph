@@ -74,7 +74,10 @@
   M(ActiveTransactions, Transaction, "Number of active transactions.")                                               \
   M(CommitedTransactions, Transaction, "Number of committed transactions.")                                          \
   M(RollbackedTransactions, Transaction, "Number of rollbacked transactions.")                                       \
-  M(FailedQuery, Transaction, "Number of times executing a query failed.")
+  M(FailedQuery, Transaction, "Number of times executing a query failed.")                                           \
+  M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
+  M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
+  M(SuccessfulQuery, Transaction, "Number of successful queries.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters

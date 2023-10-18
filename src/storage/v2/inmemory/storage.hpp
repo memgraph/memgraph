@@ -86,9 +86,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), &transaction_, view,
-                                                  &mem_storage->indices_, &mem_storage->constraints_,
-                                                  mem_storage->config_.items));
+      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), storage_, &transaction_, view));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -177,10 +175,6 @@ class InMemoryStorage final : public Storage {
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
-
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override{};
-
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override{};
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
@@ -354,7 +348,9 @@ class InMemoryStorage final : public Storage {
   bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
 
-  StorageInfo GetInfo() const override;
+  StorageInfo GetBaseInfo(bool force_directory) override;
+  StorageInfo GetInfo(bool force_directory) override;
+
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.

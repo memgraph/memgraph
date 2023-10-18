@@ -57,10 +57,10 @@ class MetricsService {
   }
 
  private:
-  const storage::Storage *db_;
+  storage::Storage *const db_;
 
   MetricsResponse GetMetrics() {
-    auto info = db_->GetInfo();
+    auto info = db_->GetBaseInfo();
 
     return MetricsResponse{.vertex_count = info.vertex_count,
                            .edge_count = info.edge_count,
