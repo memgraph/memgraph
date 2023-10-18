@@ -35,23 +35,25 @@ def test_change_from_rollback(connection):
     )
     connection.commit()
 
-    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN n, r, m"))
-    assert len(result) == 1
-    node_from, _, node_to = result[0]
-    assert list(node_from.labels)[0] == "Node3"
-    assert list(node_to.labels)[0] == "Node2"
+    def compare(from_label: str, to_label: str):
+        result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN n, r, m"))
+        assert len(result) == 1
+        node_from, _, node_to = result[0]
+        assert list(node_from.labels)[0] == from_label
+        assert list(node_to.labels)[0] == to_label
+
+    compare("Node3", "Node2")
 
     execute_and_fetch_all(
         cursor,
         "MATCH (n:Node3)-[r:Relationship]->(m:Node2) MATCH (k:Node1) CALL transaction_rollback.set_from(r, k);",
     )
     connection.rollback()
+    compare("Node3", "Node2")
 
-    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN n, r, m"))
-    assert len(result) == 1
-    node_from, _, node_to = result[0]
-    assert list(node_from.labels)[0] == "Node3"
-    assert list(node_to.labels)[0] == "Node2"
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n;")
+    connection.rollback()
+    compare("Node3", "Node2")
 
 
 def test_change_to_rollback(connection):
@@ -66,22 +68,24 @@ def test_change_to_rollback(connection):
     )
     connection.commit()
 
-    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN n, r, m"))
-    assert len(result) == 1
-    node_from, _, node_to = result[0]
-    assert list(node_from.labels)[0] == "Node1"
-    assert list(node_to.labels)[0] == "Node3"
+    def compare(from_label: str, to_label: str):
+        result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN n, r, m"))
+        assert len(result) == 1
+        node_from, _, node_to = result[0]
+        assert list(node_from.labels)[0] == from_label
+        assert list(node_to.labels)[0] == to_label
+
+    compare("Node1", "Node3")
 
     execute_and_fetch_all(
         cursor, "MATCH (n:Node1)-[r:Relationship]->(m:Node3) MATCH (k:Node2) CALL transaction_rollback.set_to(r, k);"
     )
     connection.rollback()
+    compare("Node1", "Node3")
 
-    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN n, r, m"))
-    assert len(result) == 1
-    node_from, _, node_to = result[0]
-    assert list(node_from.labels)[0] == "Node1"
-    assert list(node_to.labels)[0] == "Node3"
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n;")
+    connection.rollback()
+    compare("Node1", "Node3")
 
 
 def test_change_rel_type_rollback(connection):
@@ -96,20 +100,25 @@ def test_change_rel_type_rollback(connection):
     )
     connection.commit()
 
-    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN r"))
-    assert len(result) == 1
-    rel = result[0][0]
-    assert rel.type == "Rel"
+    def compare(rel_type: str):
+        result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN r"))
+        assert len(result) == 1
+        rel = result[0][0]
+        assert rel.type == rel_type
+
+    compare("Rel")
 
     execute_and_fetch_all(
         cursor, "MATCH (n:Node1)-[r:Rel]->(m:Node2) CALL transaction_rollback.change_type(r, 'Relationship');"
     )
     connection.rollback()
 
-    result = list(execute_and_fetch_all(cursor, f"MATCH (n)-[r]->(m) RETURN r"))
-    assert len(result) == 1
-    rel = result[0][0]
-    assert rel.type == "Rel"
+    compare("Rel")
+
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n;")
+    connection.rollback()
+
+    compare("Rel")
 
 
 if __name__ == "__main__":
