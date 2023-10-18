@@ -13,6 +13,7 @@
 #include "flags/storage_mode.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/storage_helper.hpp"
 #include "storage/v2/replication/replication_handler.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -28,36 +29,7 @@ Database::Database(const storage::Config &config, const replication::Replication
       utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(config);
   } else {
-    storage_ = std::make_unique<storage::InMemoryStorage>(config, config.storage_mode);
-    auto *storage = static_cast<storage::InMemoryStorage *>(storage_.get());
-
-    // Connect replication state and storage
-    storage->CreateSnapshotHandler(
-        [storage, &repl_state](bool is_periodic) -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-          if (repl_state.IsReplica()) {
-            return storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica;
-          }
-          return storage->CreateSnapshot(is_periodic);
-        });
-
-    // Handle global replication state
-    if (config.durability.restore_replication_state_on_startup) {
-      spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-      // RECOVER REPLICA CONNECTIONS
-      storage::RestoreReplication(repl_state, *storage);
-    } else {
-      spdlog::warn(
-          "Replication configuration will NOT be stored. When the server restarts, replication state will be "
-          "forgotten.");
-    }
-
-    if (config.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
-        repl_state.IsMain()) {
-      spdlog::warn(
-          "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-          "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-          "without write-ahead logs this instance is not replicating any data.");
-    }
+    storage_ = storage::CreateInMemoryStorage(config, repl_state);
   }
 }
 
