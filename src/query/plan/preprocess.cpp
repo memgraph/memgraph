@@ -56,13 +56,13 @@ void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
 // want to start expanding.
 std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
-  IsomorphicId unknown_isomorphic_id = IsomorphicId::FromInt(-1);
+  ExpansionGroupId unknown_expansion_group_id = ExpansionGroupId::FromInt(-1);
   auto ignore_node = [&](auto *) {};
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
-      expansions.emplace_back(Expansion{.node1 = node, .isomorphic_id = unknown_isomorphic_id});
+      expansions.emplace_back(Expansion{.node1 = node, .expansion_group_id = unknown_expansion_group_id});
     } else {
       auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
         UsedSymbolsCollector collector(symbol_table);
@@ -80,7 +80,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
           }
         }
         expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
-                                          unknown_isomorphic_id});
+                                          unknown_expansion_group_id});
       };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
@@ -88,43 +88,45 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
   return expansions;
 }
 
-void AssignIsomorphicIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
-  IsomorphicId next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
+void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_isomorphisms + 1);
 
-  auto assign_isomorphic_id = [&matching, &next_isomorphic_id](Symbol symbol, Expansion &expansion) {
-    IsomorphicId isomorphic_id_to_assign = next_isomorphic_id;
-    if (matching.node_symbol_to_isomorphic_id.contains(symbol)) {
-      isomorphic_id_to_assign = matching.node_symbol_to_isomorphic_id[symbol];
+  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
+    ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
+    if (matching.node_symbol_to_expansion_group_id.contains(symbol)) {
+      expansion_group_id_to_assign = matching.node_symbol_to_expansion_group_id[symbol];
     }
 
-    if (expansion.isomorphic_id.AsInt() == -1 || isomorphic_id_to_assign.AsInt() < expansion.isomorphic_id.AsInt()) {
-      expansion.isomorphic_id = isomorphic_id_to_assign;
+    if (expansion.expansion_group_id.AsInt() == -1 ||
+        expansion_group_id_to_assign.AsInt() < expansion.expansion_group_id.AsInt()) {
+      expansion.expansion_group_id = expansion_group_id_to_assign;
     }
 
-    matching.node_symbol_to_isomorphic_id[symbol] = expansion.isomorphic_id;
+    matching.node_symbol_to_expansion_group_id[symbol] = expansion.expansion_group_id;
   };
 
   for (auto &expansion : expansions) {
     const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    assign_isomorphic_id(node1_sym, expansion);
+    assign_expansion_group_id(node1_sym, expansion);
 
     if (expansion.edge) {
       const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
       const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
 
-      assign_isomorphic_id(edge_sym, expansion);
-      assign_isomorphic_id(node2_sym, expansion);
+      assign_expansion_group_id(edge_sym, expansion);
+      assign_expansion_group_id(node2_sym, expansion);
     }
 
-    matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.isomorphic_id.AsUint()
-                                          ? expansion.isomorphic_id.AsUint()
+    matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.expansion_group_id.AsUint()
+                                          ? expansion.expansion_group_id.AsUint()
                                           : matching.number_of_isomorphisms;
-    next_isomorphic_id = IsomorphicId::FromUint(matching.number_of_isomorphisms + 1);
+    next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_isomorphisms + 1);
   }
 
-  // By the time we finished assigning expansions, no expansion should have its isomorphic ID unassigned
+  // By the time we finished assigning expansions, no expansion should have its expansion group ID unassigned
   for (const auto &expansion : matching.expansions) {
-    MG_ASSERT(expansion.isomorphic_id.AsInt() != -1, "Expansion isomorphic ID is not assigned to the pattern!");
+    MG_ASSERT(expansion.expansion_group_id.AsInt() != -1,
+              "Expansion expansion group ID is not assigned to the pattern!");
   }
 }
 
@@ -580,9 +582,9 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
                  Matching &matching) {
   std::vector<Expansion> expansions = NormalizePatterns(symbol_table, patterns);
 
-  // At this point, all of the expansions have the isomorphic id of -1
-  // By the time the assigning is done, all the expansions should have their isomorphic id adjusted
-  AssignIsomorphicIds(expansions, matching, symbol_table);
+  // At this point, all of the expansions have the expansion group id of -1
+  // By the time the assigning is done, all the expansions should have their expansion group id adjusted
+  AssignExpansionGroupIds(expansions, matching, symbol_table);
 
   // Add edge symbols for every expansion to ensure edge uniqueness
   CollectEdgeSymbols(expansions, matching, symbol_table);

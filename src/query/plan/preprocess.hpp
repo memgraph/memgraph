@@ -129,7 +129,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); }   \
   inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
 
-PREPROCESS_DEFINE_ID_TYPE(IsomorphicId);
+PREPROCESS_DEFINE_ID_TYPE(ExpansionGroupId);
 
 #undef STORAGE_DEFINE_ID_TYPE
 
@@ -149,7 +149,7 @@ struct Expansion {
   /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
-  // IsomorphicId represents a distinct Cyphermorphic part of the matching.
+  // ExpansionGroupId represents a distinct Cyphermorphic part of the matching.
   // This is necessary for having edes in the graph not duplicated in the result set.
   //
   // Examples
@@ -160,7 +160,7 @@ struct Expansion {
   // 2. MATCH (n)-[r1]->(m) MATCH (a)->[r2]->(b)
   // In this example, no constraints apply to r1 and r2
   // Therefore, the cardinality of this query should be of size N * N (cartesian product)
-  IsomorphicId isomorphic_id = IsomorphicId();
+  ExpansionGroupId expansion_group_id = ExpansionGroupId();
 };
 
 struct FilterMatching;
@@ -438,7 +438,7 @@ struct Matching {
   std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
 
   size_t number_of_isomorphisms{0};
-  std::unordered_map<Symbol, IsomorphicId> node_symbol_to_isomorphic_id{};
+  std::unordered_map<Symbol, ExpansionGroupId> node_symbol_to_expansion_group_id{};
   /// Maps named path symbols to a vector of Symbols that define its pattern.
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).
