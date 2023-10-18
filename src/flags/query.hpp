@@ -10,20 +10,10 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
+#include "gflags/gflags.h"
 
-namespace memgraph::flags::run_time {
-
+// Audit logging flags.
+#ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern utils::Synchronized<std::string, utils::SpinLock> bolt_server_name_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern std::atomic<double> execution_timeout_sec_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern std::atomic<bool> cartesian_product_enabled_;
-
-void Initialize();
-
-}  // namespace memgraph::flags::run_time
+DECLARE_bool(cartesian_product_enabled);
+#endif

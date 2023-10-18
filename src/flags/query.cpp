@@ -8,22 +8,10 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#pragma once
+#include "flags/query.hpp"
 
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
-
-namespace memgraph::flags::run_time {
-
+// Audit logging flags.
+#ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern utils::Synchronized<std::string, utils::SpinLock> bolt_server_name_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern std::atomic<double> execution_timeout_sec_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern std::atomic<bool> cartesian_product_enabled_;
-
-void Initialize();
-
-}  // namespace memgraph::flags::run_time
+DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
+#endif

@@ -10,10 +10,13 @@
 // licenses/APL.txt.
 
 #include "flags/run_time_configurable.hpp"
+
 #include <string>
+
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "flags/log_level.hpp"
+#include "flags/query.hpp"
 #include "spdlog/cfg/helpers-inl.h"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
@@ -33,6 +36,8 @@ constexpr auto kLogLevelSettingKey = "log.level";
 // Log to stderr
 // No default value because it is not persistent
 constexpr auto kLogToStderrSettingKey = "log.to_stderr";
+
+constexpr auto kCartesianProductEnabled = "cartesian-product-enabled";
 }  // namespace
 
 namespace memgraph::flags::run_time {
@@ -40,6 +45,8 @@ namespace memgraph::flags::run_time {
 memgraph::utils::Synchronized<std::string, memgraph::utils::SpinLock> bolt_server_name_;
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<double> execution_timeout_sec_;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<bool> cartesian_product_enabled_;
 
 void Initialize() {
   // Register bolt server name settings
@@ -107,5 +114,23 @@ void Initialize() {
       });
   // Always override log to stderr with command line argument
   memgraph::utils::global_settings.SetValue(kLogToStderrSettingKey, log_to_stderr_s);
+
+  // Register cartesian product enabled
+  auto string_to_bool = [](auto &item) {
+    bool myBool = false;
+    std::istringstream(item) >> std::boolalpha >> myBool;
+    return myBool;
+  };
+
+  const std::string cartesian_product_enabled_s = bool_to_str(FLAGS_cartesian_product_enabled);
+  memgraph::utils::global_settings.RegisterSetting(kCartesianProductEnabled, cartesian_product_enabled_s, [&] {
+    const auto cartesian_product_enabled = memgraph::utils::global_settings.GetValue(kCartesianProductEnabled);
+    MG_ASSERT(cartesian_product_enabled, "Cartesian product enabled is missing from the settings");
+
+    cartesian_product_enabled_ = string_to_bool(*cartesian_product_enabled);
+  });
+
+  // Always override log to stderr with command line argument
+  memgraph::utils::global_settings.SetValue(kCartesianProductEnabled, cartesian_product_enabled_s);
 }
 }  // namespace memgraph::flags::run_time

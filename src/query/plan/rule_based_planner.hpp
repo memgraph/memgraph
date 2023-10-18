@@ -15,17 +15,13 @@
 #include <optional>
 #include <variant>
 
-#include "gflags/gflags.h"
-
+#include "flags/run_time_configurable.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(cartesian_product_enabled);
 
 namespace memgraph::query::plan {
 
@@ -487,7 +483,7 @@ class RuleBasedPlanner {
                                                     std::vector<Symbol> &new_symbols,
                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                                     Filters &filters, storage::View view) {
-    if (FLAGS_cartesian_product_enabled) {
+    if (flags::run_time::cartesian_product_enabled_) {
       return HandleExpansionsWithCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
                                            new_symbols, named_paths, filters, view);
     }
