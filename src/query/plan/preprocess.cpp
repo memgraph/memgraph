@@ -89,7 +89,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
 }
 
 void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
-  ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_isomorphisms + 1);
+  ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
 
   auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
     ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
@@ -117,10 +117,10 @@ void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &match
       assign_expansion_group_id(node2_sym, expansion);
     }
 
-    matching.number_of_isomorphisms = matching.number_of_isomorphisms < expansion.expansion_group_id.AsUint()
-                                          ? expansion.expansion_group_id.AsUint()
-                                          : matching.number_of_isomorphisms;
-    next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_isomorphisms + 1);
+    matching.number_of_expansion_groups = matching.number_of_expansion_groups < expansion.expansion_group_id.AsUint()
+                                              ? expansion.expansion_group_id.AsUint()
+                                              : matching.number_of_expansion_groups;
+    next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
   }
 
   // By the time we finished assigning expansions, no expansion should have its expansion group ID unassigned

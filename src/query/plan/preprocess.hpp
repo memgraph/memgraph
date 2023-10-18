@@ -427,7 +427,7 @@ struct Matching {
   /// Maps node symbols to expansions which bind them.
   std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
 
-  size_t number_of_isomorphisms{0};
+  size_t number_of_expansion_groups{0};
   std::unordered_map<Symbol, ExpansionGroupId> node_symbol_to_expansion_group_id{};
   /// Maps named path symbols to a vector of Symbols that define its pattern.
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
