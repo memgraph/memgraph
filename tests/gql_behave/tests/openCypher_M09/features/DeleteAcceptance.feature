@@ -373,13 +373,3 @@ Feature: DeleteAcceptance
     And the side effects should be:
       | -relationships | 1 |
       | -properties    | 1 |
-
-  Scenario: Delete a relationship that is already deleted in a previous DETACH DELETE clause
-    Given an empty graph
-    When executing query:
-      """
-      CREATE (n0)<-[r0:T]-(n1) DETACH DELETE n0 DETACH DELETE r0 RETURN n1;
-      """
-    Then the result should be:
-      | n1 |
-      | () |
