@@ -84,7 +84,7 @@ struct Transaction {
     return modified_edges_.emplace(gid, modified_edge).second;
   }
 
-  void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
+  bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
   uint64_t transaction_id;
   uint64_t start_timestamp;

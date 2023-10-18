@@ -27,6 +27,14 @@
 
 namespace memgraph::dbms {
 
+struct DatabaseInfo {
+  storage::StorageInfo storage_info;
+  uint64_t triggers;
+  uint64_t streams;
+};
+
+static inline nlohmann::json ToJson(const DatabaseInfo &info) { return ToJson(info.storage_info); }
+
 /**
  * @brief Class containing everything associated with a single Database
  *
@@ -89,9 +97,16 @@ class Database {
   /**
    * @brief Get the storage info
    *
-   * @return storage::StorageInfo
+   * @param force_directory Use the configured directory, do not try to decipher the multi-db version
+   * @return DatabaseInfo
    */
-  storage::StorageInfo GetInfo() const { return storage_->GetInfo(); }
+  DatabaseInfo GetInfo(bool force_directory = false) const {
+    DatabaseInfo info;
+    info.storage_info = storage_->GetInfo(force_directory);
+    info.triggers = trigger_store_.GetTriggerInfo().size();
+    info.streams = streams_.GetStreamInfo().size();
+    return info;
+  }
 
   /**
    * @brief Switch storage to OnDisk
