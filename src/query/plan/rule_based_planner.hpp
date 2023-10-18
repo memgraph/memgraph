@@ -24,6 +24,7 @@
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(cartesian_product_enabled);
 
 namespace memgraph::query::plan {
