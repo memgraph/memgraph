@@ -70,6 +70,13 @@ SMALL_DATASET = [
         DatasetConstants.MODE: [get_default_database_mode()],
     },
     {
+        DatasetConstants.TEST: "memory_tracker.py",
+        DatasetConstants.OPTIONS: ["--worker-count", "5", "--repetition-count", "100"],
+        DatasetConstants.TIMEOUT: 5,
+        DatasetConstants.MODE: [get_default_database_mode()],
+        DatasetConstants.MEMGRAPH_OPTIONS: ["--memory-limit=2048"],
+    },
+    {
         DatasetConstants.TEST: "memory_limit.py",
         DatasetConstants.OPTIONS: ["--worker-count", "5", "--repetition-count", "100"],
         DatasetConstants.TIMEOUT: 5,

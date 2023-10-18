@@ -100,7 +100,7 @@ def execute_till_success(session, query, max_retries=1000):
                 raise Exception("Query '%s' failed %d times, aborting" % (query, max_retries))
 
 
-def try_execute(session, query: str) -> None:
+def try_execute(session, query: str):
     """
     Executes a query within Bolt session
 
@@ -113,7 +113,10 @@ def try_execute(session, query: str) -> None:
 
     :return: None
     """
-    session.run(query)
+    result = session.run(query)
+    data = result.data()
+    summary = result.consume()
+    return data, summary
 
 
 def batch(input, batch_size):

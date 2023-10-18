@@ -41,11 +41,11 @@ output_data = OutputData()
 
 class Constants:
     CREATE_FUNCTION = "CREATE"
-    DELETE_FUNCTION = "DELETE"
-    MONITOR_CLEANUP_FUNCTION = "MONITOR_CLEANUP"
 
 
 atexit.register(SessionCache.cleanup)
+
+MEMORY_LIMIT = 2048
 
 
 def parse_args() -> Args:
@@ -135,75 +135,7 @@ def setup_database_mode() -> None:
     execute_till_success(session, f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
 
 
-def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
-    """
-    This writer creates lot of nodes on each write.
-    """
-    session = SessionCache.argument_session(args)
-
-    def create() -> bool:
-        exception_occured = False
-
-        memory_allocated_before, _ = get_storage_data(session)
-        count_before = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
-        try:
-            try_execute(
-                session,
-                f"FOREACH (i in range(1,10000) | CREATE (:Node {{prop:'big string or something like that'}}))",
-            )
-        except Exception as ex:
-            log.info(f"Exception occured during create: {ex}")
-            exception_occured = True
-
-        memory_allocated_after, _ = get_storage_data(session)
-        count_after = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
-        if exception_occured:
-            log.info(
-                f"Exception occured, stopping exection of run {Constants.CREATE_FUNCTION} worker."
-                f"Memory stats: before query: {memory_allocated_before}, after query: {memory_allocated_after}."
-                f"Node stats: before query {count_before}, after query {count_after}"
-            )
-            return False
-
-        return True
-
-    curr_repetition = 0
-
-    while curr_repetition < repetition_count:
-        log.info(f"Worker {worker_id} started iteration {curr_repetition}")
-
-        success = create()
-
-        assert success, "Create was not successfull"
-
-        time.sleep(sleep_sec)
-        log.info(f"Worker {worker_id} created chain in iteration {curr_repetition}")
-
-        curr_repetition += 1
-
-
-def run_deleter(repetition_count: int, sleep_sec: float) -> None:
-    """
-    Deleting of whole graph
-    """
-    session = SessionCache.argument_session(args)
-
-    def delete_graph() -> None:
-        try:
-            execute_till_success(session, f"MATCH (n) DETACH DELETE n")
-            log.info(f"Worker deleted all nodes")
-        except Exception as ex:
-            log.info(f"Worker failed to delete")
-            pass
-
-    curr_repetition = 0
-    while curr_repetition < repetition_count:
-        delete_graph()
-        time.sleep(sleep_sec)
-        curr_repetition += 1
-
-
-def get_storage_data(session) -> Tuple[float, float]:
+def get_tracker_data(session) -> Optional[float]:
     def parse_data(allocated: str) -> float:
         num = 0
         if "KiB" in allocated or "MiB" in allocated or "GiB" in allocated or "TiB" in allocated:
@@ -227,76 +159,60 @@ def get_storage_data(session) -> Tuple[float, float]:
         return None
 
     try:
-        data = execute_till_success(session, f"SHOW STORAGE INFO")[0]
-        res_data = isolate_value(data, "memory_usage")
+        data, _ = try_execute(session, f"SHOW STORAGE INFO")
         memory_tracker_data = isolate_value(data, "memory_allocated")
-        log.info(
-            f"Worker {Constants.MONITOR_CLEANUP_FUNCTION} logged memory: memory tracker {memory_tracker_data} vs res data {res_data}"
-        )
 
-        return parse_data(memory_tracker_data), parse_data(res_data)
+        return parse_data(memory_tracker_data)
 
     except Exception as ex:
         log.info(f"Get storage info failed with error", ex)
-        raise Exception(f"Worker {Constants.MONITOR_CLEANUP_FUNCTION} can't continue working")
+        return None
 
 
-def run_monitor_cleanup(repetition_count: int, sleep_sec: float) -> None:
+def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
     """
-    Monitoring of graph and periodic cleanup.
-    Idea is that cleanup is in this function
-    so that we can make thread sleep for a while
-    and give RES vs memory tracker time to stabilize
-    to reduce flakeyness of test
+    This writer creates lot of nodes on each write.
+    Also it checks that query failed if memory limit is tried to be broken
     """
+
     session = SessionCache.argument_session(args)
 
+    def create() -> bool:
+        """
+        Returns True if done, False if needs to continue
+        """
+        memory_tracker_data_before_start = get_tracker_data(session)
+        should_fail = memory_tracker_data_before_start >= 2048
+        failed = False
+        try:
+            try_execute(
+                session,
+                f"FOREACH (i in range(1,10000) | CREATE (:Node {{prop:'big string or something like that'}}))",
+            )
+        except Exception as ex:
+            failed = True
+            output = str(ex)
+            log.info("Exception in create", output)
+            assert "Memory limit exceeded!" in output
+
+        if should_fail:
+            assert failed, "Query should have failed"
+            return False
+        return True
+
     curr_repetition = 0
+
     while curr_repetition < repetition_count:
-        memory_tracker, res_data = get_storage_data(session)
+        log.info(f"Worker {worker_id} started iteration {curr_repetition}")
 
-        if memory_tracker < res_data and ((memory_tracker + initial_diff) < res_data):
-            # maybe RES got measured wrongly
-            # Problem with test using detach delete and memory tracker
-            # is that memory tracker gets updated immediately
-            # whereas RES takes some time
-            cnt_again = 3
-            skip_failure = False
-            # 10% is maximum increment, afterwards is fail
-            multiplier = 1
-            while cnt_again:
-                new_memory_tracker, new_res_data = get_storage_data(session)
+        should_continue = create()
 
-                if new_memory_tracker > new_res_data or (
-                    (new_memory_tracker + initial_diff) * multiplier > new_res_data
-                ):
-                    skip_failure = True
-                    log.info(
-                        f"Skipping failure on new data:"
-                        f"memory tracker: {new_memory_tracker}, initial diff: {initial_diff},"
-                        f"RES data: {new_res_data}, multiplier: {multiplier}"
-                    )
-                    break
-                multiplier += 0.05
-                cnt_again -= 1
-            if not skip_failure:
-                log.info(memory_tracker, initial_diff, res_data)
-                assert False, "Memory tracker is off by more than 10%, check logs for details"
-
-        def run_cleanup():
-            try:
-                execute_till_success(session, f"FREE MEMORY")
-                log.info(f"Worker deleted all nodes")
-            except Exception as ex:
-                log.info(f"Worker failed to delete")
-            pass
-
-        # idea is to run cleanup from this thread and let thread sleep for a while so RES
-        # gets stabilized
-        if curr_repetition % 10 == 0:
-            run_cleanup()
+        if not should_continue:
+            return True
 
         time.sleep(sleep_sec)
+        log.info(f"Worker {worker_id} created chain in iteration {curr_repetition}")
+
         curr_repetition += 1
 
 
@@ -306,16 +222,6 @@ def execute_function(worker: Worker) -> Worker:
     """
     if worker.type == Constants.CREATE_FUNCTION:
         run_writer(worker.repetition_count, worker.sleep_sec, worker.id)
-        log.info(f"Worker {worker.type} finished!")
-        return worker
-
-    elif worker.type == Constants.DELETE_FUNCTION:
-        run_deleter(worker.repetition_count, worker.sleep_sec)
-        log.info(f"Worker {worker.type} finished!")
-        return worker
-
-    elif worker.type == Constants.MONITOR_CLEANUP_FUNCTION:
-        run_monitor_cleanup(worker.repetition_count, worker.sleep_sec)
         log.info(f"Worker {worker.type} finished!")
         return worker
 
@@ -335,10 +241,8 @@ def execution_handler() -> None:
     rep_count = args.repetition_count
 
     workers = []
-    for i in range(worker_count - 2):
-        workers.append(Worker(Constants.CREATE_FUNCTION, i, worker_count - 2, rep_count, 0.1))
-    workers.append(Worker(Constants.DELETE_FUNCTION, -1, 1, rep_count * 1.5, 0.1))
-    workers.append(Worker(Constants.MONITOR_CLEANUP_FUNCTION, -1, 1, rep_count * 1.5, 0.1))
+    for i in range(worker_count):
+        workers.append(Worker(Constants.CREATE_FUNCTION, i, worker_count, rep_count, 0.1))
 
     with multiprocessing.Pool(processes=worker_count) as p:
         for worker in p.map(execute_function, workers):
@@ -347,12 +251,6 @@ def execution_handler() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=args.logging)
-
-    session = SessionCache.argument_session(args)
-    memory_tracker_size, memory_res = get_storage_data(session)
-
-    # global var used in monitoring
-    initial_diff = memory_res - memory_tracker_size
 
     execution_handler()
     if args.logging in ["DEBUG", "INFO"]:
