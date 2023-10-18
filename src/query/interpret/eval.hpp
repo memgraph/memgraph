@@ -340,7 +340,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return std::move(*preoperational_checks);
     }
 
-    const auto &list = _list.ValueList();
+    const auto &list = _list_ptr->ValueList();
     spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
     for (const auto &element : list) {
