@@ -47,7 +47,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     // ensure replica server brought down
     storage_.repl_storage_state_.replication_server_.reset(nullptr);
     // Remember old epoch + storage timestamp association
-    storage_.repl_storage_state_.AddEpochToHistory(current_epoch);
+    storage_.PrepareForNewEpoch(current_epoch);
   }
 
   // STEP 2) Change to MAIN
