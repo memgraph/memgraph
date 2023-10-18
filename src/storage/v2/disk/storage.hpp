@@ -297,7 +297,8 @@ class DiskStorage final : public Storage {
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelPropertyIndex(LabelId label,
                                                                                           PropertyId property);
 
-  StorageInfo GetInfo() const override;
+  StorageInfo GetBaseInfo(bool force_directory) override;
+  StorageInfo GetInfo(bool force_directory) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
