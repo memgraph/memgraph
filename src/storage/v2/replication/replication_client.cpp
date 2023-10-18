@@ -29,18 +29,12 @@ ReplicationClient::ReplicationClient(Storage *storage, const memgraph::replicati
                                      const memgraph::replication::ReplicationEpoch *epoch)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(), &rpc_context_},
+      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
+                  &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode},
       storage_{storage},
-      repl_epoch_{epoch} {
-  if (io::network::Endpoint::GetIpFamily(config.ip_address) == io::network::Endpoint::IpFamily::NONE) {
-    rpc_client_.SetEndpoint(
-        io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port));
-  } else {
-    rpc_client_.SetEndpoint(io::network::Endpoint(config.ip_address, config.port));
-  }
-}
+      repl_epoch_{epoch} {}
 
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();

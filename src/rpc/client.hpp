@@ -196,8 +196,6 @@ class Client {
 
   auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
-  void SetEndpoint(io::network::Endpoint endpoint) { endpoint_ = endpoint; }
-
  private:
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;

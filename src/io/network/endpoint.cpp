@@ -166,6 +166,7 @@ bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
   };
   addrinfo *info = nullptr;
   auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
+  freeaddrinfo(info);
   return status == 0;
 }
 
