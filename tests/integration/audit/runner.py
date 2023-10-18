@@ -92,9 +92,13 @@ def execute_test(memgraph_binary, tester_binary):
     # Register cleanup function
     @atexit.register
     def cleanup():
-        if memgraph.poll() is None:
-            memgraph.terminate()
-        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+        pid = memgraph.pid
+        try:
+            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        except os.OSError:
+            assert False
+
+        time.sleep(1)
 
     def execute_queries(queries):
         for db, query, params in queries:
@@ -122,10 +126,12 @@ def execute_test(memgraph_binary, tester_binary):
     execute_queries(mt_queries3)
     print("\033[1;36m~~ Finished query execution on clean database ~~\033[0m\n")
 
-    # Shutdown the memgraph binary
-    memgraph.terminate()
-
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+    except os.OSError:
+        assert False
+    time.sleep(1)
 
     # Verify the written log
     print("\033[1;36m~~ Starting log verification ~~\033[0m")

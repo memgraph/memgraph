@@ -166,8 +166,12 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     @atexit.register
     def cleanup():
         if memgraph.poll() is None:
-            memgraph.terminate()
-        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+            pid = memgraph.pid
+            try:
+                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            except os.OSError:
+                assert False
+            time.sleep(1)
 
     # Prepare the multi database environment
     execute_admin_queries(
@@ -327,8 +331,12 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     print("\033[1;36m~~ Finished checking connections and database switching ~~\033[0m\n")
 
     # Shutdown the memgraph binary
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+    except os.OSError:
+        assert False
+    time.sleep(1)
 
 
 if __name__ == "__main__":

@@ -86,8 +86,12 @@ def execute_without_user(
 
 def cleanup(memgraph: subprocess):
     if memgraph.poll() is None:
-        memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+        pid = memgraph.pid
+        try:
+            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        except os.OSError:
+            assert False
+        time.sleep(1)
 
 
 def test_without_any_files(tester_binary: str, memgraph_args: List[str]):

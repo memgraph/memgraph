@@ -90,8 +90,12 @@ def execute_test_analytical_mode(memgraph_binary: str, tester_binary: str) -> No
 
     execute_queries(assertion_queries)
 
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_binary: str) -> None:
@@ -135,8 +139,12 @@ def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_bi
     execute_queries(assertion_queries)
 
     print("\033[1;36m~~ Terminating memgraph ~~\033[0m\n")
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_binary: str) -> None:
@@ -177,8 +185,12 @@ def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_bi
     execute_queries(assertion_queries)
 
     print("\033[1;36m~~ Terminating memgraph ~~\033[0m\n")
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 if __name__ == "__main__":

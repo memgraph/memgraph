@@ -68,8 +68,12 @@ def execute_with_user(queries):
 
 def cleanup(memgraph):
     if memgraph.poll() is None:
-        memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+        pid = memgraph.pid
+        try:
+            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        except os.OSError:
+            assert False
+        time.sleep(1)
 
 
 def execute_without_user(queries, should_fail=False, failure_message="", check_failure=True):

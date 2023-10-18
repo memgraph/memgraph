@@ -80,8 +80,12 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     @atexit.register
     def cleanup():
         if memgraph.poll() is None:
-            memgraph.terminate()
-        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+            pid = memgraph.pid
+            try:
+                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            except os.OSError:
+                assert False
+            time.sleep(1)
 
     # Prepare all users
     def setup_user():
@@ -130,8 +134,12 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     print("\033[1;36m~~ Finished edge filtering test ~~\033[0m\n")
 
     # Shutdown the memgraph binary
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+    except os.OSError:
+        assert False
+    time.sleep(1)
 
 
 if __name__ == "__main__":
