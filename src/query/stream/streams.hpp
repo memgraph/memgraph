@@ -41,6 +41,7 @@ namespace stream {
 class StreamsException : public utils::BasicException {
  public:
   using BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(StreamsException)
 };
 
 template <typename T>

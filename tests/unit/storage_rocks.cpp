@@ -60,7 +60,7 @@ TEST_F(RocksDBStorageTest, SerializeVertexGID) {
   auto acc = storage->Access();
   auto vertex = acc->CreateVertex();
   auto gid = vertex.Gid();
-  ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + memgraph::utils::SerializeIdType(gid));
+  ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + gid.ToString());
 }
 
 TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
@@ -71,9 +71,8 @@ TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
   ASSERT_FALSE(vertex.AddLabel(ser_player_label).HasError());
   ASSERT_FALSE(vertex.AddLabel(ser_user_label).HasError());
   auto gid = vertex.Gid();
-  ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), std::to_string(ser_player_label.AsInt()) + "," +
-                                                                   std::to_string(ser_user_label.AsInt()) + "|" +
-                                                                   memgraph::utils::SerializeIdType(gid));
+  ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_),
+            ser_player_label.ToString() + "," + ser_user_label.ToString() + "|" + gid.ToString());
 }
 
 TEST_F(RocksDBStorageTest, SerializePropertiesLocalBuffer) {
