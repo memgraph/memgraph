@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,6 @@ static const std::string kSnapshotDirectory{"snapshots"};
 static const std::string kWalDirectory{"wal"};
 static const std::string kBackupDirectory{".backup"};
 static const std::string kLockFile{".lock"};
-static const std::string kReplicationDirectory{"replication"};
 
 // This is the prefix used for Snapshot and WAL filenames. It is a timestamp
 // format that equals to: YYYYmmddHHMMSSffffff

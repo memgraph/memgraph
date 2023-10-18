@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "dbms/constants.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -18,6 +19,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/replication/replication_handler.hpp"
 #include "utils/resource_lock.hpp"
 
 namespace memgraph::storage {
@@ -58,17 +60,18 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               "process!",
               config_.durability.storage_directory);
   }
+  auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
-    auto &epoch = replication_state_.GetEpoch();
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch.id,
-                                        &replication_state_.history, &vertices_, &edges_, &edge_count_,
+    auto &epoch = repl_state.GetEpoch();
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
+                                        &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
                                         name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
-        replication_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
+        repl_storage_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -102,7 +105,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot({true}); maybe_error.HasError()) {
+      auto const &repl_state = repl_state_;
+      if (auto maybe_error = this->CreateSnapshot(repl_state, {true}); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
@@ -131,19 +135,14 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
 
   if (config_.durability.restore_replication_state_on_startup) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    RestoreReplicationRole();
-
-    if (replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
-      RestoreReplicas();
-    }
+    ReplicationHandler{repl_state, *this}.RestoreReplication();
   } else {
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "
         "forgotten.");
   }
 
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_state_.GetRole() == replication::ReplicationRole::MAIN) {
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
     spdlog::warn(
         "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
@@ -158,8 +157,8 @@ InMemoryStorage::~InMemoryStorage() {
     gc_runner_.Stop();
   }
   {
-    // Clear replication data
-    replication_state_.Reset();
+    // Stop replication (Stop all clients or stop the REPLICA server)
+    repl_storage_state_.Reset();
   }
   if (wal_file_) {
     wal_file_->FinalizeWal();
@@ -169,7 +168,8 @@ InMemoryStorage::~InMemoryStorage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot({false}); maybe_error.HasError()) {
+    auto const &repl_state = repl_state_;
+    if (auto maybe_error = this->CreateSnapshot(repl_state, {false}); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
@@ -217,7 +217,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {&*it, storage_, &transaction_};
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
@@ -240,7 +240,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {&*it, storage_, &transaction_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
@@ -248,7 +248,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   auto acc = mem_storage->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
+  return VertexAccessor::Create(&*it, storage_, &transaction_, view);
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
@@ -361,8 +361,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
@@ -436,8 +435,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
@@ -538,8 +536,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  return EdgeAccessor(edge_ref, edge_type, new_from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge_ref, edge_type, new_from_vertex, to_vertex, storage_, &transaction_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
@@ -640,8 +637,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
   transaction_.manyDeltasCache.Invalidate(new_to_vertex, edge_type, EdgeDirection::IN);
 
-  return EdgeAccessor(edge_ref, edge_type, from_vertex, new_to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge_ref, edge_type, from_vertex, new_to_vertex, storage_, &transaction_);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -654,6 +650,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  auto const &replState = mem_storage->repl_state_;
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
@@ -673,8 +670,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-        desired_commit_timestamp.has_value()) {
+    if (replState.IsMain() || desired_commit_timestamp.has_value()) {
       could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);
       // Take committed_transactions lock while holding the engine lock to
       // make sure that committed transactions are sorted by the commit
@@ -686,10 +682,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-            desired_commit_timestamp.has_value()) {
+        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
           // Update the last commit timestamp
-          mem_storage->replication_state_.last_commit_timestamp_.store(*commit_timestamp_);
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
         }
         // Release engine lock because we don't have to hold it anymore
         // and emplace back could take a long time.
@@ -773,8 +768,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-            desired_commit_timestamp.has_value()) {
+        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
@@ -789,10 +783,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (mem_storage->replication_state_.GetRole() == replication::ReplicationRole::MAIN ||
-              desired_commit_timestamp.has_value()) {
+          if (replState.IsMain() || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
-            mem_storage->replication_state_.last_commit_timestamp_.store(*commit_timestamp_);
+            mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
           }
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
@@ -1117,14 +1110,14 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_, &storage_->constraints_));
+  return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view,
-                                                             &transaction_, &storage_->constraints_));
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
@@ -1132,8 +1125,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
-                                                             utils::MakeBoundInclusive(value), view, &transaction_,
-                                                             &storage_->constraints_));
+                                                             utils::MakeBoundInclusive(value), view, storage_,
+                                                             &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
@@ -1141,8 +1134,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view,
-                                                             &transaction_, &storage_->constraints_));
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -1160,7 +1153,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_state_.GetRole() == replication::ReplicationRole::REPLICA) {
+    auto const &replState = repl_state_;
+    if (replState.IsReplica()) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;
@@ -1483,24 +1477,62 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock>);
 template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock>);
 
-StorageInfo InMemoryStorage::GetInfo() const {
-  auto vertex_count = vertices_.size();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
-  double average_degree = 0.0;
-  if (vertex_count) {
+StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
+  StorageInfo info{};
+  info.vertex_count = vertices_.size();
+  info.edge_count = edge_count_.load(std::memory_order_acquire);
+  if (info.vertex_count) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+    info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+  info.memory_usage = utils::GetMemoryUsage();
+  // Special case for the default database
+  auto update_path = [&](const std::filesystem::path &dir) {
+    if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
+      const auto end = dir.end();
+      auto it = end;
+      --it;
+      if (it != end) {
+        --it;
+        if (it != end && *it != "databases") {
+          // Default DB points to the root (for back-compatibility); update to the "database" dir
+          return dir / "databases" / dbms::kDefaultDB;
+        }
+      }
+    }
+    return dir;
+  };
+  info.disk_usage = utils::GetDirDiskUsage<false>(update_path(config_.durability.storage_directory));
+  return info;
 }
 
-bool InMemoryStorage::InitializeWalFile() {
+StorageInfo InMemoryStorage::GetInfo(bool force_directory) {
+  StorageInfo info = GetBaseInfo(force_directory);
+  {
+    auto access = Access(std::nullopt);
+    const auto &lbl = access->ListAllIndices();
+    info.label_indices = lbl.label.size();
+    info.label_property_indices = lbl.label_property.size();
+    const auto &con = access->ListAllConstraints();
+    info.existence_constraints = con.existence.size();
+    info.unique_constraints = con.unique.size();
+  }
+  info.storage_mode = storage_mode_;
+  info.isolation_level = isolation_level_;
+  info.durability_snapshot_enabled =
+      config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+      config_.durability.snapshot_on_exit;
+  info.durability_wal_enabled =
+      config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  return info;
+}
+
+bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, replication_state_.GetEpoch().id, config_.items, name_id_mapper_.get(),
-                      wal_seq_num_++, &file_retainer_);
+    wal_file_.emplace(wal_directory_, uuid_, epoch.id(), config_.items, name_id_mapper_.get(), wal_seq_num_++,
+                      &file_retainer_);
   }
   return true;
 }
@@ -1525,14 +1557,15 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) {
+  auto &replState = repl_state_;
+  if (!InitializeWalFile(replState.GetEpoch())) {
     return true;
   }
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  replication_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -1683,7 +1716,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 
   append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
     wal_file_->AppendDelta(delta, parent, timestamp);
-    replication_state_.AppendDelta(delta, parent, timestamp);
+    repl_storage_state_.AppendDelta(delta, parent, timestamp);
   });
 
   // Add a delta that indicates that the transaction is fully written to the WAL
@@ -1691,15 +1724,16 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return replication_state_.FinalizeTransaction(final_commit_timestamp);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp);
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) {
+  auto &replState = repl_state_;
+  if (!InitializeWalFile(replState.GetEpoch())) {
     return true;
   }
 
-  replication_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
 
   for (const auto &md_delta : transaction.md_deltas) {
     switch (md_delta.action) {
@@ -1770,7 +1804,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return replication_state_.FinalizeTransaction(final_commit_timestamp);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1778,7 +1812,7 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
   wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-  replication_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1805,20 +1839,17 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    std::optional<bool> is_periodic) {
-  if (replication_state_.GetRole() != replication::ReplicationRole::MAIN) {
+    memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic) {
+  if (replicationState.IsReplica()) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  auto snapshot_creator = [this]() {
+  auto const &epoch = replicationState.GetEpoch();
+  auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
-    const auto &epoch = replication_state_.GetEpoch();
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
-    // Create snapshot.
-    durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                               config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
-                               &indices_, &constraints_, config_, uuid_, epoch.id, replication_state_.history,
-                               &file_retainer_);
+    durability::CreateSnapshot(this, &transaction, snapshot_directory_, wal_directory_, &vertices_, &edges_, uuid_,
+                               epoch, repl_storage_state_.history, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
 
@@ -1873,14 +1904,13 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-void InMemoryStorage::EstablishNewEpoch() {
+void InMemoryStorage::PrepareForNewEpoch(std::string prev_epoch) {
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  // TODO: Move out of storage (no need for the lock) <- missing commit_timestamp at a higher level
-  replication_state_.NewEpoch();
+  repl_storage_state_.AddEpochToHistory(std::move(prev_epoch));
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -1908,14 +1938,16 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(replication::ReplicationClientConfig const &config)
+auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, config);
+  auto &replState = this->repl_state_;
+  return std::make_unique<InMemoryReplicationClient>(this, config, &replState.GetEpoch());
 }
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const replication::ReplicationServerConfig &config) {
-  return std::make_unique<InMemoryReplicationServer>(this, config);
+    const memgraph::replication::ReplicationServerConfig &config) {
+  auto &replState = this->repl_state_;
+  return std::make_unique<InMemoryReplicationServer>(this, config, &replState.GetEpoch());
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {

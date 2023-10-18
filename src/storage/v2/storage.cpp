@@ -27,21 +27,20 @@
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 
 class InMemoryStorage;
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
+auto ReplicationStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
+  if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
+  return {config.durability.storage_directory};
+}
+
 Storage::Storage(Config config, StorageMode storage_mode)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+    : repl_state_(ReplicationStateHelper(config)),
+      name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
                                                     config.disk.id_name_mapper_directory);
@@ -53,9 +52,9 @@ Storage::Storage(Config config, StorageMode storage_mode)
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      id_(config.name),
-      replication_state_(config_.durability.restore_replication_state_on_startup,
-                         config_.durability.storage_directory) {}
+      id_(config.name) {
+  spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
+}
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode)
@@ -135,6 +134,24 @@ void Storage::Accessor::AdvanceCommand() {
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
+  /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
+  /// Loading edges is done through VertexAccessor so we do it here.
+  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+    auto out_edges_res = vertex->OutEdges(View::OLD);
+    auto in_edges_res = vertex->InEdges(View::OLD);
+    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
+      return out_edges_res.GetError();
+    }
+    if (!out_edges_res.HasError() && !out_edges_res->edges.empty()) {
+      return Error::VERTEX_HAS_EDGES;
+    }
+    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
+      return in_edges_res.GetError();
+    }
+    if (!in_edges_res.HasError() && !in_edges_res->edges.empty()) {
+      return Error::VERTEX_HAS_EDGES;
+    }
+  }
   auto res = DetachDelete({vertex}, {}, false);
 
   if (res.HasError()) {
@@ -161,6 +178,16 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
+  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+    auto out_edges_res = vertex->OutEdges(View::OLD);
+    auto in_edges_res = vertex->InEdges(View::OLD);
+    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
+      return out_edges_res.GetError();
+    }
+    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
+      return in_edges_res.GetError();
+    }
+  }
 
   auto res = DetachDelete({vertex}, {}, true);
 
@@ -207,6 +234,20 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+    for (const auto *vertex : nodes) {
+      /// TODO: (andi) Extract into a separate function.
+      auto out_edges_res = vertex->OutEdges(View::OLD);
+      auto in_edges_res = vertex->InEdges(View::OLD);
+      if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
+        return out_edges_res.GetError();
+      }
+      if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
+        return in_edges_res.GetError();
+      }
+    }
+  }
+
   // 1. Gather nodes which are not deleted yet in the system
   auto maybe_nodes_to_delete = PrepareDeletableNodes(nodes);
   if (maybe_nodes_to_delete.HasError()) {
@@ -256,7 +297,7 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
               "VertexAccessor must be from the same transaction as the storage "
               "accessor when deleting a vertex!");
     auto *vertex_ptr = vertex->vertex_;
-
+    /// TODO: (andi) This is overhead for disk storage, we should not lock the vertex here
     {
       auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
@@ -346,6 +387,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       // get the information about the last edge in the vertex collection
       auto const &[edge_type, opposing_vertex, edge_ref] = *attached_edges_to_vertex->rbegin();
 
+      /// TODO: (andi) Again here, no need to lock the edge if using on disk storage.
       std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.items.properties_on_edges) {
         auto edge_ptr = edge_ref.ptr;
@@ -369,8 +411,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       if (edge_cleared_from_both_directions) {
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                   &storage_->constraints_, storage_->config_.items, true);
+        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
       }
 
       CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
@@ -434,10 +475,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
       bool const edge_cleared_from_both_directions = !was_inserted;
       if (edge_cleared_from_both_directions) {
-        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                                   &storage_->constraints_, storage_->config_.items, true);
+        auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
       }
     }
 
@@ -483,8 +523,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
     CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
     vertex_ptr->deleted = true;
 
-    deleted_vertices.emplace_back(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                  storage_->config_.items, true);
+    deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
   }
 
   return deleted_vertices;

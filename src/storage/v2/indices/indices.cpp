@@ -41,11 +41,11 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
 Indices::Indices(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      label_index_ = std::make_unique<InMemoryLabelIndex>(this, config);
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(this, config);
+      label_index_ = std::make_unique<InMemoryLabelIndex>();
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
     } else {
-      label_index_ = std::make_unique<DiskLabelIndex>(this, config);
-      label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(this, config);
+      label_index_ = std::make_unique<DiskLabelIndex>(config);
+      label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);
     }
   });
 }

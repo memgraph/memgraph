@@ -663,7 +663,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     if (verify_info) {
-      auto info = store->GetInfo();
+      auto info = store->GetBaseInfo();
       if (have_base_dataset) {
         if (have_extended_dataset) {
           ASSERT_EQ(info.vertex_count, kNumBaseVertices + kNumExtendedVertices);

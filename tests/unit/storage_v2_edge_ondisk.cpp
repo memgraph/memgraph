@@ -52,11 +52,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -131,11 +126,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -255,11 +245,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -328,11 +313,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -435,9 +415,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -496,9 +473,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -594,11 +568,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -667,11 +636,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -701,11 +665,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -774,11 +733,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -886,11 +840,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -959,11 +908,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -993,11 +937,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1066,11 +1005,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1173,9 +1107,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1234,9 +1165,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     // Check edges without filters
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -1256,9 +1184,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1317,9 +1242,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1419,11 +1341,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1492,11 +1409,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1584,11 +1496,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1656,11 +1563,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -1710,11 +1612,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1783,11 +1680,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1875,11 +1767,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -1947,11 +1834,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -1996,9 +1878,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2057,9 +1936,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2137,9 +2013,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2197,9 +2070,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     // Check edges without filters
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -2241,11 +2111,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2314,11 +2179,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2406,11 +2266,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2478,11 +2333,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2570,11 +2420,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2642,11 +2487,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -2696,11 +2536,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2769,11 +2604,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2861,11 +2691,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -2933,11 +2758,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3026,11 +2846,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3098,11 +2913,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -3147,9 +2957,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3208,9 +3015,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3288,9 +3092,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3348,9 +3149,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3428,9 +3226,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3488,9 +3283,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     // Check edges without filters
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -3571,11 +3363,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -3640,11 +3427,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -3801,11 +3583,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
     ASSERT_TRUE(vertex2);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex1);
-    acc->PrefetchInEdges(*vertex1);
-    acc->PrefetchOutEdges(*vertex2);
-    acc->PrefetchInEdges(*vertex2);
 
     auto et1 = acc->NameToEdgeType("et1");
     auto et2 = acc->NameToEdgeType("et2");
@@ -3944,9 +3721,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex1);
     ASSERT_TRUE(vertex2);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex2);
-    acc->PrefetchInEdges(*vertex2);
 
     auto et4 = acc->NameToEdgeType("et4");
 
@@ -4063,11 +3837,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -4132,11 +3901,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -4178,11 +3942,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     auto et = acc->NameToEdgeType("et5");
 
@@ -4247,11 +4006,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex_from);
     ASSERT_TRUE(vertex_to);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex_from);
-    acc->PrefetchInEdges(*vertex_from);
-    acc->PrefetchOutEdges(*vertex_to);
-    acc->PrefetchInEdges(*vertex_to);
 
     // Check edges
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD)->edges.size(), 0);
@@ -4408,11 +4162,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
     ASSERT_TRUE(vertex2);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex1);
-    acc->PrefetchInEdges(*vertex1);
-    acc->PrefetchOutEdges(*vertex2);
-    acc->PrefetchInEdges(*vertex2);
 
     auto et1 = acc->NameToEdgeType("et1");
     auto et2 = acc->NameToEdgeType("et2");
@@ -4551,11 +4300,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
     ASSERT_TRUE(vertex2);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex1);
-    acc->PrefetchInEdges(*vertex1);
-    acc->PrefetchOutEdges(*vertex2);
-    acc->PrefetchInEdges(*vertex2);
 
     auto et1 = acc->NameToEdgeType("et1");
     auto et2 = acc->NameToEdgeType("et2");
@@ -4734,11 +4478,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
     ASSERT_TRUE(vertex2);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex1);
-    acc->PrefetchInEdges(*vertex1);
-    acc->PrefetchOutEdges(*vertex2);
-    acc->PrefetchInEdges(*vertex2);
 
     auto et1 = acc->NameToEdgeType("et1");
     auto et2 = acc->NameToEdgeType("et2");
@@ -4877,9 +4616,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex1);
     ASSERT_TRUE(vertex2);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex2);
-    acc->PrefetchInEdges(*vertex2);
 
     auto et4 = acc->NameToEdgeType("et4");
 
@@ -4985,9 +4721,6 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5018,9 +4751,6 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5054,9 +4784,6 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5102,9 +4829,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5147,9 +4871,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
     auto property = acc->NameToProperty("property5");
@@ -5172,9 +4893,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5217,9 +4935,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5252,9 +4967,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5298,9 +5010,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5333,9 +5042,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5379,9 +5085,6 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5427,9 +5130,6 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
   {
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc1->PrefetchOutEdges(*vertex);
-    acc1->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5465,9 +5165,6 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
   {
     auto vertex = acc2->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc2->PrefetchOutEdges(*vertex);
-    acc2->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5501,9 +5198,6 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5558,9 +5252,6 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5595,9 +5286,6 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5611,9 +5299,6 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5649,9 +5334,6 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5674,6 +5356,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
+    spdlog::trace("Created vertex with gid: {}", gid.AsInt());
     auto et = acc->NameToEdgeType("et5");
     auto edge = acc->CreateEdge(&vertex, &vertex, et).GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
@@ -5685,9 +5368,6 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5720,9 +5400,6 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 
@@ -5764,9 +5441,6 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    // We prefetch edges implicitly when go thorough query Accessor
-    acc->PrefetchOutEdges(*vertex);
-    acc->PrefetchInEdges(*vertex);
 
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
 

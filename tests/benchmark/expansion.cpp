@@ -21,15 +21,19 @@
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
 
+std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
+
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{memgraph::storage::Config{
-      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
 
   void SetUp(const benchmark::State &state) override {
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = data_directory / "disk";
+    db_gk.emplace(std::move(config));
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
