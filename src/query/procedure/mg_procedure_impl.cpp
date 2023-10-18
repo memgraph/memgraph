@@ -2817,7 +2817,7 @@ mgp_error mgp_graph_edge_change_type(mgp_graph *graph, mgp_edge *e, mgp_edge_typ
 #ifdef MG_ENTERPRISE
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
             !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-          throw AuthorizationException{"Insufficient permissions for changing an edge!"};
+          throw AuthorizationException{"Insufficient permissions for changing the edge type!"};
         }
 #endif
         if (!MgpGraphIsMutable(*graph)) {
@@ -2830,13 +2830,13 @@ mgp_error mgp_graph_edge_change_type(mgp_graph *graph, mgp_edge *e, mgp_edge_typ
         if (edge.HasError()) {
           switch (edge.GetError()) {
             case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing the edge type!");
             case memgraph::storage::Error::DELETED_OBJECT:
             case memgraph::storage::Error::PROPERTIES_DISABLED:
             case memgraph::storage::Error::VERTEX_HAS_EDGES:
-              LOG_FATAL("Unexpected error when removing an edge.");
+              LOG_FATAL("Unexpected error when changing the edge type.");
             case memgraph::storage::Error::SERIALIZATION_ERROR:
-              throw SerializationException{"Cannot serialize removing an edge."};
+              throw SerializationException{"Cannot serialize changing the edge type."};
           }
         }
 
