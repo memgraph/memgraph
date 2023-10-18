@@ -363,7 +363,7 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state,
                                                            auth_handler.get(), auth_checker.get());
 #else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config, repl_state};
   auto db_acc_opt = db_gatekeeper.access();
   MG_ASSERT(db_acc_opt, "Failed to access the main database");
   auto &db_acc = *db_acc_opt;
