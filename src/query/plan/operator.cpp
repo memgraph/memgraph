@@ -2603,14 +2603,25 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
       case TypedValue::Type::Path: {
         auto path = expression_result.ValuePath();
         std::transform(path.edges().cbegin(), path.edges().cend(), std::back_inserter(buffer_.edges),
-                       [&edge_auth_checker](const auto &ea) {
+#ifdef MG_ENTERPRISE
+                       [&edge_auth_checker]
+#else
+                        []
+#endif
+                       (const auto &ea) {
 #ifdef MG_ENTERPRISE
                          edge_auth_checker(ea);
 #endif
                          return ea;
                        });
         std::transform(path.vertices().cbegin(), path.vertices().cend(), std::back_inserter(buffer_.nodes),
-                       [&vertex_auth_checker](const auto &va) {
+#ifdef MG_ENTERPRISE
+                       [&vertex_auth_checker]
+#else
+                        []
+#endif
+                       (const auto &va) {
+
 #ifdef MG_ENTERPRISE
                          vertex_auth_checker(va);
 #endif
