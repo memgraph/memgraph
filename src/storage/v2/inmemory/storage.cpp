@@ -696,16 +696,18 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-  } else if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
-    const auto vertices_to_update =
-        transaction_.constraint_verification_info.GetVerticesInfoForExistenceConstraintChecking();
-    for (const auto &[vertex, info] : vertices_to_update) {
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
-      if (validation_result) {
-        Abort();
-        return StorageManipulationError{*validation_result};
+  } else {
+    if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
+      const auto vertices_to_update =
+          transaction_.constraint_verification_info.GetVerticesInfoForExistenceConstraintChecking();
+      for (const auto &[vertex, info] : vertices_to_update) {
+        // No need to take any locks here because we modified this vertex and no
+        // one else can touch it until we commit.
+        auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
+        if (validation_result) {
+          Abort();
+          return StorageManipulationError{*validation_result};
+        }
       }
     }
 

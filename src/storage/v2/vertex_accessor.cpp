@@ -261,7 +261,11 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  transaction_->constraint_verification_info.AddProperty(vertex_, property);
+  if (!value.IsNull()) {
+    transaction_->constraint_verification_info.AddProperty(vertex_, property);
+  } else {
+    transaction_->constraint_verification_info.RemoveProperty(vertex_, property);
+  }
   storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
 
@@ -310,7 +314,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     storage_->indices_.UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
     transaction_->manyDeltasCache.Invalidate(vertex_, id);
-    transaction_->constraint_verification_info.AddProperty(vertex_, id);
+    if (!new_value.IsNull()) {
+      transaction_->constraint_verification_info.AddProperty(vertex_, id);
+    } else {
+      transaction_->constraint_verification_info.RemoveProperty(vertex_, id);
+    }
   }
 
   return id_old_new_change;
