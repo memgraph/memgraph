@@ -28,11 +28,7 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
-#ifdef MG_ENTERPRISE
 class DbmsHandler;
-#else
-class Database;
-#endif
 }  // namespace memgraph::dbms
 
 namespace memgraph::query {
@@ -49,20 +45,10 @@ class Interpreter;
  *
  */
 struct InterpreterContext {
-#ifdef MG_ENTERPRISE
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *db_handler,
                      replication::ReplicationState *rs, AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
-#else
-  InterpreterContext(InterpreterConfig interpreter_config, utils::Gatekeeper<dbms::Database> *db_gatekeeper,
-                     replication::ReplicationState *rs, query::AuthQueryHandler *ah = nullptr,
-                     query::AuthChecker *ac = nullptr);
-#endif
 
-#ifdef MG_ENTERPRISE
   memgraph::dbms::DbmsHandler *db_handler;
-#else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper;
-#endif
 
   // Internal
   const InterpreterConfig config;

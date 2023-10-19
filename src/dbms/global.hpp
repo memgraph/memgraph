@@ -32,6 +32,7 @@ enum class NewError : uint8_t {
   EXISTS,
   DEFUNCT,
   GENERIC,
+  NOT_ALLOWED_IN_COMMUNITY,
 };
 
 enum class SetForResult : uint8_t {

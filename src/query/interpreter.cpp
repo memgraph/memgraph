@@ -1405,7 +1405,7 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 #ifndef MG_ENTERPRISE
-  auto db_acc = interpreter_context_->db_gatekeeper->access();
+  auto db_acc = interpreter_context_->db_handler->Get(dbms::kDefaultDB);
   MG_ASSERT(db_acc, "Database accessor needs to be valid");
   current_db_.db_acc_ = std::move(db_acc);
 #endif
@@ -3388,6 +3388,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                   throw QueryRuntimeException("Failed while creating {}", db_name);
                 case dbms::NewError::NO_CONFIGS:
                   throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
+                case dbms::NewError::NOT_ALLOWED_IN_COMMUNITY:
+                  using namespace std::string_view_literals;
+                  throw QueryRuntimeException("Trying to use enterprise feature"sv);
               }
             } else {
               res = "Successfully created database " + db_name;

@@ -28,7 +28,6 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
-enum class RegistrationMode : uint8_t { MUST_BE_INSTANTLY_VALID, RESTORE };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {

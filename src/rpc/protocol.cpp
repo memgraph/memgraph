@@ -45,6 +45,10 @@ void Session::Execute() {
   utils::TypeId req_id{utils::TypeId::UNKNOWN};
   slk::Load(&req_id, &req_reader);
 
+  // version check
+  // ENFORCE same version of server on other end of RPC
+  // Or dispatch to callback based on {req_id, handler version}
+
   // Access to `callbacks_` and `extended_callbacks_` is done here without
   // acquiring the `mutex_` because we don't allow RPC registration after the
   // server was started so those two maps will never be updated when we `find`

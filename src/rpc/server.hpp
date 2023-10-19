@@ -63,7 +63,9 @@ class Server {
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
+    //    rpc.req_ver = TRequestResponse::Request::kVer;
     rpc.res_type = TRequestResponse::Response::kType;
+    //    rpc.res_ver = TRequestResponse::Response::kVer;
     rpc.callback = callback;
 
     auto got = extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});

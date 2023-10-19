@@ -356,20 +356,16 @@ int main(int argc, char **argv) {
 
   memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(db_config));
 
-#ifdef MG_ENTERPRISE
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state, &auth_, FLAGS_data_recovery_on_startup,
-                                           FLAGS_storage_delete_on_drop);
+#ifdef MG_ENTERPRISE
+                                           FLAGS_storage_delete_on_drop
+#else
+                                           false
+#endif
+  );
   auto db_acc = dbms_handler.Get(memgraph::dbms::kDefaultDB);
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state,
                                                            auth_handler.get(), auth_checker.get());
-#else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config, repl_state};
-  auto db_acc_opt = db_gatekeeper.access();
-  MG_ASSERT(db_acc_opt, "Failed to access the main database");
-  auto &db_acc = *db_acc_opt;
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &db_gatekeeper, &repl_state,
-                                                           auth_handler.get(), auth_checker.get());
-#endif
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

@@ -81,8 +81,6 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   return res;
 }
 
-#ifdef MG_ENTERPRISE
-
 using DeleteResult = utils::BasicResult<DeleteError>;
 
 /**
@@ -109,16 +107,22 @@ class DbmsHandler {
         delete_on_drop_(delete_on_drop) {
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
-    storage::UpdatePaths(*default_config_, default_config_->durability.storage_directory / "databases");
-    const auto &db_dir = default_config_->durability.storage_directory;
+#ifdef MG_ENTERPRISE
+    storage::UpdatePaths(default_config_, default_config_.durability.storage_directory / "databases");
+    const auto &db_dir = default_config_.durability.storage_directory;
     const auto durability_dir = db_dir / ".durability";
     utils::EnsureDirOrDie(db_dir);
     utils::EnsureDirOrDie(durability_dir);
     durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
+#else
+    utils::EnsureDirOrDie(default_config_.durability.storage_directory);
+#endif
 
     // Generate the default database
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
 
+    // ONLY in MG_ENTERPRISE do we need to handle other databases
+#ifdef MG_ENTERPRISE
     // Recover previous databases
     if (recovery_on_startup) {
       for (const auto &[name, _] : *durability_) {
@@ -127,6 +131,7 @@ class DbmsHandler {
         MG_ASSERT(!New_(name).HasError(), "Failed while creating database {}.", name);
         spdlog::info("Database {} restored.", name);
       }
+
     } else {  // Clear databases from the durability list and auth
       auto locked_auth = auth->Lock();
       for (const auto &[name, _] : *durability_) {
@@ -135,6 +140,7 @@ class DbmsHandler {
         durability_->Delete(name);
       }
     }
+#endif
   }
 
   /**
@@ -167,6 +173,7 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(const std::string &db_name) {
+#ifdef MG_ENTERPRISE
     std::lock_guard<LockT> wr(lock_);
     if (db_name == kDefaultDB) {
       // MSG cannot delete the default db
@@ -204,6 +211,10 @@ class DbmsHandler {
     defunct_dbs_.erase(db_name);
 
     return {};  // Success
+#else
+    // There is only the default database
+    return DeleteError::DEFAULT_DB;
+#endif
   }
 
   /**
@@ -332,13 +343,9 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
-    if (default_config_) {
-      auto config_copy = *default_config_;
-      storage::UpdatePaths(config_copy, default_config_->durability.storage_directory / storage_subdir);
-      return New_(name, config_copy);
-    }
-    spdlog::info("Trying to generate session context without any configurations.");
-    return NewError::NO_CONFIGS;
+    auto config_copy = default_config_;
+    storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / storage_subdir);
+    return New_(name, config_copy);
   }
 
   /**
@@ -357,8 +364,10 @@ class DbmsHandler {
 
     auto new_db = db_handler_.New(name, storage_config, repl_state_);
     if (new_db.HasValue()) {
+#ifdef MG_ENTERPRISE
       // Success
       if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
+#endif
       return new_db.GetValue();
     }
     return new_db.GetError();
@@ -371,6 +380,7 @@ class DbmsHandler {
    */
   NewResultT NewDefault_() {
     // Create the default DB in the root (this is how it was done pre multi-tenancy)
+#ifdef MG_ENTERPRISE
     auto res = New_(kDefaultDB, "..");
     if (res.HasValue()) {
       // For back-compatibility...
@@ -423,6 +433,9 @@ class DbmsHandler {
       }
     }
     return res;
+#else
+    return New_(kDefaultDB, default_config_);
+#endif
   }
 
   /**
@@ -443,12 +456,13 @@ class DbmsHandler {
   // Should storage objects ever be deleted?
   mutable LockT lock_;                               //!< protective lock
   DatabaseHandler db_handler_;                       //!< multi-tenancy storage handler
-  std::optional<storage::Config> default_config_;    //!< Storage configuration used when creating new databases
+  storage::Config default_config_;                   //!< Storage configuration used when creating new databases
   const replication::ReplicationState &repl_state_;  //!< Global replication state
-  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
-  std::set<std::string> defunct_dbs_;                //!< Databases that are in an unknown state due to various failures
-  bool delete_on_drop_;                              //!< Flag defining if dropping storage also deletes its directory
-};
+#ifdef MG_ENTERPRISE
+  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
 #endif
+  std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
+  bool delete_on_drop_;                //!< Flag defining if dropping storage also deletes its directory
+};
 
 }  // namespace memgraph::dbms
