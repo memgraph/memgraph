@@ -20,102 +20,29 @@ ConstraintVerificationInfo::~ConstraintVerificationInfo() = default;
 ConstraintVerificationInfo::ConstraintVerificationInfo(ConstraintVerificationInfo &&) noexcept = default;
 ConstraintVerificationInfo &ConstraintVerificationInfo::operator=(ConstraintVerificationInfo &&) noexcept = default;
 
-auto ConstraintVerificationInfo::GetAddedLabels(Vertex const *vertex) const -> std::unordered_set<LabelId> {
-  if (!added_labels_.contains(vertex)) {
-    return {};
-  }
+void ConstraintVerificationInfo::AddedLabel(Vertex const *vertex) { added_labels_.insert(vertex); }
 
-  return added_labels_.at(vertex);
+void ConstraintVerificationInfo::AddedProperty(Vertex const *vertex) { added_properties_.insert(vertex); }
+
+void ConstraintVerificationInfo::RemovedProperty(Vertex const *vertex) { removed_properties_.insert(vertex); }
+
+auto ConstraintVerificationInfo::GetVerticesForUniqueConstraintChecking() const -> std::unordered_set<Vertex const *> {
+  std::unordered_set<Vertex const *> updated_vertices;
+
+  updated_vertices.insert(added_labels_.begin(), added_labels_.end());
+  updated_vertices.insert(added_properties_.begin(), added_properties_.end());
+
+  return updated_vertices;
 }
 
-void ConstraintVerificationInfo::AddLabel(Vertex const *vertex, LabelId label) {
-  if (!added_labels_.contains(vertex)) {
-    added_labels_[vertex] = {};
-  }
+auto ConstraintVerificationInfo::GetVerticesForExistenceConstraintChecking() const
+    -> std::unordered_set<Vertex const *> {
+  std::unordered_set<Vertex const *> updated_vertices;
 
-  added_labels_[vertex].insert(label);
-}
+  updated_vertices.insert(added_labels_.begin(), added_labels_.end());
+  updated_vertices.insert(removed_properties_.begin(), removed_properties_.end());
 
-auto ConstraintVerificationInfo::GetAddedProperties(Vertex const *vertex) const -> std::unordered_set<PropertyId> {
-  if (!added_properties_.contains(vertex)) {
-    return {};
-  }
-
-  return added_properties_.at(vertex);
-}
-
-void ConstraintVerificationInfo::AddProperty(Vertex const *vertex, PropertyId property) {
-  if (!added_properties_.contains(vertex)) {
-    added_properties_[vertex] = {};
-  }
-
-  added_properties_[vertex].insert(property);
-}
-
-auto ConstraintVerificationInfo::GetRemovedProperties(Vertex const *vertex) const -> std::unordered_set<PropertyId> {
-  if (!removed_properties_.contains(vertex)) {
-    return {};
-  }
-
-  return removed_properties_.at(vertex);
-}
-
-void ConstraintVerificationInfo::RemoveProperty(Vertex const *vertex, PropertyId property) {
-  if (!removed_properties_.contains(vertex)) {
-    removed_properties_[vertex] = {};
-  }
-
-  removed_properties_[vertex].insert(property);
-}
-
-auto ConstraintVerificationInfo::GetVerticesInfoForUniqueConstraintChecking() const
-    -> std::unordered_map<Vertex const *, std::pair<std::unordered_set<LabelId>, std::unordered_set<PropertyId>>> {
-  using labels_info = std::unordered_set<LabelId>;
-  using props_info = std::unordered_set<PropertyId>;
-  using constraint_info = std::pair<labels_info, props_info>;
-
-  std::unordered_map<Vertex const *, constraint_info> vertices_info{};
-
-  for (const auto &[k, v] : added_labels_) {
-    if (!vertices_info.contains(k)) {
-      vertices_info[k] = std::make_pair(labels_info{}, props_info{});
-    }
-    vertices_info[k].first = v;
-  }
-
-  for (const auto &[k, v] : added_properties_) {
-    if (!vertices_info.contains(k)) {
-      vertices_info[k] = std::make_pair(labels_info{}, props_info{});
-    }
-    vertices_info[k].second = v;
-  }
-
-  return vertices_info;
-}
-
-auto ConstraintVerificationInfo::GetVerticesInfoForExistenceConstraintChecking() const
-    -> std::unordered_map<Vertex const *, std::pair<std::unordered_set<LabelId>, std::unordered_set<PropertyId>>> {
-  using labels_info = std::unordered_set<LabelId>;
-  using props_info = std::unordered_set<PropertyId>;
-  using constraint_info = std::pair<labels_info, props_info>;
-
-  std::unordered_map<Vertex const *, constraint_info> vertices_info{};
-
-  for (const auto &[k, v] : added_labels_) {
-    if (!vertices_info.contains(k)) {
-      vertices_info[k] = std::make_pair(labels_info{}, props_info{});
-    }
-    vertices_info[k].first = v;
-  }
-
-  for (const auto &[k, v] : removed_properties_) {
-    if (!vertices_info.contains(k)) {
-      vertices_info[k] = std::make_pair(labels_info{}, props_info{});
-    }
-    vertices_info[k].second = v;
-  }
-
-  return vertices_info;
+  return updated_vertices;
 }
 
 bool ConstraintVerificationInfo::NeedsUniqueConstraintVerification() const {
