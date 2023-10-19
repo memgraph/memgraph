@@ -2562,16 +2562,32 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
     expression_results.emplace_back(expression->Accept(evaluator));
   }
 
+#ifdef MG_ENTERPRISE
+  auto vertex_auth_checker = [&context](const VertexAccessor &va) {
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
+    }
+  };
+
+  auto edge_auth_checker = [&context](const EdgeAccessor &ea) {
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+          context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+          context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+      throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
+    }
+  };
+
+#endif
+
   for (TypedValue &expression_result : expression_results) {
     AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto va = expression_result.ValueVertex();
 #ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
-        }
+        vertex_auth_checker(va);
 #endif
         buffer_.nodes.push_back(va);
         break;
@@ -2579,22 +2595,32 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
       case TypedValue::Type::Edge: {
         auto ea = expression_result.ValueEdge();
 #ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-              context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-              context.auth_checker->Has(ea.From(), storage::View::NEW,
-                                        query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-          throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
-        }
+        edge_auth_checker(ea);
 #endif
         buffer_.edges.push_back(ea);
         break;
       }
+      case TypedValue::Type::Path: {
+        auto path = expression_result.ValuePath();
+        std::transform(path.edges().cbegin(), path.edges().cend(), std::back_inserter(buffer_.edges),
+                       [&edge_auth_checker](const auto &ea) {
+#ifdef MG_ENTERPRISE
+                         edge_auth_checker(ea);
+#endif
+                         return ea;
+                       });
+        std::transform(path.vertices().cbegin(), path.vertices().cend(), std::back_inserter(buffer_.nodes),
+                       [&vertex_auth_checker](const auto &va) {
+#ifdef MG_ENTERPRISE
+                         vertex_auth_checker(va);
+#endif
+                         return va;
+                       });
+      }
       case TypedValue::Type::Null:
         break;
-      // check we're not trying to delete anything except vertices and edges
       default:
-        throw QueryRuntimeException("Only edges and vertices can be deleted.");
+        throw QueryRuntimeException("Edges, vertices and paths can be deleted.");
     }
   }
 }
