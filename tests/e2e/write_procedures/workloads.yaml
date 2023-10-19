@@ -33,18 +33,3 @@ workloads:
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/read_subgraph.py"]
     <<: *in_memory_cluster
-
-  # TODO: has to be addressed.
-  # - name: "Write procedures simple on disk"
-  #   binary: "tests/e2e/pytest_runner.sh"
-  #   proc: "tests/e2e/write_procedures/procedures/"
-  #   args: ["write_procedures/simple_write.py"]
-  #   <<: *disk_cluster
-
-  # TODO: Has to be addressed but currently some problem with disk storage and edges.
-  # Edge case and requires refactoring of bulk detach delete.
-  # - name: "Graph projection procedures on disk"
-  #   binary: "tests/e2e/pytest_runner.sh"
-  #   proc: "tests/e2e/write_procedures/procedures/"
-  #   args: ["write_procedures/read_subgraph.py"]
-  #   <<: *disk_cluster

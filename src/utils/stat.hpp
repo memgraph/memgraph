@@ -22,12 +22,13 @@ namespace memgraph::utils {
 
 /// Returns the number of bytes a directory is using on disk. If the given path
 /// isn't a directory, zero will be returned.
+template <bool IgnoreSymlink = true>
 inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
   if (!std::filesystem::is_directory(path)) return 0;
 
   uint64_t size = 0;
   for (auto &p : std::filesystem::directory_iterator(path)) {
-    if (std::filesystem::is_symlink(p)) continue;
+    if (IgnoreSymlink && std::filesystem::is_symlink(p)) continue;
     if (std::filesystem::is_directory(p)) {
       size += GetDirDiskUsage(p);
     } else if (std::filesystem::is_regular_file(p)) {

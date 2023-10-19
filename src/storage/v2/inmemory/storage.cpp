@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "dbms/constants.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -1475,16 +1476,54 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock>);
 template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock>);
 
-StorageInfo InMemoryStorage::GetInfo() const {
-  auto vertex_count = vertices_.size();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
-  double average_degree = 0.0;
-  if (vertex_count) {
+StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
+  StorageInfo info{};
+  info.vertex_count = vertices_.size();
+  info.edge_count = edge_count_.load(std::memory_order_acquire);
+  if (info.vertex_count) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+    info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+  info.memory_usage = utils::GetMemoryUsage();
+  // Special case for the default database
+  auto update_path = [&](const std::filesystem::path &dir) {
+    if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
+      const auto end = dir.end();
+      auto it = end;
+      --it;
+      if (it != end) {
+        --it;
+        if (it != end && *it != "databases") {
+          // Default DB points to the root (for back-compatibility); update to the "database" dir
+          return dir / "databases" / dbms::kDefaultDB;
+        }
+      }
+    }
+    return dir;
+  };
+  info.disk_usage = utils::GetDirDiskUsage<false>(update_path(config_.durability.storage_directory));
+  return info;
+}
+
+StorageInfo InMemoryStorage::GetInfo(bool force_directory) {
+  StorageInfo info = GetBaseInfo(force_directory);
+  {
+    auto access = Access(std::nullopt);
+    const auto &lbl = access->ListAllIndices();
+    info.label_indices = lbl.label.size();
+    info.label_property_indices = lbl.label_property.size();
+    const auto &con = access->ListAllConstraints();
+    info.existence_constraints = con.existence.size();
+    info.unique_constraints = con.unique.size();
+  }
+  info.storage_mode = storage_mode_;
+  info.isolation_level = isolation_level_;
+  info.durability_snapshot_enabled =
+      config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+      config_.durability.snapshot_on_exit;
+  info.durability_wal_enabled =
+      config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  return info;
 }
 
 bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
