@@ -51,7 +51,7 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraint
 void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::string> &keys) {
   for (const auto &key : keys) {
     const std::vector<std::string> parts = utils::Split(key, ",");
-    constraints_.emplace_back(LabelId::FromUint(std::stoull(parts[0])), PropertyId::FromUint(std::stoull(parts[1])));
+    constraints_.emplace_back(LabelId::FromString(parts[0]), PropertyId::FromString(parts[1]));
   }
 }
 

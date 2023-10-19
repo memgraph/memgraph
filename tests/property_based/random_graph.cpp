@@ -71,7 +71,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
     vertices_num_check++;
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     RC_ASSERT(maybe_edges.HasValue());
-    for (auto &edge : *maybe_edges) {
+    for (auto &edge : maybe_edges->edges) {
       const auto &type = edge_type_map.at(edge);
       RC_ASSERT(dba->EdgeTypeToName(edge.EdgeType()) == type);
       edges_num_check++;

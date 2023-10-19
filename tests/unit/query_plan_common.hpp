@@ -221,10 +221,9 @@ auto CountIterable(TIterable &&iterable) {
 inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::View view) {
   uint64_t count = 0;
   for (auto vertex : dba->Vertices(view)) {
-    dba->PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(view);
     MG_ASSERT(maybe_edges.HasValue());
-    count += CountIterable(*maybe_edges);
+    count += CountIterable(maybe_edges->edges);
   }
   return count;
 }

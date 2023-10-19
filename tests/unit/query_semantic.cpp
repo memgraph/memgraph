@@ -1020,7 +1020,7 @@ TYPED_TEST(TestSymbolGenerator, MatchUnionReturnSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
 
-TYPED_TEST(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
+TYPED_TEST(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticException) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 3 AS Z, 4 AS Y
   auto ret = this->storage.template Create<Return>();
   ret->body_.all_identifiers = true;
@@ -1029,7 +1029,7 @@ TYPED_TEST(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
-TYPED_TEST(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticExpcetion) {
+TYPED_TEST(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticException) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 4 AS Y
   auto ret = this->storage.template Create<Return>();
   ret->body_.all_identifiers = true;
@@ -1277,4 +1277,167 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
                 UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n"))));
   symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 13);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingSingleLookup) {
+  // WITH {icode: 0000} AS item
+  // RETURN {icode: item.icode} AS new_map;
+
+  auto prop1_key = this->storage.GetPropertyIx("icode");
+  auto prop1_val = PROPERTY_LOOKUP(this->dba, "item", this->dba.NameToProperty("icode"));
+
+  auto has_properties = MAP({prop1_key, LITERAL(0000)});
+  auto new_map = MAP({prop1_key, prop1_val});
+  auto query = QUERY(SINGLE_QUERY(WITH(has_properties, AS("item")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[prop1_key])->evaluation_mode_;
+
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingTwoSingleLookups) {
+  // WITH {icode: 0000} AS item1, {icode: 1111} AS item2
+  // RETURN {icode1: item1.icode, icode2: item2.icode} AS new_map;
+
+  auto in_prop1_key = this->storage.GetPropertyIx("icode");
+  auto out_prop1_key = this->storage.GetPropertyIx("icode1");
+  auto out_prop1_val = PROPERTY_LOOKUP(this->dba, "item1", this->dba.NameToProperty("icode"));
+  auto out_prop2_key = this->storage.GetPropertyIx("icode2");
+  auto out_prop2_val = PROPERTY_LOOKUP(this->dba, "item2", this->dba.NameToProperty("icode"));
+
+  auto has_properties1 = MAP({in_prop1_key, LITERAL(0000)});
+  auto has_properties2 = MAP({in_prop1_key, LITERAL(1111)});
+  auto new_map = MAP({out_prop1_key, out_prop1_val}, {out_prop2_key, out_prop2_val});
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(has_properties1, AS("item1"), has_properties2, AS("item2")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop1_key])->evaluation_mode_;
+  auto prop2_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop2_key])->evaluation_mode_;
+
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingMultipleLookup) {
+  // WITH {icode: 0000, price: 10} AS item
+  // RETURN {icode: item.icode, price: item.price} AS new_map;
+
+  auto prop1_key = this->storage.GetPropertyIx("icode");
+  auto prop1_val = PROPERTY_LOOKUP(this->dba, "item", this->dba.NameToProperty("icode"));
+  auto prop2_key = this->storage.GetPropertyIx("price");
+  auto prop2_val = PROPERTY_LOOKUP(this->dba, "item", this->dba.NameToProperty("price"));
+
+  auto has_properties = MAP({prop1_key, LITERAL(0000)}, {prop2_key, LITERAL(10)});
+  auto new_map = MAP({prop1_key, prop1_val}, {prop2_key, prop2_val});
+  auto query = QUERY(SINGLE_QUERY(WITH(has_properties, AS("item")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[prop1_key])->evaluation_mode_;
+  auto prop2_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[prop2_key])->evaluation_mode_;
+
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingTwoMultipleLookups) {
+  // WITH {icode: 0000, price: 10} AS item1, {icode: 1111, price: 16} AS item2
+  // RETURN {icode1: item1.icode, price1: item1.price, icode2: item2.icode, price2: item2.price} AS new_map;
+
+  auto in_prop1_key = this->storage.GetPropertyIx("icode");
+  auto in_prop2_key = this->storage.GetPropertyIx("price");
+
+  auto out_prop1_key = this->storage.GetPropertyIx("icode1");
+  auto out_prop1_val = PROPERTY_LOOKUP(this->dba, "item1", this->dba.NameToProperty("icode"));
+  auto out_prop2_key = this->storage.GetPropertyIx("price1");
+  auto out_prop2_val = PROPERTY_LOOKUP(this->dba, "item1", this->dba.NameToProperty("price"));
+  auto out_prop3_key = this->storage.GetPropertyIx("icode2");
+  auto out_prop3_val = PROPERTY_LOOKUP(this->dba, "item2", this->dba.NameToProperty("icode"));
+  auto out_prop4_key = this->storage.GetPropertyIx("price2");
+  auto out_prop4_val = PROPERTY_LOOKUP(this->dba, "item2", this->dba.NameToProperty("price"));
+
+  auto has_properties1 = MAP({in_prop1_key, LITERAL(0000)}, {in_prop2_key, LITERAL(10)});
+  auto has_properties2 = MAP({in_prop1_key, LITERAL(1111)}, {in_prop2_key, LITERAL(16)});
+  auto new_map = MAP({out_prop1_key, out_prop1_val}, {out_prop2_key, out_prop2_val}, {out_prop3_key, out_prop3_val},
+                     {out_prop4_key, out_prop4_val});
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(has_properties1, AS("item1"), has_properties2, AS("item2")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop1_key])->evaluation_mode_;
+  auto prop2_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop2_key])->evaluation_mode_;
+  auto prop3_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop3_key])->evaluation_mode_;
+  auto prop4_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop4_key])->evaluation_mode_;
+
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups1) {
+  // WITH {icode: 0000, price: 10} AS item1, {icode: 1111, price: 16} AS item2
+  // RETURN {icode1: item1.icode, price1: item1.price, icode2: item2.icode} AS new_map;
+
+  auto in_prop1_key = this->storage.GetPropertyIx("icode");
+  auto in_prop2_key = this->storage.GetPropertyIx("price");
+
+  auto out_prop1_key = this->storage.GetPropertyIx("icode1");
+  auto out_prop1_val = PROPERTY_LOOKUP(this->dba, "item1", this->dba.NameToProperty("icode"));
+  auto out_prop2_key = this->storage.GetPropertyIx("price1");
+  auto out_prop2_val = PROPERTY_LOOKUP(this->dba, "item1", this->dba.NameToProperty("price"));
+  auto out_prop3_key = this->storage.GetPropertyIx("icode2");
+  auto out_prop3_val = PROPERTY_LOOKUP(this->dba, "item2", this->dba.NameToProperty("icode"));
+
+  auto has_properties1 = MAP({in_prop1_key, LITERAL(0000)}, {in_prop2_key, LITERAL(10)});
+  auto has_properties2 = MAP({in_prop1_key, LITERAL(1111)}, {in_prop2_key, LITERAL(16)});
+  auto new_map = MAP({out_prop1_key, out_prop1_val}, {out_prop2_key, out_prop2_val}, {out_prop3_key, out_prop3_val});
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(has_properties1, AS("item1"), has_properties2, AS("item2")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop1_key])->evaluation_mode_;
+  auto prop2_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop2_key])->evaluation_mode_;
+  auto prop3_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop3_key])->evaluation_mode_;
+
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups2) {
+  // WITH {icode: 0000, price: 10} AS item1, {icode: 1111, price: 16} AS item2
+  // RETURN {icode1: item1.icode, icode2: item2.icode, price2: item2.price} AS new_map;
+
+  auto in_prop1_key = this->storage.GetPropertyIx("icode");
+  auto in_prop2_key = this->storage.GetPropertyIx("price");
+
+  auto out_prop1_key = this->storage.GetPropertyIx("icode1");
+  auto out_prop1_val = PROPERTY_LOOKUP(this->dba, "item1", this->dba.NameToProperty("icode"));
+  auto out_prop3_key = this->storage.GetPropertyIx("icode2");
+  auto out_prop3_val = PROPERTY_LOOKUP(this->dba, "item2", this->dba.NameToProperty("icode"));
+  auto out_prop4_key = this->storage.GetPropertyIx("price2");
+  auto out_prop4_val = PROPERTY_LOOKUP(this->dba, "item2", this->dba.NameToProperty("price"));
+
+  auto has_properties1 = MAP({in_prop1_key, LITERAL(0000)}, {in_prop2_key, LITERAL(10)});
+  auto has_properties2 = MAP({in_prop1_key, LITERAL(1111)}, {in_prop2_key, LITERAL(16)});
+  auto new_map = MAP({out_prop1_key, out_prop1_val}, {out_prop3_key, out_prop3_val}, {out_prop4_key, out_prop4_val});
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(has_properties1, AS("item1"), has_properties2, AS("item2")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop1_key])->evaluation_mode_;
+  auto prop3_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop3_key])->evaluation_mode_;
+  auto prop4_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop4_key])->evaluation_mode_;
+
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
 }

@@ -19,6 +19,7 @@
 
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
+#include "query/interpreter_context.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 /*
@@ -30,11 +31,38 @@ class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
   const std::string testSuite = "transactin_queue";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
-  memgraph::query::InterpreterContext interpreter_context{
-      std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)), {}, data_directory};
-  InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+      [&]() {
+        memgraph::storage::Config config{};
+        config.durability.storage_directory = data_directory;
+        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+          config.force_on_disk = true;
+        }
+        return config;
+      }()  // iile
+  };
 
-  void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
+  memgraph::dbms::DatabaseAccess db{
+      [&]() {
+        auto db_acc_opt = db_gk.access();
+        MG_ASSERT(db_acc_opt, "Failed to access db");
+        auto &db_acc = *db_acc_opt;
+        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+                  "Wrong storage mode!");
+        return db_acc;
+      }()  // iile
+  };
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
+
+  void TearDown() override {
+    disk_test_utils::RemoveRocksDbDirs(testSuite);
+    std::filesystem::remove_all(data_directory);
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;

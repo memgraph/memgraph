@@ -8,6 +8,6 @@ find_package(gflags REQUIRED)
 
 add_library(mg-requests STATIC ${requests_src_files})
 target_link_libraries(mg-requests
-        PUBLIC mg-utils spdlog::spdlog fmt::fmt gflags json ${CURL_LIBRARIES}
-        PRIVATE lib::ctre)
+        PUBLIC mg-utils lib::json
+        PRIVATE lib::ctre spdlog::spdlog ${CURL_LIBRARIES} fmt::fmt gflags)
 target_include_directories(mg-requests PRIVATE ${CURL_INCLUDE_DIRS})

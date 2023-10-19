@@ -346,6 +346,9 @@ TYPED_TEST(CppApiTestFixture, TestPath) {
   auto value_x = mgp::Value(path);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::Path(node_0));
+
+  path.Pop();
+  ASSERT_EQ(path.Length(), 0);
 }
 
 TYPED_TEST(CppApiTestFixture, TestDate) {
@@ -688,4 +691,70 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
       mgp::Value(path).ToString(),
       "(id: 2, :Label1:Label2, properties: {})-[type: Loves, id: 0, properties: {key: property}]->(id: 3, properties: "
       "{key: node_property, key2: node_property2})-[type: Loves2, id: 1, properties: {}]->(id: 4, properties: {})");
+}
+
+TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    return;
+  }
+
+  mgp_graph raw_graph = this->CreateGraph();
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
+
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+
+  ASSERT_EQ(relationship.From().Id(), node_1.Id());
+  graph.SetFrom(relationship, node_3);
+
+  ASSERT_EQ(std::string(relationship.Type()), "Edge");
+  ASSERT_EQ(relationship.From().Id(), node_3.Id());
+  ASSERT_EQ(relationship.To().Id(), node_2.Id());
+}
+
+TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    return;
+  }
+
+  mgp_graph raw_graph = this->CreateGraph();
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
+
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+
+  ASSERT_EQ(relationship.To().Id(), node_2.Id());
+  graph.SetTo(relationship, node_3);
+
+  ASSERT_EQ(std::string(relationship.Type()), "Edge");
+  ASSERT_EQ(relationship.From().Id(), node_1.Id());
+  ASSERT_EQ(relationship.To().Id(), node_3.Id());
+}
+
+TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Relationship1");
+  auto relationship2 = graph.CreateRelationship(node_1, node_2, "Relationship2");
+  auto relationship3 = graph.CreateRelationship(node_1, node_2, "Relationship3");
+  auto relationship4 = graph.CreateRelationship(node_1, node_2, "Relationship4");
+  auto relationship5 = graph.CreateRelationship(node_1, node_3, "Relationship5");
+  auto relationship6 = graph.CreateRelationship(node_1, node_3, "Relationship6");
+
+  ASSERT_EQ(node_1.OutDegree(), 6);
+  ASSERT_EQ(node_2.InDegree(), 4);
+  ASSERT_EQ(node_3.InDegree(), 2);
+
+  ASSERT_EQ(node_1.InDegree(), 0);
+  ASSERT_EQ(node_2.OutDegree(), 0);
+  ASSERT_EQ(node_3.OutDegree(), 0);
 }

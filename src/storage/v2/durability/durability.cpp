@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "replication/epoch.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -133,14 +134,23 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_constraints.indices.label) {
-    auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
     if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
+
+  spdlog::info("Recreating index statistics from metadata.");
+  // Recover label indices statistics.
+  spdlog::info("Recreating {} label index statistics from metadata.", indices_constraints.indices.label_stats.size());
+  for (const auto &item : indices_constraints.indices.label_stats) {
+    mem_label_index->SetIndexStats(item.first, item.second);
+    spdlog::info("A label index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label indices statistics are recreated.");
 
   // Recover label+property indices.
   spdlog::info("Recreating {} label+property indices from metadata.",
@@ -152,6 +162,19 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     spdlog::info("A label+property index is recreated from metadata.");
   }
   spdlog::info("Label+property indices are recreated.");
+
+  // Recover label+property indices statistics.
+  spdlog::info("Recreating {} label+property indices statistics from metadata.",
+               indices_constraints.indices.label_property_stats.size());
+  for (const auto &item : indices_constraints.indices.label_property_stats) {
+    const auto label_id = item.first;
+    const auto property_id = item.second.first;
+    const auto &stats = item.second.second;
+    mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+    spdlog::info("A label+property index statistics is recreated from metadata.");
+  }
+  spdlog::info("Label+property indices statistics are recreated.");
+
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");
@@ -188,7 +211,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
 
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
-                                        std::string *epoch_id,
+                                        memgraph::replication::ReplicationEpoch &epoch,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
@@ -241,7 +264,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
-    *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
+    epoch.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (utils::IsDirEmpty(wal_directory)) {
       const auto par_exec_info = config.durability.allow_parallel_index_creation
@@ -286,7 +309,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
     *uuid = std::move(wal_files.back().uuid);
-    *epoch_id = std::move(wal_files.back().epoch_id);
+    epoch.SetEpoch(std::move(wal_files.back().epoch_id));
   }
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
@@ -342,7 +365,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       previous_seq_num = wal_file.seq_num;
 
-      if (wal_file.epoch_id != *epoch_id) {
+      if (wal_file.epoch_id != epoch.id()) {
         // This way we skip WALs finalized only because of role change.
         // We can also set the last timestamp to 0 if last loaded timestamp
         // is nullopt as this can only happen if the WAL file with seq = 0
@@ -350,7 +373,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         if (last_loaded_timestamp) {
           epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
         }
-        *epoch_id = std::move(wal_file.epoch_id);
+        epoch.SetEpoch(std::move(wal_file.epoch_id));
       }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,

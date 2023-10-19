@@ -117,8 +117,8 @@ startup_config_dict = {
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
-        "600",
-        "600",
+        "-1",
+        "-1",
         "Maximum allowed query execution time. Queries exceeding this limit will be aborted. Value of 0 means no limit.",
     ),
     "query_modules_directory": (
@@ -155,6 +155,11 @@ startup_config_dict = {
         "100000",
         "100000",
         "Issue a 'fsync' call after this amount of transactions are written to the WAL file. Set to 1 for fully synchronous operation.",
+    ),
+    "storage_mode": (
+        "IN_MEMORY_TRANSACTIONAL",
+        "IN_MEMORY_TRANSACTIONAL",
+        "Default storage mode Memgraph uses. Allowed values: IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL",
     ),
     "storage_wal_file_size_kib": ("20480", "20480", "Minimum file size of each WAL file."),
     "storage_delete_on_drop": (

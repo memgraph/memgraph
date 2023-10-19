@@ -83,42 +83,34 @@ using MgpVertexPtr = std::unique_ptr<mgp_vertex, MgpVertexDeleter>;
 using MgpVerticesIteratorPtr = std::unique_ptr<mgp_vertices_iterator, MgpVerticesIteratorDeleter>;
 using MgpValuePtr = std::unique_ptr<mgp_value, MgpValueDeleter>;
 
-template <typename TMaybeIterable>
-size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable) {
+template <typename TMaybeIterable, typename TIterableAccessor>
+size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor func) {
   if (maybe_iterable.HasError()) {
     ADD_FAILURE() << static_cast<std::underlying_type_t<typename TMaybeIterable::ErrorType>>(maybe_iterable.GetError());
     return 0;
   }
-  auto &iterable = maybe_iterable.GetValue();
+  auto iterable = func(maybe_iterable.GetValue());
   return std::distance(iterable.begin(), iterable.end());
 }
 
 ;
 
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
-  if (auto dbAccessor = std::get_if<memgraph::query::DbAccessor *>(&from->graph->impl)) {
-    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
-    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(from->impl));
-    (*dbAccessor)->PrefetchOutEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
-    (*dbAccessor)->PrefetchInEdges(std::get<memgraph::query::VertexAccessor>(to->impl));
-  } else if (auto dbAccessor = std::get<memgraph::query::SubgraphDbAccessor *>(from->graph->impl)) {
-    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
-    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(from->impl));
-    dbAccessor->PrefetchOutEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
-    dbAccessor->PrefetchInEdges(std::get<memgraph::query::SubgraphVertexAccessor>(to->impl));
-  }
-
   EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl)),
+      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
       0);
-  EXPECT_EQ(CountMaybeIterables(
-                std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, from->impl)),
-            number_of_edges_between);
   EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, to->impl)),
+      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, from->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
       number_of_edges_between);
   EXPECT_EQ(
-      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, to->impl)),
+      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, to->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
+      number_of_edges_between);
+  EXPECT_EQ(
+      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, to->impl),
+                          [](const auto &edge_result) { return edge_result.edges; }),
       0);
 }
 }  // namespace
@@ -624,7 +616,7 @@ TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
   memgraph::storage::Gid from_vertex_id{};
   auto get_edge = [&from_vertex_id](memgraph::storage::Storage::Accessor *accessor) -> memgraph::storage::EdgeAccessor {
     auto from = accessor->FindVertex(from_vertex_id, memgraph::storage::View::NEW);
-    return std::move(from->OutEdges(memgraph::storage::View::NEW).GetValue().front());
+    return std::move(from->OutEdges(memgraph::storage::View::NEW).GetValue().edges.front());
   };
   {
     const auto vertex_ids = this->CreateEdge();

@@ -19,6 +19,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -131,13 +132,15 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std:
                                                   std::string &&ts) {
   transaction->EnsureCommitTimestampExists();
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  return &transaction->deltas.use().emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
+  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  return &transaction->deltas.use().emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
+  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
@@ -149,7 +152,8 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, std::stoull(ts));
+  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 
 /// This function creates a delta in the transaction for the object and links

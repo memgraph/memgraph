@@ -157,9 +157,14 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitProfileQuery(MemgraphCypher::ProfileQueryContext *ctx) override;
 
   /**
-   * @return InfoQuery*
+   * @return DatabaseInfoQuery*
    */
-  antlrcpp::Any visitInfoQuery(MemgraphCypher::InfoQueryContext *ctx) override;
+  antlrcpp::Any visitDatabaseInfoQuery(MemgraphCypher::DatabaseInfoQueryContext *ctx) override;
+
+  /**
+   * @return SystemInfoQuery*
+   */
+  antlrcpp::Any visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) override;
 
   /**
    * @return Constraint

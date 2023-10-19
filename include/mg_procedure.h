@@ -543,6 +543,10 @@ void mgp_path_destroy(struct mgp_path *path);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for path extension.
 enum mgp_error mgp_path_expand(struct mgp_path *path, struct mgp_edge *edge);
 
+/// Remove the last node and the last relationship from the path.
+/// Return mgp_error::MGP_ERROR_OUT_OF_RANGE if the path contains no relationships.
+enum mgp_error mgp_path_pop(struct mgp_path *path);
+
 /// Get the number of edges in a mgp_path.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_path_size(struct mgp_path *path, size_t *result);
@@ -646,6 +650,12 @@ struct mgp_vertex_id {
 
 /// Get the ID of given vertex.
 enum mgp_error mgp_vertex_get_id(struct mgp_vertex *v, struct mgp_vertex_id *result);
+
+/// Get the in degree of given vertex.
+enum mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result);
+
+/// Get the out degree of given vertex.
+enum mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result);
 
 /// Result is non-zero if the vertex can be modified.
 /// The mutability of the vertex is the same as the graph which it is part of. If a vertex is immutable, then edges
@@ -881,6 +891,22 @@ enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mg
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge from vertex
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
+enum mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                       struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge to vertex
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
+enum mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                     struct mgp_memory *memory, struct mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.

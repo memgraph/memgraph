@@ -127,6 +127,8 @@ def run_full_benchmarks(
         ],
     ]
 
+    assert not realistic or not mixed, "Cannot run both realistic and mixed workload, please select one!"
+
     if realistic:
         # Configurations for full workload
         for count, write, read, update, analytical in realistic:

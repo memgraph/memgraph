@@ -126,6 +126,12 @@ class MemoryDispatcher final {
     map_.erase(this_id);
   }
 
+  bool IsThisThreadRegistered() noexcept {
+    const auto this_id = std::this_thread::get_id();
+    std::shared_lock lock(mut_);
+    return map_.contains(this_id);
+  }
+
  private:
   std::unordered_map<std::thread::id, mgp_memory *> map_;
   std::shared_mutex mut_;
@@ -136,7 +142,7 @@ class MemoryDispatcher final {
 // header. The use of the 'mgp_memory *memory' pointer is deprecated
 // and will be removed in upcoming releases.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline extern MemoryDispatcher mrd{};
+inline MemoryDispatcher mrd{};
 
 // TODO - Once we deprecate this we should remove this
 // and make sure nothing relies on it anymore. This alone
@@ -164,7 +170,7 @@ class MemoryDispatcherGuard final {
 // the mapping instead.
 template <typename Func, typename... Args>
 inline decltype(auto) MemHandlerCallback(Func &&func, Args &&...args) {
-  if (memory) {
+  if (!mrd.IsThisThreadRegistered()) {
     return std::forward<Func>(func)(std::forward<Args>(args)..., memory);
   }
   return std::forward<Func>(func)(std::forward<Args>(args)..., mrd.GetMemoryResource());
@@ -250,6 +256,10 @@ class Graph {
   void DetachDeleteNode(const Node &node);
   /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
   Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
+  /// @brief Changes a relationship from node.
+  void SetFrom(Relationship &relationship, const Node &new_from);
+  /// @brief Changes a relationship to node.
+  void SetTo(Relationship &relationship, const Node &new_to);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
@@ -429,6 +439,12 @@ class Labels {
     friend class Labels;
 
    public:
+    using value_type = Labels;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const Labels *;
+    using reference = const Labels &;
+    using iterator_category = std::forward_iterator_tag;
+
     bool operator==(const Iterator &other) const;
 
     bool operator!=(const Iterator &other) const;
@@ -512,6 +528,12 @@ class List {
     friend class List;
 
    public:
+    using value_type = List;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const List *;
+    using reference = const List &;
+    using iterator_category = std::forward_iterator_tag;
+
     bool operator==(const Iterator &other) const;
 
     bool operator!=(const Iterator &other) const;
@@ -752,6 +774,12 @@ class Node {
   /// @brief returns the string representation
   const std::string ToString() const;
 
+  /// @brief returns the in degree of a node
+  inline size_t InDegree() const;
+
+  /// @brief returns the out degree of a node
+  inline size_t OutDegree() const;
+
  private:
   mgp_vertex *ptr_;
 };
@@ -858,6 +886,8 @@ class Path {
 
   /// @brief Adds a relationship continuing from the last node on the path.
   void Expand(const Relationship &relationship);
+  /// @brief Removes the last node and the last relationship from the path.
+  void Pop();
 
   /// @exception std::runtime_error Path contains element(s) with unknown value.
   bool operator==(const Path &other) const;
@@ -1985,6 +2015,18 @@ inline Relationship Graph::CreateRelationship(const Node &from, const Node &to, 
   return relationship;
 }
 
+inline void Graph::SetFrom(Relationship &relationship, const Node &new_from) {
+  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_edge_set_from, graph_, relationship.ptr_, new_from.ptr_);
+  relationship = Relationship(edge);
+  mgp::edge_destroy(edge);
+}
+
+inline void Graph::SetTo(Relationship &relationship, const Node &new_to) {
+  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_edge_set_to, graph_, relationship.ptr_, new_to.ptr_);
+  relationship = Relationship(edge);
+  mgp::edge_destroy(edge);
+}
+
 inline void Graph::DeleteRelationship(const Relationship &relationship) {
   mgp::graph_delete_edge(graph_, relationship.ptr_);
 }
@@ -2790,6 +2832,10 @@ inline const std::string Node::ToString() const {
   return "(id: " + std::to_string(Id().AsInt()) + labels + ", properties: {" + properties + "})";
 }
 
+inline size_t Node::InDegree() const { return mgp::vertex_get_in_degree(ptr_); }
+
+inline size_t Node::OutDegree() const { return mgp::vertex_get_out_degree(ptr_); }
+
 // Relationship:
 
 inline Relationship::Relationship(mgp_edge *ptr) : ptr_(mgp::MemHandlerCallback(edge_copy, ptr)) {}
@@ -2950,6 +2996,8 @@ inline Relationship Path::GetRelationshipAt(size_t index) const {
 }
 
 inline void Path::Expand(const Relationship &relationship) { mgp::path_expand(ptr_, relationship.ptr_); }
+
+inline void Path::Pop() { mgp::path_pop(ptr_); }
 
 inline bool Path::operator==(const Path &other) const { return util::PathsEqual(ptr_, other.ptr_); }
 

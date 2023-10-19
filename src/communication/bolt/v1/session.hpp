@@ -27,6 +27,7 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/metrics.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
@@ -43,6 +44,7 @@ namespace memgraph::communication::bolt {
 class SessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionException)
 };
 
 /**
@@ -54,7 +56,7 @@ class SessionException : public utils::BasicException {
  * @tparam TOutputStream type of output stream that will be used
  */
 template <typename TInputStream, typename TOutputStream>
-class Session : public dbms::SessionInterface {
+class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
@@ -159,6 +161,7 @@ class Session : public dbms::SessionInterface {
           break;
         case State::Idle:
         case State::Result:
+          at_least_one_run_ = true;
           state_ = StateExecutingRun(*this, state_);
           break;
         case State::Error:
@@ -180,6 +183,12 @@ class Session : public dbms::SessionInterface {
     }
   }
 
+  void HandleError() {
+    if (!at_least_one_run_) {
+      spdlog::info("Sudden connection loss. Make sure the client supports Memgraph.");
+    }
+  }
+
   // TODO: Rethink if there is a way to hide some members. At the momement all of them are public.
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
@@ -192,6 +201,7 @@ class Session : public dbms::SessionInterface {
 
   bool handshake_done_{false};
   State state_{State::Handshake};
+  bool at_least_one_run_{false};
 
   struct Version {
     uint8_t major;
@@ -199,9 +209,11 @@ class Session : public dbms::SessionInterface {
   };
 
   Version version_;
+  std::vector<std::string> client_supported_bolt_versions_;
+  std::optional<BoltMetrics::Metrics> metrics_;
 
-  std::string GetDatabaseName() const override = 0;
-  std::string UUID() const final { return session_uuid_; }
+  virtual std::string GetCurrentDB() const = 0;
+  std::string UUID() const { return session_uuid_; }
 
  private:
   void ClientFailureInvalidData() {

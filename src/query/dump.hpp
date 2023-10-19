@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,7 @@ struct PullPlanDump {
   using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
 
   using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));
-  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().GetValue().begin());
+  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().GetValue().edges.begin());
 
   VertexAccessorIterable vertices_iterable_;
   bool internal_index_created_ = false;

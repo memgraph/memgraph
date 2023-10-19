@@ -25,6 +25,9 @@
 
 namespace memgraph::utils {
 
+#define SPECIALIZE_GET_EXCEPTION_NAME(exep) \
+  std::string name() const override { return #exep; }
+
 /**
  * @brief Base class for all regular exceptions.
  *
@@ -68,6 +71,8 @@ class BasicException : public std::exception {
    *         not attempt to free the memory.
    */
   const char *what() const noexcept override { return msg_.c_str(); }
+
+  virtual std::string name() const { return "BasicException"; }
 
  protected:
   /**
@@ -146,6 +151,23 @@ class NotYetImplemented final : public BasicException {
   template <class... Args>
   explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(NotYetImplemented)
 };
+
+class ParseException final : public BasicException {
+ public:
+  explicit ParseException(const std::string_view what) noexcept
+      : BasicException("Parsing failed for string: " + std::string(what)) {}
+
+  template <class... Args>
+  explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : ParseException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(ParseException)
+};
+
+inline std::string GetExceptionName(const std::exception &e) { return typeid(e).name(); }
+inline std::string GetExceptionName(const utils::BasicException &be) { return be.name(); }
 
 }  // namespace memgraph::utils
