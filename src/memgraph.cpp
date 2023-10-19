@@ -432,11 +432,10 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
                       service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
-#ifdef MG_ENTERPRISE
     telemetry->AddStorageCollector(dbms_handler, auth_);
+#ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
 #else
-    telemetry->AddStorageCollector(db_gatekeeper, auth_);
     telemetry->AddDatabaseCollector();
 #endif
     telemetry->AddClientCollector();
@@ -496,17 +495,16 @@ int main(int argc, char **argv) {
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
-#ifdef MG_ENTERPRISE
     auto db_acc = dbms_handler.Get(memgraph::dbms::kDefaultDB);
+    MG_ASSERT(db_acc, "Failed to gain access to the main database");
+#ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
     } else {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
     }
 #else
-    auto db_acc_2 = db_gatekeeper.access();
-    MG_ASSERT(db_acc_2, "Failed to gain access to the main database");
-    InitFromCypherlFile(interpreter_context_, *db_acc_2, FLAGS_init_data_file);
+    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
   }
 
