@@ -289,7 +289,11 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
     storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
     transaction_->manyDeltasCache.Invalidate(vertex_, property);
-    transaction_->constraint_verification_info.AddProperty(vertex_, property);
+    if (!value.IsNull()) {
+      transaction_->constraint_verification_info.AddProperty(vertex_, property);
+    } else {
+      transaction_->constraint_verification_info.RemoveProperty(vertex_, property);
+    }
   }
 
   return true;
