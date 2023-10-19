@@ -20,7 +20,7 @@ TOOLCHAIN_BUILD_DEPS=(
     curl # snappy
     readline-devel # cmake and llvm
     libffi-devel libxml2-devel perl-Digest-MD5 # llvm
-    libedit-devel pcre-devel automake bison # swig
+    libedit-devel pcre-devel pcre2-devel automake bison # swig
     file
     openssl-devel
     gmp-devel

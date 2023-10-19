@@ -27,13 +27,6 @@
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 
 class InMemoryStorage;
@@ -59,7 +52,9 @@ Storage::Storage(Config config, StorageMode storage_mode)
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      id_(config.name) {}
+      id_(config.name) {
+  spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
+}
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode)

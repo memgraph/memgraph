@@ -17,7 +17,7 @@ TOOLCHAIN_BUILD_DEPS=(
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre-devel automake bison # for swig
+    libedit-devel pcre-devel pcre2-devel automake bison # for swig
     file
     openssl-devel
     gmp-devel

@@ -27,6 +27,7 @@ def execute_test(**kwargs):
     client_binary = kwargs.pop("client")
     server_binary = kwargs.pop("server")
     storage_directory = kwargs.pop("storage")
+    root_directory = kwargs.pop("root")
 
     start_server = kwargs.pop("start_server", True)
     endpoint = kwargs.pop("endpoint", "")
@@ -55,6 +56,8 @@ def execute_test(**kwargs):
         duration,
         "--storage-directory",
         storage_directory,
+        "--root-directory",
+        root_directory,
     ]
     if endpoint:
         client_args.extend(["--endpoint", endpoint])
@@ -108,6 +111,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     storage = tempfile.TemporaryDirectory()
+    durability_root = tempfile.TemporaryDirectory()
 
     for test in TESTS:
         print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
@@ -120,7 +124,9 @@ if __name__ == "__main__":
             assert proc.wait() == 0
 
         try:
-            success = execute_test(client=args.client, server=args.server, storage=storage.name, **test)
+            success = execute_test(
+                client=args.client, server=args.server, storage=storage.name, root=durability_root, **test
+            )
         except Exception as e:
             print("\033[1;33m", e, "\033[0m", sep="")
             success = False
