@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -172,6 +172,11 @@ utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) 
 void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
   if (ec == boost::beast::websocket::error::closed) {
     DoShutdown();
+    return;
+  }
+
+  if (ec) {
+    LogError(ec, "read");
     return;
   }
 
