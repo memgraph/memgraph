@@ -25,9 +25,9 @@
 #include "utils/on_scope_exit.hpp"
 
 enum mgp_error Alloc(void *ptr) {
-  const size_t two_sixty_eight_mb = 1 << 28;
+  const size_t mb_size_268 = 1 << 28;
 
-  return mgp_global_alloc(two_sixty_eight_mb, (void **)(&ptr));
+  return mgp_global_alloc(mb_size_268, (void **)(&ptr));
 }
 
 void Regular(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
