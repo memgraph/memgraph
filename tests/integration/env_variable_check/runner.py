@@ -22,6 +22,7 @@ from typing import List
 
 SCRIPT_DIR = Path(__file__).absolute()
 PROJECT_DIR = SCRIPT_DIR.parents[3]
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.1):
@@ -70,7 +71,7 @@ def cleanup(memgraph):
     if memgraph.poll() is None:
         pid = memgraph.pid
         try:
-            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False
         time.sleep(1)

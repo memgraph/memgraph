@@ -23,6 +23,7 @@ from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port: int, delay: float = 0.1) -> float:
@@ -88,7 +89,7 @@ def cleanup(memgraph: subprocess):
     if memgraph.poll() is None:
         pid = memgraph.pid
         try:
-            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False, "Memgraph process didn't exit cleanly!"
         time.sleep(1)

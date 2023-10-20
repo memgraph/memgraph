@@ -24,6 +24,7 @@ import time
 DEFAULT_DB = "memgraph"
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+SIGNAL_SIGTERM = 15
 
 QUERIES = [
     ("MATCH (n) DELETE n", {}),
@@ -94,7 +95,7 @@ def execute_test(memgraph_binary, tester_binary):
     def cleanup():
         pid = memgraph.pid
         try:
-            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False
 
@@ -128,7 +129,7 @@ def execute_test(memgraph_binary, tester_binary):
 
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False
     time.sleep(1)

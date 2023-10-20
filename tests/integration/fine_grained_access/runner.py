@@ -24,6 +24,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
 UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\."
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.1):
@@ -82,7 +83,7 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
         if memgraph.poll() is None:
             pid = memgraph.pid
             try:
-                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+                os.kill(pid, SIGNAL_SIGTERM)
             except os.OSError:
                 assert False
             time.sleep(1)
@@ -136,7 +137,7 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     # Shutdown the memgraph binary
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False
     time.sleep(1)

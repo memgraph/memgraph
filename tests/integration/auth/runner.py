@@ -21,6 +21,7 @@ import time
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+SIGNAL_SIGTERM = 15
 
 # When you create a new permission just add a testcase to this list (a tuple
 # of query, touple of required permissions) and the test will automatically
@@ -168,7 +169,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
         if memgraph.poll() is None:
             pid = memgraph.pid
             try:
-                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+                os.kill(pid, SIGNAL_SIGTERM)
             except os.OSError:
                 assert False
             time.sleep(1)
@@ -333,7 +334,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     # Shutdown the memgraph binary
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False
     time.sleep(1)

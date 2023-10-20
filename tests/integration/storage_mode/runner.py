@@ -22,6 +22,8 @@ assertion_queries = [
     f"MATCH (n)-[e]->(m) WITH count(e) as cnt RETURN assert(cnt={len(edge_queries)});",
 ]
 
+SIGNAL_SIGTERM = 15
+
 
 def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -92,7 +94,7 @@ def execute_test_analytical_mode(memgraph_binary: str, tester_binary: str) -> No
 
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
     time.sleep(1)
@@ -141,7 +143,7 @@ def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_bi
     print("\033[1;36m~~ Terminating memgraph ~~\033[0m\n")
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
     time.sleep(1)
@@ -187,7 +189,7 @@ def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_bi
     print("\033[1;36m~~ Terminating memgraph ~~\033[0m\n")
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
     time.sleep(1)

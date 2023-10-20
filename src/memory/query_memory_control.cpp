@@ -32,11 +32,6 @@ namespace memgraph::memory {
 
 #if USE_JEMALLOC
 
-const std::thread::id &get_thread_id() {
-  static thread_local std::thread::id this_thread_id{std::this_thread::get_id()};
-  return this_thread_id;
-}
-
 unsigned QueriesMemoryControl::GetArenaForThread() {
   unsigned thread_arena{0};
   size_t size_thread_arena = sizeof(thread_arena);
@@ -97,7 +92,7 @@ bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
 }
 
 bool QueriesMemoryControl::IsArenaTracked(unsigned arena_ind) {
-  return arena_tracking[arena_ind].load(std::memory_order_relaxed) != 0;
+  return arena_tracking[arena_ind].load(std::memory_order_acquire) != 0;
 }
 
 void QueriesMemoryControl::InitializeArenaCounter(unsigned arena_ind) {

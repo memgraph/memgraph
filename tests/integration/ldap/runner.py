@@ -23,6 +23,8 @@ import time
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
+SIGNAL_SIGTERM = 15
+
 CONFIG_TEMPLATE = """
 server:
   host: "127.0.0.1"
@@ -125,7 +127,7 @@ class Memgraph:
             return 0
         pid = self._process.pid
         try:
-            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             if check:
                 assert False

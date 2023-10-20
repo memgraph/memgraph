@@ -30,6 +30,8 @@ WAL_FILE_NAME = "wal.bin"
 DUMP_SNAPSHOT_FILE_NAME = "expected_snapshot.cypher"
 DUMP_WAL_FILE_NAME = "expected_wal.cypher"
 
+SIGNAL_SIGTERM = 15
+
 
 def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -85,7 +87,7 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
         if memgraph.poll() is None:
             pid = memgraph.pid
             try:
-                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+                os.kill(pid, SIGNAL_SIGTERM)
             except os.OSError:
                 assert False
             time.sleep(1)
@@ -98,7 +100,7 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
     # Shutdown the memgraph binary
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False
     time.sleep(1)

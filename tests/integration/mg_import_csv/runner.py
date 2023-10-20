@@ -24,6 +24,7 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.1):
@@ -65,7 +66,7 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
         if memgraph.poll() is None:
             pid = memgraph.pid
             try:
-                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+                os.kill(pid, SIGNAL_SIGTERM)
             except os.OSError:
                 assert False, "Memgraph process didn't exit cleanly!"
             time.sleep(1)
@@ -81,7 +82,7 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
     # Shutdown the memgraph binary
     pid = memgraph.pid
     try:
-        os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
     time.sleep(1)
@@ -148,7 +149,7 @@ def execute_test(name, test_path, test_config, memgraph_binary, mg_import_csv_bi
         if memgraph.poll() is None:
             pid = memgraph.pid
             try:
-                os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+                os.kill(pid, SIGNAL_SIGTERM)
             except os.OSError:
                 assert False, "Memgraph process didn't exit cleanly!"
             time.sleep(1)

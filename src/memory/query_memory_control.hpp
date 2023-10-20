@@ -87,10 +87,6 @@ class QueriesMemoryControl {
  private:
   std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
 
-  mutable utils::RWSpinLock lock;
-  // std::unordered_map<std::thread::id, uint64_t> thread_id_to_transaction_id;
-  // std::unordered_map<uint64_t, utils::MemoryTracker> transaction_id_tracker;
-
   struct ThreadIdToTransactionId {
     std::thread::id thread_id;
     uint64_t transaction_id;
