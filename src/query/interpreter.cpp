@@ -2996,6 +2996,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
                              TypedValue(storage->PropertyToName(item.second))});
         }
+
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
@@ -3116,6 +3117,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
+
                          if (pull_plan->Pull(stream, n)) {
                            return action;
                          }
