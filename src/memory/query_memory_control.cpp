@@ -48,7 +48,7 @@ void QueriesMemoryControl::RemoveTrackingOnArena(unsigned arena_id) { arena_trac
 
 void QueriesMemoryControl::UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
   auto accessor = thread_id_to_transaction_id.access();
-  accessor.insert(ThreadIdToTransactionId{thread_id, transaction_id});
+  accessor.insert({thread_id, transaction_id});
 }
 
 void QueriesMemoryControl::EraseThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
@@ -77,8 +77,7 @@ utils::MemoryTracker *QueriesMemoryControl::GetTrackerCurrentThread() {
 void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, size_t inital_limit) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
 
-  TransactionIdToTracker transaction_id_to_tracker_obj{transaction_id, utils::MemoryTracker{}};
-  auto [elem, result] = transaction_id_to_tracker_accessor.insert(std::move(transaction_id_to_tracker_obj));
+  auto [elem, result] = transaction_id_to_tracker_accessor.insert({transaction_id, utils::MemoryTracker{}});
 
   elem->tracker.SetMaximumHardLimit(inital_limit);
   elem->tracker.SetHardLimit(inital_limit);

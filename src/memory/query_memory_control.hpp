@@ -16,7 +16,6 @@
 #include <unordered_map>
 
 #include "utils/memory_tracker.hpp"
-#include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
