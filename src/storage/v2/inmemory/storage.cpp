@@ -184,9 +184,7 @@ InMemoryStorage::~InMemoryStorage() {
       }
     }
   }
-  if (!committed_transactions_->empty()) {
-    committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
-  }
+  committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
@@ -743,25 +741,19 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
     if (replState.IsMain() || desired_commit_timestamp.has_value()) {
-      could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);
-      // Take committed_transactions lock while holding the engine lock to
-      // make sure that committed transactions are sorted by the commit
-      // timestamp in the list.
-      mem_storage->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
-        // TODO: release lock, and update all deltas to have a local copy
-        // of the commit timestamp
-        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-        // Replica can only update the last commit timestamp with
-        // the commits received from main.
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
-          // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
-        }
-        // Release engine lock because we don't have to hold it anymore
-        // and emplace back could take a long time.
-        engine_guard.unlock();
-      });
+      could_replicate_all_sync_replicas =
+          mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
+      // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+      MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+      transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
+      // Replica can only update the last commit timestamp with
+      // the commits received from main.
+      if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+        // Update the last commit timestamp
+        mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
+      }
+      // Release engine lock because we don't have to hold it anymore
+      engine_guard.unlock();
 
       mem_storage->commit_log_->MarkFinished(start_timestamp);
     }
@@ -842,27 +834,22 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // so the Wal files are consistent
         if (replState.IsMain() || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
-              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
+              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
         }
 
-        // Take committed_transactions lock while holding the engine lock to
-        // make sure that committed transactions are sorted by the commit
-        // timestamp in the list.
-        mem_storage->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
-          // TODO: release lock, and update all deltas to have a local copy
-          // of the commit timestamp
-          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-          // Replica can only update the last commit timestamp with
-          // the commits received from main.
-          if (replState.IsMain() || desired_commit_timestamp.has_value()) {
-            // Update the last commit timestamp
-            mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
-          }
-          // Release engine lock because we don't have to hold it anymore
-          // and emplace back could take a long time.
-          engine_guard.unlock();
-        });
+        // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+        transaction_.commit_timestamp->store(*commit_timestamp_,
+                                             std::memory_order_release);  // protected by engine_guard
+        // Replica can only update the last commit timestamp with
+        // the commits received from main.
+        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+          // Update the last commit timestamp
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(
+              *commit_timestamp_);  // protected by engine_guard
+        }
+        // Release engine lock because we don't have to hold it anymore
+        engine_guard.unlock();
 
         mem_storage->commit_log_->MarkFinished(start_timestamp);
       }
@@ -1041,7 +1028,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // emplace back could take a long time.
       engine_guard.unlock();
 
-      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
+      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
+                                        std::move(transaction_.commit_timestamp));
     });
     mem_storage->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
@@ -1288,10 +1276,26 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+
+  // Deltas from previous GC runs or from aborts can be cleaned up here
+  garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+    if constexpr (force) {
+      // if force is set to true we can simply delete all the leftover undos because
+      // no transaction is active
+      garbage_undo_buffers.clear();
+    } else {
+      // garbage_undo_buffers is ordered, pop until we can't
+      while (!garbage_undo_buffers.empty() &&
+             std::get<0>(garbage_undo_buffers.front()) <= oldest_active_start_timestamp) {
+        garbage_undo_buffers.pop_front();
+      }
+    }
+  });
+
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::pair<uint64_t, BondPmrLd>> unlinked_undo_buffers;
+  std::list<std::tuple<uint64_t, BondPmrLd, std::unique_ptr<std::atomic<uint64_t>>>> unlinked_undo_buffers{};
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1311,21 +1315,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty() ||
                            need_full_scan_vertices || need_full_scan_edges;
 
-  while (true) {
-    // We don't want to hold the lock on committed transactions for too long,
-    // because that prevents other transactions from committing.
-    Transaction *transaction = nullptr;
-    {
-      auto committed_transactions_ptr = committed_transactions_.Lock();
-      if (committed_transactions_ptr->empty()) {
-        break;
-      }
-      transaction = &committed_transactions_ptr->front();
-    }
+  // Short lock, to move to local variable. Hence allows other transactions to commit.
+  auto transactions =
+      committed_transactions_.WithLock([](auto &committed_transactions) { return std::move(committed_transactions); });
 
+  auto const end_transaction = transactions.end();
+  for (auto transaction = transactions.begin(); transaction != end_transaction;) {
     auto commit_timestamp = transaction->commit_timestamp->load(std::memory_order_acquire);
+
+    // only process those that are no longer active
     if (commit_timestamp >= oldest_active_start_timestamp) {
-      break;
+      ++transaction;  // can not process, skip
+      continue;       // must continue to next transaction, because committed_transactions_ was not ordered
     }
 
     // When unlinking a delta which is the first delta in its version chain,
@@ -1435,9 +1436,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
     }
 
-    committed_transactions_.WithLock([&](auto &committed_transactions) {
-      unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
-      committed_transactions.pop_front();
+    // Preserve deltas and commit_timestamp as they maybe still accessed
+    unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas), std::move(transaction->commit_timestamp));
+    transaction = transactions.erase(transaction);
+  }
+
+  if (!transactions.empty()) {
+    // some transactions were not able to be collected, add them back to committed_transactions_ for the next GC run
+    committed_transactions_.WithLock([&transactions](auto &committed_transactions) {
+      committed_transactions.splice(committed_transactions.begin(), std::move(transactions));
     });
   }
 
@@ -1455,45 +1462,31 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   {
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
-    uint64_t mark_timestamp = timestamp_;
-    // Take garbage_undo_buffers lock while holding the engine lock to make
-    // sure that entries are sorted by mark timestamp in the list.
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // Release engine lock because we don't have to hold it anymore and
-      // this could take a long time.
-      guard.unlock();
-      // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
-      // transactions from aborting until we're done marking, maybe we should
-      // add them one-by-one or something
-      for (auto &[timestamp, transaction_deltas] : unlinked_undo_buffers) {
-        timestamp = mark_timestamp;
-      }
-      garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
-    });
+    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+
+    if (force or mark_timestamp == oldest_active_start_timestamp) {
+      // if lucky, there are no active transactions, hence nothing looking at the deltas
+      // remove them now
+      unlinked_undo_buffers.clear();
+    } else {
+      // Take garbage_undo_buffers lock while holding the engine lock to make
+      // sure that entries are sorted by mark timestamp in the list.
+      garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+        // Release engine lock because we don't have to hold it anymore and
+        // this could take a long time.
+        guard.unlock();
+        // correct the markers, and defer until next GC run
+        for (auto &[marker, transaction_deltas, commit_timestamp] : unlinked_undo_buffers) {
+          marker = mark_timestamp;
+        }
+        // ensure insert at end to preserve the order
+        garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
+      });
+    }
     for (auto vertex : current_deleted_vertices) {
       garbage_vertices_.emplace_back(mark_timestamp, vertex);
     }
   }
-
-  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
-    // if force is set to true we can simply delete all the leftover undos because
-    // no transaction is active
-    if constexpr (force) {
-      for (auto &[timestamp, transaction_deltas] : undo_buffers) {
-        transaction_deltas.~Bond<PmrListDelta>();
-      }
-      undo_buffers.clear();
-
-    } else {
-      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
-        auto &[timestamp, transaction_deltas] = undo_buffers.front();
-        transaction_deltas.~Bond<PmrListDelta>();
-        // this will trigger destory of object
-        // but since we release pointer, it will just destory other stuff
-        undo_buffers.pop_front();
-      }
-    }
-  });
 
   {
     auto vertex_acc = vertices_.access();

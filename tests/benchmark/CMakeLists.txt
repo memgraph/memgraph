@@ -13,7 +13,7 @@ function(add_benchmark test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} benchmark gflags)
+  target_link_libraries(${target_name} benchmark gflags mg-memory)
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__benchmark ${target_name})

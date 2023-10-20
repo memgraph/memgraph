@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,7 +62,7 @@ class Scheduler {
         auto now = std::chrono::system_clock::now();
         start_time += pause;
         if (start_time > now) {
-          condition_variable_.wait_for(lk, start_time - now, [&] { return is_working_.load() == false; });
+          condition_variable_.wait_until(lk, start_time, [&] { return is_working_.load() == false; });
         } else {
           start_time = now;
         }
