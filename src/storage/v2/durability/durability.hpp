@@ -27,7 +27,6 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage::durability {
