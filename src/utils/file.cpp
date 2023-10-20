@@ -319,7 +319,13 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   return *this;
 }
 
+// https://man7.org/linux/man-pages/man2/open.2.html
+// By default, the new file descriptor is set to remain open across
+// an execve(2) (i.e., the FD_CLOEXEC file descriptor flag described
+// in fcntl(2) is initially disabled
 void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
+  auto max_files = sysconf(_SC_OPEN_MAX);
+  spdlog::info("Maximum number of files: {}", max_files);
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
