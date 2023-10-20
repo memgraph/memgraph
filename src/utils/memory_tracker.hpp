@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <type_traits>
 
 #include "utils/exceptions.hpp"
 
@@ -41,9 +42,20 @@ class MemoryTracker final {
   MemoryTracker() = default;
   ~MemoryTracker() = default;
 
+  MemoryTracker(MemoryTracker &&other) noexcept
+      : amount_(other.amount_.load(std::memory_order_acquire)),
+        peak_(other.peak_.load(std::memory_order_acquire)),
+        hard_limit_(other.hard_limit_.load(std::memory_order_acquire)),
+        maximum_hard_limit_(other.maximum_hard_limit_) {
+    other.maximum_hard_limit_ = 0;
+    other.amount_.store(0, std::memory_order_acquire);
+    other.peak_.store(0, std::memory_order_acquire);
+    other.hard_limit_.store(0, std::memory_order_acquire);
+  }
+
   MemoryTracker(const MemoryTracker &) = delete;
   MemoryTracker &operator=(const MemoryTracker &) = delete;
-  MemoryTracker(MemoryTracker &&) = delete;
+
   MemoryTracker &operator=(MemoryTracker &&) = delete;
 
   void Alloc(int64_t size);

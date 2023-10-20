@@ -100,7 +100,7 @@ class QueriesMemoryControl {
 
   struct TransactionIdToTracker {
     uint64_t transaction_id;
-    std::unique_ptr<utils::MemoryTracker> tracker;
+    utils::MemoryTracker tracker;
 
     bool operator<(const TransactionIdToTracker &other) const { return transaction_id < other.transaction_id; }
     bool operator==(const TransactionIdToTracker &other) const { return transaction_id == other.transaction_id; }

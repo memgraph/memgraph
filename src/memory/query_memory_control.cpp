@@ -71,17 +71,17 @@ utils::MemoryTracker *QueriesMemoryControl::GetTrackerCurrentThread() {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
   auto transaction_id_to_tracker =
       transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
-  return &*transaction_id_to_tracker->tracker;
+  return &transaction_id_to_tracker->tracker;
 }
 
 void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, size_t inital_limit) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
 
-  TransactionIdToTracker transaction_id_to_tracker_obj{transaction_id, std::make_unique<utils::MemoryTracker>()};
+  TransactionIdToTracker transaction_id_to_tracker_obj{transaction_id, utils::MemoryTracker{}};
   auto [elem, result] = transaction_id_to_tracker_accessor.insert(std::move(transaction_id_to_tracker_obj));
 
-  elem->tracker->SetMaximumHardLimit(inital_limit);
-  elem->tracker->SetHardLimit(inital_limit);
+  elem->tracker.SetMaximumHardLimit(inital_limit);
+  elem->tracker.SetHardLimit(inital_limit);
 }
 
 bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
