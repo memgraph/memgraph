@@ -29,6 +29,10 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
+namespace memgraph::storage {
+class InMemoryStorage;
+}  // namespace memgraph::storage
+
 namespace memgraph::storage::durability {
 
 /// Verifies that the owner of the storage directory is the same user that
@@ -108,13 +112,7 @@ void RecoverIndicesAndConstraints(
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
 /// @throw std::bad_alloc
-std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
-                                        const std::filesystem::path &wal_directory, std::string *uuid,
-                                        memgraph::replication::ReplicationEpoch &epoch,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, const Config &config,
-                                        uint64_t *wal_seq_num, utils::FileRetainer *file_retainer);
+std::optional<RecoveryInfo> RecoverData(InMemoryStorage *storage, memgraph::replication::ReplicationEpoch &epoch,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges);
 
 }  // namespace memgraph::storage::durability
