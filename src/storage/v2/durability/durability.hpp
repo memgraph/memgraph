@@ -27,6 +27,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage::durability {
@@ -115,6 +116,6 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                         Indices *indices, Constraints *constraints, const Config &config,
-                                        uint64_t *wal_seq_num);
+                                        uint64_t *wal_seq_num, utils::FileRetainer *file_retainer);
 
 }  // namespace memgraph::storage::durability

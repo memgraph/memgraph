@@ -32,6 +32,7 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/event_histogram.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -209,6 +210,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Constraints are recreated from metadata.");
 }
 
+/// TODO: (andi) Pass storage instead of indices constraints, config...
+/// Wrap it into a struct
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
                                         memgraph::replication::ReplicationEpoch &epoch,
@@ -216,7 +219,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                         Indices *indices, Constraints *constraints, const Config &config,
-                                        uint64_t *wal_seq_num) {
+                                        uint64_t *wal_seq_num, utils::FileRetainer *file_retainer) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);
@@ -254,9 +257,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         break;
       } catch (const RecoveryFailure &e) {
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
-        continue;
+        file_retainer->DeleteFile(path);
       }
     }
+
     MG_ASSERT(recovered_snapshot,
               "The database is configured to recover on startup, but couldn't "
               "recover using any of the specified snapshots! Please inspect them "
