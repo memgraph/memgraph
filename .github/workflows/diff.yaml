@@ -273,6 +273,9 @@ jobs:
 
       - name: Run e2e tests
         run: |
+          cd build
+          make install
+          cd ..
           cd tests
           ./setup.sh /opt/toolchain-v4/activate
           source ve3/bin/activate_e2e
