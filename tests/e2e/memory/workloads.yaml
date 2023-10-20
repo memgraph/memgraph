@@ -39,6 +39,15 @@ in_memory_delete_limit_cluster: &in_memory_delete_limit_cluster
       validation_queries: []
 
 
+disk_delete_limit_cluster: &disk_delete_limit_cluster
+  cluster:
+    main:
+      args: *args_delete_limit
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+
 workloads:
   - name: "Memory control"
     binary: "tests/e2e/memory/memgraph__e2e__memory__control"
@@ -95,3 +104,13 @@ workloads:
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
     args: ["--bolt-port", *bolt_port]
     <<: *in_memory_delete_limit_cluster
+
+  - name: "Memory control for detach delete on disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_delete"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_delete_limit_cluster
+
+  - name: "Memory control for accumulation on disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_delete_limit_cluster
