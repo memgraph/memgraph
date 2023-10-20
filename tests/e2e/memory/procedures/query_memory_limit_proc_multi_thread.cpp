@@ -36,17 +36,19 @@ std::vector<void *> ptrs_;
 
 void AllocFunc(mgp_graph *graph) {
   [[maybe_unused]] const enum mgp_error tracking_error = mgp_track_current_thread_allocations(graph);
-
   void *ptr = nullptr;
 
   ptrs_.emplace_back(ptr);
   try {
-    const enum mgp_error alloc_err = Alloc(ptr);
+    enum mgp_error alloc_err { mgp_error::MGP_ERROR_NO_ERROR };
+    alloc_err = Alloc(ptr);
     if (alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       num_allocations.fetch_add(1, std::memory_order_relaxed);
     }
+    if (alloc_err != mgp_error::MGP_ERROR_NO_ERROR) {
+      assert(false);
+    }
   } catch (const std::exception &e) {
-    // not to terminate std::thread here
     assert(false);
   }
 

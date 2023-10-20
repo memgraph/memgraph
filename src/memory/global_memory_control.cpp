@@ -9,11 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "global_memory_control.hpp"
 #include <atomic>
 #include <cstdint>
-#include <sstream>
-#include <thread>
+
+#include "global_memory_control.hpp"
 #include "query_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -63,7 +62,10 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   if (*commit) [[likely]] {
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-      GetQueriesMemoryControl().GetTrackerCurrentThread().Alloc(static_cast<int64_t>(size));
+      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+      if (memory_tracker != nullptr) [[likely]] {
+        memory_tracker->Alloc(static_cast<int64_t>(size));
+      }
     }
   }
 
@@ -72,7 +74,10 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
       if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-        GetQueriesMemoryControl().GetTrackerCurrentThread().Free(static_cast<int64_t>(size));
+        auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+        if (memory_tracker != nullptr) [[likely]] {
+          memory_tracker->Free(static_cast<int64_t>(size));
+        }
       }
     }
     return ptr;
@@ -92,7 +97,10 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
 
     if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-      GetQueriesMemoryControl().GetTrackerCurrentThread().Free(static_cast<int64_t>(size));
+      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+      if (memory_tracker != nullptr) [[likely]] {
+        memory_tracker->Free(static_cast<int64_t>(size));
+      }
     }
   }
 
@@ -103,7 +111,10 @@ static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bo
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-      GetQueriesMemoryControl().GetTrackerCurrentThread().Free(static_cast<int64_t>(size));
+      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+      if (memory_tracker != nullptr) [[likely]] {
+        memory_tracker->Free(static_cast<int64_t>(size));
+      }
     }
   }
 
@@ -120,7 +131,10 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
 
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-    GetQueriesMemoryControl().GetTrackerCurrentThread().Alloc(static_cast<int64_t>(size));
+    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+    if (memory_tracker != nullptr) [[likely]] {
+      memory_tracker->Alloc(static_cast<int64_t>(size));
+    }
   }
 
   return false;
@@ -137,7 +151,10 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
   if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-    GetQueriesMemoryControl().GetTrackerCurrentThread().Free(static_cast<int64_t>(size));
+    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+    if (memory_tracker != nullptr) [[likely]] {
+      memory_tracker->Free(static_cast<int64_t>(size));
+    }
   }
 
   return false;
@@ -154,7 +171,10 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
 
   if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-    GetQueriesMemoryControl().GetTrackerCurrentThread().Free(static_cast<int64_t>(size));
+    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+    if (memory_tracker != nullptr) [[likely]] {
+      memory_tracker->Alloc(static_cast<int64_t>(size));
+    }
   }
 
   return false;

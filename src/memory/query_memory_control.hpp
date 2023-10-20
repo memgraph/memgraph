@@ -17,6 +17,7 @@
 
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
 
@@ -78,22 +79,48 @@ class QueriesMemoryControl {
   // C-API functionality for thread to transaction unmapping
   void EraseThreadToTransactionId(const char *, uint64_t);
 
-  utils::MemoryTracker &GetTrackerCurrentThread();
+  // Get tracker to current thread if exists, otherwise return
+  // nullptr. This can happen only if tracker is still
+  // being constructed.
+  utils::MemoryTracker *GetTrackerCurrentThread();
 
  private:
   std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
 
   mutable utils::RWSpinLock lock;
-  std::unordered_map<std::string, uint64_t> thread_id_to_transaction_id;
-  std::unordered_map<uint64_t, utils::MemoryTracker> transaction_id_tracker;
+  // std::unordered_map<std::thread::id, uint64_t> thread_id_to_transaction_id;
+  // std::unordered_map<uint64_t, utils::MemoryTracker> transaction_id_tracker;
+
+  struct ThreadIdToTransactionId {
+    std::thread::id thread_id;
+    uint64_t transaction_id;
+
+    bool operator<(const ThreadIdToTransactionId &other) const { return thread_id < other.thread_id; }
+    bool operator==(const ThreadIdToTransactionId &other) const { return thread_id == other.thread_id; }
+
+    bool operator<(const std::thread::id other) const { return thread_id < other; }
+    bool operator==(const std::thread::id other) const { return thread_id == other; }
+  };
+
+  struct TransactionIdToTracker {
+    uint64_t transaction_id;
+    std::unique_ptr<utils::MemoryTracker> tracker;
+
+    bool operator<(const TransactionIdToTracker &other) const { return transaction_id < other.transaction_id; }
+    bool operator==(const TransactionIdToTracker &other) const { return transaction_id == other.transaction_id; }
+
+    bool operator<(uint64_t other) const { return transaction_id < other; }
+    bool operator==(uint64_t other) const { return transaction_id == other; }
+  };
+
+  utils::SkipList<ThreadIdToTransactionId> thread_id_to_transaction_id;
+  utils::SkipList<TransactionIdToTracker> transaction_id_to_tracker;
 };
 
 inline QueriesMemoryControl &GetQueriesMemoryControl() {
   static QueriesMemoryControl queries_memory_control_;
   return queries_memory_control_;
 }
-
-namespace query {}  // namespace query
 
 #endif
 
@@ -104,14 +131,6 @@ void StartTrackingCurrentThreadTransaction(uint64_t transaction_id);
 // API function call for to stop tracking current thread for given transaction.
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThreadTransaction(uint64_t transaction_id);
-
-// API function call for to start tracking given thread for given transaction.
-// Does nothing if jemalloc is not enabled.
-void StartTrackingThreadTransaction(const char *thread_id, uint64_t transaction_id);
-
-// API function call for to stop tracking given thread for given transaction.
-// Does nothing if jemalloc is not enabled
-void StopTrackingThreadTransaction(const char *thread_id, uint64_t transaction_id);
 
 // API function call for to create tracker for transaction and set it to given limit.
 // Does nothing if jemalloc is not enabled

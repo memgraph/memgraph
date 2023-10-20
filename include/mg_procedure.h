@@ -116,19 +116,6 @@ void mgp_global_free(void *p);
 struct mgp_graph;
 
 /// Allocations are tracked only for master thread. If new threads are spawned
-/// inside procedure, by calling following function with thread id
-/// you can start tracking allocations for that thread too. This
-/// is important if you need query memory limit to work
-/// for given procedure or per procedure memory limit.
-enum mgp_error mgp_track_thread_allocations(struct mgp_graph *graph, const char *thread_id);
-
-/// Once allocations are tracked for custom thread, you need to stop tracking allocations
-/// for given thread, before thread finishes with execution, or is detached.
-/// Otherwise it might result in slowdown of system due to unnecessary tracking of
-/// allocations.
-enum mgp_error mgp_untrack_thread_allocations(struct mgp_graph *graph, const char *thread_id);
-
-/// Allocations are tracked only for master thread. If new threads are spawned
 /// inside procedure, by calling following function
 /// you can start tracking allocations for current thread too. This
 /// is important if you need query memory limit to work

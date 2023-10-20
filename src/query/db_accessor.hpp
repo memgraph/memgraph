@@ -373,16 +373,8 @@ class DbAccessor final {
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
-  void TrackThreadAllocations(const char *thread_id) {
-    memgraph::memory::StartTrackingThreadTransaction(thread_id, *accessor_->GetTransactionId());
-  }
-
   void TrackCurrentThreadAllocations() {
     memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
-  }
-
-  void UntrackThreadAllocations(const char *thread_id) {
-    memgraph::memory::StopTrackingThreadTransaction(thread_id, *accessor_->GetTransactionId());
   }
 
   void UntrackCurrentThreadAllocations() {

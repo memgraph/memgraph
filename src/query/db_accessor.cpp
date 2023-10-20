@@ -21,15 +21,7 @@ namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
-void SubgraphDbAccessor::TrackThreadAllocations(const char *thread_id) {
-  return db_accessor_.TrackThreadAllocations(thread_id);
-}
-
 void SubgraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
-
-void SubgraphDbAccessor::UntrackThreadAllocations(const char *thread_id) {
-  return db_accessor_.UntrackThreadAllocations(thread_id);
-}
 
 void SubgraphDbAccessor::UntrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
 

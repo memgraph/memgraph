@@ -54,11 +54,9 @@ int main(int argc, char **argv) {
     if (result_rows) {
       auto row = *result_rows->begin();
       error = row[0].ValueBool() == false;
-      std::cout << std::boolalpha << error << ", error status" << std::endl;
     }
 
   } catch (const std::exception &e) {
-    std::cout << e.what() << std::endl;
     error = true;
   }
 

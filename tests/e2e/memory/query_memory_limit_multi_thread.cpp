@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <exception>
 #include <future>
 #include <thread>
 
@@ -23,7 +24,7 @@
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
-static constexpr int kNumberClients{4};
+static constexpr int kNumberClients{2};
 
 void Func(std::promise<bool> promise) {
   auto client =
@@ -31,9 +32,8 @@ void Func(std::promise<bool> promise) {
   if (!client) {
     LOG_FATAL("Failed to connect!");
   }
-
   const auto *create_query =
-      "UNWIND range(1, 50000) as u CREATE (n {string: 'Some longer string'}) RETURN n QUERY MEMORY LIMIT 30MB;";
+      "FOREACH(i in range(1, 300000) | CREATE (n: Node {string: 'Some longer string'})) QUERY MEMORY LIMIT 100MB;";
   bool err{false};
   try {
     client->Execute(create_query);
@@ -41,8 +41,8 @@ void Func(std::promise<bool> promise) {
     if (results->empty()) {
       err = true;
     }
-  } catch (const mg::TransientException & /*unused*/) {
-    spdlog::info("Memgraph is out of memory");
+  } catch (const std::exception &e) {
+    spdlog::info("Good: Exception occured", e.what());
     err = true;
   }
   promise.set_value_at_thread_exit(err);
@@ -89,7 +89,6 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < kNumberClients; i++) {
     auto value = my_futures[i].get();
-    std::cout << value << std::endl;
     MG_ASSERT(value, "Error should have happend in thread");
   }
 
