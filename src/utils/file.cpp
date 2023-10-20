@@ -325,7 +325,25 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
 // in fcntl(2) is initially disabled
 void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   auto max_files = sysconf(_SC_OPEN_MAX);
+  int count = 0;
   spdlog::info("Maximum number of files: {}", max_files);
+  for (int fd = 0; fd < max_files; fd++) {
+    int flags = fcntl(fd, F_GETFD);
+    if (flags != -1 && !(flags & FD_CLOEXEC)) {
+      count++;
+      char path[PATH_MAX];
+      char link[PATH_MAX];
+      snprintf(link, PATH_MAX, "/proc/self/fd/%d", fd);
+      ssize_t len = readlink(link, path, PATH_MAX);
+      if (len != -1) {
+        path[len] = '\0';
+        spdlog::info("Opened file: {}", path);
+      }
+    }
+  }
+  spdlog::info("Number of currently open files: {}", count);
+  spdlog::info("Opening file: {}", path.string());
+
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
