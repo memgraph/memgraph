@@ -42,9 +42,12 @@ def prepare_memgraph(memgraph_args):
 
 
 def terminate_memgraph(memgraph):
-    memgraph.terminate()
-    time.sleep(0.1)
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 def execute_tester(

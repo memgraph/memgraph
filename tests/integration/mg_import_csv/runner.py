@@ -160,8 +160,12 @@ def execute_test(name, test_path, test_config, memgraph_binary, mg_import_csv_bi
     )
 
     # Shutdown the memgraph binary
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
     if write_expected:
         with open(os.path.join(test_path, expected_path), "w") as expected:
