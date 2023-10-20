@@ -139,7 +139,6 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 }
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
-  OOMExceptionEnabler oom_exception;
   bool deleted = vertex.deleted;
   PropertyValue value = vertex.properties.GetProperty(property);
   Delta *delta = vertex.delta;
@@ -307,7 +306,6 @@ void DiskStorage::LoadPersistingMetadataInfo() {
 std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelIndexCache(
     Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
-  OOMExceptionEnabler oom_exception;
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
   if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
@@ -322,7 +320,6 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelIndexCache(
 std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelPropertyIndexCache(
     Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
-  OOMExceptionEnabler oom_exception;
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
   if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
@@ -334,7 +331,6 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelPropertyInd
 }
 
 void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
   rocksdb::Slice ts(strTs);
@@ -351,7 +347,6 @@ void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
 /// TODO: When loading from disk, you can in some situations load from index rocksdb not the main one
 /// TODO: send from and to as arguments and remove so many methods
 void DiskStorage::LoadVerticesFromMainStorageToEdgeImportCache(Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   auto cache_accessor = edge_import_mode_cache_->AccessToVertices();
 
   rocksdb::ReadOptions ro;
@@ -375,7 +370,6 @@ void DiskStorage::LoadVerticesFromMainStorageToEdgeImportCache(Transaction *tran
 }
 
 void DiskStorage::HandleMainLoadingForEdgeImportCache(Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   if (!edge_import_mode_cache_->AllVerticesScanned()) {
     LoadVerticesFromMainStorageToEdgeImportCache(transaction);
     edge_import_mode_cache_->SetScannedAllVertices();
@@ -383,7 +377,6 @@ void DiskStorage::HandleMainLoadingForEdgeImportCache(Transaction *transaction) 
 }
 
 void DiskStorage::LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction *transaction, LabelId label) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
   auto cache_accessor = edge_import_mode_cache_->AccessToVertices();
@@ -411,7 +404,6 @@ void DiskStorage::LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction
 }
 
 void DiskStorage::HandleLoadingLabelForEdgeImportCache(Transaction *transaction, LabelId label) {
-  OOMExceptionEnabler oom_exception;
   if (!edge_import_mode_cache_->VerticesWithLabelScanned(label)) {
     LoadVerticesFromLabelIndexStorageToEdgeImportCache(transaction, label);
 
@@ -423,7 +415,6 @@ void DiskStorage::HandleLoadingLabelForEdgeImportCache(Transaction *transaction,
 
 void DiskStorage::HandleLoadingLabelPropertyForEdgeImportCache(Transaction *transaction, LabelId label,
                                                                PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   if (!edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
     LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(transaction, label, property);
 
@@ -436,7 +427,6 @@ void DiskStorage::HandleLoadingLabelPropertyForEdgeImportCache(Transaction *tran
 /// TODO: Just extract disk_label_index and disk_label_property_index
 void DiskStorage::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(Transaction *transaction, LabelId label,
                                                                              PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
   auto cache_accessor = edge_import_mode_cache_->AccessToVertices();
@@ -464,7 +454,6 @@ void DiskStorage::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(Tra
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleMainLoadingForEdgeImportCache(&transaction_);
@@ -482,7 +471,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
@@ -504,7 +492,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
@@ -540,7 +527,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
@@ -574,7 +560,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
@@ -601,7 +586,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCache(
     Transaction *transaction, LabelId label, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  OOMExceptionEnabler oom_exception;
   auto main_cache_acc = transaction->vertices_.access();
   std::unordered_set<Gid> gids;
   gids.reserve(main_cache_acc.size());
@@ -625,7 +609,6 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
                                                  const std::unordered_set<storage::Gid> &gids,
                                                  std::list<Delta> &index_deltas,
                                                  utils::SkipList<Vertex> *indexed_vertices) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
   disk_index_transaction->SetReadTimestampForValidation(transaction->start_timestamp);
@@ -655,7 +638,6 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
     Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter) {
-  OOMExceptionEnabler oom_exception;
   auto main_cache_acc = transaction->vertices_.access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
@@ -679,7 +661,6 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndex(Transaction *transactio
                                                          std::list<Delta> &index_deltas,
                                                          utils::SkipList<Vertex> *indexed_vertices,
                                                          const auto &label_property_filter) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
@@ -708,7 +689,6 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndex(Transaction *transactio
 void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
     Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
     const PropertyValue &value, std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
   disk_index_transaction->SetReadTimestampForValidation(transaction->start_timestamp);
@@ -741,7 +721,6 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  OOMExceptionEnabler oom_exception;
   auto main_cache_acc = transaction->vertices_.access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
@@ -766,7 +745,6 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
@@ -871,7 +849,6 @@ EdgeImportMode DiskStorage::GetEdgeImportMode() const {
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = transaction_.vertices_.access();
@@ -890,7 +867,6 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return disk_storage->FindVertex(gid, &transaction_, view);
 }
@@ -898,7 +874,6 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                         bool detach) {
-  OOMExceptionEnabler oom_exception;
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
   /// TODO: (andi) Refactor
@@ -936,7 +911,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
-  OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -987,7 +961,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*
 }
 
 bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(transaction->commit_timestamp, "Writing vertex to disk but commit timestamp not set.");
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   const auto ser_vertex = utils::SerializeVertex(vertex);
@@ -1003,7 +976,6 @@ bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, cons
 
 bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
                                               const std::string &serialized_edge_value) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   rocksdb::Status status =
@@ -1021,7 +993,6 @@ bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const st
 bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
                                                const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
                                                std::string mode) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
   std::string value;
   const auto put_status = std::invoke([transaction, handle, &value, &vertex_gid, &edge_gid]() {
@@ -1048,7 +1019,6 @@ bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, const s
 
 bool DiskStorage::DeleteVertexFromDisk(Transaction *transaction, const std::string &vertex_gid,
                                        const std::string &vertex) {
-  OOMExceptionEnabler oom_exception;
   /// TODO: (andi) This should be atomic delete.
   auto vertex_del_status = transaction->disk_transaction_->Delete(kvstore_->vertex_chandle, vertex);
   auto vertex_out_conn_status = transaction->disk_transaction_->Delete(kvstore_->out_edges_chandle, vertex_gid);
@@ -1063,7 +1033,6 @@ bool DiskStorage::DeleteVertexFromDisk(Transaction *transaction, const std::stri
 }
 
 bool DiskStorage::DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const std::string &edge_gid) {
-  OOMExceptionEnabler oom_exception;
   if (!transaction->disk_transaction_->Delete(kvstore_->edge_chandle, edge_gid).ok()) {
     spdlog::error("rocksdb: Failed to delete edge {}", edge_gid);
     return false;
@@ -1077,7 +1046,6 @@ bool DiskStorage::DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const
 // deleted edges and then modifying the deletion procedure. This is currently bad if we have some supernode.
 bool DiskStorage::DeleteEdgeFromDisk(Transaction *transaction, const std::string &edge_gid,
                                      const std::string &src_vertex_gid, const std::string &dst_vertex_gid) {
-  OOMExceptionEnabler oom_exception;
   /// TODO: (andi) Should be atomic deletion.
   if (!DeleteEdgeFromEdgeColumnFamily(transaction, edge_gid)) {
     return false;
@@ -1105,7 +1073,6 @@ bool DiskStorage::DeleteEdgeFromDisk(Transaction *transaction, const std::string
 bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
                                                   const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
                                                   std::string mode) {
-  OOMExceptionEnabler oom_exception;
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
   rocksdb::Slice ts(strTs);
@@ -1140,7 +1107,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
-  OOMExceptionEnabler oom_exception;
   if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
       existence_constraint_validation_result.has_value()) {
     return StorageManipulationError{existence_constraint_validation_result.value()};
@@ -1156,7 +1122,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushVertices(
     Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
@@ -1197,7 +1162,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::ClearDanglingVertices(
     Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
@@ -1213,7 +1177,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushIndexCache(
     Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   std::vector<std::vector<PropertyValue>> unique_storage;
 
   for (const auto &vec : transaction->index_storage_) {
@@ -1227,7 +1190,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushDeletedVertices(
     Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
@@ -1247,7 +1209,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushDeletedEdges(
     Transaction *transaction) {
-  OOMExceptionEnabler oom_exception;
   for (const auto &[edge_to_delete, vertices] : transaction->edges_to_delete_) {
     const auto &[src_vertex_id, dst_vertex_id] = vertices;
     if (!DeleteEdgeFromDisk(transaction, edge_to_delete, src_vertex_id, dst_vertex_id)) {
@@ -1264,7 +1225,6 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushModifiedEdges(
     Transaction *transaction, const auto &edge_acc) {
-  OOMExceptionEnabler oom_exception;
   for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = modified_edge.first.ToString();
     const Delta::Action root_action = modified_edge.second.delta_action;
@@ -1315,7 +1275,6 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                                                                                 const std::string &key,
                                                                                 const std::string &value,
                                                                                 std::string &&ts) {
-  OOMExceptionEnabler oom_exception;
   auto main_storage_accessor = transaction->vertices_.access();
 
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromKey(key));
@@ -1331,7 +1290,6 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
 VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
                                                  storage::Gid gid, std::vector<LabelId> label_ids,
                                                  PropertyStore properties, Delta *delta) {
-  OOMExceptionEnabler oom_exception;
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -1342,7 +1300,6 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
 }
 
 std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transaction *transaction, View view) {
-  OOMExceptionEnabler oom_exception;
   auto acc = edge_import_status_ == EdgeImportMode::ACTIVE ? edge_import_mode_cache_->AccessToVertices()
                                                            : transaction->vertices_.access();
   auto vertex_it = acc.find(gid);
@@ -1378,7 +1335,6 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
                                                             Transaction *transaction, EdgeTypeId edge_type,
                                                             storage::Gid gid, const std::string_view properties,
                                                             const std::string &old_disk_key, std::string &&read_ts) {
-  OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1420,7 +1376,6 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
                                                 const std::vector<EdgeTypeId> &edge_types,
                                                 const VertexAccessor *destination, Transaction *transaction,
                                                 View view) {
-  OOMExceptionEnabler oom_exception;
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && src_vertex->vertex_->deleted) return {};
 
@@ -1484,7 +1439,6 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
                                                Transaction *transaction, View view) {
-  OOMExceptionEnabler oom_exception;
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && dst_vertex->vertex_->deleted) return {};
 
@@ -1546,7 +1500,6 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
 
 [[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
     LabelId label, PropertyId property) const {
-  OOMExceptionEnabler oom_exception;
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
@@ -1565,7 +1518,6 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
 [[nodiscard]] utils::BasicResult<ConstraintViolation, std::vector<std::pair<std::string, std::string>>>
 DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
                                                                  const std::set<PropertyId> &properties) const {
-  OOMExceptionEnabler oom_exception;
   std::set<std::vector<PropertyValue>> unique_storage;
   std::vector<std::pair<std::string, std::string>> vertices_for_constraints;
 
@@ -1752,7 +1704,6 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 }
 
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
-  OOMExceptionEnabler oom_exception;
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
 
   rocksdb::ReadOptions ro;
@@ -1778,7 +1729,6 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelPropertyIndex(
     LabelId label, PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
 
   rocksdb::ReadOptions ro;
@@ -1804,7 +1754,6 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 }
 
 void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
@@ -1886,7 +1835,6 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -1901,7 +1849,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
                                                                                              PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
@@ -1917,7 +1864,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -1932,7 +1878,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
                                                                                            PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
@@ -1948,7 +1893,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Create existence constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
@@ -1966,7 +1910,6 @@ DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId p
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Drop existence constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
@@ -1979,7 +1922,6 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Create unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
@@ -2000,7 +1942,6 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
 
 UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(unique_guard_.owns_lock(), "Drop unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());

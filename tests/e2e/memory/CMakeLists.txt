@@ -12,4 +12,8 @@ add_executable(memgraph__e2e__memory__limit_global_alloc_proc memory_limit_globa
 target_link_libraries(memgraph__e2e__memory__limit_global_alloc_proc gflags mgclient mg-utils mg-io Threads::Threads)
 
 add_executable(memgraph__e2e__memory__limit_delete memory_limit_delete.cpp)
-target_link_libraries(memgraph__e2e__memory__limit_delete gflags mgclient mg-utils mg-io Threads::Threads)
+target_link_libraries(memgraph__e2e__memory__limit_delete gflags mgclient mg-utils mg-io)
+
+
+add_executable(memgraph__e2e__memory__limit_accumulation memory_limit_accumulation.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_accumulation gflags mgclient mg-utils mg-io)
