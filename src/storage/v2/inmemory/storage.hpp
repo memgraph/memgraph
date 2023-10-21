@@ -419,9 +419,12 @@ class InMemoryStorage final : public Storage {
     GCDeltas(uint64_t mark_timestamp, BondPmrLd deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
         : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
 
-    uint64_t mark_timestamp_;                                  //!< a timestamp no active transaction currently has
-    BondPmrLd deltas_;                                         //!< the deltas that need cleaning
-    std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_;  //!< the timestamp the deltas are pointing at
+    GCDeltas(GCDeltas &&) = default;
+    GCDeltas &operator=(GCDeltas &&) = default;
+
+    uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
+    BondPmrLd deltas_;                                           //!< the deltas that need cleaning
+    std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited

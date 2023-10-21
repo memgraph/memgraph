@@ -196,6 +196,8 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
     Abort();
+    // We didn't actually commit
+    commit_timestamp_.reset();
   }
 
   FinalizeTransaction();
@@ -775,6 +777,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       auto validation_result = storage_->constraints_.existence_constraints_->Validate(*prev.vertex);
       if (validation_result) {
         Abort();
+        // We didn't actually commit
+        commit_timestamp_.reset();
         return StorageManipulationError{*validation_result};
       }
     }
@@ -857,6 +861,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     if (unique_constraint_violation) {
       Abort();
+      // We didn't actually commit
+      commit_timestamp_.reset();
       return StorageManipulationError{*unique_constraint_violation};
     }
   }
@@ -1045,10 +1051,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-    mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-      // using mark of 0 as GC will assign a mark_timestamp after unlinking
-      committed_transactions.emplace_back(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
-    });
+
+    if (!transaction_.deltas.use().empty()) {
+      // Only hand over delta to be GC'ed if there was any deltas
+      mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+        // using mark of 0 as GC will assign a mark_timestamp after unlinking
+        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                            std::move(transaction_.commit_timestamp));
+      });
+    }
     commit_timestamp_.reset();
   }
 }
@@ -1322,14 +1333,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   bool run_index_cleanup = !linked_undo_buffers.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices ||
                            need_full_scan_edges;
 
-  auto const end_linked_undo_buffers = linked_undo_buffers.end();
-  for (auto undo_buffer_entry = linked_undo_buffers.begin(); undo_buffer_entry != end_linked_undo_buffers;) {
-    auto commit_timestamp = undo_buffer_entry->commit_timestamp_->load(std::memory_order_acquire);
+  auto end_linked_undo_buffers = linked_undo_buffers.end();
+  for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
+    auto commit_timestamp = linked_entry->commit_timestamp_->load(std::memory_order_acquire);
 
     // only process those that are no longer active
     if (commit_timestamp >= oldest_active_start_timestamp) {
-      ++undo_buffer_entry;  // can not process, skip
-      continue;             // must continue to next transaction, because committed_transactions_ was not ordered
+      ++linked_entry;  // can not process, skip
+      continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
 
     // When unlinking a delta which is the first delta in its version chain,
@@ -1363,7 +1374,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    for (Delta &delta : undo_buffer_entry->deltas_.use()) {
+    for (Delta &delta : linked_entry->deltas_.use()) {
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1440,8 +1451,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
 
     // Now unlinked, move to unlinked_undo_buffers
-    auto const to_move = undo_buffer_entry;
-    ++undo_buffer_entry;  // advanced to next before we move the list node
+    auto const to_move = linked_entry;
+    ++linked_entry;  // advanced to next before we move the list node
     unlinked_undo_buffers.splice(unlinked_undo_buffers.end(), linked_undo_buffers, to_move);
   }
 
