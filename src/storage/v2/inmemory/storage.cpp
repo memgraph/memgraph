@@ -1308,16 +1308,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
 
+  // Short lock, to move to local variable. Hence allows other transactions to commit.
+  auto transactions = std::list<Transaction>{};
+  committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.swap(transactions); });
+
   // Flag that will be used to determine whether the Index GC should be run. It
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty() ||
-                           need_full_scan_vertices || need_full_scan_edges;
-
-  // Short lock, to move to local variable. Hence allows other transactions to commit.
-  auto transactions =
-      committed_transactions_.WithLock([](auto &committed_transactions) { return std::move(committed_transactions); });
+  bool run_index_cleanup =
+      !transactions.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices || need_full_scan_edges;
 
   auto const end_transaction = transactions.end();
   for (auto transaction = transactions.begin(); transaction != end_transaction;) {
