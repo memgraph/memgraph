@@ -99,6 +99,10 @@ modifications:
     value: "SNAPSHOT_ISOLATION"
     override: true
 
+  - name: "storage_mode"
+    value: "IN_MEMORY_TRANSACTIONAL"
+    override: true
+
   - name: "allow_load_csv"
     value: "true"
     override: false

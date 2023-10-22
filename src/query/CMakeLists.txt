@@ -38,7 +38,8 @@ set(mg_query_sources
     graph.cpp
     db_accessor.cpp
     auth_query_handler.cpp
-        interpreter_context.cpp)
+    interpreter_context.cpp
+)
 
 add_library(mg-query STATIC ${mg_query_sources})
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
@@ -54,7 +55,8 @@ target_link_libraries(mg-query PUBLIC dl
                                       mg-memory
                                       mg::csv
                                       mg-flags
-                                      mg-dbms)
+                                      mg-dbms
+                                      mg-events)
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
 endif()

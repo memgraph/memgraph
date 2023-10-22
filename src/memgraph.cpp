@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "audit/log.hpp"
+#include "communication/metrics.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
@@ -31,6 +32,7 @@
 #include "requests/requests.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/signals.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
@@ -291,7 +293,8 @@ int main(int argc, char **argv) {
                .name_id_mapper_directory = FLAGS_data_directory + "/rocksdb_name_id_mapper",
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
-               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"}};
+               .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
+      .storage_mode = memgraph::flags::ParseStorageMode()};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
@@ -359,7 +362,7 @@ int main(int argc, char **argv) {
   auto db_acc_opt = db_gatekeeper.access();
   MG_ASSERT(db_acc_opt, "Failed to access the main database");
   auto &db_acc = *db_acc_opt;
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, nullptr, auth_handler.get(),
+  memgraph::query::InterpreterContext interpreter_context_(interp_config, &db_gatekeeper, auth_handler.get(),
                                                            auth_checker.get());
 #endif
   MG_ASSERT(db_acc, "Failed to access the main database");
@@ -427,31 +430,19 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                      std::chrono::minutes(10));
+                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
 #ifdef MG_ENTERPRISE
-    telemetry->AddCollector("storage", [&new_handler]() -> nlohmann::json {
-      const auto &info = new_handler.Info();
-      return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
-    });
+    telemetry->AddStorageCollector(new_handler, auth_);
+    telemetry->AddDatabaseCollector(new_handler);
 #else
-    telemetry->AddCollector("storage", [gk = &db_gatekeeper]() -> nlohmann::json {
-      auto db_acc = gk->access();
-      MG_ASSERT(db_acc, "Failed to get access to the default database");
-      auto info = db_acc->get()->GetInfo();
-      return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
-    });
+    telemetry->AddStorageCollector(db_gatekeeper, auth_);
+    telemetry->AddDatabaseCollector();
 #endif
-    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
-      nlohmann::json ret;
-      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
-        ret[memgraph::metrics::GetCounterName(i)] =
-            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
-      }
-      return ret;
-    });
-    telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
-      return memgraph::query::plan::CallProcedure::GetAndResetCounters();
-    });
+    telemetry->AddClientCollector();
+    telemetry->AddEventsCollector();
+    telemetry->AddQueryModuleCollector();
+    telemetry->AddExceptionCollector();
+    telemetry->AddReplicationCollector();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
                                                            memory_limit,
