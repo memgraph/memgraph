@@ -244,7 +244,7 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+          cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$THREADS
 
       - name: Run GQL Behave tests
