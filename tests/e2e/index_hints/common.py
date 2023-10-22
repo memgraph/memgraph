@@ -42,6 +42,4 @@ def memgraph(**kwargs) -> Memgraph:
     yield memgraph
 
     memgraph.drop_database()
-    memgraph.execute("ANALYZE GRAPH DELETE STATISTICS")
     memgraph.drop_indexes()
-    memgraph.drop_triggers()

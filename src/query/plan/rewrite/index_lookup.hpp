@@ -48,8 +48,7 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
-                      std::vector<IndexHint> index_hints)
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(index_hints) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -495,7 +494,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
-  std::vector<IndexHint> index_hints_;
+  IndexHints index_hints_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -532,13 +531,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
 
-    for (const auto &[index_type, label, _] : index_hints_) {
-      if (index_type != IndexHint::IndexType::LABEL) continue;
-
-      if (!db_->LabelIndexExists(GetLabel(label))) {
-        throw QueryRuntimeException("Index for label {} doesn't exist", label.name);
-      }
-
+    for (const auto &[index_type, label, _] : index_hints_.label_index_hints_) {
       if (labels.contains(label)) {
         return label;
       }
@@ -556,13 +549,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
-  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
-  // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
-  // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
-  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
-  std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
-                                                               const std::unordered_set<Symbol> &bound_symbols) {
+  std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> GetCandidateIndices(
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -572,6 +560,35 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
+    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_indices{};
+    for (const auto &label : filters_.FilteredLabels(symbol)) {
+      for (const auto &filter : filters_.PropertyFilters(symbol)) {
+        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
+          // Skip filter expressions which use the symbol whose property we are
+          // looking up or aren't bound. We cannot scan by such expressions. For
+          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+          // cannot scan `n` by property index.
+          continue;
+        }
+
+        const auto &property = filter.property_filter->property_;
+        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
+          continue;
+        }
+        candidate_indices.insert({std::make_pair(label, property), filter});
+      }
+    }
+
+    return candidate_indices;
+  }
+
+  // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
+  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
+  // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
+  // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
+  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
+  std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
+                                                               const std::unordered_set<Symbol> &bound_symbols) {
     /*
      * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be better.
      * If it is <= 10x in number of vertices, check average group size of property values. The index with smaller
@@ -596,49 +613,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
     };
 
-    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices;
-    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup;
-    for (const auto &label : filters_.FilteredLabels(symbol)) {
-      for (const auto &filter : filters_.PropertyFilters(symbol)) {
-        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
-          // Skip filter expressions which use the symbol whose property we are
-          // looking up or aren't bound. We cannot scan by such expressions. For
-          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
-          // cannot scan `n` by property index.
-          continue;
-        }
+    auto candidate_indices = GetCandidateIndices(symbol, bound_symbols);
 
-        const auto &property = filter.property_filter->property_;
-        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
-          continue;
-        }
-
-        candidate_indices.emplace_back(std::make_pair(
-            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label, .property_ = property},
-            filter));
-        candidate_index_lookup.insert({std::make_pair(label, property), filter});
-      }
-    }
-
-    for (const auto &[index_type, label, maybe_property] : index_hints_) {
-      if (index_type != IndexHint::IndexType::LABEL_PROPERTY) continue;
+    for (const auto &[index_type, label, maybe_property] : index_hints_.label_property_index_hints_) {
       auto property = *maybe_property;
-
-      if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
-        throw QueryRuntimeException("Index for label {} and property {} doesn't exist", label.name, property.name);
-      }
-
-      if (candidate_index_lookup.contains(std::make_pair(label, property))) {
+      if (candidate_indices.contains(std::make_pair(label, property))) {
         return LabelPropertyIndex{.label = label,
-                                  .filter = candidate_index_lookup.at(std::make_pair(label, property)),
+                                  .filter = candidate_indices.at(std::make_pair(label, property)),
                                   .vertex_count = std::numeric_limits<std::int64_t>::max()};
       }
     }
 
     std::optional<LabelPropertyIndex> found;
-    for (const auto &[candidate, filter] : candidate_indices) {
-      const auto &[_, label, maybe_property] = candidate;
-      auto property = *maybe_property;
+    for (const auto &[label_and_property, filter] : candidate_indices) {
+      const auto &[label, property] = label_and_property;
 
       auto is_better_type = [&found](PropertyFilter::Type type) {
         // Order the types by the most preferred index lookup type.
@@ -781,7 +769,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, std::vector<IndexHint> index_hints) {
+                                                        TDbAccessor *db, IndexHints index_hints) {
   impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
