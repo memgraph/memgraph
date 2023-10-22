@@ -80,7 +80,7 @@ void CheckAndDestroyLastAssignmentIfNeeded(RdKafka::KafkaConsumer &consumer, con
   if (!last_assignment.empty()) {
     if (const auto err = consumer.assign(last_assignment); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerStartFailedException(info.consumer_name,
-                                         fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
+                                         fmt::format("Couldn't restore committed offsets: '{}'", RdKafka::err2str(err)));
     }
     RdKafka::TopicPartition::destroy(last_assignment);
   }
@@ -309,7 +309,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   if (last_assignment_.empty()) {
     auto throw_consumer_check_failed = [this](const auto err) {
       throw ConsumerCheckFailedException(info_.consumer_name,
-                                         fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
+                                         fmt::format("Couldn't save committed offsets: '{}'", RdKafka::err2str(err)));
     };
     if (const auto err = consumer_->assignment(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       spdlog::warn("Saving the assignment of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
@@ -323,7 +323,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   } else {
     if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerCheckFailedException(info_.consumer_name,
-                                         fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
+                                         fmt::format("Couldn't restore committed offsets: '{}'", RdKafka::err2str(err)));
     }
   }
 
@@ -504,7 +504,7 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
   }
   maybe_error = consumer->commitSync(partitions);
   if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
-    spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
+    spdlog::warn("Committing offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
   }
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }

@@ -20,7 +20,7 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 echo -e "${COLOR_ORANGE}NOTE:${COLOR_NULL} BEGIN and COMMIT are required because variables share the same name (e.g. row)"
-echo -e "${COLOR_ORANGE}NOTE:${COLOR_NULL} CONSTRAINTS are just skipped -> ${COLOR_RED}please create consraints manually if needed${COLOR_NULL}"
+echo -e "${COLOR_ORANGE}NOTE:${COLOR_NULL} CONSTRAINTS are just skipped -> ${COLOR_RED}please create constraints manually if needed${COLOR_NULL}"
 
 sed -e 's/^:begin/BEGIN/g; s/^BEGIN$/BEGIN;/g;' \
     -e 's/^:commit/COMMIT/g; s/^COMMIT$/COMMIT;/g;' \

@@ -112,7 +112,7 @@ extern const Event TriggersCreated;
 
 extern const Event QueryExecutionLatency_us;
 
-extern const Event CommitedTransactions;
+extern const Event CommittedTransactions;
 extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
 }  // namespace memgraph::metrics
@@ -4011,7 +4011,7 @@ void Interpreter::Commit() {
   }
 
   utils::OnScopeExit update_metrics([]() {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::CommittedTransactions);
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
   });
 
@@ -4094,9 +4094,9 @@ void Interpreter::Commit() {
   }
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
-  // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is
+  // db_accessor_->Commit(): only one of the transactions can be committing at the same time, so when the commit is
   // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
-  // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
+  // want to commit are still waiting for committing or one of them just started committing its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([this, trigger_context = std::move(*trigger_context),

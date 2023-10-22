@@ -37,7 +37,7 @@ void EstablishNonSSLConnectionToSSLServer(const auto bolt_port) {
 
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = false});
 
-  MG_ASSERT(client == nullptr, "Connection not refused when conneting without SSL turned on to a SSL server!");
+  MG_ASSERT(client == nullptr, "Connection not refused when connecting without SSL turned on to a SSL server!");
   timer.cancel();
 }
 

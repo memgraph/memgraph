@@ -50,7 +50,7 @@ using ServerEndpoint = boost::asio::ip::tcp::endpoint;
  * request is being blocked by demanding query.
  * All logic is contained within handlers that are being dispatched
  * on a single strand per session. The only exception is write which is
- * synchronous since the nature of the clients conenction is synchronous as
+ * synchronous since the nature of the clients connection is synchronous as
  * well.
  *
  * Current Server architecture:

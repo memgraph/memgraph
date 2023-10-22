@@ -404,7 +404,7 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLocker global_locker_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
-  // transaction commited or aborted. We could probably combine this with
+  // transaction committed or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
