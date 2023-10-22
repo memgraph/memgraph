@@ -27,6 +27,7 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/metrics.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
@@ -43,6 +44,7 @@ namespace memgraph::communication::bolt {
 class SessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionException)
 };
 
 /**
@@ -207,8 +209,10 @@ class Session {
   };
 
   Version version_;
+  std::vector<std::string> client_supported_bolt_versions_;
+  std::optional<BoltMetrics::Metrics> metrics_;
 
-  virtual std::string GetDatabaseName() const = 0;
+  virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
 
  private:

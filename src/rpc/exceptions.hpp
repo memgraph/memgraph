@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,6 +29,7 @@ class RpcFailedException final : public utils::BasicException {
 
   /// Returns the endpoint associated with the error.
   const io::network::Endpoint &endpoint() const { return endpoint_; }
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException)
 
  private:
   io::network::Endpoint endpoint_;

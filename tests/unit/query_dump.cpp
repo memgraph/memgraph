@@ -213,7 +213,7 @@ auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::Datab
   memgraph::query::Interpreter interpreter(context, db);
   ResultStreamFaker stream(db->storage());
 
-  auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, nullptr);
+  auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -271,6 +271,8 @@ void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::
     ASSERT_TRUE(result[0].IsString());
     got.push_back(result[0].ValueString());
   }
+  std::sort(got.begin(), got.end());
+  std::sort(expected.begin(), expected.end());
   ASSERT_EQ(got, expected);
 }
 
@@ -573,14 +575,22 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
-  ASSERT_FALSE(
-      this->db->storage()
-          ->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
-          .HasError());
-  ASSERT_FALSE(
-      this->db->storage()
-          ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
-          .HasError());
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
   {
     ResultStreamFaker stream(this->db->storage());
@@ -604,9 +614,11 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto res = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
-                                                              this->db->storage()->NameToProperty("prop"), {});
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
+                                                     this->db->storage()->NameToProperty("prop"));
     ASSERT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -635,11 +647,13 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto res = this->db->storage()->CreateUniqueConstraint(
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(
         this->db->storage()->NameToLabel("Label"),
-        {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")}, {});
+        {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -757,23 +771,36 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto ret = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
-                                                              this->db->storage()->NameToProperty("name"), {});
+    auto unique_acc = this->db->UniqueAccess();
+    auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
+                                                     this->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(ret.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ret = this->db->storage()->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
-                                                           {this->db->storage()->NameToProperty("name")}, {});
+    auto unique_acc = this->db->UniqueAccess();
+    auto ret = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
+                                                  {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
-  ASSERT_FALSE(this->db->storage()
-                   ->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
-                   .HasError());
-  ASSERT_FALSE(this->db->storage()
-                   ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                 this->db->storage()->NameToProperty("unexisting_property"))
-                   .HasError());
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->db->storage()->NameToLabel("Person"),
+                                   this->db->storage()->NameToProperty("unexisting_property"))
+                     .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
   const auto &db_initial_state = GetState(this->db->storage());
   memgraph::storage::Config config{};
@@ -850,9 +877,9 @@ class StatefulInterpreter {
       : context_(context), interpreter_(context_, db) {}
 
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(interpreter_.db_acc_->get()->storage());
+    ResultStreamFaker stream(interpreter_.current_db_.db_acc_->get()->storage());
 
-    auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, nullptr);
+    auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, {});
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);
@@ -931,39 +958,55 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
 TYPED_TEST(DumpTest, MultiplePartialPulls) {
   {
     // Create indices
-    ASSERT_FALSE(
-        this->db->storage()
-            ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
-            .HasError());
-    ASSERT_FALSE(
-        this->db->storage()
-            ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
-            .HasError());
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
+              .HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
+              .HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     // Create existence constraints
     {
-      auto res = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                                this->db->storage()->NameToProperty("name"), {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                       this->db->storage()->NameToProperty("name"));
       ASSERT_FALSE(res.HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto res = this->db->storage()->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                                this->db->storage()->NameToProperty("surname"), {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                       this->db->storage()->NameToProperty("surname"));
       ASSERT_FALSE(res.HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create unique constraints
     {
-      auto res = this->db->storage()->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                             {this->db->storage()->NameToProperty("name")}, {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                    {this->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto res = this->db->storage()->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                             {this->db->storage()->NameToProperty("surname")}, {});
+      auto unique_acc = this->db->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                    {this->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     auto dba = this->db->storage()->Access();
@@ -1001,7 +1044,8 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   memgraph::query::PullPlanDump pullPlan{&dba};
 
-  auto check_next = [&, offset_index = 0U](const std::string &expected_row) mutable {
+  auto offset_index = 0U;
+  auto check_next = [&](const std::string &expected_row) mutable {
     pullPlan.Pull(&query_stream, 1);
     const auto &results{stream.GetResults()};
     ASSERT_EQ(results.size(), offset_index + 1);
@@ -1021,18 +1065,19 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-      "v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-      "v.__mg_id__ = 2 CREATE (u)-[:`REL`]->(v);");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
-      "v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND "
-      "v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+
+  pullPlan.Pull(&query_stream, 4);
+  const auto edge_results = stream.GetResults();
+  /// NOTE: For disk storage, the order of returned edges isn't guaranteed so we check them together and we guarantee
+  /// the order by sorting.
+  VerifyQueries(
+      {edge_results.end() - 4, edge_results.end()},
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);",
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 2 CREATE (u)-[:`REL`]->(v);",
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);",
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+  offset_index += 4;
+
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
 }

@@ -49,8 +49,7 @@ bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit
 
 }  // namespace
 
-DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, const Config &config)
-    : LabelPropertyIndex(indices, config) {
+DiskLabelPropertyIndex::DiskLabelPropertyIndex(const Config &config) {
   utils::EnsureDirOrDie(config.disk.label_property_index_directory);
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
@@ -184,12 +183,8 @@ void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *
   }
 }
 
-/// TODO: andi If stays the same, move it to the hpp
-void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                                 const Transaction &tx) {}
-
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  return index_.erase({label, property}) > 0;
+  return index_.erase({label, property}) > 0U;
 }
 
 bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
