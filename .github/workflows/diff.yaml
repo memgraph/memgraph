@@ -274,7 +274,7 @@ jobs:
       - name: Run e2e tests
         run: |
           cd build
-          ./tests/setup.sh /opt/toolchain-v4/activate
+          ./../tests/setup.sh /opt/toolchain-v4/activate
           make install
           cd ..
           cd tests
