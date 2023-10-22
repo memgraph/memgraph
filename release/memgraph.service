@@ -20,8 +20,8 @@ ExecStart=/usr/lib/memgraph/memgraph
 [Install]
 WantedBy=multi-user.target
 
-# checks processes' memory usage and force kills it when it is taking up enough
-# memory to make the system unstable / about to crash
-# $ apt install systemd-oomd
-# $ systemctl enable systemd-oomd
-# $ systemctl start systemd-oomd
+# Checks processes' memory usage and force kills it when it is taking up enough
+# memory to make the system unstable / about to crash, e.g. on Debian-based OS:
+# apt install systemd-oomd
+# systemctl enable systemd-oomd
+# systemctl start systemd-oomd
