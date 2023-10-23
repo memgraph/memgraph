@@ -122,8 +122,8 @@ std::string SessionHL::GetCurrentDB() const {
 }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
-  auto locked_name = flags::run_time::bolt_server_name_.Lock();
-  return locked_name->empty() ? std::nullopt : std::make_optional(*locked_name);
+  const auto &name = flags::run_time::GetServerName();
+  return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {

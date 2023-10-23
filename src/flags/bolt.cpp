@@ -36,7 +36,3 @@ DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
 DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the Bolt server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_server_name_for_init, "",
-              "Server name which the database should send to the client in the "
-              "Bolt INIT message.");
