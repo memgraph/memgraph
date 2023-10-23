@@ -10,8 +10,5 @@
 // licenses/APL.txt.
 #include "flags/query.hpp"
 
-// Audit logging flags.
-#ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
-#endif
+// DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");  Moved to run_time_configurable
