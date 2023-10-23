@@ -406,6 +406,14 @@ bool AuthQueryHandler::SetMainDatabase(const std::string &db, const std::string 
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
+
+void AuthQueryHandler::DeleteDatabase(std::string_view db) {
+  try {
+    auth_->Lock()->DeleteDatabase(std::string(db));
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
 #endif
 
 bool AuthQueryHandler::DropRole(const std::string &rolename) {

@@ -1,5 +1,5 @@
 <p align="center">
-<img width="400px" src="https://uploads-ssl.webflow.com/5e7ceb09657a69bdab054b3a/5e7ceb09657a6937ab054bba_Black_Original%20_Logo.png">
+<img src="https://public-assets.memgraph.com/github-readme-images/github-memgraph-repo-banner.png">
 </p>
 
 ---

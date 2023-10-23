@@ -124,14 +124,13 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
   ASSERT_TRUE(edge->SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
   ASSERT_FALSE(acc1->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 
   auto acc2 = disk_storage->Access(std::nullopt);
   auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
 
-  acc2->PrefetchOutEdges(from_vertex);
   auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
-  auto fetched_edge = ret.GetValue()[0];
+  auto fetched_edge = ret.GetValue().edges[0];
 
   /// This is the same property as in the first transaction, we just want to test
   /// the number of entries inside RocksDB when the timestamp changes
@@ -139,7 +138,7 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeTimestampUpdate) {
   ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(10)).HasValue());
   ASSERT_FALSE(acc2->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 }
 
 TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
@@ -164,18 +163,17 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
   ASSERT_TRUE(edge->SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
   ASSERT_FALSE(acc1->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 
   auto acc2 = disk_storage->Access(std::nullopt);
   auto from_vertex = acc2->FindVertex(from.Gid(), memgraph::storage::View::NEW).value();
 
-  acc2->PrefetchOutEdges(from_vertex);
   auto ret = from_vertex.OutEdges(memgraph::storage::View::NEW);
-  auto fetched_edge = ret.GetValue()[0];
+  auto fetched_edge = ret.GetValue().edges[0];
 
   auto property2 = acc2->NameToProperty("DiskProperty");
   ASSERT_TRUE(fetched_edge.SetProperty(property2, memgraph::storage::PropertyValue(15)).HasValue());
   ASSERT_FALSE(acc2->Commit().HasError());
 
-  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 3);
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 }

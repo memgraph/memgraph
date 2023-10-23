@@ -1,0 +1,13 @@
+show_index_info: &show_index_info
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
+      log_file: "test-show-index-info.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "test-show-index-info"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_index_info/test_show_index_info.py"]
+    <<: *show_index_info

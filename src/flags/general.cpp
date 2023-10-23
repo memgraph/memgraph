@@ -11,9 +11,13 @@
 
 #include "general.hpp"
 
+#include "glue/auth_global.hpp"
+#include "storage/v2/config.hpp"
+#include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/string.hpp"
 
-#include "glue/auth_handler.hpp"
+#include <thread>
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -140,11 +144,6 @@ DEFINE_string(kafka_bootstrap_servers, "",
 DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
 
 // Query flags.
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_double(query_execution_timeout_sec, 600,
-              "Maximum allowed query execution time. Queries exceeding this "
-              "limit will be aborted. Value of 0 means no limit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(replication_replica_check_frequency_sec, 1,

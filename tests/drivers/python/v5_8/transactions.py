@@ -12,6 +12,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import time
+
 from neo4j import GraphDatabase, basic_auth
 from neo4j.exceptions import ClientError, TransientError
 
@@ -35,6 +37,44 @@ def tx_too_long(tx):
     tx.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt")
 
 
+def assert_timeout(set_timeout, measure_timeout):
+    print(measure_timeout)
+    print(set_timeout)
+    assert (
+        measure_timeout >= set_timeout and measure_timeout < set_timeout * 1.2
+    ), "Wrong timeout; expected {}s and measured {}s".format(set_timeout, measure_timeout)
+
+
+def get_timeout(tx):
+    res = tx.run("SHOW DATABASE SETTINGS").values()
+    for setting in res:
+        if setting[0] == "query.timeout":
+            return float(setting[1])
+    assert False, "No setting named query.timeout"
+
+
+def set_timeout(tx, timeout):
+    tx.run("SET DATABASE SETTING 'query.timeout' TO '{}'".format(timeout)).consume()
+
+
+def test_timeout(driver, set_timeout):
+    # Query that will run for a very long time, transient error expected.
+    timed_out = False
+    try:
+        with driver.session() as session:
+            start_time = time.time()
+            session.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt").consume()
+    except TransientError:
+        end_time = time.time()
+        assert_timeout(set_timeout, end_time - start_time)
+        timed_out = True
+
+    if timed_out:
+        print("The query timed out as was expected.")
+    else:
+        raise Exception("The query should have timed out, but it didn't!")
+
+
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
 
     def add_person(f, name, name2):
@@ -53,17 +93,16 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
     with driver.session() as session:
         session.run("UNWIND range(1, 100000) AS x CREATE ()").consume()
 
-    # Query that will run for a very long time, transient error expected.
-    timed_out = False
-    try:
-        with driver.session() as session:
-            session.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt").consume()
-    except TransientError:
-        timed_out = True
+    # Test changing the timeout at run-time
+    with driver.session() as session:
+        default_timeout = get_timeout(session)
+    test_timeout(driver, default_timeout)
 
-    if timed_out:
-        print("The query timed out as was expected.")
-    else:
-        raise Exception("The query should have timed out, but it didn't!")
+    with driver.session() as session:
+        set_timeout(session, 1)
+    test_timeout(driver, 1)
+
+    with driver.session() as session:
+        set_timeout(session, default_timeout)
 
     print("All ok!")

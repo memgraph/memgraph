@@ -13,13 +13,10 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
-
-struct LabelPropertyIndexStats {
-  uint64_t count, distinct_values_count;
-  double statistic, avg_group_size, avg_degree;
-};
 
 /// TODO: andi. Too many copies, extract at one place
 using ParallelizedIndexCreationInfo =
@@ -40,7 +37,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
-  InMemoryLabelPropertyIndex(Indices *indices, const Config &config);
+  InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
@@ -67,14 +64,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, const Config &config);
+             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             Transaction *transaction);
 
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      VertexAccessor operator*() const { return current_vertex_accessor_; }
+      VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -101,10 +98,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
     bool bounds_valid_{true};
     View view_;
+    Storage *storage_;
     Transaction *transaction_;
-    Indices *indices_;
-    Constraints *constraints_;
-    Config config_;
   };
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
@@ -132,13 +127,15 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void RunGC();
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-                    Constraints *constraints);
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction);
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
-  std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats> stats_;
+  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
+                      utils::ReadPrioritizedRWLock>
+      stats_;
 };
 
 }  // namespace memgraph::storage

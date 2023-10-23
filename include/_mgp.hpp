@@ -255,6 +255,16 @@ inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_verte
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
+inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                     mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_from, graph, e, new_from, memory);
+}
+
+inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                   mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
+}
+
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
@@ -345,6 +355,8 @@ inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
 
+inline bool key_exists(mgp_map *map, const char *key) { return MgInvoke<int>(mgp_key_exists, map, key); }
+
 inline const char *map_item_key(mgp_map_item *item) { return MgInvoke<const char *>(mgp_map_item_key, item); }
 
 inline mgp_value *map_item_value(mgp_map_item *item) { return MgInvoke<mgp_value *>(mgp_map_item_value, item); }
@@ -366,6 +378,10 @@ inline mgp_map_item *map_items_iterator_next(mgp_map_items_iterator *it) {
 // mgp_vertex
 
 inline mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_vertex_get_id, v); }
+
+inline size_t vertex_get_in_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_in_degree, v); }
+
+inline size_t vertex_get_out_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_out_degree, v); }
 
 inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_vertex_copy, v, memory);
@@ -462,6 +478,8 @@ inline mgp_path *path_copy(mgp_path *path, mgp_memory *memory) {
 inline void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
 
 inline void path_expand(mgp_path *path, mgp_edge *edge) { MgInvokeVoid(mgp_path_expand, path, edge); }
+
+inline void path_pop(mgp_path *path) { MgInvokeVoid(mgp_path_pop, path); }
 
 inline size_t path_size(mgp_path *path) { return MgInvoke<size_t>(mgp_path_size, path); }
 

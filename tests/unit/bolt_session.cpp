@@ -117,14 +117,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
 
   void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &) override {}
-  std::string GetDatabaseName() const override { return ""; }
-
-#ifdef MG_ENTERPRISE
-  memgraph::dbms::SetForResult OnChange(const std::string &db_name) override {
-    return memgraph::dbms::SetForResult::SUCCESS;
-  }
-  bool OnDelete(const std::string &) override { return true; }
-#endif
+  std::string GetCurrentDB() const override { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 

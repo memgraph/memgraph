@@ -25,6 +25,7 @@ add_library(mg-storage-v2 STATIC
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/unique_constraints.cpp
+        disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/storage.cpp
         disk/rocksdb_storage.cpp
@@ -32,18 +33,17 @@ add_library(mg-storage-v2 STATIC
         disk/label_property_index.cpp
         disk/unique_constraints.cpp
         storage_mode.cpp
-        isolation_level.cpp
         replication/replication_client.cpp
         replication/replication_server.cpp
         replication/serialization.cpp
         replication/slk.cpp
-        replication/replication_persistence_helper.cpp
         replication/rpc.cpp
-        replication/replication.cpp
+        replication/replication_storage_state.cpp
+        replication/replication_handler.cpp
         inmemory/replication/replication_server.cpp
         inmemory/replication/replication_client.cpp
 )
-target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk)
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events)
 
 # Until we get LTO there is an advantage to do some unity builds
 set_target_properties(mg-storage-v2

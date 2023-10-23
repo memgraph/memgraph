@@ -12,6 +12,7 @@
 #include "query/procedure/module.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <optional>
 
 extern "C" {
@@ -1330,15 +1331,17 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
   if (!result) {
     return std::nullopt;
   }
-  auto [module_name, prop_name] = *result;
+  auto [module_name, module_prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
+  auto prop_name = std::string(module_prop_name);
   if (!module) {
     // Check for possible callable aliases.
     const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
     if (maybe_valid_alias) {
       result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
-      auto [module_name, prop_name] = *result;
+      auto [module_name, module_prop_name] = *result;
       module = module_registry.GetModuleNamed(module_name);
+      prop_name = std::string(module_prop_name);
       if (!module) {
         return std::nullopt;
       }

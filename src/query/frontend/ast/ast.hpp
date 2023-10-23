@@ -1105,6 +1105,8 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
+      map_variable_->Accept(visitor);
+
       for (auto pair : elements_) {
         if (!pair.second) continue;
 
@@ -1184,6 +1186,8 @@ class PropertyLookup : public memgraph::query::Expression {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
+
   PropertyLookup() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
@@ -1198,11 +1202,13 @@ class PropertyLookup : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   memgraph::query::PropertyIx property_;
+  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->evaluation_mode_ = evaluation_mode_;
     return object;
   }
 
@@ -2891,19 +2897,37 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::
                                                           AuthQuery::Privilege::MULTI_DATABASE_EDIT,
                                                           AuthQuery::Privilege::MULTI_DATABASE_USE};
 
-class InfoQuery : public memgraph::query::Query {
+class DatabaseInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, INDEX, CONSTRAINT, BUILD };
+  enum class InfoType { INDEX, CONSTRAINT };
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::InfoQuery::InfoType info_type_;
+  memgraph::query::DatabaseInfoQuery::InfoType info_type_;
 
-  InfoQuery *Clone(AstStorage *storage) const override {
-    InfoQuery *object = storage->Create<InfoQuery>();
+  DatabaseInfoQuery *Clone(AstStorage *storage) const override {
+    DatabaseInfoQuery *object = storage->Create<DatabaseInfoQuery>();
+    object->info_type_ = info_type_;
+    return object;
+  }
+};
+
+class SystemInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class InfoType { STORAGE, BUILD };
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::SystemInfoQuery::InfoType info_type_;
+
+  SystemInfoQuery *Clone(AstStorage *storage) const override {
+    SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
     return object;
   }

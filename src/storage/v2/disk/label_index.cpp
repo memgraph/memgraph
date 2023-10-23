@@ -45,7 +45,7 @@ bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit
 
 }  // namespace
 
-DiskLabelIndex::DiskLabelIndex(Indices *indices, const Config &config) : LabelIndex(indices, config) {
+DiskLabelIndex::DiskLabelIndex(const Config &config) {
   utils::EnsureDirOrDie(config.disk.label_index_directory);
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
@@ -190,9 +190,10 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  const std::string serialized_label = label.ToString();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
-    if (key.starts_with(utils::SerializeIdType(label))) {
+    if (key.starts_with(serialized_label)) {
       disk_transaction->Delete(it->key().ToString());
     }
   }
@@ -208,7 +209,7 @@ uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const { retur
 
 void DiskLabelIndex::LoadIndexInfo(const std::vector<std::string> &labels) {
   for (const std::string &label : labels) {
-    LabelId label_id = LabelId::FromUint(std::stoull(label));
+    LabelId label_id = LabelId::FromString(label);
     index_.insert(label_id);
   }
 }

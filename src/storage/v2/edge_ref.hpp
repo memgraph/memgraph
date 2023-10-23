@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,6 @@ static_assert(std::is_standard_layout_v<Edge *>, "The Edge * must have a standar
 static_assert(std::is_standard_layout_v<EdgeRef>, "The EdgeRef must have a standard layout!");
 
 inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
-
+inline bool operator<(const EdgeRef &first, const EdgeRef &second) { return first.gid < second.gid; }
 inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
-
 }  // namespace memgraph::storage

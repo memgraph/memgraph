@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@ namespace stream {
 class StreamsException : public utils::BasicException {
  public:
   using BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(StreamsException)
 };
 
 template <typename T>
@@ -81,13 +82,14 @@ class Streams final {
   ///
   /// @param interpreter_context context to use to run the result of transformations
   /// @param directory a directory path to store the persisted streams metadata
-  Streams(InterpreterContext *interpreter_context, std::filesystem::path directory);
+  explicit Streams(std::filesystem::path directory);
 
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
   /// logged. If a stream was running previously, then after restoration it will be started.
   /// This function should only be called when there are no existing streams.
-  void RestoreStreams();
+  template <typename TDbAccess>
+  void RestoreStreams(TDbAccess db, InterpreterContext *interpreter_context);
 
   /// Creates a new import stream.
   /// The create implies connecting to the server to get metadata necessary to initialize the stream. This
@@ -97,8 +99,9 @@ class Streams final {
   /// @param stream_info the necessary informations needed to create the Kafka consumer and transform the messages
   ///
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
-  template <Stream TStream>
-  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner);
+  template <Stream TStream, typename TDbAccess>
+  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner,
+              TDbAccess db, InterpreterContext *interpreter_context);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -161,7 +164,8 @@ class Streams final {
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
-  TransformationResult Check(const std::string &stream_name,
+  template <typename TDbAccess>
+  TransformationResult Check(const std::string &stream_name, TDbAccess db,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<uint64_t> batch_limit = std::nullopt) const;
 
@@ -180,9 +184,10 @@ class Streams final {
   using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
-  template <Stream TStream>
+  template <Stream TStream, typename TDbAccess>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
-                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner);
+                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner,
+                                      TDbAccess db, InterpreterContext *interpreter_context);
 
   template <Stream TStream>
   void Persist(StreamStatus<TStream> &&status) {
@@ -196,7 +201,6 @@ class Streams final {
   void RegisterKafkaProcedures();
   void RegisterPulsarProcedures();
 
-  InterpreterContext *interpreter_context_;
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;

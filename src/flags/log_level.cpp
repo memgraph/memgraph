@@ -26,7 +26,6 @@ using namespace std::string_view_literals;
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 inline constexpr std::array log_level_mappings{
@@ -34,10 +33,10 @@ inline constexpr std::array log_level_mappings{
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string log_level_help_string = fmt::format("Minimum log level. Allowed values: {}",
-                                                      memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
+const std::string memgraph::flags::log_level_help_string = fmt::format(
+    "Minimum log level. Allowed values: {}", memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
 
-DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
+bool memgraph::flags::ValidLogLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
     const auto error = result.GetError();
     switch (error) {
@@ -55,10 +54,16 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
   }
 
   return true;
-});
+}
+
+std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::string_view value) {
+  return memgraph::utils::StringToEnum<spdlog::level::level_enum>(value, log_level_mappings);
+}
 
 spdlog::level::level_enum ParseLogLevel() {
-  const auto log_level = memgraph::utils::StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
+  std::string ll;
+  gflags::GetCommandLineOption("log_level", &ll);
+  const auto log_level = memgraph::flags::LogLevelToEnum(ll);
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
 }
@@ -75,9 +80,10 @@ void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
 void memgraph::flags::InitializeLogger() {
   std::vector<spdlog::sink_ptr> sinks;
 
-  if (FLAGS_also_log_to_stderr) {
-    sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
-  }
+  // Force the stderr logger to be at the front of the sinks vector
+  // Will be used to disable/enable it at run-time by settings its log level
+  sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
+  sinks.back()->set_level(spdlog::level::off);
 
   if (!FLAGS_log_file.empty()) {
     // get local time
@@ -93,9 +99,26 @@ void memgraph::flags::InitializeLogger() {
   CreateLoggerFromSink(sinks, ParseLogLevel());
 }
 
+// TODO: Make sure this is used in a safe way
 void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
   auto default_logger = spdlog::default_logger();
   auto sinks = default_logger->sinks();
   sinks.push_back(new_sink);
   CreateLoggerFromSink(sinks, default_logger->level());
+}
+
+// Thread-safe because the level enum is an atomic
+// NOTE: default_logger is not thread-safe and shouldn't be changed during application lifetime
+void memgraph::flags::LogToStderr(spdlog::level::level_enum log_level) {
+  auto default_logger = spdlog::default_logger();
+  auto stderr = default_logger->sinks().front();
+  stderr->set_level(log_level);
+}
+
+void memgraph::flags::UpdateStderr(spdlog::level::level_enum log_level) {
+  auto default_logger = spdlog::default_logger();
+  auto stderr = default_logger->sinks().front();
+  if (stderr->level() != spdlog::level::off) {
+    stderr->set_level(log_level);
+  }
 }

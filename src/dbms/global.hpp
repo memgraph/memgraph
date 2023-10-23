@@ -48,6 +48,7 @@ enum class SetForResult : uint8_t {
 class UnknownSessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(UnknownSessionException)
 };
 
 /**
@@ -58,53 +59,7 @@ class UnknownSessionException : public utils::BasicException {
 class UnknownDatabaseException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-};
-
-/**
- * @brief Session interface used by the DBMS to handle the the active sessions.
- * @todo Try to remove this dependency from SessionContextHandler. OnDelete could be removed, as it only does an assert.
- * OnChange could be removed if SetFor returned the pointer and the called then handled the OnChange execution.
- * However, the interface is very useful to  decouple the interpreter's query execution and the sessions themselves.
- */
-class SessionInterface {
- public:
-  SessionInterface() = default;
-  virtual ~SessionInterface() = default;
-
-  SessionInterface(const SessionInterface &) = default;
-  SessionInterface &operator=(const SessionInterface &) = default;
-  SessionInterface(SessionInterface &&) noexcept = default;
-  SessionInterface &operator=(SessionInterface &&) noexcept = default;
-
-  /**
-   * @brief Return the unique string identifying the session.
-   *
-   * @return std::string
-   */
-  virtual std::string UUID() const = 0;
-
-  /**
-   * @brief Return the currently active database.
-   *
-   * @return std::string
-   */
-  virtual std::string GetDatabaseName() const = 0;
-
-#ifdef MG_ENTERPRISE
-  /**
-   * @brief Gets called on database change.
-   *
-   * @return SetForResult enum (SUCCESS, ALREADY_SET or FAIL)
-   */
-  virtual dbms::SetForResult OnChange(const std::string &) = 0;
-
-  /**
-   * @brief Callback that gets called on database delete (drop).
-   *
-   * @return true on success
-   */
-  virtual bool OnDelete(const std::string &) = 0;
-#endif
+  SPECIALIZE_GET_EXCEPTION_NAME(UnknownDatabaseException)
 };
 
 }  // namespace memgraph::dbms

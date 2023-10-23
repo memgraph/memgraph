@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,55 @@
 #include "utils/exceptions.hpp"
 
 namespace memgraph::utils {
+
+/**
+ * Outputs a collection of items as a string, separating them with the given delimiter.
+ *
+ * @param first Starting iterator of collection which items are going to be
+ *  printed.
+ * @param last Ending iterator of the collection.
+ * @param delim Delimiter that is put between items.
+ * @param transformation Function which accepts an item and returns a derived value.
+ */
+template <typename TIterator, typename TTransformation>
+inline std::string IterableToString(TIterator first, TIterator last, const std::string_view delim = ", ",
+                                    TTransformation transformation = {}) {
+  std::string representation;
+  if (first != last) {
+    representation.append(transformation(*first));
+    ++first;
+  }
+  for (; first != last; ++first) {
+    representation.append(delim);
+    representation.append(transformation(*first));
+  }
+
+  return representation;
+}
+
+/**
+ * Outputs a collection of items as a string, separating them with the given delimiter.
+ *
+ * @param iterable An iterable collection of items.
+ * @param delim Delimiter that is put between items.
+ * @param transformation Function which accepts an item and returns a derived value.
+ */
+template <typename TIterable, typename TTransformation>
+inline std::string IterableToString(const TIterable &iterable, const std::string_view delim = ", ",
+                                    TTransformation transformation = {}) {
+  return IterableToString(iterable.begin(), iterable.end(), delim, transformation);
+}
+
+/**
+ * Outputs a collection of items as a string, separating them with the given delimiter.
+ *
+ * @param iterable An iterable collection of items.
+ * @param delim Delimiter that is put between items.
+ */
+template <typename TIterable>
+inline std::string IterableToString(const TIterable &iterable, const std::string_view delim = ", ") {
+  return IterableToString(iterable, delim, [](const auto &item) { return item; });
+}
 
 /**
  * Outputs a collection of items to the given stream, separating them with the

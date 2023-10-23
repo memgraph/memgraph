@@ -482,13 +482,12 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
       // If we have a saved iterable from a previous pull
       // we need to use the same iterable
       if (!maybe_edge_iterable) {
-        dba_->PrefetchOutEdges(vertex);
         maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;
       MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
-      auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->begin();
-      for (; current_edge_iter != maybe_edges->end() && (!n || local_counter < *n); ++current_edge_iter) {
+      auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->edges.begin();
+      for (; current_edge_iter != maybe_edges->edges.end() && (!n || local_counter < *n); ++current_edge_iter) {
         std::ostringstream os;
         DumpEdge(&os, dba_, *current_edge_iter);
         stream->Result({TypedValue(os.str())});
@@ -496,7 +495,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
         ++local_counter;
       }
 
-      if (current_edge_iter != maybe_edges->end()) {
+      if (current_edge_iter != maybe_edges->edges.end()) {
         maybe_current_edge_iter.emplace(current_edge_iter);
         return std::nullopt;
       }

@@ -19,6 +19,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -41,7 +42,8 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   // This allows the transaction to see its changes even though it's committed.
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
-                                    : transaction->transaction_id.load(std::memory_order_acquire);
+                                    : transaction->transaction_id;
+
   std::size_t n_processed = 0;
   while (delta != nullptr) {
     // For SNAPSHOT ISOLATION -> we can only see the changes which were committed before the start of the current
@@ -94,7 +96,7 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id.load(std::memory_order_acquire) || ts < transaction->start_timestamp) {
+  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
     return true;
   }
 
@@ -112,8 +114,8 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                           transaction->command_id);
+  return &transaction->deltas.use().emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+                                                 transaction->command_id);
 }
 
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta> *deltas) {
@@ -125,17 +127,20 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta>
 }
 
 /// TODO: what if in-memory analytical
+
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
-  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
+  // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
+  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  return &transaction->deltas.use().emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), std::stoull(ts), old_disk_key);
+  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
@@ -147,7 +152,8 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, std::stoull(ts));
+  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 
 /// This function creates a delta in the transaction for the object and links
@@ -159,8 +165,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
-                                                 transaction->command_id);
+  auto delta = &transaction->deltas.use().emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+                                                       transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

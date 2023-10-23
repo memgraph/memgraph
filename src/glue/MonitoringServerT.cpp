@@ -10,5 +10,4 @@
 // licenses/APL.txt.
 #include "glue/MonitoringServerT.hpp"
 
-template class memgraph::communication::http::Server<
-    memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionContext>, memgraph::dbms::SessionContext>;
+template class memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler, memgraph::storage::Storage>;

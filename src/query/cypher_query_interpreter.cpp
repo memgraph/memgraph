@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");

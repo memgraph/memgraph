@@ -14,14 +14,13 @@
 namespace memgraph::storage {
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
-                            std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config) {
+                            std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
-    if (!*vertex) {
+    if (not VertexAccessor::IsVisible(&*it, tx, view)) {
       ++it;
       continue;
     }
+    *vertex = VertexAccessor{&*it, storage, tx};
     break;
   }
   return it;
@@ -29,15 +28,15 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
 
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
     : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_)) {}
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->storage_, self->transaction_,
+                                 self->view_)) {}
 
-VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
+VertexAccessor const &AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->constraints_, self_->config_);
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
+                               self_->transaction_, self_->view_);
   return *this;
 }
 

@@ -210,7 +210,7 @@ void VerticesIterable::Iterator::Destroy() noexcept {
   }
 }
 
-VertexAccessor VerticesIterable::Iterator::operator*() const {
+VertexAccessor const &VerticesIterable::Iterator::operator*() const {
   switch (type_) {
     case Type::ALL:
       return *all_it_;

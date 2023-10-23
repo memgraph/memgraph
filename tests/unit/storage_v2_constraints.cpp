@@ -12,8 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <type_traits>
 #include <variant>
 
+#include "dbms/database.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
@@ -38,7 +40,12 @@ class ConstraintsTest : public testing::Test {
   ConstraintsTest() {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    storage = std::make_unique<StorageType>(config_);
+    config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
+    db_gk_.emplace(config_);
+    auto db_acc_opt = db_gk_->access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    db_acc_ = *db_acc_opt;
+    storage = db_acc_->get()->storage();
     prop1 = storage->NameToProperty("prop1");
     prop2 = storage->NameToProperty("prop2");
     label1 = storage->NameToLabel("label1");
@@ -46,15 +53,19 @@ class ConstraintsTest : public testing::Test {
   }
 
   void TearDown() override {
-    storage.reset(nullptr);
+    storage = nullptr;
+    db_acc_.reset();
+    db_gk_.reset();
 
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
 
-  std::unique_ptr<Storage> storage;
+  Storage *storage;
   memgraph::storage::Config config_;
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk_;
   PropertyId prop1;
   PropertyId prop2;
   LabelId label1;
@@ -66,39 +77,86 @@ TYPED_TEST_CASE(ConstraintsTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
-  EXPECT_EQ(this->storage->ListAllConstraints().existence.size(), 0);
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
-    EXPECT_FALSE(res.HasError());
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 0);
+    ASSERT_NO_ERROR(acc->Commit());
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().existence,
-              UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    EXPECT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_TRUE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().existence,
-              UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label2, this->prop1, {});
-    EXPECT_FALSE(res.HasError());
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
+    ASSERT_NO_ERROR(acc->Commit());
   }
-  EXPECT_THAT(
-      this->storage->ListAllConstraints().existence,
-      UnorderedElementsAre(std::make_pair(this->label1, this->prop1), std::make_pair(this->label2, this->prop1)));
-  EXPECT_FALSE(this->storage->DropExistenceConstraint(this->label1, this->prop1, {}).HasError());
-  EXPECT_TRUE(this->storage->DropExistenceConstraint(this->label1, this->prop1, {}).HasError());
-  EXPECT_THAT(this->storage->ListAllConstraints().existence,
-              UnorderedElementsAre(std::make_pair(this->label2, this->prop1)));
-  EXPECT_FALSE(this->storage->DropExistenceConstraint(this->label2, this->prop1, {}).HasError());
-  EXPECT_TRUE(this->storage->DropExistenceConstraint(this->label2, this->prop2, {}).HasError());
-  EXPECT_EQ(this->storage->ListAllConstraints().existence.size(), 0);
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label2, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label2, this->prop1);
     EXPECT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().existence,
-              UnorderedElementsAre(std::make_pair(this->label2, this->prop1)));
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1),
+                                                                          std::make_pair(this->label2, this->prop1)));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropExistenceConstraint(this->label1, this->prop1).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_TRUE(unique_acc->DropExistenceConstraint(this->label1, this->prop1).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label2, this->prop1)));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropExistenceConstraint(this->label2, this->prop1).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_TRUE(unique_acc->DropExistenceConstraint(this->label2, this->prop2).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 0);
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label2, this->prop1);
+    EXPECT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label2, this->prop1)));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -110,11 +168,13 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     ASSERT_TRUE(res.HasError());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.GetError()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
+    ASSERT_FALSE(unique_acc->Commit().HasError());  // TODO: Check if we are committing here?
   }
   {
     auto acc = this->storage->Access();
@@ -124,8 +184,10 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 }
 
@@ -138,11 +200,13 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     ASSERT_TRUE(res.HasError());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.GetError()),
         (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, this->label1, std::set<PropertyId>{this->prop1}}));
+    ASSERT_FALSE(unique_acc->Commit().HasError());  // TODO: Check if we are committing here?
   }
   {
     auto acc = this->storage->Access();
@@ -152,16 +216,20 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
-    auto res = this->storage->CreateExistenceConstraint(this->label1, this->prop1, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->label1, this->prop1);
     EXPECT_FALSE(res.HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -208,9 +276,11 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
 
     ASSERT_NO_ERROR(acc->Commit());
   }
-
-  ASSERT_FALSE(this->storage->DropExistenceConstraint(this->label1, this->prop1, {}).HasError());
-
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropExistenceConstraint(this->label1, this->prop1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
   {
     auto acc = this->storage->Access();
     auto vertex = acc->CreateVertex();
@@ -221,47 +291,98 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
-  EXPECT_EQ(this->storage->ListAllConstraints().unique.size(), 0);
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllConstraints().unique.size(), 0);
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     EXPECT_TRUE(res.HasValue());
     EXPECT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().unique,
-              UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     EXPECT_TRUE(res.HasValue());
     EXPECT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::ALREADY_EXISTS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().unique,
-              UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label2, {this->prop1}, {});
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label2, {this->prop1});
     EXPECT_TRUE(res.HasValue() && res.GetValue() == UniqueConstraints::CreationStatus::SUCCESS);
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().unique,
-              UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1}),
-                                   std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
-  EXPECT_EQ(this->storage->DropUniqueConstraint(this->label1, {this->prop1}, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::SUCCESS);
-  EXPECT_EQ(this->storage->DropUniqueConstraint(this->label1, {this->prop1}, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::NOT_FOUND);
-  EXPECT_THAT(this->storage->ListAllConstraints().unique,
-              UnorderedElementsAre(std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
-  EXPECT_EQ(this->storage->DropUniqueConstraint(this->label2, {this->prop1}, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::SUCCESS);
-  EXPECT_EQ(this->storage->DropUniqueConstraint(this->label2, {this->prop2}, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::NOT_FOUND);
-  EXPECT_EQ(this->storage->ListAllConstraints().unique.size(), 0);
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label2, {this->prop1}, {});
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1}),
+                                     std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+              UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+              UniqueConstraints::DeletionStatus::NOT_FOUND);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label2, {this->prop1}),
+              UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    EXPECT_EQ(unique_acc->DropUniqueConstraint(this->label2, {this->prop2}),
+              UniqueConstraints::DeletionStatus::NOT_FOUND);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllConstraints().unique.size(), 0);
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label2, {this->prop1});
     EXPECT_TRUE(res.HasValue());
     EXPECT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
   }
-  EXPECT_THAT(this->storage->ListAllConstraints().unique,
-              UnorderedElementsAre(std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -277,11 +398,13 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   }
 
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasError());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.GetError()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
+    ASSERT_FALSE(unique_acc->Commit().HasError());  // TODO: Check if we are committing here?
   }
 
   {
@@ -293,9 +416,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   }
 
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 }
 
@@ -312,11 +437,13 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   }
 
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasError());
     EXPECT_EQ(
         std::get<ConstraintViolation>(res.GetError()),
         (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1}}));
+    ASSERT_FALSE(unique_acc->Commit().HasError());  // TODO: Check if we are committing here?
   }
 
   {
@@ -330,9 +457,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   }
 
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 }
 
@@ -353,9 +482,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
   }
 
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -383,9 +514,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation2) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -413,9 +546,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation2) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation3) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -449,9 +584,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation3) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation4) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -484,9 +621,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation4) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -509,9 +648,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
 /// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -553,9 +694,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
 /// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -604,9 +747,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   Gid gid1;
@@ -620,8 +765,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     gid1 = vertex1.Gid();
     gid2 = vertex2.Gid();
 
-    spdlog::debug("Vertex1 gid: {} Vertex2 gid: {}\n", memgraph::utils::SerializeIdType(gid1),
-                  memgraph::utils::SerializeIdType(gid2));
+    spdlog::debug("Vertex1 gid: {} Vertex2 gid: {}\n", gid1.ToString(), gid2.ToString());
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label2));
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(1)));
@@ -715,14 +859,18 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   {
     // This should fail since unique constraint cannot be created for an empty
     // property set.
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::EMPTY_PROPERTIES);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  // Removing a constraint with empty property set should also fail.
-  ASSERT_EQ(this->storage->DropUniqueConstraint(this->label1, {}, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
+  {  // Removing a constraint with empty property set should also fail.
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, {}), UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
 
   // Create a set of 33 properties.
   std::set<PropertyId> properties;
@@ -733,48 +881,68 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   {
     // This should fail since list of properties exceeds the maximum number of
     // properties, which is 32.
-    auto res = this->storage->CreateUniqueConstraint(this->label1, properties, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, properties);
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  // An attempt to delete constraint with too large property set should fail.
-  ASSERT_EQ(this->storage->DropUniqueConstraint(this->label1, properties, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
+  {  // An attempt to delete constraint with too large property set should fail.
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, properties),
+              UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
 
   // Remove one property from the set.
   properties.erase(properties.begin());
 
   {
     // Creating a constraint for 32 properties should succeed.
-    auto res = this->storage->CreateUniqueConstraint(this->label1, properties, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, properties);
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  EXPECT_THAT(this->storage->ListAllConstraints().unique,
-              UnorderedElementsAre(std::make_pair(this->label1, properties)));
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllConstraints().unique, UnorderedElementsAre(std::make_pair(this->label1, properties)));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
 
-  // Removing a constraint with 32 properties should succeed.
-  ASSERT_EQ(this->storage->DropUniqueConstraint(this->label1, properties, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::SUCCESS);
-  ASSERT_TRUE(this->storage->ListAllConstraints().unique.empty());
+  {  // Removing a constraint with 32 properties should succeed.
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, properties), UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access();
+    ASSERT_TRUE(acc->ListAllConstraints().unique.empty());
+    ASSERT_NO_ERROR(acc->Commit());
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 /// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     // An attempt to create an existing unique constraint.
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop2, this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop2, this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::ALREADY_EXISTS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   Gid gid1;
@@ -826,9 +994,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
 /// TODO: andi Test passes when ran alone but fails when all tests are run
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -852,9 +1022,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   Gid gid;
@@ -887,9 +1059,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   Gid gid;
@@ -927,9 +1101,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   Gid gid1;
@@ -969,9 +1145,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
 
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -983,8 +1161,12 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
     ASSERT_NO_ERROR(acc->Commit());
   }
 
-  ASSERT_EQ(this->storage->DropUniqueConstraint(this->label1, {this->prop2, this->prop1}, {}).GetValue(),
-            UniqueConstraints::DeletionStatus::SUCCESS);
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(this->label1, {this->prop2, this->prop1}),
+              UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
 
   {
     auto acc = this->storage->Access();
@@ -1001,9 +1183,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   // are correctly compared.
 
   {
-    auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2}, {});
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
@@ -1044,9 +1228,11 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
     auto *tx_db = disk_constraints->GetRocksDBStorage()->db_;
 
     {
-      auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1}, {});
+      auto unique_acc = this->db_acc_->get()->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->label1, {this->prop1});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
     auto acc = this->storage->Access();

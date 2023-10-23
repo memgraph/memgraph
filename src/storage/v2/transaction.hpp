@@ -16,22 +16,29 @@
 #include <list>
 #include <memory>
 
+#include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/bond.hpp"
+#include "utils/pmr/list.hpp"
+
+#include <rocksdb/utilities/transaction.h>
 
 namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
+using PmrListDelta = utils::pmr::list<Delta>;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
@@ -39,17 +46,20 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
+        deltas(1024UL),
+        md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active) {}
 
   Transaction(Transaction &&other) noexcept
-      : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
+      : transaction_id(other.transaction_id),
         start_timestamp(other.start_timestamp),
         commit_timestamp(std::move(other.commit_timestamp)),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
+        md_deltas(std::move(other.md_deltas)),
         must_abort(other.must_abort),
         isolation_level(other.isolation_level),
         storage_mode(other.storage_mode),
@@ -67,18 +77,16 @@ struct Transaction {
   /// @throw std::bad_alloc if failed to create the `commit_timestamp`
   void EnsureCommitTimestampExists() {
     if (commit_timestamp != nullptr) return;
-    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id.load(std::memory_order_relaxed));
+    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
   }
 
-  void AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
-    if (IsDiskStorage()) {
-      modified_edges_.emplace(gid, modified_edge);
-    }
+  bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
+    return modified_edges_.emplace(gid, modified_edge).second;
   }
 
-  void RemoveModifiedEdge(const Gid &gid) { modified_edges_.erase(gid); }
+  bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
-  std::atomic<uint64_t> transaction_id;
+  uint64_t transaction_id;
   uint64_t start_timestamp;
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
@@ -86,7 +94,9 @@ struct Transaction {
   // `commited_transactions_` list for GC.
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
-  std::list<Delta> deltas;
+
+  Bond<PmrListDelta> deltas;
+  utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort;
   IsolationLevel isolation_level;
   StorageMode storage_mode;
@@ -98,20 +108,29 @@ struct Transaction {
   mutable VertexInfoCache manyDeltasCache;
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
+  // Only for disk storage
   ModifiedEdgesMap modified_edges_;
+  rocksdb::Transaction *disk_transaction_;
+  /// Main storage
+  utils::SkipList<Vertex> vertices_;
+  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+
+  /// We need them because query context for indexed reading is cleared after the query is done not after the
+  /// transaction is done
+  std::vector<std::list<Delta>> index_deltas_storage_;
+  utils::SkipList<Edge> edges_;
+  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_;
+  std::map<std::string, std::string> vertices_to_delete_;
+  bool scanned_all_vertices_ = false;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
-  return first.transaction_id.load(std::memory_order_acquire) == second.transaction_id.load(std::memory_order_acquire);
+  return first.transaction_id == second.transaction_id;
 }
 inline bool operator<(const Transaction &first, const Transaction &second) {
-  return first.transaction_id.load(std::memory_order_acquire) < second.transaction_id.load(std::memory_order_acquire);
+  return first.transaction_id < second.transaction_id;
 }
-inline bool operator==(const Transaction &first, const uint64_t &second) {
-  return first.transaction_id.load(std::memory_order_acquire) == second;
-}
-inline bool operator<(const Transaction &first, const uint64_t &second) {
-  return first.transaction_id.load(std::memory_order_acquire) < second;
-}
+inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
+inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
 }  // namespace memgraph::storage
