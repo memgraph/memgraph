@@ -111,10 +111,6 @@ IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_le
 
 utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
-  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
-  }
-
   isolation_level_ = isolation_level;
   return {};
 }
