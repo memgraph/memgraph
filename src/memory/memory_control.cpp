@@ -148,8 +148,6 @@ void SetHooks() {
     return;
   }
 
-  spdlog::trace("n areanas {}", n_arenas);
-
   if (nullptr != old_hooks) {
     return;
   }
