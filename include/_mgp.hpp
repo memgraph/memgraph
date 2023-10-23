@@ -355,6 +355,8 @@ inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
 
+inline bool key_exists(mgp_map *map, const char *key) { return MgInvoke<int>(mgp_key_exists, map, key); }
+
 inline const char *map_item_key(mgp_map_item *item) { return MgInvoke<const char *>(mgp_map_item_key, item); }
 
 inline mgp_value *map_item_value(mgp_map_item *item) { return MgInvoke<mgp_value *>(mgp_map_item_value, item); }
