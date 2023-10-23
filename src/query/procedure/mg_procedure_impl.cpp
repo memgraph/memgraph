@@ -32,6 +32,7 @@
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
@@ -206,6 +207,15 @@ template <typename TFunc, typename... Args>
     return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
   }
   return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+bool MgpGraphIsTransactional(const mgp_graph &graph) noexcept {
+  auto storageMode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  std::visit(memgraph::utils::Overloaded{
+                 [&storageMode](memgraph::query::DbAccessor *dbAcc) { storageMode = dbAcc->GetStorageMode(); },
+                 [&storageMode](memgraph::query::SubgraphDbAccessor *dbAcc) { storageMode = dbAcc->GetStorageMode(); }},
+             graph.impl);
+  return storageMode != memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL;
 }
 
 // Graph mutations
@@ -2518,6 +2528,11 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
         return nullptr;
       },
       result);
+}
+
+mgp_error mgp_graph_is_transactional(mgp_graph *graph, int *result) {
+  *result = MgpGraphIsTransactional(*graph) ? 1 : 0;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {

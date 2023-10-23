@@ -236,6 +236,8 @@ inline mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp
 
 // mgp_graph
 
+inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_transactional, graph); }
+
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {

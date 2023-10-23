@@ -15,6 +15,7 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include "storage/v2/storage_mode.hpp"
 #include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
@@ -126,6 +127,8 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 }
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
+
+storage::StorageMode SubgraphDbAccessor::GetStorageMode() const { return db_accessor_.GetStorageMode(); }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
