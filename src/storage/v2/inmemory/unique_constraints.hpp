@@ -131,9 +131,10 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     Transaction *transaction_;
   };
 
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+  uint64_t ApproximateVertexCount(const LabelId &label, const PropertyId &property) const override;
+  uint64_t ApproximateVertexCount(const LabelId &label, const PropertyId &property,
+                                  const PropertyValue &value) const override;
+  uint64_t ApproximateVertexCount(const LabelId &label, const PropertyId &property,
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 

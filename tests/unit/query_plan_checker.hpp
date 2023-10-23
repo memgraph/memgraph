@@ -487,7 +487,7 @@ class FakeDbAccessor {
     return 0;
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
+  int64_t VerticesCount(const memgraph::storage::LabelId &label, const memgraph::storage::PropertyId &property,
                         const memgraph::storage::PropertyValue &value) const {
     return 0;
   }
@@ -496,8 +496,13 @@ class FakeDbAccessor {
     return label_index_.find(label) != label_index_.end();
   }
 
-  bool UniqueConstraintExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+  bool UniqueConstraintExists(const memgraph::storage::LabelId &label,
+                              const memgraph::storage::PropertyId &property) const {
     return false;
+  }
+
+  bool IndexedScanExists(const memgraph::storage::LabelId &label, const memgraph::storage::PropertyId &prop) const {
+    return LabelPropertyIndexExists(label, prop) || UniqueConstraintExists(label, prop);
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {

@@ -1107,7 +1107,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-bool InMemoryStorage::InMemoryAccessor::UniqueConstraintExists(LabelId label, PropertyId property) const {
+bool InMemoryStorage::InMemoryAccessor::UniqueConstraintExists(const LabelId &label, const PropertyId &property) const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());

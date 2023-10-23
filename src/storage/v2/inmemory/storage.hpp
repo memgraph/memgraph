@@ -203,7 +203,7 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
     }
 
-    bool UniqueConstraintExists(LabelId label, PropertyId property) const override;
+    bool UniqueConstraintExists(const LabelId &label, const PropertyId &property) const override;
 
     IndicesInfo ListAllIndices() const override;
 

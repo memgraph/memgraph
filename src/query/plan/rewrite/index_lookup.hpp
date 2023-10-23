@@ -587,8 +587,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
         const auto &property = filter.property_filter->property_;
-        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property)) &&
-            !db_->UniqueConstraintExists(GetLabel(label), GetProperty(property))) {
+        if (!db_->IndexedScanExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
         auto is_better_type = [&found](PropertyFilter::Type type) {

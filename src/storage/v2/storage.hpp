@@ -255,7 +255,7 @@ class Storage {
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
 
-    virtual bool UniqueConstraintExists(LabelId label, PropertyId property) const = 0;
+    virtual bool UniqueConstraintExists(const LabelId &label, const PropertyId &property) const = 0;
 
    protected:
     Storage *storage_;

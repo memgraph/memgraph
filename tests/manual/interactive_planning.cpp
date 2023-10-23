@@ -213,7 +213,8 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  bool UniqueConstraintExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
+  bool UniqueConstraintExists(const memgraph::storage::LabelId &label_id,
+                              const memgraph::storage::PropertyId &property_id) {
     return true;
   }
 
@@ -224,6 +225,10 @@ class InteractiveDbAccessor {
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
     return dba_->GetIndexStats(label, property);
+  }
+
+  bool IndexedScanExists(const memgraph::storage::LabelId &label, const memgraph::storage::PropertyId &prop) const {
+    return dba_->IndexedScanExists(label, prop);
   }
 
   // Save the cached vertex counts to a stream.

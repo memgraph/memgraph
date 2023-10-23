@@ -624,11 +624,11 @@ class DbAccessor final {
     return accessor_->DropUniqueConstraint(label, properties);
   }
 
-  bool UniqueConstraintExists(storage::LabelId label, storage::PropertyId prop) const {
+  bool UniqueConstraintExists(const storage::LabelId &label, const storage::PropertyId &prop) const {
     return accessor_->UniqueConstraintExists(label, prop);
   }
 
-  bool IndexedScanExists(storage::LabelId label, storage::PropertyId prop) const {
+  bool IndexedScanExists(const storage::LabelId &label, const storage::PropertyId &prop) const {
     return LabelPropertyIndexExists(label, prop) || UniqueConstraintExists(label, prop);
   }
 };

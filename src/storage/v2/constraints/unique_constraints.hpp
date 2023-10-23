@@ -59,11 +59,12 @@ class UniqueConstraints {
 
   virtual std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                          const std::optional<utils::Bound<PropertyValue>> &lower,
-                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+  virtual uint64_t ApproximateVertexCount(const LabelId &label, const PropertyId &property) const = 0;
+  virtual uint64_t ApproximateVertexCount(const LabelId &label, const PropertyId &property,
+                                          const PropertyValue &value) const = 0;
+  virtual uint64_t ApproximateVertexCount(const LabelId &label, const PropertyId &property,
+                                          const std::optional<utils::Bound<PropertyValue>> &,
+                                          const std::optional<utils::Bound<PropertyValue>> &) const = 0;
 
   virtual void Clear() = 0;
 

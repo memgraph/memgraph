@@ -410,14 +410,14 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
   return ret;
 }
 
-uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(LabelId label, PropertyId property) const {
+uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(const LabelId &label, const PropertyId &property) const {
   auto it = constraints_.find({label, {property}});
   MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
             property.AsUint());
   return 1;
 };
 
-uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(LabelId label, PropertyId property,
+uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(const LabelId &label, const PropertyId &property,
                                                            const PropertyValue &value) const {
   auto it = constraints_.find({label, {property}});
   MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
@@ -426,7 +426,7 @@ uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(LabelId label, Proper
 };
 
 uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+    const LabelId &label, const PropertyId &property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
   auto it = constraints_.find({label, {property}});
   MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
