@@ -104,30 +104,37 @@ void MgpFreeImpl(memgraph::utils::MemoryResource &memory, void *const p) noexcep
 }
 struct DeletedObjectException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(DeletedObjectException)
 };
 
 struct KeyAlreadyExistsException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(KeyAlreadyExistsException)
 };
 
 struct InsufficientBufferException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(InsufficientBufferException)
 };
 
 struct ImmutableObjectException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ImmutableObjectException)
 };
 
 struct ValueConversionException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ValueConversionException)
 };
 
 struct SerializationException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SerializationException)
 };
 
 struct AuthorizationException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(AuthorizationException)
 };
 
 template <typename TFunc, typename TReturn>

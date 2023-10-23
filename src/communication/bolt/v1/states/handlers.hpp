@@ -18,6 +18,7 @@
 #include <string_view>
 #include <vector>
 
+#include "communication/bolt/metrics.hpp"
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
@@ -210,6 +211,9 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
 
+  // Increment number of queries in the metrics
+  IncrementQueryMetrics(session);
+
   try {
     // Interpret can throw.
     const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
@@ -273,6 +277,9 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   }
 
   spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+
+  // Increment number of queries in the metrics
+  IncrementQueryMetrics(session);
 
   try {
     // Interpret can throw.

@@ -100,10 +100,3 @@ workloads:
     proc: "tests/e2e/mock_api/procedures/"
     args: ["mock_api/test_compare_mock.py"]
     <<: *compare_mock_in_memory_cluster
-
-  # Disk storage doesn't work with compare mock
-  # - name: "test-compare-mock on disk"
-  #   binary: "tests/e2e/pytest_runner.sh"
-  #   proc: "tests/e2e/mock_api/procedures/"
-  #   args: ["mock_api/test_compare_mock.py"]
-  #   <<: *compare_mock_disk_cluster
