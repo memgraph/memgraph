@@ -1096,6 +1096,18 @@ mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
       result);
 }
 
+mgp_error mgp_key_exists(mgp_map *map, const char *key, int *result) {
+  return WrapExceptions(
+      [&map, &key]() -> int {
+        auto found_it = map->items.find(key);
+        if (found_it == map->items.end()) {
+          return 0;
+        };
+        return 1;
+      },
+      result);
+}
+
 mgp_error mgp_map_item_key(mgp_map_item *item, const char **result) {
   return WrapExceptions([&item] { return item->key; }, result);
 }

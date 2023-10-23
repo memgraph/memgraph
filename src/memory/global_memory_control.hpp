@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include "utils/logging.hpp"
 namespace memgraph::memory {
 
 void PurgeUnusedMemory();
