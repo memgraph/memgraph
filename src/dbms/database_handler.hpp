@@ -60,12 +60,6 @@ class DatabaseHandler : public Handler<Database> {
       spdlog::info("Tried to generate new storage using a claimed directory.");
       return NewError::EXISTS;
     }
-#ifndef MG_ENTERPRISE
-    if (std::distance(begin(), end()) == 1) {
-      return NewError::NOT_ALLOWED_IN_COMMUNITY;
-    }
-#endif
-
     config.name = name;  // Set storage id via config
     return HandlerT::New(std::piecewise_construct, name, config, repl_state);
   }

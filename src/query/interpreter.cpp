@@ -1405,7 +1405,7 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 #ifndef MG_ENTERPRISE
-  auto db_acc = interpreter_context_->db_handler->Get(dbms::kDefaultDB);
+  auto db_acc = interpreter_context_->db_handler->Get();
   MG_ASSERT(db_acc, "Database accessor needs to be valid");
   current_db_.db_acc_ = std::move(db_acc);
 #endif

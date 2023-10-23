@@ -91,10 +91,11 @@ class DbmsHandler {
   using LockT = utils::RWLock;
   using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
 
+#ifdef MG_ENTERPRISE
   /**
    * @brief Initialize the handler.
    *
-   * @param configs storage and interpreter configurations
+   * @param configs storage configuration
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    * @param delete_on_drop when dropping delete any associated directories on disk
@@ -107,22 +108,15 @@ class DbmsHandler {
         delete_on_drop_(delete_on_drop) {
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
-#ifdef MG_ENTERPRISE
     storage::UpdatePaths(default_config_, default_config_.durability.storage_directory / "databases");
     const auto &db_dir = default_config_.durability.storage_directory;
     const auto durability_dir = db_dir / ".durability";
     utils::EnsureDirOrDie(db_dir);
     utils::EnsureDirOrDie(durability_dir);
     durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
-#else
-    utils::EnsureDirOrDie(default_config_.durability.storage_directory);
-#endif
 
     // Generate the default database
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
-
-    // ONLY in MG_ENTERPRISE do we need to handle other databases
-#ifdef MG_ENTERPRISE
     // Recover previous databases
     if (recovery_on_startup) {
       for (const auto &[name, _] : *durability_) {
@@ -140,9 +134,21 @@ class DbmsHandler {
         durability_->Delete(name);
       }
     }
-#endif
   }
+#else
+  /**
+   * @brief Initialize the handler. A single database is supported in community edition.
+   *
+   * @param configs storage configuration
+   */
+  DbmsHandler(storage::Config config, const replication::ReplicationState &repl_state)
+      : lock_{utils::RWLock::Priority::READ},
+        default_config_{std::move(config)},
+        repl_state_(repl_state),
+        db_gatekeeper_{default_config_, repl_state_} {}
+#endif
 
+#ifdef MG_ENTERPRISE
   /**
    * @brief Create a new Database associated with the "name" database
    *
@@ -161,11 +167,24 @@ class DbmsHandler {
    * @return DatabaseAccess
    * @throw UnknownDatabaseException if database not found
    */
-  DatabaseAccess Get(std::string_view name) {
+  DatabaseAccess Get(std::string_view name = kDefaultDB) {
     std::shared_lock<LockT> rd(lock_);
     return Get_(name);
   }
+#else
+  /**
+   * @brief Get the context associated with the default database
+   *
+   * @return DatabaseAccess
+   */
+  DatabaseAccess Get() {
+    auto acc = db_gatekeeper_.access();
+    MG_ASSERT(acc, "Failed to get default database!");
+    return *acc;
+  }
+#endif
 
+#ifdef MG_ENTERPRISE
   /**
    * @brief Delete database.
    *
@@ -173,7 +192,6 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(const std::string &db_name) {
-#ifdef MG_ENTERPRISE
     std::lock_guard<LockT> wr(lock_);
     if (db_name == kDefaultDB) {
       // MSG cannot delete the default db
@@ -211,11 +229,8 @@ class DbmsHandler {
     defunct_dbs_.erase(db_name);
 
     return {};  // Success
-#else
-    // There is only the default database
-    return DeleteError::DEFAULT_DB;
-#endif
   }
+#endif
 
   /**
    * @brief Return all active databases.
@@ -223,8 +238,12 @@ class DbmsHandler {
    * @return std::vector<std::string>
    */
   std::vector<std::string> All() const {
+#ifdef MG_ENTERPRISE
     std::shared_lock<LockT> rd(lock_);
     return db_handler_.All();
+#else
+    return {kDefaultDB};
+#endif
   }
 
   /**
@@ -236,23 +255,29 @@ class DbmsHandler {
     Statistics stats{};
     // TODO: Handle overflow?
     std::shared_lock<LockT> rd(lock_);
+#ifdef MG_ENTERPRISE
     for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
       auto db_acc_opt = db_gk.access();
-      if (!db_acc_opt) continue;
-      auto &db_acc = *db_acc_opt;
-      const auto &info = db_acc->GetInfo();
-      const auto &storage_info = info.storage_info;
-      stats.num_vertex += storage_info.vertex_count;
-      stats.num_edges += storage_info.edge_count;
-      stats.triggers += info.triggers;
-      stats.streams += info.streams;
-      ++stats.num_databases;
-      stats.indices += storage_info.label_indices + storage_info.label_property_indices;
-      stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
-      ++stats.storage_modes[(int)storage_info.storage_mode];
-      ++stats.isolation_levels[(int)storage_info.isolation_level];
-      stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
-      stats.wal_enabled += storage_info.durability_wal_enabled;
+      if (db_acc_opt) {
+        auto &db_acc = *db_acc_opt;
+        const auto &info = db_acc->GetInfo();
+        const auto &storage_info = info.storage_info;
+        stats.num_vertex += storage_info.vertex_count;
+        stats.num_edges += storage_info.edge_count;
+        stats.triggers += info.triggers;
+        stats.streams += info.streams;
+        ++stats.num_databases;
+        stats.indices += storage_info.label_indices + storage_info.label_property_indices;
+        stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
+        ++stats.storage_modes[(int)storage_info.storage_mode];
+        ++stats.isolation_levels[(int)storage_info.isolation_level];
+        stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
+        stats.wal_enabled += storage_info.durability_wal_enabled;
+      }
     }
     return stats;
   }
@@ -264,13 +289,19 @@ class DbmsHandler {
    */
   std::vector<DatabaseInfo> Info() {
     std::vector<DatabaseInfo> res;
-    res.reserve(std::distance(db_handler_.cbegin(), db_handler_.cend()));
     std::shared_lock<LockT> rd(lock_);
+#ifdef MG_ENTERPRISE
+    res.reserve(std::distance(db_handler_.cbegin(), db_handler_.cend()));
     for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
       auto db_acc_opt = db_gk.access();
-      if (!db_acc_opt) continue;
-      auto &db_acc = *db_acc_opt;
-      res.push_back(db_acc->GetInfo());
+      if (db_acc_opt) {
+        auto &db_acc = *db_acc_opt;
+        res.push_back(db_acc->GetInfo());
+      }
     }
     return res;
   }
@@ -283,14 +314,20 @@ class DbmsHandler {
    */
   void RestoreTriggers(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
+#ifdef MG_ENTERPRISE
     for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
       auto db_acc_opt = db_gk.access();
-      if (!db_acc_opt) continue;
-      auto &db_acc = *db_acc_opt;
-      spdlog::debug("Restoring trigger for database \"{}\"", db_acc->id());
-      auto storage_accessor = db_acc->Access();
-      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-      db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+      if (db_acc_opt) {
+        auto &db_acc = *db_acc_opt;
+        spdlog::debug("Restoring trigger for database \"{}\"", db_acc->id());
+        auto storage_accessor = db_acc->Access();
+        auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+        db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+      }
     }
   }
 
@@ -302,16 +339,23 @@ class DbmsHandler {
    */
   void RestoreStreams(query::InterpreterContext *ic) {
     std::lock_guard<LockT> wr(lock_);
+#ifdef MG_ENTERPRISE
     for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
       auto db_acc = db_gk.access();
-      if (!db_acc) continue;
-      auto *db = db_acc->get();
-      spdlog::debug("Restoring streams for database \"{}\"", db->id());
-      db->streams()->RestoreStreams(*db_acc, ic);
+      if (db_acc) {
+        auto *db = db_acc->get();
+        spdlog::debug("Restoring streams for database \"{}\"", db->id());
+        db->streams()->RestoreStreams(*db_acc, ic);
+      }
     }
   }
 
  private:
+#ifdef MG_ENTERPRISE
   /**
    * @brief return the storage directory of the associated database
    *
@@ -364,10 +408,8 @@ class DbmsHandler {
 
     auto new_db = db_handler_.New(name, storage_config, repl_state_);
     if (new_db.HasValue()) {
-#ifdef MG_ENTERPRISE
       // Success
       if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
-#endif
       return new_db.GetValue();
     }
     return new_db.GetError();
@@ -380,7 +422,6 @@ class DbmsHandler {
    */
   NewResultT NewDefault_() {
     // Create the default DB in the root (this is how it was done pre multi-tenancy)
-#ifdef MG_ENTERPRISE
     auto res = New_(kDefaultDB, "..");
     if (res.HasValue()) {
       // For back-compatibility...
@@ -433,9 +474,6 @@ class DbmsHandler {
       }
     }
     return res;
-#else
-    return New_(kDefaultDB, default_config_);
-#endif
   }
 
   /**
@@ -452,17 +490,20 @@ class DbmsHandler {
     }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
+#endif
 
   // Should storage objects ever be deleted?
   mutable LockT lock_;                               //!< protective lock
-  DatabaseHandler db_handler_;                       //!< multi-tenancy storage handler
   storage::Config default_config_;                   //!< Storage configuration used when creating new databases
   const replication::ReplicationState &repl_state_;  //!< Global replication state
 #ifdef MG_ENTERPRISE
+  DatabaseHandler db_handler_;                    //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+  bool delete_on_drop_;                           //!< Flag defining if dropping storage also deletes its directory
+  std::set<std::string> defunct_dbs_;             //!< Databases that are in an unknown state due to various failures
+#else
+  utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
-  std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
-  bool delete_on_drop_;                //!< Flag defining if dropping storage also deletes its directory
-};
+};  // namespace memgraph::dbms
 
 }  // namespace memgraph::dbms

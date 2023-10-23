@@ -356,14 +356,13 @@ int main(int argc, char **argv) {
 
   memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(db_config));
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state, &auth_, FLAGS_data_recovery_on_startup,
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
-                                           FLAGS_storage_delete_on_drop
-#else
-                                           false
+                                           ,
+                                           &auth_, FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop
 #endif
   );
-  auto db_acc = dbms_handler.Get(memgraph::dbms::kDefaultDB);
+  auto db_acc = dbms_handler.Get();
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state,
                                                            auth_handler.get(), auth_checker.get());
   MG_ASSERT(db_acc, "Failed to access the main database");
@@ -495,7 +494,7 @@ int main(int argc, char **argv) {
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
-    auto db_acc = dbms_handler.Get(memgraph::dbms::kDefaultDB);
+    auto db_acc = dbms_handler.Get();
     MG_ASSERT(db_acc, "Failed to gain access to the main database");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
