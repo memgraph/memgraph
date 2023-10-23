@@ -222,7 +222,6 @@ Feature: Cartesian
             | (:B {id: 3, prop: 2}) | (:A {id: 2, prop: 2}) |
             | (:B {id: 3, prop: 2}) | (:B {id: 3, prop: 2}) |
 
-
     Scenario: Multiple match with WHERE x = y 04
         Given an empty graph
         And having executed
@@ -241,7 +240,45 @@ Feature: Cartesian
             | (:A {id: 2, prop: 1}) | (:A {id: 1, prop: 1}) |
             | (:A {id: 2, prop: 1}) | (:A {id: 2, prop: 1}) |
 
-    Scenario: Multiple match with WHERE x = y 05: nothing on the left side
+    Scenario: Multiple match with WHERE x = y 05
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {prop: 1, id: 1}), (:A {prop: 2, id: 2}), (:A {prop: 1, id: 2}), (:A {prop: 2, id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:A) MATCH (b:A) WHERE a.prop = b.id RETURN a, b
+            """
+        Then the result should be:
+            | a                     | b                     |
+            | (:A {id: 1, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 2, prop: 2}) | (:A {id: 2, prop: 2}) |
+            | (:A {id: 3, prop: 2}) | (:A {id: 2, prop: 2}) |
+            | (:A {id: 2, prop: 2}) | (:A {id: 2, prop: 1}) |
+            | (:A {id: 3, prop: 2}) | (:A {id: 2, prop: 1}) |
+
+    Scenario: Multiple match with WHERE x = y 06
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {prop: 1, id: 1}), (:A {prop: 2, id: 2}), (:A {prop: 1, id: 2}), (:A {prop: 2, id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:A) MATCH (b:A) WHERE a.id = b.prop RETURN a, b
+            """
+        Then the result should be:
+            | a                     | b                     |
+            | (:A {id: 1, prop: 1}) | (:A {id: 1, prop: 1}) |
+            | (:A {id: 2, prop: 2}) | (:A {id: 2, prop: 2}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 2, prop: 2}) |
+            | (:A {id: 1, prop: 1}) | (:A {id: 2, prop: 1}) |
+            | (:A {id: 2, prop: 2}) | (:A {id: 3, prop: 2}) |
+            | (:A {id: 2, prop: 1}) | (:A {id: 3, prop: 2}) |
+
+    Scenario: Multiple match with WHERE x = y 07: nothing on the left side
         Given an empty graph
         And having executed
             """
@@ -253,7 +290,7 @@ Feature: Cartesian
             """
         Then the result should be empty
 
-    Scenario: Multiple match with WHERE x = y 06: nothing on the right side
+    Scenario: Multiple match with WHERE x = y 08: nothing on the right side
         Given an empty graph
         And having executed
             """
@@ -265,7 +302,7 @@ Feature: Cartesian
             """
         Then the result should be empty
 
-    Scenario: Multiple match with WHERE x = y 07: sides never equal
+    Scenario: Multiple match with WHERE x = y 09: sides never equal
         Given an empty graph
         And having executed
             """
