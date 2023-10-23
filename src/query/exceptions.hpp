@@ -307,6 +307,12 @@ class IsolationLevelModificationInAnalyticsException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInAnalyticsException)
 };
 
+class IsolationLevelModificationInDiskTransactionalException : public QueryException {
+ public:
+  IsolationLevelModificationInDiskTransactionalException()
+      : QueryException("Snapshot isolation level is the only supported isolation level for disk storage.") {}
+};
+
 class StorageModeModificationInMulticommandTxException : public QueryException {
  public:
   StorageModeModificationInMulticommandTxException()
