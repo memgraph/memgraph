@@ -24,6 +24,6 @@ disk_cluster: &disk_cluster
 workloads:
   - name: "Convert query module test"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "/usr/local/lib/memgraph/query_modules"
+    proc: "tests/e2e/query_modules/procedures/"
     args: ["query_modules/query_modules.py"]
     <<: *in_memory_cluster

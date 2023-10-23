@@ -1,0 +1,3 @@
+add_query_module(schema_QM schema_QM.cpp)
+copy_query_modules_e2e_python_files(convert_QM.py)
+copy_query_modules_e2e_python_files(mgps_QM.py)
