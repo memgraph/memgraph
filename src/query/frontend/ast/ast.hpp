@@ -2115,8 +2115,8 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   /// Contains remaining queries that should form and union with `single_query_`.
   std::vector<memgraph::query::CypherUnion *> cypher_unions_;
   /// Index hint
-  /// TODO: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be contained
-  /// within a dedicated class/struct
+  /// Suggestion: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be
+  /// contained within a dedicated class/struct
   std::vector<memgraph::query::IndexHint> index_hints_;
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};

@@ -61,8 +61,8 @@ IndexHints CollectIndexHints(std::vector<IndexHint> index_hints, TDbAccessor *db
 
 class PostProcessor final {
   Parameters parameters_;
-  /// TODO: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be contained
-  /// within a dedicated class/struct
+  /// Suggestion: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be
+  /// contained within a dedicated class/struct
   IndexHints index_hints_{};
 
  public:
