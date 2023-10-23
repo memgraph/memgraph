@@ -68,7 +68,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::optional<std::string> GetServerNameForInit() override;
 
-  std::string GetDatabaseName() const override;
+  std::string GetCurrentDB() const override;
 
  private:
   std::map<std::string, memgraph::communication::bolt::Value> DecodeSummary(

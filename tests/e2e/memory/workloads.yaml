@@ -2,7 +2,7 @@ bolt_port: &bolt_port "7687"
 args: &args
   - "--bolt-port"
   - *bolt_port
-  - "--memory-limit=1000"
+  - "--memory-limit=1024"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=TRACE"
 
