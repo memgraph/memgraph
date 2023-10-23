@@ -60,5 +60,8 @@ target_link_libraries(${test_prefix}expansion mg-query mg-communication mg-licen
 add_benchmark(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
 
+add_benchmark(storage_v2_gc2.cpp)
+target_link_libraries(${test_prefix}storage_v2_gc2 mg-storage-v2)
+
 add_benchmark(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2)

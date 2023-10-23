@@ -58,17 +58,19 @@ class Scheduler {
         // the start of the program. Since Server will log some messages on
         // the program start we let him log first and we make sure by first
         // waiting that funcion f will not log before it.
-        std::unique_lock<std::mutex> lk(mutex_);
-        auto now = std::chrono::system_clock::now();
         start_time += pause;
-        if (start_time > now) {
-          condition_variable_.wait_until(lk, start_time, [&] { return is_working_.load() == false; });
-        } else {
+        {
+          std::unique_lock<std::mutex> lk(mutex_);
+          auto const stopped =
+              condition_variable_.wait_until(lk, start_time, [&] { return is_working_.load() == false; });
+          if (stopped) break;
+        }
+        f();
+        auto now = std::chrono::system_clock::now();
+        if (start_time < now) {
+          // `f` took longer than `pause` to complete
           start_time = now;
         }
-
-        if (!is_working_) break;
-        f();
       }
     });
   }
@@ -80,10 +82,7 @@ class Scheduler {
    */
   void Stop() {
     is_working_.store(false);
-    {
-      std::unique_lock<std::mutex> lk(mutex_);
-      condition_variable_.notify_one();
-    }
+    condition_variable_.notify_one();
     if (thread_.joinable()) thread_.join();
   }
 

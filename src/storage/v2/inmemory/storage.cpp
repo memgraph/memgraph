@@ -1333,9 +1333,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   bool run_index_cleanup = !linked_undo_buffers.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices ||
                            need_full_scan_edges;
 
-  auto end_linked_undo_buffers = linked_undo_buffers.end();
+  auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
-    auto commit_timestamp = linked_entry->commit_timestamp_->load(std::memory_order_acquire);
+    auto const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
+    auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
 
     // only process those that are no longer active
     if (commit_timestamp >= oldest_active_start_timestamp) {
@@ -1388,6 +1389,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
+              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
             break;
@@ -1402,37 +1404,56 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             edge->delta = nullptr;
             if (edge->deleted) {
+              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
             break;
           }
           case PreviousPtr::Type::DELTA: {
-            if (prev.delta->timestamp->load(std::memory_order_acquire) == commit_timestamp) {
+            //              kTransactionInitialId
+            //                     │
+            //                     ▼
+            // ┌───────────────────┬─────────────┐
+            // │     Committed     │ Uncommitted │
+            // ├──────────┬────────┴─────────────┤
+            // │ Inactive │      Active          │
+            // └──────────┴──────────────────────┘
+            //            ▲
+            //            │
+            //  oldest_active_start_timestamp
+
+            if (prev.delta->timestamp == commit_timestamp_ptr) {
               // The delta that is newer than this one is also a delta from this
               // transaction. We skip the current delta and will remove it as a
               // part of the suffix later.
               break;
             }
-            std::unique_lock<utils::RWSpinLock> guard;
-            {
-              // We need to find the parent object in order to be able to use
-              // its lock.
-              auto parent = prev;
-              while (parent.type == PreviousPtr::Type::DELTA) {
-                parent = parent.delta->prev.Get();
-              }
+
+            if (prev.delta->timestamp->load() < oldest_active_start_timestamp) {
+              // If previous is from another inactive transaction, no need to
+              // lock the edge/vertex, nothing will read this far or relink to
+              // us directly
+              break;
+            }
+
+            // Previous is either active (committed or uncommitted), we need to find
+            // the parent object in order to be able to use its lock.
+            auto parent = prev;
+            while (parent.type == PreviousPtr::Type::DELTA) {
+              parent = parent.delta->prev.Get();
+            }
+
+            auto const guard = std::invoke([&] {
               switch (parent.type) {
                 case PreviousPtr::Type::VERTEX:
-                  guard = std::unique_lock{parent.vertex->lock};
-                  break;
+                  return std::unique_lock{parent.vertex->lock};
                 case PreviousPtr::Type::EDGE:
-                  guard = std::unique_lock{parent.edge->lock};
-                  break;
+                  return std::unique_lock{parent.edge->lock};
                 case PreviousPtr::Type::DELTA:
                 case PreviousPtr::Type::NULLPTR:
                   LOG_FATAL("Invalid database state!");
               }
-            }
+            });
             if (delta.prev.Get() != prev) {
               // Something changed, we could now be the first delta in the
               // chain.
