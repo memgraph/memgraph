@@ -170,41 +170,6 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
 
     bool UniqueConstraintExists(const LabelId &label, const PropertyId &property) const override;
-
-   private:
-    /// Flushes vertices and edges to the disk with the commit timestamp.
-    /// At the time of calling, the commit_timestamp_ must already exist.
-    /// After this method, the vertex and edge caches are cleared.
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
-        const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(const auto &edge_acc);
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices();
-
-    [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
-        const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
-
-    bool WriteVertexToVertexColumnFamily(const Vertex &vertex);
-    bool WriteEdgeToEdgeColumnFamily(const std::string &serialized_edge_key, const std::string &serialized_edge_value);
-
-    bool WriteEdgeToConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                      rocksdb::ColumnFamilyHandle *handle, std::string mode);
-
-    bool DeleteVertexFromDisk(const std::string &vertex_gid, const std::string &vertex);
-
-    bool DeleteEdgeFromEdgeColumnFamily(const std::string &edge_gid);
-    bool DeleteEdgeFromDisk(const std::string &edge_gid, const std::string &src_vertex_gid,
-                            const std::string &dst_vertex_gid);
-    bool DeleteEdgeFromConnectivityIndex(const std::string &vertex_gid, const std::string &edge_gid,
-                                         rocksdb::ColumnFamilyHandle *handle, std::string mode);
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
