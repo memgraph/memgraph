@@ -370,10 +370,11 @@ def test_union_applicable_in_right_branch(memgraph):
 
 
 def test_union_applicable_in_both_branches(memgraph):
-    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2 {id: i}));")
-    memgraph.execute("FOREACH (i IN range(1, 10) | CREATE (n:Label2 {id: i+50}));")
+    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2:Label3 {id: i}));")
+    memgraph.execute("FOREACH (i IN range(1, 10) | CREATE (n:Label1:Label2 {id: i+50}));")
     memgraph.execute("CREATE INDEX ON :Label1;")
     memgraph.execute("CREATE INDEX ON :Label2;")
+    memgraph.execute("CREATE INDEX ON :Label3;")
 
     expected_explain_with_hint = [
         " * Distinct",
@@ -381,32 +382,9 @@ def test_union_applicable_in_both_branches(memgraph):
         " |\\ ",
         " | * Produce {n}",
         " | * Filter",
-        " | * ScanAllByLabel (n :Label1)",
+        " | * ScanAllByLabel (n :Label2)",
         " | * Once",
         " * Produce {n}",
-        " * ScanAllByLabel (n :Label1)",
-        " * Once",
-    ]
-
-    explain_with_hint = [
-        row["QUERY PLAN"]
-        for row in memgraph.execute_and_fetch(
-            "EXPLAIN USING INDEX :Label1 MATCH (n:Label1) RETURN n UNION MATCH (n:Label1:Label2) RETURN n;"
-        )
-    ]
-
-    assert explain_with_hint == expected_explain_with_hint
-
-
-def test_multiple_match_query(memgraph):
-    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2 {id: i}));")
-    memgraph.execute("FOREACH (i IN range(1, 10) | CREATE (n:Label2 {id: i+50}));")
-    memgraph.execute("CREATE INDEX ON :Label1;")
-    memgraph.execute("CREATE INDEX ON :Label2;")
-
-    expected_explain_with_hint = [
-        " * Produce {n, m}",
-        " * ScanAllByLabel (m :Label2)",
         " * Filter",
         " * ScanAllByLabel (n :Label1)",
         " * Once",
@@ -415,7 +393,33 @@ def test_multiple_match_query(memgraph):
     explain_with_hint = [
         row["QUERY PLAN"]
         for row in memgraph.execute_and_fetch(
-            "EXPLAIN USING INDEX :Label1, :Label2 MATCH (n:Label1) WHERE n.id = 1 MATCH (m:Label2) return n, m;"
+            "EXPLAIN USING INDEX :Label1, :Label2 MATCH (n:Label1:Label2) RETURN n UNION MATCH (n:Label2:Label3) RETURN n;"
+        )
+    ]
+
+    assert explain_with_hint == expected_explain_with_hint
+
+
+def test_multiple_match_query(memgraph):
+    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2:Label3 {id: i}));")
+    memgraph.execute("FOREACH (i IN range(1, 10) | CREATE (n:Label1:Label2 {id: i+50}));")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label2;")
+    memgraph.execute("CREATE INDEX ON :Label3;")
+
+    expected_explain_with_hint = [
+        " * Produce {n, m}",
+        " * Filter",
+        " * ScanAllByLabel (n :Label1)",
+        " * Filter",
+        " * ScanAllByLabel (m :Label2)",
+        " * Once",
+    ]
+
+    explain_with_hint = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1, :Label2  MATCH (n:Label1:Label2) WHERE n.id = 1 MATCH (m:Label2:Label3) return n, m;"
         )
     ]
 
