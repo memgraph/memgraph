@@ -5257,15 +5257,7 @@ class HashJoinCursor : public Cursor {
     SCOPED_PROFILE_OP("HashJoin");
 
     if (!hash_join_initialized_) {
-      // Pull all left_op_ frames
-      while (left_op_cursor_->Pull(frame, context)) {
-        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                      storage::View::NEW);
-        auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
-        if (left_value.type() != TypedValue::Type::Null) {
-          hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
-        }
-      }
+      InitializeHashJoin(frame, context);
       hash_join_initialized_ = true;
     }
 
@@ -5291,7 +5283,7 @@ class HashJoinCursor : public Cursor {
 
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                      storage::View::NEW);
+                                      storage::View::OLD);
         auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
@@ -5333,6 +5325,18 @@ class HashJoinCursor : public Cursor {
   }
 
  private:
+  void InitializeHashJoin(Frame &frame, ExecutionContext &context) {
+    // Pull all left_op_ frames
+    while (left_op_cursor_->Pull(frame, context)) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      if (left_value.type() != TypedValue::Type::Null) {
+        hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
+      }
+    }
+  }
+
   const HashJoin &self_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;

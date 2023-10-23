@@ -459,7 +459,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   std::unordered_set<Symbol> cartesian_symbols_;
 
-  bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing join"); }
+  bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by JoinRewriter"); }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
     MG_ASSERT(input);
@@ -486,7 +486,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &right_symbols = cartesian.right_symbols_;
 
     auto modified_symbols = cartesian.ModifiedSymbols(*symbol_table_);
-    modified_symbols.insert(modified_symbols.end(), cartesian.left_symbols_.begin(), cartesian.left_symbols_.end());
+    modified_symbols.insert(modified_symbols.end(), left_symbols.begin(), left_symbols.end());
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -514,9 +514,9 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
         continue;
       }
-      auto rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
+      auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
 
-      auto join_condition = static_cast<EqualOperator *>(filter.expression);
+      auto *join_condition = static_cast<EqualOperator *>(filter.expression);
       auto lhs_symbol = filter.property_filter->symbol_;
       auto lhs_property = filter.property_filter->property_;
       auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
@@ -539,7 +539,10 @@ std::unique_ptr<LogicalOperator> RewriteWithJoinRewriter(std::unique_ptr<Logical
   impl::JoinRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
-    throw utils::NotYetImplemented("optimizing join");
+    // This shouldn't happen in real use cases because, as JoinRewriter removes Filter operations, they cannot be the
+    // root operator. In case we somehow missed this, raise NotYetImplemented instead of a MG_ASSERT crashing the
+    // application.
+    throw utils::NotYetImplemented("A Filter operator cannot be JoinRewriter's root");
   }
   return root_op;
 }
