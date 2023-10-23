@@ -82,7 +82,8 @@ class AuthQuery;
 class ExplainQuery;
 class ProfileQuery;
 class IndexQuery;
-class InfoQuery;
+class DatabaseInfoQuery;
+class SystemInfoQuery;
 class ConstraintQuery;
 class RegexMatch;
 class DumpQuery;
@@ -140,10 +141,10 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
-                            ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
-                            IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery,
-                            ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
-                            MultiDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery> {};
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, DatabaseInfoQuery,
+                            SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
+                            FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, StreamQuery,
+                            SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery,
+                            AnalyzeGraphQuery, MultiDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery> {};
 
 }  // namespace memgraph::query

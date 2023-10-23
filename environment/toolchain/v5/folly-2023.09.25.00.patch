@@ -1,0 +1,26 @@
+diff --git a/folly/CMakeLists.txt b/folly/CMakeLists.txt
+index e0e16df..471131e 100644
+--- a/folly/CMakeLists.txt
++++ b/folly/CMakeLists.txt
+@@ -28,7 +28,7 @@ install(
+ )
+ 
+ add_subdirectory(experimental/exception_tracer)
+-add_subdirectory(logging/example)
++# add_subdirectory(logging/example)
+ 
+ if (PYTHON_EXTENSIONS)
+   # Create tree of symbolic links in structure required for successful
+diff --git a/folly/Portability.h b/folly/Portability.h
+index 365ef1b..42d24b8 100644
+--- a/folly/Portability.h
++++ b/folly/Portability.h
+@@ -560,7 +560,7 @@ constexpr auto kCpplibVer = 0;
+     (defined(__cpp_coroutines) && __cpp_coroutines >= 201703L) ||          \
+     (defined(__cpp_impl_coroutine) && __cpp_impl_coroutine >= 201902L)) && \
+     (__has_include(<coroutine>) || __has_include(<experimental/coroutine>))
+-#define FOLLY_HAS_COROUTINES 1
++#define FOLLY_HAS_COROUTINES 0
+ // This is mainly to workaround bugs triggered by LTO, when stack allocated
+ // variables in await_suspend end up on a coroutine frame.
+ #define FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES FOLLY_NOINLINE

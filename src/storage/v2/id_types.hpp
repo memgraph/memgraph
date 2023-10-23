@@ -13,6 +13,7 @@
 
 #include <charconv>
 #include <functional>
+#include <string>
 #include <system_error>
 #include <type_traits>
 #include <utils/exceptions.hpp>
@@ -36,6 +37,7 @@ namespace memgraph::storage {
     uint64_t AsUint() const { return id_; }                                                                   \
     int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
     static name FromString(std::string_view id) { return name{utils::ParseStringToUint64(id)}; }              \
+    std::string ToString() const { return std::to_string(id_); }                                              \
                                                                                                               \
    private:                                                                                                   \
     uint64_t id_;                                                                                             \
