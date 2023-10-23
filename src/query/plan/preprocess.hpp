@@ -301,7 +301,7 @@ class Filters final {
   auto erase(iterator first, iterator last) { return all_filters_.erase(first, last); }
   auto erase(const_iterator first, const_iterator last) { return all_filters_.erase(first, last); }
 
-  void SetFilters(std::vector<FilterInfo> all_filters) { all_filters_ = all_filters; }
+  void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const {
     std::unordered_set<LabelIx> labels;
