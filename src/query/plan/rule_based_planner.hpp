@@ -15,16 +15,13 @@
 #include <optional>
 #include <variant>
 
-#include "gflags/gflags.h"
-
+#include "flags/run_time_configurable.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
-
-DECLARE_bool(cartesian_product_enabled);
 
 namespace memgraph::query::plan {
 
@@ -486,7 +483,7 @@ class RuleBasedPlanner {
                                                     std::vector<Symbol> &new_symbols,
                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                                     Filters &filters, storage::View view) {
-    if (FLAGS_cartesian_product_enabled) {
+    if (flags::run_time::cartesian_product_enabled_) {
       return HandleExpansionsWithCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
                                            new_symbols, named_paths, filters, view);
     }
@@ -503,18 +500,18 @@ class RuleBasedPlanner {
       return last_op;
     }
 
-    std::set<IsomorphicId> all_isomorphic_expansions;
+    std::set<ExpansionGroupId> all_expansion_groups;
     for (const auto &expansion : matching.expansions) {
-      all_isomorphic_expansions.insert(expansion.isomorphic_id);
+      all_expansion_groups.insert(expansion.expansion_group_id);
     }
 
-    std::set<IsomorphicId> visited_isomorphic_expansions;
+    std::set<ExpansionGroupId> visited_expansion_groups;
 
     last_op =
-        GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_isomorphic_expansions, symbol_table,
+        GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_expansion_groups, symbol_table,
                                               storage, bound_symbols, new_symbols, named_paths, filters, view);
 
-    // We want to create separate branches of scan operators for each isomorphic group of patterns
+    // We want to create separate branches of scan operators for each expansion group group of patterns
     // Whenever there are 2 scan branches, they will be joined with a Cartesian operator
 
     // New symbols from the opposite branch
@@ -523,7 +520,7 @@ class RuleBasedPlanner {
     std::vector<Symbol> cross_branch_new_symbols;
     bool initial_expansion_done = false;
     for (const auto &expansion : matching.expansions) {
-      if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
+      if (visited_expansion_groups.contains(expansion.expansion_group_id)) {
         continue;
       }
 
@@ -536,31 +533,31 @@ class RuleBasedPlanner {
       if (starting_expansion_operator) {
         starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
       }
-      std::vector<Symbol> new_isomorphic_symbols;
+      std::vector<Symbol> new_expansion_group_symbols;
       std::unordered_set<Symbol> new_bound_symbols{starting_symbols.begin(), starting_symbols.end()};
-      std::unique_ptr<LogicalOperator> isomorphic_expansion = GenerateIsomorphicExpansion(
+      std::unique_ptr<LogicalOperator> expansion_group = GenerateExpansionGroup(
           std::move(starting_expansion_operator), matching, symbol_table, storage, new_bound_symbols,
-          new_isomorphic_symbols, named_paths, filters, view, expansion.isomorphic_id);
+          new_expansion_group_symbols, named_paths, filters, view, expansion.expansion_group_id);
 
-      visited_isomorphic_expansions.insert(expansion.isomorphic_id);
+      visited_expansion_groups.insert(expansion.expansion_group_id);
 
-      new_symbols.insert(new_symbols.end(), new_isomorphic_symbols.begin(), new_isomorphic_symbols.end());
+      new_symbols.insert(new_symbols.end(), new_expansion_group_symbols.begin(), new_expansion_group_symbols.end());
       bound_symbols.insert(new_bound_symbols.begin(), new_bound_symbols.end());
 
       // If we just started and have no beginning operator, make the beginning operator and transfer cross symbols
       // for next iteration
       bool started_matching_operators = !last_op;
-      bool has_more_expansions = visited_isomorphic_expansions.size() < all_isomorphic_expansions.size();
+      bool has_more_expansions = visited_expansion_groups.size() < all_expansion_groups.size();
       if (started_matching_operators) {
-        last_op = std::move(isomorphic_expansion);
+        last_op = std::move(expansion_group);
         if (has_more_expansions) {
-          cross_branch_new_symbols = new_isomorphic_symbols;
+          cross_branch_new_symbols = new_expansion_group_symbols;
         }
         continue;
       }
 
       // if there is already a last operator, then we have 2 branches that we can merge into cartesian
-      last_op = GenerateCartesian(std::move(last_op), std::move(isomorphic_expansion), symbol_table);
+      last_op = GenerateCartesian(std::move(last_op), std::move(expansion_group), symbol_table);
 
       // additionally, check for Cyphermorphism of the previous branch with new bound symbols
       for (const auto &new_symbol : cross_branch_new_symbols) {
@@ -571,16 +568,16 @@ class RuleBasedPlanner {
 
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
 
-      // we aggregate all the so far new symbols so we can test them in the next iteration against the new isomorphic
-      // expansion
+      // we aggregate all the so far new symbols so we can test them in the next iteration against the new
+      // expansion group
       if (has_more_expansions) {
-        cross_branch_new_symbols.insert(cross_branch_new_symbols.end(), new_isomorphic_symbols.begin(),
-                                        new_isomorphic_symbols.end());
+        cross_branch_new_symbols.insert(cross_branch_new_symbols.end(), new_expansion_group_symbols.begin(),
+                                        new_expansion_group_symbols.end());
       }
     }
 
-    MG_ASSERT(visited_isomorphic_expansions.size() == all_isomorphic_expansions.size(),
-              "Did not create expansions for all isomorphic expansions in the planner!");
+    MG_ASSERT(visited_expansion_groups.size() == all_expansion_groups.size(),
+              "Did not create expansions for all expansion group expansions in the planner!");
 
     return last_op;
   }
@@ -599,15 +596,15 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> GenerateExpansionOnAlreadySeenSymbols(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
-      std::set<IsomorphicId> &visited_isomorphic_expansions, SymbolTable symbol_table, AstStorage &storage,
+      std::set<ExpansionGroupId> &visited_expansion_groups, SymbolTable symbol_table, AstStorage &storage,
       std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
     bool added_new_expansions = true;
     while (added_new_expansions) {
       added_new_expansions = false;
       for (const auto &expansion : matching.expansions) {
-        // We want to create separate matching branch operators for each isomorphic group of patterns
-        if (visited_isomorphic_expansions.contains(expansion.isomorphic_id)) {
+        // We want to create separate matching branch operators for each expansion group group of patterns
+        if (visited_expansion_groups.contains(expansion.expansion_group_id)) {
           continue;
         }
 
@@ -618,9 +615,9 @@ class RuleBasedPlanner {
             expansion.edge && bound_symbols.contains(impl::GetSymbol(expansion.node2, symbol_table));
 
         if (src_node_already_seen || edge_already_seen || dest_node_already_seen) {
-          last_op = GenerateIsomorphicExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                                new_symbols, named_paths, filters, view, expansion.isomorphic_id);
-          visited_isomorphic_expansions.insert(expansion.isomorphic_id);
+          last_op = GenerateExpansionGroup(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                                           new_symbols, named_paths, filters, view, expansion.expansion_group_id);
+          visited_expansion_groups.insert(expansion.expansion_group_id);
           added_new_expansions = true;
           break;
         }
@@ -630,15 +627,15 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> GenerateIsomorphicExpansion(
+  std::unique_ptr<LogicalOperator> GenerateExpansionGroup(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
-      IsomorphicId isomorphic_id) {
+      ExpansionGroupId expansion_group_id) {
     for (size_t i = 0, size = matching.expansions.size(); i < size; i++) {
       const auto &expansion = matching.expansions[i];
 
-      if (expansion.isomorphic_id != isomorphic_id) {
+      if (expansion.expansion_group_id != expansion_group_id) {
         continue;
       }
 
