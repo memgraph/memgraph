@@ -180,6 +180,7 @@ inline void AbortCheck(ExecutionContext const &context) {
 #define SCOPED_PROFILE_OP_BY_REF(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
   if (!did_pull_) {
@@ -267,6 +268,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -4541,6 +4543,7 @@ class OutputTableStreamCursor : public Cursor {
   explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
@@ -4828,6 +4831,7 @@ class CallValidateProcedureCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("CallValidateProcedureCursor");
 
     AbortCheck(context);

@@ -17,3 +17,6 @@ target_link_libraries(memgraph__e2e__memory__limit_delete gflags mgclient mg-uti
 
 add_executable(memgraph__e2e__memory__limit_accumulation memory_limit_accumulation.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_accumulation gflags mgclient mg-utils mg-io)
+
+add_executable(memgraph__e2e__memory__limit_edge_create memory_limit_edge_create.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_edge_create gflags mgclient mg-utils mg-io)

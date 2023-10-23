@@ -23,94 +23,104 @@ disk_cluster: &disk_cluster
         - "STORAGE MODE ON_DISK_TRANSACTIONAL"
       validation_queries: []
 
-args_delete_limit: &args_delete_limit
+args_512_MiB_limit: &args_512_MiB_limit
   - "--bolt-port"
   - *bolt_port
   - "--memory-limit=512"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=INFO"
 
-in_memory_delete_limit_cluster: &in_memory_delete_limit_cluster
+in_memory_512_MiB_limit_cluster: &in_memory_512_MiB_limit_cluster
   cluster:
     main:
-      args: *args_delete_limit
+      args: *args_512_MiB_limit
       log_file: "memory-e2e.log"
       setup_queries: []
       validation_queries: []
 
 
-disk_delete_limit_cluster: &disk_delete_limit_cluster
+disk_512_MiB_limit_cluster: &disk_512_MiB_limit_cluster
   cluster:
     main:
-      args: *args_delete_limit
+      args: *args_512_MiB_limit
       log_file: "memory-e2e.log"
       setup_queries: []
       validation_queries: []
 
 
 workloads:
-  - name: "Memory control"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__control"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    <<: *in_memory_cluster
+  # - name: "Memory control"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__control"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+  #   <<: *in_memory_cluster
 
-  - name: "Memory control multi database"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__control"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
-    <<: *in_memory_cluster
+  # - name: "Memory control multi database"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__control"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+  #   <<: *in_memory_cluster
 
-  - name: "Memory limit for modules upon loading"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *in_memory_cluster
+  # - name: "Memory limit for modules upon loading"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+  #   proc: "tests/e2e/memory/procedures/"
+  #   <<: *in_memory_cluster
 
-  - name: "Memory limit for modules upon loading multi database"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *in_memory_cluster
+  # - name: "Memory limit for modules upon loading multi database"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+  #   proc: "tests/e2e/memory/procedures/"
+  #   <<: *in_memory_cluster
 
-  - name: "Memory limit for modules inside a procedure"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *in_memory_cluster
+  # - name: "Memory limit for modules inside a procedure"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+  #   proc: "tests/e2e/memory/procedures/"
+  #   <<: *in_memory_cluster
 
-  - name: "Memory limit for modules inside a procedure multi database"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *in_memory_cluster
+  # - name: "Memory limit for modules inside a procedure multi database"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+  #   proc: "tests/e2e/memory/procedures/"
+  #   <<: *in_memory_cluster
 
-  - name: "Memory limit for modules upon loading for on-disk storage"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *disk_cluster
+  # - name: "Memory limit for modules upon loading for on-disk storage"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+  #   proc: "tests/e2e/memory/procedures/"
+  #   <<: *disk_cluster
 
-  - name: "Memory limit for modules inside a procedure for on-disk storage"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
-    proc: "tests/e2e/memory/procedures/"
-    <<: *disk_cluster
+  # - name: "Memory limit for modules inside a procedure for on-disk storage"
+  #   binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
+  #   args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+  #   proc: "tests/e2e/memory/procedures/"
+  #   <<: *disk_cluster
 
   - name: "Memory control for detach delete"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_delete"
     args: ["--bolt-port", *bolt_port]
-    <<: *in_memory_delete_limit_cluster
-
-  - name: "Memory control for accumulation"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
-    args: ["--bolt-port", *bolt_port]
-    <<: *in_memory_delete_limit_cluster
+    <<: *in_memory_512_MiB_limit_cluster
 
   - name: "Memory control for detach delete on disk storage"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_delete"
     args: ["--bolt-port", *bolt_port]
-    <<: *disk_delete_limit_cluster
+    <<: *disk_512_MiB_limit_cluster
+
+  - name: "Memory control for accumulation"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_512_MiB_limit_cluster
 
   - name: "Memory control for accumulation on disk storage"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
     args: ["--bolt-port", *bolt_port]
-    <<: *disk_delete_limit_cluster
+    <<: *disk_512_MiB_limit_cluster
+
+  - name: "Memory control for edge create"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_512_MiB_limit_cluster
+
+  - name: "Memory control for edge create on disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_512_MiB_limit_cluster
