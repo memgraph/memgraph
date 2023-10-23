@@ -495,6 +495,9 @@ bool SymbolGenerator::PreVisit(None &none) {
 }
 
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
+  if (reduce.initializer_->GetTypeInfo() == Exists::kType) {
+    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
+  }
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
   VisitWithIdentifiers(reduce.expression_, {reduce.accumulator_, reduce.identifier_});
@@ -511,15 +514,15 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
   if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Set property can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within SET clause.!");
   }
 
   if (scope.in_with) {
-    throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within WITH!");
   }
 
   if (scope.in_return) {
-    throw utils::NotYetImplemented("RETURN can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
   }
 
   scope.in_exists = true;
