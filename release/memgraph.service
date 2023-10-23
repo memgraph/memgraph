@@ -1,12 +1,27 @@
 [Unit]
 Description=Memgraph: High performance, in-memory, transactional graph database
 
+# Auto-restart config
+#StartLimitIntervalSec=300
+#StartLimitBurst=5
+
 [Service]
 User=memgraph
 Group=memgraph
 ExecStart=/usr/lib/memgraph/memgraph
+
 # Uncomment this if Memgraph needs more time to write the snapshot on exit.
 #TimeoutStopSec=5min
 
+# Auto-restart config
+#Restart=on-failure
+#RestartSec=10s
+
 [Install]
 WantedBy=multi-user.target
+
+# Checks processes' memory usage and force kills it when it is taking up enough
+# memory to make the system unstable / about to crash, e.g. on Debian-based OS:
+# apt install systemd-oomd
+# systemctl enable systemd-oomd
+# systemctl start systemd-oomd
