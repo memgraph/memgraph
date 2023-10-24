@@ -318,7 +318,10 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
         f" |\\ On Create",
         f" | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
         f" | * Once",
-        f" * ScanAllByLabel (n :Node)",
+        f" * Cartesian {{s : n}}",
+        f" |\\ ",
+        f" | * ScanAllByLabel (n :Node)",
+        f" | * Once",
         f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
         f" * Once",
     ]
@@ -329,15 +332,27 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
 
     memgraph.execute("analyze graph;")
 
-    expected_explain = [
-        x.replace(f" | * Expand (s)-[anon3:HAS_REL_TO]->(n)", f" | * Expand (n)<-[anon3:HAS_REL_TO]-(s)")
-        for x in expected_explain
+    expected_explain_after_analysis = [
+        f" * EmptyResult",
+        f" * Merge",
+        f" |\\ On Match",
+        f" | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | * Once",
+        f" |\\ On Create",
+        f" | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | * Once",
+        f" * Cartesian {{n : s}}",
+        f" |\\ ",
+        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * Once",
     ]
 
     result_with_analysis = list(memgraph.execute_and_fetch(query))
     result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
-    assert expected_explain == result_with_analysis
+    assert expected_explain_after_analysis == result_with_analysis
 
 
 def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgraph):
@@ -373,7 +388,10 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
         f" | | * Once",
         f" | * Produce {{n, s}}",
         f" | * Once",
-        f" * ScanAllByLabel (n :Node)",
+        f" * Cartesian {{s : n}}",
+        f" |\\ ",
+        f" | * ScanAllByLabel (n :Node)",
+        f" | * Once",
         f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
         f" * Once",
     ]
@@ -384,14 +402,33 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
 
     memgraph.execute("analyze graph;")
 
-    expected_explain = [
-        x.replace(f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)", f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)")
-        for x in expected_explain
+    expected_explain_after_analysis = [
+        f" * Produce {{0}}",
+        f" * Accumulate",
+        f" * Accumulate",
+        f" * Apply",
+        f" |\\ ",
+        f" | * EmptyResult",
+        f" | * Merge",
+        f" | |\\ On Match",
+        f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | |\\ On Create",
+        f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | * Produce {{n, s}}",
+        f" | * Once",
+        f" * Cartesian {{n : s}}",
+        f" |\\ ",
+        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * Once",
     ]
     result_with_analysis = list(memgraph.execute_and_fetch(query))
     result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
-    assert expected_explain == result_with_analysis
+    assert expected_explain_after_analysis == result_with_analysis
 
 
 def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph):
@@ -427,7 +464,10 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | | | * Once",
         f" | | * Produce {{n, s}}",
         f" | | * Once",
-        f" | * ScanAllByLabel (n :Node)",
+        f" | * Cartesian {{s : n}}",
+        f" | |\\ ",
+        f" | | * ScanAllByLabel (n :Node)",
+        f" | | * Once",
         f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
         f" | * Once",
         f" * Produce {{s}}",
@@ -445,7 +485,10 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | | * Once",
         f" | * Produce {{n, s}}",
         f" | * Once",
-        f" * ScanAllByLabel (n :Node)",
+        f" * Cartesian {{s : n}}",
+        f" |\\ ",
+        f" | * ScanAllByLabel (n :Node)",
+        f" | * Once",
         f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
         f" * Once",
     ]
@@ -456,18 +499,56 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
 
     memgraph.execute("analyze graph;")
 
-    expected_explain = [
-        x.replace(f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)", f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)")
-        for x in expected_explain
-    ]
-    expected_explain = [
-        x.replace(f" | | | * Expand (s)-[anon7:HAS_REL_TO]->(n)", f" | | | * Expand (n)<-[anon7:HAS_REL_TO]-(s)")
-        for x in expected_explain
+    expected_explain_after_analysis = [
+        f" * Union {{s : s}}",
+        f" |\\ ",
+        f" | * Produce {{s}}",
+        f" | * Accumulate",
+        f" | * Accumulate",
+        f" | * Apply",
+        f" | |\\ ",
+        f" | | * EmptyResult",
+        f" | | * Merge",
+        f" | | |\\ On Match",
+        f" | | | * Expand (n)<-[anon7:HAS_REL_TO]-(s)",
+        f" | | | * Once",
+        f" | | |\\ On Create",
+        f" | | | * CreateExpand (n)<-[anon7:HAS_REL_TO]-(s)",
+        f" | | | * Once",
+        f" | | * Produce {{n, s}}",
+        f" | | * Once",
+        f" | * Cartesian {{n : s}}",
+        f" | |\\ ",
+        f" | | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | | * Once",
+        f" | * ScanAllByLabel (n :Node)",
+        f" | * Once",
+        f" * Produce {{s}}",
+        f" * Accumulate",
+        f" * Accumulate",
+        f" * Apply",
+        f" |\\ ",
+        f" | * EmptyResult",
+        f" | * Merge",
+        f" | |\\ On Match",
+        f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | |\\ On Create",
+        f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | * Produce {{n, s}}",
+        f" | * Once",
+        f" * Cartesian {{n : s}}",
+        f" |\\ ",
+        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * Once",
     ]
     result_with_analysis = list(memgraph.execute_and_fetch(query))
     result_with_analysis = [x[QUERY_PLAN] for x in result_with_analysis]
 
-    assert expected_explain == result_with_analysis
+    assert expected_explain_after_analysis == result_with_analysis
 
 
 def test_given_empty_graph_when_analyzing_graph_return_zero_degree(memgraph):
