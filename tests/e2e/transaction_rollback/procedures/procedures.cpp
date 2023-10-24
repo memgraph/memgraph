@@ -17,13 +17,14 @@ namespace {
 
 constexpr std::string_view ProcedureFrom = "set_from";
 constexpr std::string_view ProcedureTo = "set_to";
+constexpr std::string_view ProcedureChangeType = "change_type";
 
 void SetFrom(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   try {
-    auto rel = arguments[0].ValueRelationship();
-    auto new_from = arguments[0].ValueNode();
+    auto rel{arguments[0].ValueRelationship()};
+    auto new_from{arguments[1].ValueNode()};
     mgp::Graph graph{memgraph_graph};
     graph.SetFrom(rel, new_from);
   } catch (const std::exception &e) {
@@ -35,10 +36,23 @@ void SetTo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_me
   mgp::MemoryDispatcherGuard guard(memory);
   const auto arguments = mgp::List(args);
   try {
-    auto rel = arguments[0].ValueRelationship();
-    auto new_to = arguments[0].ValueNode();
+    auto rel{arguments[0].ValueRelationship()};
+    auto new_to{arguments[1].ValueNode()};
     mgp::Graph graph{memgraph_graph};
     graph.SetTo(rel, new_to);
+  } catch (const std::exception &e) {
+    return;
+  }
+}
+
+void ChangeType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  const auto arguments = mgp::List(args);
+  try {
+    auto rel{arguments[0].ValueRelationship()};
+    auto new_type{arguments[1].ValueString()};
+    mgp::Graph graph{memgraph_graph};
+    graph.ChangeType(rel, new_type);
   } catch (const std::exception &e) {
     return;
   }
@@ -60,6 +74,10 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       mgp::AddProcedure(
           SetTo, ProcedureTo, mgp::ProcedureType::Write,
           {mgp::Parameter("relationship", mgp::Type::Relationship), mgp::Parameter("node_to", mgp::Type::Node)}, {},
+          module, memory);
+      mgp::AddProcedure(
+          ChangeType, ProcedureChangeType, mgp::ProcedureType::Write,
+          {mgp::Parameter("relationship", mgp::Type::Relationship), mgp::Parameter("new_type", mgp::Type::String)}, {},
           module, memory);
 
     } catch (const std::exception &e) {
