@@ -5321,6 +5321,7 @@ class HashJoinCursor : public Cursor {
     right_op_cursor_->Reset();
     hashtable_.clear();
     right_op_frame_.clear();
+    left_op_frame_it_ = {};
     hash_join_initialized_ = false;
     common_value_found_ = false;
   }
