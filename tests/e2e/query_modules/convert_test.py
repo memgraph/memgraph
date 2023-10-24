@@ -25,3 +25,7 @@ def test_convert_list_wrong():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, f"RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
     assert (result) != [3, 4, 8, [2]]
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))

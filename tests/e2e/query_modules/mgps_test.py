@@ -23,3 +23,7 @@ def test_mgps1():
         )[0]
     )
     assert (result) == ["community", "Memgraph", ["5.9.0"]]
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
