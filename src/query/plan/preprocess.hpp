@@ -345,6 +345,17 @@ class Filters final {
     return labels;
   }
 
+  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
+    std::unordered_set<PropertyIx> properties;
+
+    for (const auto &filter : all_filters_) {
+      if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+        properties.insert(filter.property_filter->property_);
+      }
+    }
+    return properties;
+  }
+
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
   /// FilterInfo objects using the same original expression are removed.
