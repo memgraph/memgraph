@@ -2138,12 +2138,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *dba = &*current_db.execution_db_accessor_;
 
   // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    auto access = plan_cache->access();
-    for (auto &kv : access) {
-      access.remove(kv.first);
-    }
-  };
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] { plan_cache->clear(); };
 
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
