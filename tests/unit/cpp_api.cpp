@@ -758,3 +758,12 @@ TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
   ASSERT_EQ(node_2.OutDegree(), 0);
   ASSERT_EQ(node_3.OutDegree(), 0);
 }
+
+TYPED_TEST(CppApiTestFixture, TestMapKeyExist) {
+  mgp::Map map = mgp::Map();
+  map.Insert("key", mgp::Value("string"));
+  ASSERT_EQ(true, map.KeyExists("key"));
+  ASSERT_EQ(false, map.KeyExists("no_existo"));
+  map.Insert("null_key", mgp::Value());
+  ASSERT_EQ(true, map.KeyExists("null_key"));
+}
