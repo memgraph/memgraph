@@ -788,3 +788,12 @@ TYPED_TEST(CppApiTestFixture, TestChangeRelationshipType) {
   ASSERT_EQ(relationship.Type(), "NewType");
   ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
+
+TYPED_TEST(CppApiTestFixture, TestMapKeyExist) {
+  mgp::Map map = mgp::Map();
+  map.Insert("key", mgp::Value("string"));
+  ASSERT_EQ(true, map.KeyExists("key"));
+  ASSERT_EQ(false, map.KeyExists("no_existo"));
+  map.Insert("null_key", mgp::Value());
+  ASSERT_EQ(true, map.KeyExists("null_key"));
+}
