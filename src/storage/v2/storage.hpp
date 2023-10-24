@@ -197,6 +197,8 @@ class Storage {
 
     virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
 
+    virtual Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) = 0;
+
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
     virtual bool LabelIndexExists(LabelId label) const = 0;

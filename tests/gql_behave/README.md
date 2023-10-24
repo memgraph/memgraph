@@ -4,9 +4,8 @@ Python script used to run graph query language behavior tests against Memgraph.
 
 To run the script please execute:
 ```
-cd memgraph/tests
+cd memgraph/tests/gql_behave
 source ve3/bin/activate
-cd gql_behave
 ./run.py --help
 ./run.py memgraph_V1
 ```

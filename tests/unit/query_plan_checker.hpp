@@ -114,6 +114,16 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(HashJoin &op) override {
+    CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(IndexedJoin &op) override {
+    CheckOp(op);
+    return false;
+  }
+
   bool PreVisit(Apply &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -405,8 +415,7 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
 
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
-  ExpectCartesian(const std::list<std::unique_ptr<BaseOpChecker>> &left,
-                  const std::list<std::unique_ptr<BaseOpChecker>> &right)
+  ExpectCartesian(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
       : left_(left), right_(right) {}
 
   void ExpectOp(Cartesian &op, const SymbolTable &symbol_table) override {
@@ -419,8 +428,46 @@ class ExpectCartesian : public OpChecker<Cartesian> {
   }
 
  private:
-  const std::list<std::unique_ptr<BaseOpChecker>> &left_;
-  const std::list<std::unique_ptr<BaseOpChecker>> &right_;
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
+};
+
+class ExpectHashJoin : public OpChecker<HashJoin> {
+ public:
+  ExpectHashJoin(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(HashJoin &op, const SymbolTable &symbol_table) override {
+    ASSERT_TRUE(op.left_op_);
+    PlanChecker left_checker(left_, symbol_table);
+    op.left_op_->Accept(left_checker);
+    ASSERT_TRUE(op.right_op_);
+    PlanChecker right_checker(right_, symbol_table);
+    op.right_op_->Accept(right_checker);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
+};
+
+class ExpectIndexedJoin : public OpChecker<IndexedJoin> {
+ public:
+  ExpectIndexedJoin(const std::list<BaseOpChecker *> &main_branch, const std::list<BaseOpChecker *> &sub_branch)
+      : main_branch_(main_branch), sub_branch_(sub_branch) {}
+
+  void ExpectOp(IndexedJoin &op, const SymbolTable &symbol_table) override {
+    ASSERT_TRUE(op.main_branch_);
+    PlanChecker main_branch_checker(main_branch_, symbol_table);
+    op.main_branch_->Accept(main_branch_checker);
+    ASSERT_TRUE(op.sub_branch_);
+    PlanChecker sub_branch_checker(sub_branch_, symbol_table);
+    op.sub_branch_->Accept(sub_branch_checker);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &main_branch_;
+  const std::list<BaseOpChecker *> &sub_branch_;
 };
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
