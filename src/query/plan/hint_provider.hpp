@@ -32,7 +32,7 @@ std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, cons
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
-  PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   std::vector<std::string> &hints() { return hints_; }
 
@@ -40,26 +40,26 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  bool Visit(Once &) override { return true; }
+  bool Visit(Once & /*unused*/) override { return true; }
 
-  bool PreVisit(Filter &op) override { return true; }
+  bool PreVisit(Filter & /*unused*/) override { return true; }
 
   bool PostVisit(Filter &op) override {
     HintIndexUsage(op);
     return true;
   }
 
-  bool PreVisit(ScanAll &op) override { return true; }
+  bool PreVisit(ScanAll & /*unused*/) override { return true; }
 
-  bool PostVisit(ScanAll &scan) override { return true; }
+  bool PostVisit(ScanAll & /*unused*/) override { return true; }
 
-  bool PreVisit(Expand &op) override { return true; }
+  bool PreVisit(Expand & /*unused*/) override { return true; }
 
   bool PostVisit(Expand & /*expand*/) override { return true; }
 
-  bool PreVisit(ExpandVariable &op) override { return true; }
+  bool PreVisit(ExpandVariable & /*unused*/) override { return true; }
 
-  bool PostVisit(ExpandVariable &expand) override { return true; }
+  bool PostVisit(ExpandVariable & /*unused*/) override { return true; }
 
   bool PreVisit(Merge &op) override {
     op.input()->Accept(*this);
@@ -67,7 +67,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(Merge &) override { return true; }
+  bool PostVisit(Merge & /*unused*/) override { return true; }
 
   bool PreVisit(Optional &op) override {
     op.input()->Accept(*this);
@@ -75,7 +75,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(Optional &) override { return true; }
+  bool PostVisit(Optional & /*unused*/) override { return true; }
 
   bool PreVisit(Cartesian &op) override {
     op.left_op_->Accept(*this);
@@ -83,7 +83,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(Cartesian &) override { return true; }
+  bool PostVisit(Cartesian & /*unused*/) override { return true; }
 
   bool PreVisit(Union &op) override {
     op.left_op_->Accept(*this);
@@ -91,82 +91,82 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(Union &) override { return true; }
+  bool PostVisit(Union & /*unused*/) override { return true; }
 
-  bool PreVisit(CreateNode &op) override { return true; }
-  bool PostVisit(CreateNode &) override { return true; }
+  bool PreVisit(CreateNode & /*unused*/) override { return true; }
+  bool PostVisit(CreateNode & /*unused*/) override { return true; }
 
-  bool PreVisit(CreateExpand &op) override { return true; }
-  bool PostVisit(CreateExpand &) override { return true; }
+  bool PreVisit(CreateExpand & /*unused*/) override { return true; }
+  bool PostVisit(CreateExpand & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllByLabel &op) override { return true; }
-  bool PostVisit(ScanAllByLabel &) override { return true; }
+  bool PreVisit(ScanAllByLabel & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByLabel & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllByLabelPropertyRange &op) override { return true; }
-  bool PostVisit(ScanAllByLabelPropertyRange &) override { return true; }
+  bool PreVisit(ScanAllByLabelPropertyRange & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByLabelPropertyRange & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllByLabelPropertyValue &op) override { return true; }
-  bool PostVisit(ScanAllByLabelPropertyValue &) override { return true; }
+  bool PreVisit(ScanAllByLabelPropertyValue & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByLabelPropertyValue & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllByLabelProperty &op) override { return true; }
-  bool PostVisit(ScanAllByLabelProperty &) override { return true; }
+  bool PreVisit(ScanAllByLabelProperty & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByLabelProperty & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllById &op) override { return true; }
-  bool PostVisit(ScanAllById &) override { return true; }
+  bool PreVisit(ScanAllById & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllById & /*unused*/) override { return true; }
 
-  bool PreVisit(ConstructNamedPath &op) override { return true; }
-  bool PostVisit(ConstructNamedPath &) override { return true; }
+  bool PreVisit(ConstructNamedPath & /*unused*/) override { return true; }
+  bool PostVisit(ConstructNamedPath & /*unused*/) override { return true; }
 
-  bool PreVisit(Produce &op) override { return true; }
-  bool PostVisit(Produce &) override { return true; }
+  bool PreVisit(Produce & /*unused*/) override { return true; }
+  bool PostVisit(Produce & /*unused*/) override { return true; }
 
-  bool PreVisit(EmptyResult &op) override { return true; }
-  bool PostVisit(EmptyResult &) override { return true; }
+  bool PreVisit(EmptyResult & /*unused*/) override { return true; }
+  bool PostVisit(EmptyResult & /*unused*/) override { return true; }
 
-  bool PreVisit(Delete &op) override { return true; }
-  bool PostVisit(Delete &) override { return true; }
+  bool PreVisit(Delete & /*unused*/) override { return true; }
+  bool PostVisit(Delete & /*unused*/) override { return true; }
 
-  bool PreVisit(SetProperty &op) override { return true; }
-  bool PostVisit(SetProperty &) override { return true; }
+  bool PreVisit(SetProperty & /*unused*/) override { return true; }
+  bool PostVisit(SetProperty & /*unused*/) override { return true; }
 
-  bool PreVisit(SetProperties &op) override { return true; }
-  bool PostVisit(SetProperties &) override { return true; }
+  bool PreVisit(SetProperties & /*unused*/) override { return true; }
+  bool PostVisit(SetProperties & /*unused*/) override { return true; }
 
-  bool PreVisit(SetLabels &op) override { return true; }
-  bool PostVisit(SetLabels &) override { return true; }
+  bool PreVisit(SetLabels & /*unused*/) override { return true; }
+  bool PostVisit(SetLabels & /*unused*/) override { return true; }
 
-  bool PreVisit(RemoveProperty &op) override { return true; }
-  bool PostVisit(RemoveProperty &) override { return true; }
+  bool PreVisit(RemoveProperty & /*unused*/) override { return true; }
+  bool PostVisit(RemoveProperty & /*unused*/) override { return true; }
 
-  bool PreVisit(RemoveLabels &op) override { return true; }
-  bool PostVisit(RemoveLabels &) override { return true; }
+  bool PreVisit(RemoveLabels & /*unused*/) override { return true; }
+  bool PostVisit(RemoveLabels & /*unused*/) override { return true; }
 
-  bool PreVisit(EdgeUniquenessFilter &op) override { return true; }
-  bool PostVisit(EdgeUniquenessFilter &) override { return true; }
+  bool PreVisit(EdgeUniquenessFilter & /*unused*/) override { return true; }
+  bool PostVisit(EdgeUniquenessFilter & /*unused*/) override { return true; }
 
-  bool PreVisit(Accumulate &op) override { return true; }
-  bool PostVisit(Accumulate &) override { return true; }
+  bool PreVisit(Accumulate & /*unused*/) override { return true; }
+  bool PostVisit(Accumulate & /*unused*/) override { return true; }
 
-  bool PreVisit(Aggregate &op) override { return true; }
-  bool PostVisit(Aggregate &) override { return true; }
+  bool PreVisit(Aggregate & /*unused*/) override { return true; }
+  bool PostVisit(Aggregate & /*unused*/) override { return true; }
 
-  bool PreVisit(Skip &op) override { return true; }
-  bool PostVisit(Skip &) override { return true; }
+  bool PreVisit(Skip & /*unused*/) override { return true; }
+  bool PostVisit(Skip & /*unused*/) override { return true; }
 
-  bool PreVisit(Limit &op) override { return true; }
-  bool PostVisit(Limit &) override { return true; }
+  bool PreVisit(Limit & /*unused*/) override { return true; }
+  bool PostVisit(Limit & /*unused*/) override { return true; }
 
-  bool PreVisit(OrderBy &op) override { return true; }
-  bool PostVisit(OrderBy &) override { return true; }
+  bool PreVisit(OrderBy & /*unused*/) override { return true; }
+  bool PostVisit(OrderBy & /*unused*/) override { return true; }
 
-  bool PreVisit(Unwind &op) override { return true; }
-  bool PostVisit(Unwind &) override { return true; }
+  bool PreVisit(Unwind & /*unused*/) override { return true; }
+  bool PostVisit(Unwind & /*unused*/) override { return true; }
 
-  bool PreVisit(Distinct &op) override { return true; }
-  bool PostVisit(Distinct &) override { return true; }
+  bool PreVisit(Distinct & /*unused*/) override { return true; }
+  bool PostVisit(Distinct & /*unused*/) override { return true; }
 
-  bool PreVisit(CallProcedure &op) override { return true; }
-  bool PostVisit(CallProcedure &) override { return true; }
+  bool PreVisit(CallProcedure & /*unused*/) override { return true; }
+  bool PostVisit(CallProcedure & /*unused*/) override { return true; }
 
   bool PreVisit(Foreach &op) override {
     op.input()->Accept(*this);
@@ -174,9 +174,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PostVisit(Foreach &) override { return true; }
+  bool PostVisit(Foreach & /*unused*/) override { return true; }
 
-  bool PreVisit(EvaluatePatternFilter &op) override { return true; }
+  bool PreVisit(EvaluatePatternFilter & /*unused*/) override { return true; }
 
   bool PostVisit(EvaluatePatternFilter & /*op*/) override { return true; }
 
@@ -188,7 +188,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Apply & /*op*/) override { return true; }
 
-  bool PreVisit(LoadCsv &op) override { return true; }
+  bool PreVisit(LoadCsv & /*unused*/) override { return true; }
 
   bool PostVisit(LoadCsv & /*op*/) override { return true; }
 
