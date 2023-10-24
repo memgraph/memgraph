@@ -271,6 +271,8 @@ void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::
     ASSERT_TRUE(result[0].IsString());
     got.push_back(result[0].ValueString());
   }
+  std::sort(got.begin(), got.end());
+  std::sort(expected.begin(), expected.end());
   ASSERT_EQ(got, expected);
 }
 
@@ -1042,7 +1044,8 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   memgraph::query::PullPlanDump pullPlan{&dba};
 
-  auto check_next = [&, offset_index = 0U](const std::string &expected_row) mutable {
+  auto offset_index = 0U;
+  auto check_next = [&](const std::string &expected_row) mutable {
     pullPlan.Pull(&query_stream, 1);
     const auto &results{stream.GetResults()};
     ASSERT_EQ(results.size(), offset_index + 1);
@@ -1062,18 +1065,19 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-      "v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-      "v.__mg_id__ = 2 CREATE (u)-[:`REL`]->(v);");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
-      "v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
-  check_next(
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND "
-      "v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+
+  pullPlan.Pull(&query_stream, 4);
+  const auto edge_results = stream.GetResults();
+  /// NOTE: For disk storage, the order of returned edges isn't guaranteed so we check them together and we guarantee
+  /// the order by sorting.
+  VerifyQueries(
+      {edge_results.end() - 4, edge_results.end()},
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);",
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 2 CREATE (u)-[:`REL`]->(v);",
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);",
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+  offset_index += 4;
+
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
 }

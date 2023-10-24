@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "dbms/constants.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -216,7 +217,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {&*it, storage_, &transaction_};
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
@@ -239,7 +240,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {&*it, storage_, &transaction_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
@@ -247,7 +248,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   auto acc = mem_storage->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
+  return VertexAccessor::Create(&*it, storage_, &transaction_, view);
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
@@ -359,8 +360,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
@@ -434,8 +434,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
@@ -536,8 +535,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  return EdgeAccessor(edge_ref, edge_type, new_from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge_ref, edge_type, new_from_vertex, to_vertex, storage_, &transaction_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
@@ -638,8 +636,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
   transaction_.manyDeltasCache.Invalidate(new_to_vertex, edge_type, EdgeDirection::IN);
 
-  return EdgeAccessor(edge_ref, edge_type, from_vertex, new_to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return EdgeAccessor(edge_ref, edge_type, from_vertex, new_to_vertex, storage_, &transaction_);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -1112,14 +1109,14 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_, &storage_->constraints_));
+  return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view,
-                                                             &transaction_, &storage_->constraints_));
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
@@ -1127,8 +1124,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
-                                                             utils::MakeBoundInclusive(value), view, &transaction_,
-                                                             &storage_->constraints_));
+                                                             utils::MakeBoundInclusive(value), view, storage_,
+                                                             &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
@@ -1136,8 +1133,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view,
-                                                             &transaction_, &storage_->constraints_));
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -1479,16 +1476,54 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock>);
 template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock>);
 
-StorageInfo InMemoryStorage::GetInfo() const {
-  auto vertex_count = vertices_.size();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
-  double average_degree = 0.0;
-  if (vertex_count) {
+StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
+  StorageInfo info{};
+  info.vertex_count = vertices_.size();
+  info.edge_count = edge_count_.load(std::memory_order_acquire);
+  if (info.vertex_count) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+    info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+  info.memory_usage = utils::GetMemoryUsage();
+  // Special case for the default database
+  auto update_path = [&](const std::filesystem::path &dir) {
+    if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
+      const auto end = dir.end();
+      auto it = end;
+      --it;
+      if (it != end) {
+        --it;
+        if (it != end && *it != "databases") {
+          // Default DB points to the root (for back-compatibility); update to the "database" dir
+          return dir / "databases" / dbms::kDefaultDB;
+        }
+      }
+    }
+    return dir;
+  };
+  info.disk_usage = utils::GetDirDiskUsage<false>(update_path(config_.durability.storage_directory));
+  return info;
+}
+
+StorageInfo InMemoryStorage::GetInfo(bool force_directory) {
+  StorageInfo info = GetBaseInfo(force_directory);
+  {
+    auto access = Access(std::nullopt);
+    const auto &lbl = access->ListAllIndices();
+    info.label_indices = lbl.label.size();
+    info.label_property_indices = lbl.label_property.size();
+    const auto &con = access->ListAllConstraints();
+    info.existence_constraints = con.existence.size();
+    info.unique_constraints = con.unique.size();
+  }
+  info.storage_mode = storage_mode_;
+  info.isolation_level = isolation_level_;
+  info.durability_snapshot_enabled =
+      config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+      config_.durability.snapshot_on_exit;
+  info.durability_wal_enabled =
+      config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  return info;
 }
 
 bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
@@ -1812,11 +1847,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
-    // Create snapshot.
-    durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                               config_.durability.snapshot_retention_count, &vertices_, &edges_, name_id_mapper_.get(),
-                               &indices_, &constraints_, config_, uuid_, epoch, repl_storage_state_.history,
-                               &file_retainer_);
+    durability::CreateSnapshot(this, &transaction, snapshot_directory_, wal_directory_, &vertices_, &edges_, uuid_,
+                               epoch, repl_storage_state_.history, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
 

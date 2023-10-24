@@ -209,3 +209,13 @@ Feature: Delete
             MATCH (n) DETACH DELETE n SET n.prop = 1 WITH n RETURN n
             """
         Then an error should be raised
+
+    Scenario: Delete a relationship that is already deleted in a previous DETACH DELETE clause
+        Given an empty graph
+        When executing query:
+        """
+        CREATE (n0)<-[r0:T]-(n1) DETACH DELETE n0 DETACH DELETE r0 RETURN n1;
+        """
+        Then the result should be:
+        | n1 |
+        | () |

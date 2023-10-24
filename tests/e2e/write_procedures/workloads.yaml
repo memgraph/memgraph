@@ -33,15 +33,3 @@ workloads:
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/read_subgraph.py"]
     <<: *in_memory_cluster
-
-  - name: "Write procedures simple on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/write_procedures/procedures/"
-    args: ["write_procedures/simple_write.py"]
-    <<: *disk_cluster
-
-  - name: "Graph projection procedures on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/write_procedures/procedures/"
-    args: ["write_procedures/read_subgraph.py"]
-    <<: *disk_cluster

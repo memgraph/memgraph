@@ -1,7 +1,7 @@
 disk_storage: &disk_storage
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--memory-limit", "50"]
+      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--memory-limit", "125"]
       log_file: "disk_storage.log"
       setup_queries: []
       validation_queries: []

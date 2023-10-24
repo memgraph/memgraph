@@ -47,7 +47,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     // ensure replica server brought down
     storage_.repl_storage_state_.replication_server_.reset(nullptr);
     // Remember old epoch + storage timestamp association
-    storage_.repl_storage_state_.AddEpochToHistory(current_epoch);
+    storage_.PrepareForNewEpoch(current_epoch);
   }
 
   // STEP 2) Change to MAIN
@@ -68,7 +68,12 @@ memgraph::utils::BasicResult<RegisterReplicaError> ReplicationHandler::RegisterR
     return std::any_of(clients.begin(), clients.end(), name_matches);
   };
 
-  auto desired_endpoint = io::network::Endpoint{config.ip_address, config.port};
+  io::network::Endpoint desired_endpoint;
+  if (io::network::Endpoint::GetIpFamily(config.ip_address) == io::network::Endpoint::IpFamily::NONE) {
+    desired_endpoint = io::network::Endpoint{io::network::Endpoint::needs_resolving, config.ip_address, config.port};
+  } else {
+    desired_endpoint = io::network::Endpoint{config.ip_address, config.port};
+  }
   auto endpoint_check = [&](auto &clients) {
     auto endpoint_matches = [&](const auto &client) { return client->Endpoint() == desired_endpoint; };
     return std::any_of(clients.begin(), clients.end(), endpoint_matches);

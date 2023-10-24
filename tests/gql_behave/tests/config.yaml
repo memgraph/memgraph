@@ -19,7 +19,7 @@
   must_pass: false
 
 - name: memgraph_V1_on_disk
-  test_suite: memgraph_V1
+  test_suite: memgraph_V1_on_disk
   storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: true
 

@@ -71,7 +71,34 @@ struct StorageInfo {
   double average_degree;
   uint64_t memory_usage;
   uint64_t disk_usage;
+  uint64_t label_indices;
+  uint64_t label_property_indices;
+  uint64_t existence_constraints;
+  uint64_t unique_constraints;
+  StorageMode storage_mode;
+  IsolationLevel isolation_level;
+  bool durability_snapshot_enabled;
+  bool durability_wal_enabled;
 };
+
+static inline nlohmann::json ToJson(const StorageInfo &info) {
+  nlohmann::json res;
+
+  res["edges"] = info.edge_count;
+  res["vertices"] = info.vertex_count;
+  res["memory"] = info.memory_usage;
+  res["disk"] = info.disk_usage;
+  res["label_indices"] = info.label_indices;
+  res["label_prop_indices"] = info.label_property_indices;
+  res["existence_constraints"] = info.existence_constraints;
+  res["unique_constraints"] = info.unique_constraints;
+  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
+  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
+  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
+                       {"WAL_enabled", info.durability_wal_enabled}};
+
+  return res;
+}
 
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};
@@ -163,10 +190,6 @@ class Storage {
         const storage::LabelId &label) = 0;
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
-
-    virtual void PrefetchInEdges(const VertexAccessor &vertex_acc) = 0;
-
-    virtual void PrefetchOutEdges(const VertexAccessor &vertex_acc) = 0;
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
@@ -293,7 +316,25 @@ class Storage {
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
 
-  virtual StorageInfo GetInfo() const = 0;
+  virtual StorageInfo GetBaseInfo(bool force_directory) = 0;
+  StorageInfo GetBaseInfo() {
+#if MG_ENTERPRISE
+    const bool force_dir = false;
+#else
+    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
+#endif
+    return GetBaseInfo(force_dir);
+  }
+
+  virtual StorageInfo GetInfo(bool force_directory) = 0;
+  StorageInfo GetInfo() {
+#if MG_ENTERPRISE
+    const bool force_dir = false;
+#else
+    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
+#endif
+    return GetInfo(force_dir);
+  }
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
@@ -305,8 +346,8 @@ class Storage {
   virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> = 0;
 
-  auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(); }
-  auto GetReplicaState(std::string_view name) -> std::optional<replication::ReplicaState> {
+  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }
+  auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
 
@@ -314,7 +355,6 @@ class Storage {
   memgraph::replication::ReplicationState repl_state_;
   ReplicationStorageState repl_storage_state_;
 
- public:
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing

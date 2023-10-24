@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "audit/log.hpp"
+#include "communication/metrics.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
@@ -22,6 +23,7 @@
 #include "glue/run_id.hpp"
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
+#include "memory/memory_control.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
@@ -31,6 +33,7 @@
 #include "requests/requests.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/signals.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
@@ -106,6 +109,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 }
 
 int main(int argc, char **argv) {
+  memgraph::memory::SetHooks();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -197,7 +201,6 @@ int main(int argc, char **argv) {
           "won't be available.");
     }
   }
-
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
@@ -428,31 +431,19 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                      std::chrono::minutes(10));
+                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
 #ifdef MG_ENTERPRISE
-    telemetry->AddCollector("storage", [&new_handler]() -> nlohmann::json {
-      const auto &info = new_handler.Info();
-      return {{"vertices", info.num_vertex}, {"edges", info.num_edges}, {"databases", info.num_databases}};
-    });
+    telemetry->AddStorageCollector(new_handler, auth_);
+    telemetry->AddDatabaseCollector(new_handler);
 #else
-    telemetry->AddCollector("storage", [gk = &db_gatekeeper]() -> nlohmann::json {
-      auto db_acc = gk->access();
-      MG_ASSERT(db_acc, "Failed to get access to the default database");
-      auto info = db_acc->get()->GetInfo();
-      return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
-    });
+    telemetry->AddStorageCollector(db_gatekeeper, auth_);
+    telemetry->AddDatabaseCollector();
 #endif
-    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
-      nlohmann::json ret;
-      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
-        ret[memgraph::metrics::GetCounterName(i)] =
-            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
-      }
-      return ret;
-    });
-    telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
-      return memgraph::query::plan::CallProcedure::GetAndResetCounters();
-    });
+    telemetry->AddClientCollector();
+    telemetry->AddEventsCollector();
+    telemetry->AddQueryModuleCollector();
+    telemetry->AddExceptionCollector();
+    telemetry->AddReplicationCollector();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
                                                            memory_limit,
