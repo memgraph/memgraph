@@ -630,6 +630,9 @@ class Map {
   /// @brief Returns the value at the given `key`.
   Value const At(std::string_view key) const;
 
+  /// @brief Returns true if the given `key` exists.
+  bool KeyExists(std::string_view key) const;
+
   class Iterator {
    public:
     friend class Map;
@@ -2572,6 +2575,8 @@ inline const Value Map::At(std::string_view key) const {
 
   return Value();
 }
+
+inline bool Map::KeyExists(std::string_view key) const { return mgp::key_exists(ptr_, key.data()); }
 
 inline Map::Iterator::Iterator(mgp_map_items_iterator *map_items_iterator) : map_items_iterator_(map_items_iterator) {
   if (map_items_iterator_ == nullptr) return;

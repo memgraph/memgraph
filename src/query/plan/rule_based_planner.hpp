@@ -483,7 +483,7 @@ class RuleBasedPlanner {
                                                     std::vector<Symbol> &new_symbols,
                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                                     Filters &filters, storage::View view) {
-    if (flags::run_time::cartesian_product_enabled_) {
+    if (flags::run_time::GetCartesianProductEnabled()) {
       return HandleExpansionsWithCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
                                            new_symbols, named_paths, filters, view);
     }
@@ -529,7 +529,7 @@ class RuleBasedPlanner {
         starting_expansion_operator = std::move(last_op);
         initial_expansion_done = true;
       }
-      std::vector<Symbol> starting_symbols{};
+      std::vector<Symbol> starting_symbols;
       if (starting_expansion_operator) {
         starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
       }

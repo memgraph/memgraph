@@ -338,10 +338,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(IndexedJoin &op) override {
     // Get the cost of the main branch
-    op.left_->Accept(*this);
+    op.main_branch_->Accept(*this);
 
     // add cost from the right branch and multiply cardinalities
-    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_);
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.sub_branch_);
     IncrementCost(right_cost_estimation.cost);
 
     double right_cardinality =

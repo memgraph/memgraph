@@ -12,8 +12,5 @@
 
 #include "gflags/gflags.h"
 
-// Audit logging flags.
-#ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(cartesian_product_enabled);
-#endif
+// DECLARE_bool(cartesian_product_enabled);  Moved to run_time_configurable

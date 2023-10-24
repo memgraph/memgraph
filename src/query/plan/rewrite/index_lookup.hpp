@@ -180,6 +180,32 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  // Rewriting Cartesian assumes that the input plan will have Filter operations
+  // as soon as they are possible. Therefore we do not track filters above
+  // Cartesian because they should be irrelevant.
+  //
+  // For example, the following plan is not expected to be an input to
+  // IndexLookupRewriter.
+  //
+  // Filter n.prop = 16
+  // |
+  // Cartesian
+  // |
+  // |\
+  // | ScanAll (n)
+  // |
+  // ScanAll (m)
+  //
+  // Instead, the equivalent set of operations should be done this way:
+  //
+  // Cartesian
+  // |
+  // |\
+  // | Filter n.prop = 16
+  // | |
+  // | ScanAll (n)
+  // |
+  // ScanAll (m)
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
     RewriteBranch(&op.left_op_);
@@ -204,8 +230,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(IndexedJoin &op) override {
     prev_ops_.push_back(&op);
-    RewriteBranch(&op.left_);
-    RewriteBranch(&op.right_);
+    RewriteBranch(&op.main_branch_);
+    RewriteBranch(&op.sub_branch_);
     return false;
   }
 

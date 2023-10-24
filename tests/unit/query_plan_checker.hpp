@@ -453,21 +453,21 @@ class ExpectHashJoin : public OpChecker<HashJoin> {
 
 class ExpectIndexedJoin : public OpChecker<IndexedJoin> {
  public:
-  ExpectIndexedJoin(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
-      : left_(left), right_(right) {}
+  ExpectIndexedJoin(const std::list<BaseOpChecker *> &main_branch, const std::list<BaseOpChecker *> &sub_branch)
+      : main_branch_(main_branch), sub_branch_(sub_branch) {}
 
   void ExpectOp(IndexedJoin &op, const SymbolTable &symbol_table) override {
-    ASSERT_TRUE(op.left_);
-    PlanChecker left_checker(left_, symbol_table);
-    op.left_->Accept(left_checker);
-    ASSERT_TRUE(op.right_);
-    PlanChecker right_checker(right_, symbol_table);
-    op.right_->Accept(right_checker);
+    ASSERT_TRUE(op.main_branch_);
+    PlanChecker main_branch_checker(main_branch_, symbol_table);
+    op.main_branch_->Accept(main_branch_checker);
+    ASSERT_TRUE(op.sub_branch_);
+    PlanChecker sub_branch_checker(sub_branch_, symbol_table);
+    op.sub_branch_->Accept(sub_branch_checker);
   }
 
  private:
-  const std::list<BaseOpChecker *> &left_;
-  const std::list<BaseOpChecker *> &right_;
+  const std::list<BaseOpChecker *> &main_branch_;
+  const std::list<BaseOpChecker *> &sub_branch_;
 };
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
