@@ -529,16 +529,16 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define MAP(...)                                              \
   this->storage.template Create<memgraph::query::MapLiteral>( \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
-#define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
-#define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
-#define PARAMETER_LOOKUP(token_position) \
-  this->storage.template Create<memgraph::query::ParameterLookup>((token_position))
-#define NEXPR(name, expr) this->storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 #define MAP_PROJECTION(map_variable, elements)                          \
   this->storage.template Create<memgraph::query::MapProjectionLiteral>( \
       (memgraph::query::Expression *){map_variable},                    \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
+#define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
+#define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
 #define ALL_PROPERTIES_LOOKUP(expr) memgraph::query::test_common::GetAllPropertiesLookup(this->storage, expr)
+#define PARAMETER_LOOKUP(token_position) \
+  this->storage.template Create<memgraph::query::ParameterLookup>((token_position))
+#define NEXPR(name, expr) this->storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
 // RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).
