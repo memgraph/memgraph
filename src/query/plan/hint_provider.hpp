@@ -18,11 +18,12 @@
 #include <algorithm>
 #include <vector>
 
-#include <boost/algorithm/string.hpp>
 #include <range/v3/view.hpp>
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::query::plan {
 
@@ -32,7 +33,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
   PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  std::vector<std::string> hints() { return hints_; }
+  std::vector<std::string> &hints() { return hints_; }
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -42,9 +43,6 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override { return true; }
 
-  // Remove no longer needed Filter in PostVisit, this should be the last thing
-  // Filter::Accept does, so it should be safe to remove the last reference and
-  // free the memory.
   bool PostVisit(Filter &op) override {
     HintIndexUsage(op);
     return true;
@@ -52,9 +50,6 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAll &op) override { return true; }
 
-  // Replace ScanAll with ScanAllBy<Index> in PostVisit, because removal of
-  // ScanAll may remove the last reference and thus free the memory. PostVisit
-  // should be the last thing ScanAll::Accept does, so it should be safe.
   bool PostVisit(ScanAll &scan) override { return true; }
 
   bool PreVisit(Expand &op) override { return true; }
@@ -63,14 +58,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ExpandVariable &op) override { return true; }
 
-  // See if it might be better to do ScanAllBy<Index> of the destination and
-  // then do ExpandVariable to existing.
   bool PostVisit(ExpandVariable &expand) override { return true; }
-
-  // The following operators may only use index lookup in filters inside of
-  // their own branches. So we handle them all the same.
-  //  * Input operator is visited with the current visitor.
-  //  * Custom operator branches are visited with a new visitor.
 
   bool PreVisit(Merge &op) override {
     op.input()->Accept(*this);
@@ -207,7 +195,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
 
-  bool DefaultPreVisit() override { throw utils::NotYetImplemented("providing plan hints"); }
+  bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
   void HintIndexUsage(Filter &op) {
     if (auto *maybe_scan_operator = dynamic_cast<ScanAll *>(op.input().get()); !maybe_scan_operator) {
@@ -233,7 +221,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
         hints_.push_back(
             fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
                         "properties {2}. Consider "
-                        "creating a label property index.",
+                        "creating a label-property index.",
                         scan_symbol.name(), filtered_labels, filtered_properties));
         return;
       }
@@ -251,7 +239,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
       hints_.push_back(fmt::format(
           "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "
-          "creating a label property index.",
+          "creating a label-property index.",
           scan_symbol.name(), filtered_properties));
       return;
     }
@@ -259,7 +247,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   std::string ExtractAndJoin(auto &&collection, auto &&projection) {
     auto elements = collection | ranges::views::transform(projection);
-    return boost::algorithm::join(elements, ", ");
+    return utils::Join(elements, ", ");
   }
 };
 

@@ -313,7 +313,7 @@ class Filters final {
     return labels;
   }
 
-  auto FilteredProperties(const Symbol &symbol) const {
+  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
     std::unordered_set<PropertyIx> properties;
 
     for (const auto &filter : all_filters_) {
