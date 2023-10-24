@@ -123,6 +123,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_match{false};
     bool in_foreach{false};
     bool in_exists{false};
+    bool in_reduce{false};
     bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};

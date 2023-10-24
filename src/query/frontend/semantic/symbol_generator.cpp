@@ -495,9 +495,8 @@ bool SymbolGenerator::PreVisit(None &none) {
 }
 
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
-  if (reduce.initializer_->GetTypeInfo() == Exists::kType) {
-    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
-  }
+  auto &scope = scopes_.back();
+  scope.in_reduce = true;
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
   VisitWithIdentifiers(reduce.expression_, {reduce.accumulator_, reduce.identifier_});
@@ -523,6 +522,10 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 
   if (scope.in_return) {
     throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
+  }
+
+  if (scope.in_reduce) {
+    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
   scope.in_exists = true;

@@ -109,7 +109,7 @@ Feature: Functions
         And having executed
             """
             CREATE (a{x: 1}), (b{x: 'not float'}), (c{x: '-12'}), (d{x: null}), (e{x: '1.2'}), (f{x: 1.9})
-            """
+        case    """
         When executing query:
             """
             MATCH (a) RETURN TOFLOAT(a.x) AS n
@@ -197,7 +197,7 @@ Feature: Functions
             """
             CREATE (a{x: 1}), (c{x: -12}), (d{x: null}), (e{x: -2.3}), (f{x: 1.9})
             """
-        When executing query:
+        When executing query:case
             """
             MATCH (a) RETURN EXP(a.x) AS n
             """
@@ -240,7 +240,7 @@ Feature: Functions
             CREATE (a{x: 0.123}), (c{x: -12}), (d{x: null}), (e{x: 27})
             """
         When executing query:
-            """
+            """case
             MATCH (a) RETURN LOG(a.x) AS n
             """
         Then the result should be:
@@ -375,7 +375,7 @@ Feature: Functions
             | -0.2921388087338362 |
 
     Scenario: Sign test:
-        When executing query:
+        Whencase executing query:
             """
             RETURN SIGN(null) AS n, SIGN(123) AS a, SIGN(0) AS b, SIGN(1.23) AS c,
             SIGN(-123) AS d, SIGN(-1.23) AS e, SIGN(-0.00) AS f
@@ -408,7 +408,7 @@ Feature: Functions
             RETURN ATAN2(1, null) AS n, ATAN2(0, 0) AS a, ATAN2(2, 3) AS b, ATAN2(1.5, 2.5) AS c
             """
         Then the result should be:
-            | n      | a   | b                  | c                  |
+            | n      | a   | b case                 | c                  |
             | null   | 0.0 | 0.5880026035475675 | 0.5404195002705842 |
 
     Scenario: Asin test:
@@ -1158,3 +1158,15 @@ Feature: Functions
         Then the result should be:
             | A_COUNT | B_COUNT |
             | 3       | 15      |
+
+    Scenario: Exists is forbidden within reduce:
+      Given an empty graph
+      And having executed:
+        """
+        CREATE ()
+        """
+      When executing query:
+        """
+        MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
+        """
+      Then an error should be raised
