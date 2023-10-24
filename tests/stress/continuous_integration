@@ -8,7 +8,7 @@ import subprocess
 import time
 from argparse import Namespace as Args
 from subprocess import Popen
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
 
@@ -79,7 +79,7 @@ def wait_for_server(port, delay=0.1) -> None:
     time.sleep(delay)
 
 
-def start_memgraph(args: Args) -> Popen:
+def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
     """Starts Memgraph and return the process"""
     cwd = os.path.dirname(args.memgraph)
     cmd = [
@@ -93,7 +93,7 @@ def start_memgraph(args: Args) -> Popen:
         "--storage-recover-on-startup=false",
         "--query-execution-timeout-sec=1200",
         "--bolt-server-name-for-init=Neo4j/",
-    ]
+    ] + memgraph_options
     if not args.verbose:
         cmd += ["--log-level", "WARNING"]
     if args.log_file:
@@ -168,7 +168,7 @@ def _find_test_binary(args: Args, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
-def run_stress_test_suite(args: Args) -> Dict[str, float]:
+def run_stress_test_suite(args: Args) -> Optional[Dict[str, float]]:
     def cleanup(memgraph_proc):
         if memgraph_proc.poll() != None:
             return
@@ -192,16 +192,30 @@ def run_stress_test_suite(args: Args) -> Dict[str, float]:
 
         for mode in test[DatasetConstants.MODE]:
             test_run = copy.deepcopy(test)
-
             # Run for every specified combination of storage mode, serialization mode, etc (if extended)
             test_run[DatasetConstants.MODE] = mode
-
-            memgraph_proc = start_memgraph(args)
-            runtime = run_test(args, **test_run)
-            runtimes[os.path.splitext(test[DatasetConstants.TEST])[0]] = runtime
-
-            stop_memgraph(memgraph_proc)
-            cleanup(memgraph_proc)
+            try:
+                memgraph_options = (
+                    test_run[DatasetConstants.MEMGRAPH_OPTIONS] if DatasetConstants.MEMGRAPH_OPTIONS in test_run else []
+                )
+                if DatasetConstants.MEMGRAPH_OPTIONS in test_run:
+                    del test_run[DatasetConstants.MEMGRAPH_OPTIONS]
+                memgraph_proc = start_memgraph(args, memgraph_options)
+            except Exception as ex:
+                print("Exception occured while starting memgraph", ex)
+                return None
+            err = False
+            try:
+                runtime = run_test(args, **test_run)
+                runtimes[os.path.splitext(test[DatasetConstants.TEST])[0]] = runtime
+            except Exception as ex:
+                print(f"Failed to execute {test_run} with following exception:", ex)
+                err = True
+            finally:
+                stop_memgraph(memgraph_proc)
+                cleanup(memgraph_proc)
+            if err:
+                return None
 
     return runtimes
 
@@ -225,10 +239,12 @@ if __name__ == "__main__":
         generate_temporary_ssl_certs()
 
     runtimes = run_stress_test_suite(args)
-
+    if runtimes is None:
+        print("Some stress tests have failed")
+        exit(1)
+    assert runtimes is not None
     if args.use_ssl:
         remove_certificates()
-
     write_stats(runtimes)
 
     print("Successfully ran stress tests!")
