@@ -26,7 +26,7 @@ disk_cluster: &disk_cluster
 args_512_MiB_limit: &args_512_MiB_limit
   - "--bolt-port"
   - *bolt_port
-  - "--memory-limit=512"
+  - "--memory-limit=450"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=INFO"
 
