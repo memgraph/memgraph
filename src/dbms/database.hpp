@@ -46,7 +46,7 @@ class Database {
    *
    * @param config storage configuration
    */
-  explicit Database(const storage::Config &config, const replication::ReplicationState &repl_state);
+  explicit Database(storage::Config config, const replication::ReplicationState &repl_state);
 
   /**
    * @brief Returns the raw storage pointer.

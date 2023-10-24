@@ -142,10 +142,7 @@ class DbmsHandler {
    * @param configs storage configuration
    */
   DbmsHandler(storage::Config config, const replication::ReplicationState &repl_state)
-      : lock_{utils::RWLock::Priority::READ},
-        default_config_{std::move(config)},
-        repl_state_(repl_state),
-        db_gatekeeper_{default_config_, repl_state_} {}
+      : db_gatekeeper_{std::move(config), repl_state} {}
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -254,8 +251,8 @@ class DbmsHandler {
   Statistics Stats() {
     Statistics stats{};
     // TODO: Handle overflow?
-    std::shared_lock<LockT> rd(lock_);
 #ifdef MG_ENTERPRISE
+    std::shared_lock<LockT> rd(lock_);
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -289,8 +286,8 @@ class DbmsHandler {
    */
   std::vector<DatabaseInfo> Info() {
     std::vector<DatabaseInfo> res;
-    std::shared_lock<LockT> rd(lock_);
 #ifdef MG_ENTERPRISE
+    std::shared_lock<LockT> rd(lock_);
     res.reserve(std::distance(db_handler_.cbegin(), db_handler_.cend()));
     for (auto &[_, db_gk] : db_handler_) {
 #else
@@ -313,8 +310,8 @@ class DbmsHandler {
    * @param ic global InterpreterContext
    */
   void RestoreTriggers(query::InterpreterContext *ic) {
-    std::lock_guard<LockT> wr(lock_);
 #ifdef MG_ENTERPRISE
+    std::lock_guard<LockT> wr(lock_);
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -338,8 +335,8 @@ class DbmsHandler {
    * @param ic global InterpreterContext
    */
   void RestoreStreams(query::InterpreterContext *ic) {
-    std::lock_guard<LockT> wr(lock_);
 #ifdef MG_ENTERPRISE
+    std::lock_guard<LockT> wr(lock_);
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -490,20 +487,17 @@ class DbmsHandler {
     }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
-#endif
 
-  // Should storage objects ever be deleted?
   mutable LockT lock_;                               //!< protective lock
   storage::Config default_config_;                   //!< Storage configuration used when creating new databases
   const replication::ReplicationState &repl_state_;  //!< Global replication state
-#ifdef MG_ENTERPRISE
-  DatabaseHandler db_handler_;                    //!< multi-tenancy storage handler
-  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
-  bool delete_on_drop_;                           //!< Flag defining if dropping storage also deletes its directory
-  std::set<std::string> defunct_dbs_;             //!< Databases that are in an unknown state due to various failures
+  DatabaseHandler db_handler_;                       //!< multi-tenancy storage handler
+  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
+  bool delete_on_drop_;                              //!< Flag defining if dropping storage also deletes its directory
+  std::set<std::string> defunct_dbs_;                //!< Databases that are in an unknown state due to various failures
 #else
   utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
-};  // namespace memgraph::dbms
+};
 
 }  // namespace memgraph::dbms

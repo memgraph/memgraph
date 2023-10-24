@@ -21,15 +21,15 @@ template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
 
-Database::Database(const storage::Config &config, const replication::ReplicationState &repl_state)
+Database::Database(storage::Config config, const replication::ReplicationState &repl_state)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"},
       repl_state_(&repl_state) {
   if (config.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
-    storage_ = std::make_unique<storage::DiskStorage>(config);
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config));
   } else {
-    storage_ = storage::CreateInMemoryStorage(config, repl_state);
+    storage_ = storage::CreateInMemoryStorage(std::move(config), repl_state);
   }
 }
 

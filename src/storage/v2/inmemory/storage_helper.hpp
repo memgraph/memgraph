@@ -19,9 +19,11 @@
 
 namespace memgraph::storage {
 
-std::unique_ptr<Storage> CreateInMemoryStorage(const Config &config,
-                                               const ::memgraph::replication::ReplicationState &repl_state) {
-  auto storage_ = std::make_unique<InMemoryStorage>(config, config.storage_mode);
+inline std::unique_ptr<Storage> CreateInMemoryStorage(Config config,
+                                                      const ::memgraph::replication::ReplicationState &repl_state) {
+  const auto restore_repl = config.durability.restore_replication_state_on_startup;
+  const auto wal_mode = config.durability.snapshot_wal_mode;
+  auto storage_ = std::make_unique<InMemoryStorage>(std::move(config));
   auto *storage = static_cast<InMemoryStorage *>(storage_.get());
 
   // Connect replication state and storage
@@ -34,7 +36,7 @@ std::unique_ptr<Storage> CreateInMemoryStorage(const Config &config,
       });
 
   // Handle global replication state
-  if (config.durability.restore_replication_state_on_startup) {
+  if (restore_repl) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     // RECOVER REPLICA CONNECTIONS
     RestoreReplication(repl_state, *storage);
@@ -44,7 +46,7 @@ std::unique_ptr<Storage> CreateInMemoryStorage(const Config &config,
         "forgotten.");
   }
 
-  if (config.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
+  if (wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
     spdlog::warn(
         "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
