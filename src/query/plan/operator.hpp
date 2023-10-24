@@ -130,6 +130,7 @@ class EmptyResult;
 class EvaluatePatternFilter;
 class Apply;
 class IndexedJoin;
+class HashJoin;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -137,7 +138,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2525,6 +2526,54 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
     UniqueCursorPtr sub_branch_;
     bool pull_input_{true};
   };
+};
+
+/// Operator for producing the hash join of two input branches
+class HashJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  HashJoin() {}
+  /** Construct the operator with left input branch and right input branch. */
+  HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::vector<Symbol> &left_symbols,
+           const std::shared_ptr<LogicalOperator> &right_op, const std::vector<Symbol> &right_symbols,
+           EqualOperator *hash_join_condition)
+      : left_op_(left_op),
+        left_symbols_(left_symbols),
+        right_op_(right_op),
+        right_symbols_(right_symbols),
+        hash_join_condition_(hash_join_condition) {}
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> left_op_;
+  std::vector<Symbol> left_symbols_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
+  std::vector<Symbol> right_symbols_;
+  EqualOperator *hash_join_condition_;
+
+  std::string ToString() const override {
+    return fmt::format("HashJoin {{{} : {}}}",
+                       utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<HashJoin>();
+    object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
+    object->left_symbols_ = left_symbols_;
+    object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
+    object->right_symbols_ = right_symbols_;
+    object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
+    return object;
+  }
 };
 
 }  // namespace plan

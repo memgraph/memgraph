@@ -114,6 +114,11 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(HashJoin &op) override {
+    CheckOp(op);
+    return false;
+  }
+
   bool PreVisit(IndexedJoin &op) override {
     CheckOp(op);
     return false;
@@ -414,6 +419,25 @@ class ExpectCartesian : public OpChecker<Cartesian> {
       : left_(left), right_(right) {}
 
   void ExpectOp(Cartesian &op, const SymbolTable &symbol_table) override {
+    ASSERT_TRUE(op.left_op_);
+    PlanChecker left_checker(left_, symbol_table);
+    op.left_op_->Accept(left_checker);
+    ASSERT_TRUE(op.right_op_);
+    PlanChecker right_checker(right_, symbol_table);
+    op.right_op_->Accept(right_checker);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
+};
+
+class ExpectHashJoin : public OpChecker<HashJoin> {
+ public:
+  ExpectHashJoin(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(HashJoin &op, const SymbolTable &symbol_table) override {
     ASSERT_TRUE(op.left_op_);
     PlanChecker left_checker(left_, symbol_table);
     op.left_op_->Accept(left_checker);

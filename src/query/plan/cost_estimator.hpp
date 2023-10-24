@@ -351,6 +351,21 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(HashJoin &op) override {
+    // Get the cost of the main branch
+    op.left_op_->Accept(*this);
+
+    // add cost from the right branch and multiply cardinalities
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_op_);
+    IncrementCost(right_cost_estimation.cost);
+
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality;
+
+    return false;
+  }
+
   bool PostVisit(EmptyResult & /*op*/) override {
     scopes_.emplace_back();
     return true;

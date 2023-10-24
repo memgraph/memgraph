@@ -171,6 +171,13 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  Branch(*op.right_op_);
+  op.left_op_->Accept(*this);
+  return false;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
   WithPrintLn([](auto &out) { out << "* Foreach"; });
   Branch(*op.update_clauses_);
@@ -879,6 +886,20 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
   self["name"] = "Cartesian";
   self["left_symbols"] = ToJson(op.left_symbols_);
   self["right_symbols"] = ToJson(op.right_symbols_);
+
+  op.left_op_->Accept(*this);
+  self["left_op"] = PopOutput();
+
+  op.right_op_->Accept(*this);
+  self["right_op"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(HashJoin &op) {
+  json self;
+  self["name"] = "HashJoin";
 
   op.left_op_->Accept(*this);
   self["left_op"] = PopOutput();

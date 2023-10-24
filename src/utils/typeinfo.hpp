@@ -66,6 +66,7 @@ enum class TypeId : uint64_t {
   FOREACH,
   APPLY,
   INDEXED_JOIN,
+  HASH_JOIN,
 
   // Replication
   REP_APPEND_DELTAS_REQ,
