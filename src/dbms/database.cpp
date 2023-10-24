@@ -10,11 +10,11 @@
 // licenses/APL.txt.
 
 #include "dbms/database.hpp"
+#include "dbms/replication_handler.hpp"
 #include "flags/storage_mode.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/storage_helper.hpp"
-#include "storage/v2/replication/replication_handler.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;

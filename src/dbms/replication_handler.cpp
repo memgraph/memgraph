@@ -9,17 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_handler.hpp"
+#include "dbms/replication_handler.hpp"
 
+#include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/storage.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;
 
-namespace memgraph::storage {
+namespace memgraph::dbms {
 
 namespace {
 
@@ -44,22 +45,29 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     return false;
   };
   auto const replica_handler = [this](RoleReplicaData const &) {
-    // STEP 1) bring down all REPLICA servers
-    // TODO: foreach storage
-    {
-      // ensure replica server brought down
-      storage_.repl_storage_state_.replication_server_.reset(nullptr);
-      // Remember old epoch + storage timestamp association
-      storage_.PrepareForNewEpoch();
-    }
+    dbms_handler_.ForEach([](storage::Storage &storage) {
+      // STEP 1) bring down all REPLICA servers
+      // TODO: foreach storage
+      {
+        // ensure replica server brought down
+        storage.repl_storage_state_.replication_server_.reset(nullptr);
+        // Remember old epoch + storage timestamp association
+        storage.PrepareForNewEpoch();
+      }
+    });
 
     // STEP 2) Change to MAIN
     // TODO: restore replication servers if false?
     if (!repl_state_.SetReplicationRoleMain()) {
+      // TODO: Handle recovery on failure???
       return false;
     }
-    // We are now MAIN, update storage local epoch
-    storage_.repl_storage_state_.epoch_ = std::get<RoleMainData>(std::as_const(repl_state_).ReplicationData()).epoch_;
+
+    // STEP 3) We are now MAIN, update storage local epoch
+    dbms_handler_.ForEach([&](storage::Storage &storage) {
+      storage.repl_storage_state_.epoch_ = std::get<RoleMainData>(std::as_const(repl_state_).ReplicationData()).epoch_;
+    });
+
     return true;
   };
 
@@ -74,18 +82,32 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   }
 
   // Remove registered replicas
-  storage_.repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  dbms_handler_.ForEach([&](storage::Storage &storage) {
+    storage.repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  });
+
+  // Creates the server
+  repl_state_.SetReplicationRoleReplica(config);
 
   // Start
-  std::unique_ptr<ReplicationServer> replication_server = storage_.CreateReplicationServer(config);
-  if (!replication_server->Start()) {
-    spdlog::error("Unable to start the replication server.");
+  const auto success = std::visit(utils::Overloaded{[](auto) {
+                                                      // ASSERT
+                                                      return false;
+                                                    },
+                                                    [this](RoleReplicaData const &data) {
+                                                      // Register handlers
+                                                      InMemoryReplicationServer::Register(dbms_handler_, data.server);
+                                                      if (!data.server->Start()) {
+                                                        spdlog::error("Unable to start the replication server.");
+                                                        return false;
+                                                      }
+                                                      return true;
+                                                    }},
+                                  repl_state_.ReplicationData());
+  // TODO Handle error (restore to main?)
+  if (!success) {
     return false;
   }
-  storage_.repl_storage_state_.replication_server_ = std::move(replication_server);
-
-  // TODO: restore main on false?
-  return repl_state_.SetReplicationRoleReplica(config);
 }
 
 auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
@@ -206,4 +228,4 @@ void RestoreReplication(const ReplicationState &repl_state, Storage &storage) {
       },
       std::as_const(repl_state).ReplicationData());
 }
-}  // namespace memgraph::storage
+}  // namespace memgraph::dbms

@@ -100,10 +100,10 @@
 #include "utils/variant_helpers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "dbms/replication_handler.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/replication/replication_handler.hpp"
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -405,7 +405,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
  private:
   storage::Storage *db_;
-  storage::ReplicationHandler handler_;
+  dbms::ReplicationHandler handler_;
 };
 
 /// returns false if the replication role can't be set

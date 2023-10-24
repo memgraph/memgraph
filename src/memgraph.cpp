@@ -367,6 +367,23 @@ int main(int argc, char **argv) {
                                                            auth_handler.get(), auth_checker.get());
   MG_ASSERT(db_acc, "Failed to access the main database");
 
+  // Startup replication state (if recovered at startup)
+  MG_ASSERT(std::visit(utils::Overloaded{[](auto) {
+                                           /// TODO: Recover clients????
+                                           return true;
+                                         },
+                                         [this](RoleReplicaData const &data) {
+                                           // Register handlers
+                                           InMemoryReplicationServer::Register(dbms_handler_, data.server);
+                                           if (!data.server->Start()) {
+                                             spdlog::error("Unable to start the replication server.");
+                                             return false;
+                                           }
+                                           return true;
+                                         }},
+                       repl_state.ReplicationData()),
+            "Replica recovery failure!");
+
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();

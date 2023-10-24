@@ -20,12 +20,9 @@ struct ReplicationState;
 struct ReplicationServerConfig;
 struct ReplicationClientConfig;
 }  // namespace memgraph::replication
-namespace memgraph::storage {
-class Storage;
-}
-// END fwd declares
 
-namespace memgraph::storage {
+namespace memgraph::dbms {
+class DbmsHandler;
 
 enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, RESTORE };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
@@ -39,8 +36,8 @@ enum class UnregisterReplicaResult : uint8_t {
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
 struct ReplicationHandler {
-  ReplicationHandler(memgraph::replication::ReplicationState &replState, Storage &storage)
-      : repl_state_(replState), storage_(storage) {}
+  ReplicationHandler(memgraph::replication::ReplicationState &replState, DbmsHandler &dbms_handler)
+      : repl_state_(replState), dbms_handler_(dbms_handler) {}
 
   // as REPLICA, become MAIN
   bool SetReplicationRoleMain();
@@ -55,10 +52,6 @@ struct ReplicationHandler {
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view registered_config) -> UnregisterReplicaResult;
 
-  // Generic restoration
-  // TODO: decouple storage restoration from epoch restoration
-  void RestoreReplication();
-
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> memgraph::replication::ReplicationRole;
   bool IsMain() const;
@@ -66,11 +59,11 @@ struct ReplicationHandler {
 
  private:
   memgraph::replication::ReplicationState &repl_state_;
-  Storage &storage_;
+  DbmsHandler &dbms_handler_;
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
-void RestoreReplication(const memgraph::replication::ReplicationState &repl_state, Storage &storage);
+void RestoreReplication(const memgraph::replication::ReplicationState &repl_state, DbmsHandler &dbms_handler);
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::dbms

@@ -11,10 +11,10 @@
 
 #pragma once
 
+#include "dbms/replication_handler.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/replication/replication_handler.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {

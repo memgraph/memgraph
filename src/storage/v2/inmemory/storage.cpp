@@ -19,7 +19,6 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
-#include "storage/v2/replication/replication_handler.hpp"
 #include "utils/resource_lock.hpp"
 
 namespace memgraph::storage {
@@ -1958,7 +1957,7 @@ auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::Repli
 
 std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
     const memgraph::replication::ReplicationServerConfig &config) {
-  return std::make_unique<InMemoryReplicationServer>(this, config, &this->repl_storage_state_.epoch_);
+  return nullptr;  // TODO REMOVE
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,

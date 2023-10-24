@@ -12,6 +12,7 @@
 #include "replication/state.hpp"
 
 #include "replication/status.hpp"  //TODO: don't use status for durability
+#include "storage/v2/replication/replication_server.hpp"
 #include "utils/file.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -145,7 +146,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
-              return {RoleReplicaData{std::move(r.config)}};
+              return {RoleReplicaData{r.config, std::make_unique<storage::ReplicationServer>(r.config)}};
             },
         },
         std::move(data.role));
@@ -222,7 +223,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   if (!TryPersistRoleReplica(config)) {
     return false;
   }
-  replication_data_ = RoleReplicaData{config};
+  replication_data_ = RoleReplicaData{config, std::make_unique<storage::ReplicationServer>(config)};
   return true;
 }
 auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError {

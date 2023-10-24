@@ -22,6 +22,7 @@
 #include "replication/mode.hpp"
 #include "replication/role.hpp"
 #include "status.hpp"
+#include "storage/v2/replication/replication_server.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::replication {
@@ -35,10 +36,13 @@ struct RoleMainData {
   std::vector<ReplicationClientConfig> registered_replicas_;
 };
 
-using RoleReplicaData = ReplicationServerConfig;
+struct RoleReplicaData {
+  ReplicationServerConfig config;
+  std::unique_ptr<storage::ReplicationServer> server;
+};
 
 struct ReplicationState {
-  ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
 
   ReplicationState(ReplicationState const &) = delete;
   ReplicationState(ReplicationState &&) = delete;

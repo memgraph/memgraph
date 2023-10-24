@@ -40,7 +40,6 @@ add_library(mg-storage-v2 STATIC
         replication/slk.cpp
         replication/rpc.cpp
         replication/replication_storage_state.cpp
-        replication/replication_handler.cpp
         inmemory/replication/replication_server.cpp
         inmemory/replication/replication_client.cpp
 )
@@ -56,3 +55,10 @@ set_source_files_properties(
         vertex_info_cache.cpp vertex_accessor.cpp
         PROPERTIES UNITY_GROUP "ensure inline of vertex_info_cache"
 )
+
+
+
+add_library(mg-storage-replication STATIC
+        replication/replication_server.cpp
+)
+target_link_libraries(mg-storage-replication mg::replication mg-rpc mg-slk mg-events)
