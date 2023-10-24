@@ -1292,7 +1292,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   std::optional<utils::PoolResource> pool_memory;
   static constexpr auto kMaxBlockPerChunks = 128;
 
-  if (use_monotonic_memory_) {
+  if (!use_monotonic_memory_) {
     pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &resource_with_exception,
                         &resource_with_exception);
   } else {
@@ -3669,7 +3669,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       bool hasAllShortestPaths = IsAllShortestPathsQuery(clauses);
       // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
       bool usePool = hasAllShortestPaths || IsCallBatchedProcedureQuery(clauses) || IsLoadCsvQuery(clauses);
-      return {true, hasAllShortestPaths};
+      return {usePool, hasAllShortestPaths};
     }();  // IILE
 
     // Setup QueryExecution
