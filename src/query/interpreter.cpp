@@ -62,6 +62,7 @@
 #include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
+#include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
@@ -317,7 +318,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto config = replication::ReplicationClientConfig{.name = name,
@@ -1432,7 +1433,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
+  auto const global_tx_timeout = double_seconds{flags::run_time::GetExecutionTimeout()};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -2612,25 +2613,26 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
   MG_ASSERT(isolation_level_query);
 
   const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
+  MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw IsolationLevelModificationInAnalyticsException();
+  }
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+      isolation_level != storage::IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw IsolationLevelModificationInDiskTransactionalException();
+  }
 
   std::function<void()> callback;
   switch (isolation_level_query->isolation_level_scope_) {
-    case IsolationLevelQuery::IsolationLevelScope::GLOBAL:  // TODO:.....not GLOBAL is it?!
-    {
-      MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
-      storage::Storage *storage = current_db.db_acc_->get()->storage();
+    case IsolationLevelQuery::IsolationLevelScope::GLOBAL: {
       callback = [storage, isolation_level] {
-        if (auto maybe_error = storage->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
-              throw IsolationLevelModificationInAnalyticsException();
-              break;
-          }
+        if (auto res = storage->SetIsolationLevel(isolation_level); res.HasError()) {
+          throw utils::BasicException("Failed setting global isolation level");
         }
       };
       break;
     }
-
     case IsolationLevelQuery::IsolationLevelScope::SESSION: {
       callback = [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       break;
@@ -2641,14 +2643,14 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
@@ -2679,7 +2681,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             }
 
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
-            if (auto vertex_cnt_approx = in.storage()->GetInfo().vertex_count; vertex_cnt_approx > 0) {
+            if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
                   "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
@@ -3077,16 +3079,18 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(), interpreter_isolation_level,
                  next_transaction_isolation_level] {
-        auto info = storage->GetInfo();
+        auto info = storage->GetBaseInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
-            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("memory_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_usage)))},
+            {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+            {TypedValue("memory_allocated"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("allocation_limit"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
@@ -3834,7 +3838,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
+    // Trigger first failed query
+    metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -3860,10 +3867,12 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  bool decrement = true;
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
       transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
+      decrement = false;
       break;
     }
     expected = TransactionStatus::ACTIVE;
@@ -3879,7 +3888,10 @@ void Interpreter::Abort() {
   current_timeout_timer_.reset();
   current_transaction_.reset();
 
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  if (decrement) {
+    // Decrement only if the transaction was active when we started to Abort
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  }
 
   // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);
@@ -3906,7 +3918,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -4020,9 +4032,9 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory,
-                        flags::run_time::execution_timeout_sec_, &interpreter_context_->is_shutting_down,
-                        &transaction_status_, *trigger_context, interpreter_context_->auth_checker);
+        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory, flags::run_time::GetExecutionTimeout(),
+                        &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
+                        interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
