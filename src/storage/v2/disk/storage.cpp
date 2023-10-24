@@ -962,6 +962,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*
   return Error::NONEXISTENT_OBJECT;
 }
 
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeChangeType(EdgeAccessor * /*edge*/, EdgeTypeId /*new_edge_type*/) {
+  MG_ASSERT(false, "EdgeChangeType is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
+}
+
 bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex) {
   MG_ASSERT(transaction->commit_timestamp, "Writing vertex to disk but commit timestamp not set.");
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
