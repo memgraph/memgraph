@@ -32,6 +32,36 @@ DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
 
+/// Holds a given query's index hints after sorting them by type
+struct IndexHints {
+  IndexHints() = default;
+
+  template <class TDbAccessor>
+  IndexHints(std::vector<IndexHint> index_hints, TDbAccessor *db) {
+    for (const auto &index_hint : index_hints) {
+      const auto index_type = index_hint.index_type_;
+      const auto label_name = index_hint.label_.name;
+      if (index_type == IndexHint::IndexType::LABEL) {
+        if (!db->LabelIndexExists(db->NameToLabel(label_name))) {
+          spdlog::debug("Index for label {} doesn't exist", label_name);
+          continue;
+        }
+        label_index_hints_.emplace_back(index_hint);
+      } else if (index_type == IndexHint::IndexType::LABEL_PROPERTY) {
+        auto property_name = index_hint.property_->name;
+        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
+          spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_name);
+          continue;
+        }
+        label_property_index_hints_.emplace_back(index_hint);
+      }
+    }
+  }
+
+  std::vector<IndexHint> label_index_hints_{};
+  std::vector<IndexHint> label_property_index_hints_{};
+};
+
 namespace impl {
 
 // Return the new root expression after removing the given expressions from the

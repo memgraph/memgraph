@@ -33,45 +33,19 @@ class SymbolTable;
 
 namespace plan {
 
-template <class TDbAccessor>
-IndexHints CollectIndexHints(std::vector<IndexHint> index_hints, TDbAccessor *db) {
-  std::vector<IndexHint> label_index_hints{};
-  std::vector<IndexHint> label_property_index_hints{};
-  for (const auto &index_hint : index_hints) {
-    const auto index_type = index_hint.index_type_;
-    const auto label_name = index_hint.label_.name;
-    if (index_type == IndexHint::IndexType::LABEL) {
-      if (!db->LabelIndexExists(db->NameToLabel(label_name))) {
-        spdlog::debug("Index for label {} doesn't exist", label_name);
-        continue;
-      }
-      label_index_hints.emplace_back(index_hint);
-    } else if (index_type == IndexHint::IndexType::LABEL_PROPERTY) {
-      auto property_name = index_hint.property_->name;
-      if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
-        spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_name);
-        continue;
-      }
-      label_property_index_hints.emplace_back(index_hint);
-    }
-  }
-
-  return IndexHints{label_index_hints, label_property_index_hints};
-}
-
 class PostProcessor final {
   Parameters parameters_;
-  /// Suggestion: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be
-  /// contained within a dedicated class/struct
-  IndexHints index_hints_{};
 
  public:
+  IndexHints index_hints_{};
+
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
   explicit PostProcessor(const Parameters &parameters) : parameters_(parameters) {}
 
-  PostProcessor(const Parameters &parameters, IndexHints &index_hints)
-      : parameters_(parameters), index_hints_(index_hints) {}
+  template <class TDbAccessor>
+  PostProcessor(const Parameters &parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
+      : parameters_(parameters), index_hints_(IndexHints(index_hints, db)) {}
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
@@ -151,8 +125,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  auto index_hints = CollectIndexHints(context->query->index_hints_, context->db);
-  PostProcessor post_processor(parameters, index_hints);
+  PostProcessor post_processor(parameters, context->query->index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 

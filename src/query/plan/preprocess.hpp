@@ -483,10 +483,4 @@ struct QueryParts {
 /// AST nodes.
 QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
 
-/// Holds a given query's index hints after sorting them by type
-struct IndexHints {
-  std::vector<IndexHint> label_index_hints_{};
-  std::vector<IndexHint> label_property_index_hints_{};
-};
-
 }  // namespace memgraph::query::plan
