@@ -599,7 +599,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 
 // TODO: How is Keys different from Properties function?
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
+  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
@@ -624,11 +624,64 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
+  }
+  if (value.IsVertex()) {
     return get_keys(value.ValueVertex());
-  } else {
+  }
+  if (value.IsEdge()) {
     return get_keys(value.ValueEdge());
   }
+
+  // map
+  TypedValue::TVector keys(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    keys.emplace_back(string_key);
+  }
+  return TypedValue(std::move(keys));
+}
+
+TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+
+  auto get_values = [&](const auto &record_accessor) {
+    TypedValue::TVector values(ctx.memory);
+    auto maybe_props = record_accessor.Properties(ctx.view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get keys from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting keys.");
+      }
+    }
+    for (const auto &[key, value] : *maybe_props) {
+      values.emplace_back(std::move(value));
+    }
+    return TypedValue(std::move(values));
+  };
+
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  if (value.IsVertex()) {
+    return get_values(value.ValueVertex());
+  }
+  if (value.IsEdge()) {
+    return get_values(value.ValueEdge());
+  }
+
+  // map
+  TypedValue::TVector values(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    values.emplace_back(value);
+  }
+
+  return TypedValue(std::move(values));
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1269,7 +1322,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "TYPE") return Type;
   if (function_name == "VALUETYPE") return ValueType;
 
-  // List functions
+  // List, map functions
   if (function_name == "KEYS") return Keys;
   if (function_name == "LABELS") return Labels;
   if (function_name == "NODES") return Nodes;
@@ -1277,6 +1330,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "RELATIONSHIPS") return Relationships;
   if (function_name == "TAIL") return Tail;
   if (function_name == "UNIFORMSAMPLE") return UniformSample;
+  if (function_name == "VALUES") return Values;
 
   // Mathematical functions - numeric
   if (function_name == "ABS") return Abs;
