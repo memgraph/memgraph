@@ -101,7 +101,7 @@ TEST_F(HintProviderSuite, HintWhenFilteringByLabelAndProperty) {
   const std::vector<std::string> expected_messages{
       "Sequential scan will be used on symbol `n` although there is a filter on labels :label and properties property. "
       "Consider "
-      "creating a label property index."};
+      "creating a label-property index."};
 
   VerifyHintMessages(filter.get(), expected_messages);
 }
@@ -137,7 +137,7 @@ TEST_F(HintProviderSuite, HintWhenLabelOperatorPresentButFilteringAlsoByProperty
   const std::vector<std::string> expected_messages{
       "Label index will be used on symbol `n` although there is also a filter on properties property. "
       "Consider "
-      "creating a label property index."};
+      "creating a label-property index."};
 
   VerifyHintMessages(filter.get(), expected_messages);
 }

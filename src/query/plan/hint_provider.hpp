@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <vector>
 
+#include <boost/algorithm/string.hpp>
 #include <range/v3/view.hpp>
 
 #include "query/plan/operator.hpp"
@@ -247,7 +248,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   std::string ExtractAndJoin(auto &&collection, auto &&projection) {
     auto elements = collection | ranges::views::transform(projection);
-    return utils::Join(elements, ", ");
+    return boost::algorithm::join(elements, ", ");
   }
 };
 
