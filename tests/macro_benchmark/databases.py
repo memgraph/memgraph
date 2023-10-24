@@ -30,8 +30,7 @@ def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", port]
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
-    print("done waiting")
-    time.sleep(1)
+    time.sleep(delay)
 
 
 class Memgraph:
@@ -44,8 +43,7 @@ class Memgraph:
         argp = ArgumentParser("MemgraphArgumentParser")
         argp.add_argument("--runner-bin", default=get_absolute_path("memgraph", "build"))
         argp.add_argument("--port", default="7687", help="Database and client port")
-        argp.add_argument("--data-directory", default="/home/antonio/memgraph/")
-        argp.add_argument("--log-file", default="/home/antonio/memgraph/memgraph.log")
+        argp.add_argument("--data-directory", default=None)
         argp.add_argument("--storage-snapshot-on-exit", action="store_true")
         argp.add_argument("--storage-recover-on-startup", action="store_true")
         self.log.info("Initializing Runner with arguments %r", args)
@@ -56,7 +54,6 @@ class Memgraph:
         set_cpus("database-cpu-ids", self.database_bin, args)
 
     def start(self):
-        print("STARTING")
         self.log.info("start")
         database_args = ["--bolt-port", self.args.port, "--query-execution-timeout-sec", "0"]
         if self.num_workers:
@@ -68,31 +65,16 @@ class Memgraph:
         if self.args.storage_snapshot_on_exit:
             database_args += ["--storage-snapshot-on-exit"]
 
-        database_args += ["--log-file=/home/antonio/memgraph/memgraph.log"]
-
         # find executable path
         runner_bin = self.args.runner_bin
 
         # start memgraph
-        print("started mg")
-        print(runner_bin)
-        print(database_args)
-        # database_args = [runner_bin] + database_args
-
         self.database_bin.run(runner_bin, database_args, timeout=600)
-        time.sleep(0.1)
         wait_for_server(self.args.port)
 
     def stop(self):
         self.database_bin.send_signal(jail.SIGTERM)
-        # print("STOPING")
-        # pid = self.memgraph.pid
-        # try:
-        #     os.kill(pid, 15)
-        # except os.OSError:
-        #     assert False, "Memgraph process didn't exit cleanly!"
-        # time.sleep(1)
-        time.sleep(1)
+        self.database_bin.wait()
 
 
 class Neo:

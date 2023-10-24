@@ -512,6 +512,7 @@ int main(int argc, char **argv) {
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
+  memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     metrics_server.AwaitShutdown();

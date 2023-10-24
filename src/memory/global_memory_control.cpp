@@ -246,6 +246,45 @@ void SetHooks() {
 #endif
 }
 
+void UnsetHooks() {
+#if USE_JEMALLOC
+
+  uint64_t allocated{0};
+  uint64_t sz{sizeof(allocated)};
+
+  sz = sizeof(unsigned);
+  unsigned n_arenas{0};
+  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+
+  if (err) {
+    LOG_FATAL("Error setting default hooks for jemalloc arenas");
+  }
+
+  for (int i = 0; i < n_arenas; i++) {
+    GetQueriesMemoryControl().InitializeArenaCounter(i);
+    std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
+
+    MG_ASSERT(old_hooks);
+    MG_ASSERT(old_hooks->alloc);
+    MG_ASSERT(old_hooks->dalloc);
+    MG_ASSERT(old_hooks->destroy);
+    MG_ASSERT(old_hooks->commit);
+    MG_ASSERT(old_hooks->decommit);
+    MG_ASSERT(old_hooks->purge_forced);
+    MG_ASSERT(old_hooks->purge_lazy);
+    MG_ASSERT(old_hooks->split);
+    MG_ASSERT(old_hooks->merge);
+
+    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+
+    if (err) {
+      LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
+    }
+  }
+
+#endif
+}
+
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
   mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
