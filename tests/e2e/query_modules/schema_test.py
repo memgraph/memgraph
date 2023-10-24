@@ -15,28 +15,6 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
-def test_convert_list1():
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, f"RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
-    assert (result) == [2, 4, 8, [2]]
-
-
-def test_convert_list_wrong():
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, f"RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
-    assert (result) != [3, 4, 8, [2]]
-
-
-def test_mgps1():
-    cursor = connect().cursor()
-    result = list(
-        execute_and_fetch_all(
-            cursor, f"CALL mgps.components() YIELD edition, name, versions RETURN edition, name, versions;"
-        )[0]
-    )
-    assert (result) == ["community", "Memgraph", ["5.9.0"]]
-
-
 def test_node_type_properties1():
     cursor = connect().cursor()
     execute_and_fetch_all(

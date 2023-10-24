@@ -12,19 +12,24 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
-disk_cluster: &disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "query_modules-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-      validation_queries: []
-
 workloads:
   - name: "Convert query module test"
-    presetworkload: "tests/e2e/x.sh"
+    pre_set_workload: "tests/e2e/x.sh"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
-    args: ["query_modules/query_modules.py"]
+    args: ["query_modules/convert_test.py"]
+    <<: *in_memory_cluster
+
+  - name: "Mgps query module test"
+    pre_set_workload: "tests/e2e/x.sh"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/mgps_test.py"]
+    <<: *in_memory_cluster
+
+  - name: "Convert query module test"
+    pre_set_workload: "tests/e2e/x.sh"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/schema_test.py"]
     <<: *in_memory_cluster
