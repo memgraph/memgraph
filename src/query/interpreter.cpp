@@ -1433,7 +1433,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
+  auto const global_tx_timeout = double_seconds{flags::run_time::GetExecutionTimeout()};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -3918,7 +3918,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -4032,9 +4032,9 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory,
-                        flags::run_time::execution_timeout_sec_, &interpreter_context_->is_shutting_down,
-                        &transaction_status_, *trigger_context, interpreter_context_->auth_checker);
+        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory, flags::run_time::GetExecutionTimeout(),
+                        &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
+                        interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));

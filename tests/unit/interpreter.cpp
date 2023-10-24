@@ -60,7 +60,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() : interpreter_context({}, kNoHandler) { memgraph::flags::run_time::execution_timeout_sec_ = 600.0; }
+  InterpreterTest() : interpreter_context({}, kNoHandler) {}
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
       [&]() {
