@@ -77,7 +77,7 @@ constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 std::atomic<double> execution_timeout_sec_;  // Local cache-like thing
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::atomic<bool> cartesian_product_enabled_;  // Local cache-like thing
+std::atomic<bool> cartesian_product_enabled_{true};  // Local cache-like thing
 
 auto ToLLEnum(std::string_view val) {
   const auto ll_enum = memgraph::flags::LogLevelToEnum(val);
