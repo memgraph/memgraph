@@ -38,6 +38,7 @@
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
@@ -158,6 +159,7 @@ template <typename TFunc, typename... Args>
 [[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
   } catch (const DeletedObjectException &neoe) {
     spdlog::error("Deleted object error during mg API call: {}", neoe.what());
