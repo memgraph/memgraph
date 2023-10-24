@@ -23,6 +23,7 @@
 #include "glue/run_id.hpp"
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
+#include "memory/memory_control.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
@@ -108,6 +109,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 }
 
 int main(int argc, char **argv) {
+  memgraph::memory::SetHooks();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -199,7 +201,6 @@ int main(int argc, char **argv) {
           "won't be available.");
     }
   }
-
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
