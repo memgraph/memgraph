@@ -319,7 +319,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto config = replication::ReplicationClientConfig{.name = name,
@@ -1434,7 +1434,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
+  auto const global_tx_timeout = double_seconds{flags::run_time::GetExecutionTimeout()};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -2631,25 +2631,26 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
   MG_ASSERT(isolation_level_query);
 
   const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
+  MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw IsolationLevelModificationInAnalyticsException();
+  }
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+      isolation_level != storage::IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw IsolationLevelModificationInDiskTransactionalException();
+  }
 
   std::function<void()> callback;
   switch (isolation_level_query->isolation_level_scope_) {
-    case IsolationLevelQuery::IsolationLevelScope::GLOBAL:  // TODO:.....not GLOBAL is it?!
-    {
-      MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
-      storage::Storage *storage = current_db.db_acc_->get()->storage();
+    case IsolationLevelQuery::IsolationLevelScope::GLOBAL: {
       callback = [storage, isolation_level] {
-        if (auto maybe_error = storage->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
-              throw IsolationLevelModificationInAnalyticsException();
-              break;
-          }
+        if (auto res = storage->SetIsolationLevel(isolation_level); res.HasError()) {
+          throw utils::BasicException("Failed setting global isolation level");
         }
       };
       break;
     }
-
     case IsolationLevelQuery::IsolationLevelScope::SESSION: {
       callback = [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       break;
@@ -3935,7 +3936,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -4049,9 +4050,9 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory,
-                        flags::run_time::execution_timeout_sec_, &interpreter_context_->is_shutting_down,
-                        &transaction_status_, *trigger_context, interpreter_context_->auth_checker);
+        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory, flags::run_time::GetExecutionTimeout(),
+                        &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
+                        interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
