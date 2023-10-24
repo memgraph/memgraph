@@ -746,7 +746,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       could_replicate_all_sync_replicas =
           mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-      MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
       transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
       // Replica can only update the last commit timestamp with
       // the commits received from main.
@@ -777,8 +776,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       auto validation_result = storage_->constraints_.existence_constraints_->Validate(*prev.vertex);
       if (validation_result) {
         Abort();
-        // We didn't actually commit
-        commit_timestamp_.reset();
+        DMG_ASSERT(!commit_timestamp_.has_value());
         return StorageManipulationError{*validation_result};
       }
     }
@@ -861,8 +859,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     if (unique_constraint_violation) {
       Abort();
-      // We didn't actually commit
-      commit_timestamp_.reset();
+      DMG_ASSERT(commit_timestamp_.has_value());
+      commit_timestamp_.reset();  // We have aborted, hence we have not committed
       return StorageManipulationError{*unique_constraint_violation};
     }
   }
@@ -1335,7 +1333,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
-    auto const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
+    auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
     auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
 
     // only process those that are no longer active
