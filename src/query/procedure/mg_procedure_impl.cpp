@@ -1560,6 +1560,10 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       result);
 }
 
+mgp_error mgp_result_delete_last_record(mgp_result *res) {
+  return WrapExceptions([res] { res->rows.pop_back(); });
+}
+
 mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   return WrapExceptions([=] {
     auto *memory = record->values.get_allocator().GetMemoryResource();
