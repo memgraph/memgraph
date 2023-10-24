@@ -31,8 +31,6 @@ namespace memgraph::storage {
 
 class InMemoryStorage;
 
-using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
-
 auto ReplicationStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
   return {config.durability.storage_directory};
@@ -130,7 +128,6 @@ void Storage::Accessor::AdvanceCommand() {
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
-  OOMExceptionEnabler oom_exception;
   /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
   /// Loading edges is done through VertexAccessor so we do it here.
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -174,7 +171,6 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
-  OOMExceptionEnabler oom_exception;
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
@@ -206,7 +202,6 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
 }
 
 Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
-  OOMExceptionEnabler oom_exception;
   auto res = DetachDelete({}, {edge}, false);
 
   if (res.HasError()) {
@@ -232,7 +227,6 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
-  OOMExceptionEnabler oom_exception;
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     for (const auto *vertex : nodes) {
@@ -290,7 +284,6 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
 Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDeletableNodes(
     const std::vector<VertexAccessor *> &vertices) {
-  OOMExceptionEnabler oom_exception;
   // Some of the vertices could be already deleted in the system so we need to check
   std::unordered_set<Vertex *> nodes_to_delete{};
   for (const auto &vertex : vertices) {
@@ -318,7 +311,6 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
 EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                                              const std::vector<EdgeAccessor *> &edges,
                                                              bool detach) noexcept {
-  OOMExceptionEnabler oom_exception;
   std::unordered_set<Vertex *> partial_src_vertices;
   std::unordered_set<Vertex *> partial_dest_vertices;
   std::unordered_set<Gid> src_edge_ids;
@@ -379,7 +371,6 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(
     const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids) {
-  OOMExceptionEnabler oom_exception;
   // We want to gather all edges that we delete in this step so that we can proceed with
   // further deletion
   using ReturnType = std::vector<EdgeAccessor>;
@@ -445,7 +436,6 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemainingEdges(
     EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids) {
-  OOMExceptionEnabler oom_exception;
   using ReturnType = std::vector<EdgeAccessor>;
   std::vector<EdgeAccessor> deleted_edges{};
 
@@ -513,7 +503,6 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 }
 
 Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const std::unordered_set<Vertex *> &vertices) {
-  OOMExceptionEnabler oom_exception;
   std::vector<VertexAccessor> deleted_vertices;
   deleted_vertices.reserve(vertices.size());
 
@@ -538,7 +527,6 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
 }
 
 void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
-  OOMExceptionEnabler oom_exception;
   if (!edge->deleted) {
     CreateAndLinkDelta(&transaction_, edge, Delta::RecreateObjectTag());
     edge->deleted = true;
