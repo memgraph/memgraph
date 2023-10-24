@@ -69,5 +69,6 @@ add_subdirectory(transaction_rollback)
 add_subdirectory(query_modules)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
+copy_e2e_python_files(x x.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.key DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

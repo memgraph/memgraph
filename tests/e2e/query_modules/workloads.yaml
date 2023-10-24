@@ -23,7 +23,8 @@ disk_cluster: &disk_cluster
 
 workloads:
   - name: "Convert query module test"
+    presetworkload: "tests/e2e/x.sh"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/query_modules/procedures/"
+    proc: "query_modules/"
     args: ["query_modules/query_modules.py"]
     <<: *in_memory_cluster

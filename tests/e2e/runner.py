@@ -56,6 +56,10 @@ def run(args):
         def cleanup():
             interactive_mg_runner.stop_all()
 
+        if "presetworkload" in workload:
+            binary = os.path.join(BUILD_DIR, workload["presetworkload"])
+            subprocess.run([binary], check=True, stderr=subprocess.STDOUT)
+
         if "cluster" in workload:
             procdir = ""
             if "proc" in workload:
