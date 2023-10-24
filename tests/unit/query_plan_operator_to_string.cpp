@@ -310,7 +310,7 @@ TYPED_TEST(OperatorToStringTest, EdgeUniquenessFilter) {
                                      std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
-  std::string expected_string{"EdgeUniquenessFilter"};
+  std::string expected_string{"EdgeUniquenessFilter {edge1 : edge2}"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
