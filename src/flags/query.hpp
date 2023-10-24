@@ -10,12 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/bolt.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/storage_mode.hpp"
+#include "gflags/gflags.h"
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// DECLARE_bool(cartesian_product_enabled);  Moved to run_time_configurable
