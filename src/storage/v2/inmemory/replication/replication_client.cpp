@@ -44,7 +44,7 @@ class CurrentWalHandler {
 
 ////// CurrentWalHandler //////
 CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<replication::CurrentWalRpc>()) {}
+    : self_(self), stream_(self_->rpc_client_.Stream<replication::CurrentWalRpc>(self->GetStorageId())) {}
 
 void CurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
@@ -70,9 +70,10 @@ replication::CurrentWalRes CurrentWalHandler::Finalize() { return stream_.AwaitR
 
 ////// ReplicationClient Helpers //////
 
-replication::WalFilesRes TransferWalFiles(rpc::Client &client, const std::vector<std::filesystem::path> &wal_files) {
+replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &client,
+                                          const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
-  auto stream = client.Stream<replication::WalFilesRpc>(wal_files.size());
+  auto stream = client.Stream<replication::WalFilesRpc>(std::move(db_name), wal_files.size());
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     spdlog::debug("Sending wal file: {}", wal);
@@ -81,8 +82,8 @@ replication::WalFilesRes TransferWalFiles(rpc::Client &client, const std::vector
   return stream.AwaitResponse();
 }
 
-replication::SnapshotRes TransferSnapshot(rpc::Client &client, const std::filesystem::path &path) {
-  auto stream = client.Stream<replication::SnapshotRpc>();
+replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &client, const std::filesystem::path &path) {
+  auto stream = client.Stream<replication::SnapshotRpc>(std::move(db_name));
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
@@ -123,11 +124,11 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
               using StepType = std::remove_cvref_t<T>;
               if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {
                 spdlog::debug("Sending the latest snapshot file: {}", arg);
-                auto response = TransferSnapshot(rpc_client_, arg);
+                auto response = TransferSnapshot(storage->id(), rpc_client_, arg);
                 replica_commit = response.current_commit_timestamp;
               } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {
                 spdlog::debug("Sending the latest wal files");
-                auto response = TransferWalFiles(rpc_client_, arg);
+                auto response = TransferWalFiles(storage->id(), rpc_client_, arg);
                 replica_commit = response.current_commit_timestamp;
                 spdlog::debug("Wal files successfully transferred.");
               } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {

@@ -67,7 +67,7 @@ InMemoryReplicationServer::InMemoryReplicationServer(InMemoryStorage *storage,
 void InMemoryReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load(),
+  replication::HeartbeatRes res{storage_->id(), true, storage_->repl_storage_state_.last_commit_timestamp_.load(),
                                 std::string{replica_epoch_->id()}};
   slk::Save(res, res_builder);
 }
@@ -111,7 +111,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
           delta.type, durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    replication::AppendDeltasRes res{false, repl_storage_state.last_commit_timestamp_.load()};
+    replication::AppendDeltasRes res{storage_->id(), false, repl_storage_state.last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -119,7 +119,7 @@ void InMemoryReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk
   ReadAndApplyDelta(storage_, &decoder,
                     durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  replication::AppendDeltasRes res{true, repl_storage_state.last_commit_timestamp_.load()};
+  replication::AppendDeltasRes res{storage_->id(), true, repl_storage_state.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -169,7 +169,7 @@ void InMemoryReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bu
   }
   storage_guard.unlock();
 
-  replication::SnapshotRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
+  replication::SnapshotRes res{storage_->id(), true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
@@ -210,7 +210,7 @@ void InMemoryReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Bu
     LoadWal(storage_, replica_epoch_, &decoder);
   }
 
-  replication::WalFilesRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
+  replication::WalFilesRes res{storage_->id(), true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
@@ -225,7 +225,7 @@ void InMemoryReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::
 
   LoadWal(storage_, replica_epoch_, &decoder);
 
-  replication::CurrentWalRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
+  replication::CurrentWalRes res{storage_->id(), true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
@@ -281,7 +281,7 @@ void InMemoryReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::B
   replication::TimestampReq req;
   slk::Load(&req, req_reader);
 
-  replication::TimestampRes res{true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
+  replication::TimestampRes res{storage_->id(), true, storage_->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 

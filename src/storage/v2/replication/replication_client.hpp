@@ -86,6 +86,8 @@ class ReplicationClient {
   auto State() const -> replication::ReplicaState { return replica_state_.load(); }
   auto GetTimestampInfo() -> TimestampInfo;
 
+  auto GetStorageId() const -> std::string;
+
   void Start();
   void StartTransactionReplication(const uint64_t current_wal_seq_num);
   // Replication clients can be removed at any point
