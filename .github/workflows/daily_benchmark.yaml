@@ -73,6 +73,8 @@ jobs:
 
           ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_high_write_set_property.json high_write_set_property
 
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results cartesian.json cartesian
+
       - name: Upload mgbench results
         run: |
           cd tools/bench-graph-client
@@ -93,6 +95,12 @@ jobs:
 
           ./main.py --benchmark-name "high_write_set_property" \
                     --benchmark-results-path "../../tests/mgbench/benchmark_high_write_set_property.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
+
+          ./main.py --benchmark-name "cartesian" \
+                    --benchmark-results-path "../../tests/mgbench/cartesian.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
