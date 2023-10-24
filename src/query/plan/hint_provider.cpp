@@ -15,6 +15,7 @@ namespace memgraph::query::plan {
 
 std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table) {
   PlanHintsProvider plan_hinter(symbol_table);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   const_cast<LogicalOperator *>(plan_root)->Accept(plan_hinter);
 
   return plan_hinter.hints();
