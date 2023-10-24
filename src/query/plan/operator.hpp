@@ -1538,6 +1538,12 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  std::string ToString() const override {
+    return fmt::format("EdgeUniquenessFilter {{{0} : {1}}}",
+                       utils::IterableToString(previous_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       expand_symbol_.name());
+  }
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol expand_symbol_;
   std::vector<Symbol> previous_symbols_;
@@ -2486,7 +2492,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
 
   IndexedJoin() {}
 
-  IndexedJoin(std::shared_ptr<LogicalOperator> left, std::shared_ptr<LogicalOperator> right);
+  IndexedJoin(std::shared_ptr<LogicalOperator> main_branch, std::shared_ptr<LogicalOperator> sub_branch);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource * /*unused*/) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable & /*unused*/) const override;
@@ -2495,13 +2501,13 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override;
   void set_input(std::shared_ptr<LogicalOperator> /*unused*/) override;
 
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> left_;
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> right_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> main_branch_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> sub_branch_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<IndexedJoin>();
-    object->left_ = left_ ? left_->Clone(storage) : nullptr;
-    object->right_ = right_ ? right_->Clone(storage) : nullptr;
+    object->main_branch_ = main_branch_ ? main_branch_->Clone(storage) : nullptr;
+    object->sub_branch_ = sub_branch_ ? sub_branch_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -2515,8 +2521,8 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
 
    private:
     const IndexedJoin &self_;
-    UniqueCursorPtr left_;
-    UniqueCursorPtr right_;
+    UniqueCursorPtr main_branch_;
+    UniqueCursorPtr sub_branch_;
     bool pull_input_{true};
   };
 };

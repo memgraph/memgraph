@@ -188,11 +188,7 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* EdgeUniquenessFilter [";
-    utils::PrintIterable(out, op.previous_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << " != " << op.expand_symbol_.name() << "]";
-  });
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -205,8 +201,8 @@ bool PlanPrinter::PreVisit(query::plan::Apply &op) {
 
 bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
   WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
-  Branch(*op.right_);
-  op.left_->Accept(*this);
+  Branch(*op.sub_branch_);
+  op.main_branch_->Accept(*this);
   return false;
 }
 #undef PRE_VISIT
@@ -940,10 +936,10 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
   json self;
   self["name"] = "IndexedJoin";
 
-  op.left_->Accept(*this);
+  op.main_branch_->Accept(*this);
   self["left"] = PopOutput();
 
-  op.right_->Accept(*this);
+  op.sub_branch_->Accept(*this);
   self["right"] = PopOutput();
 
   output_ = std::move(self);

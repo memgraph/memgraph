@@ -529,7 +529,7 @@ class RuleBasedPlanner {
         starting_expansion_operator = std::move(last_op);
         initial_expansion_done = true;
       }
-      std::vector<Symbol> starting_symbols{};
+      std::vector<Symbol> starting_symbols;
       if (starting_expansion_operator) {
         starting_symbols = starting_expansion_operator->ModifiedSymbols(symbol_table);
       }

@@ -125,8 +125,7 @@ void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &match
 
   // By the time we finished assigning expansions, no expansion should have its expansion group ID unassigned
   for (const auto &expansion : matching.expansions) {
-    MG_ASSERT(expansion.expansion_group_id.AsInt() != -1,
-              "Expansion expansion group ID is not assigned to the pattern!");
+    MG_ASSERT(expansion.expansion_group_id.AsInt() != -1, "Expansion group ID is not assigned to the pattern!");
   }
 }
 

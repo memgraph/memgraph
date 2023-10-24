@@ -5161,14 +5161,15 @@ void Apply::ApplyCursor::Reset() {
   pull_input_ = true;
 }
 
-IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> left, const std::shared_ptr<LogicalOperator> right)
-    : left_(left ? left : std::make_shared<Once>()), right_(right) {}
+IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,
+                         const std::shared_ptr<LogicalOperator> sub_branch)
+    : main_branch_(main_branch ? main_branch : std::make_shared<Once>()), sub_branch_(sub_branch) {}
 
 WITHOUT_SINGLE_INPUT(IndexedJoin);
 
 bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    left_->Accept(visitor) && right_->Accept(visitor);
+    main_branch_->Accept(visitor) && sub_branch_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }
@@ -5180,14 +5181,14 @@ UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
-    : self_(self), left_(self.left_->MakeCursor(mem)), right_(self.right_->MakeCursor(mem)) {}
+    : self_(self), main_branch_(self.main_branch_->MakeCursor(mem)), sub_branch_(self.sub_branch_->MakeCursor(mem)) {}
 
 std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
   // Since Apply is the Cartesian product, modified symbols are combined from
   // both execution branches.
-  auto symbols = left_->ModifiedSymbols(table);
-  auto subquery_symbols = right_->ModifiedSymbols(table);
-  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  auto symbols = main_branch_->ModifiedSymbols(table);
+  auto sub_branch_symbols = sub_branch_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), sub_branch_symbols.begin(), sub_branch_symbols.end());
   return symbols;
 }
 
@@ -5195,11 +5196,11 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
   SCOPED_PROFILE_OP("IndexedJoin");
 
   while (true) {
-    if (pull_input_ && !left_->Pull(frame, context)) {
+    if (pull_input_ && !main_branch_->Pull(frame, context)) {
       return false;
     };
 
-    if (right_->Pull(frame, context)) {
+    if (sub_branch_->Pull(frame, context)) {
       // if successful, next Pull from this should not pull_input_
       pull_input_ = false;
       return true;
@@ -5207,18 +5208,18 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
     // failed to pull from subquery cursor
     // skip that row
     pull_input_ = true;
-    right_->Reset();
+    sub_branch_->Reset();
   }
 }
 
 void IndexedJoin::IndexedJoinCursor::Shutdown() {
-  left_->Shutdown();
-  right_->Shutdown();
+  main_branch_->Shutdown();
+  sub_branch_->Shutdown();
 }
 
 void IndexedJoin::IndexedJoinCursor::Reset() {
-  left_->Reset();
-  right_->Reset();
+  main_branch_->Reset();
+  sub_branch_->Reset();
   pull_input_ = true;
 }
 
