@@ -47,31 +47,26 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        deltas(1024UL),
+        deltas(0),
         md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
-        edge_import_mode_active(edge_import_mode_active) {}
+        edge_import_mode_active(edge_import_mode_active),
+        vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
+                      ? std::optional<utils::SkipList<Vertex>>{std::in_place}
+                      : std::nullopt},
+        edges_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
+                   ? std::optional<utils::SkipList<Edge>>{std::in_place}
+                   : std::nullopt} {}
 
-  Transaction(Transaction &&other) noexcept
-      : transaction_id(other.transaction_id),
-        start_timestamp(other.start_timestamp),
-        commit_timestamp(std::move(other.commit_timestamp)),
-        command_id(other.command_id),
-        deltas(std::move(other.deltas)),
-        md_deltas(std::move(other.md_deltas)),
-        must_abort(other.must_abort),
-        isolation_level(other.isolation_level),
-        storage_mode(other.storage_mode),
-        edge_import_mode_active(other.edge_import_mode_active),
-        manyDeltasCache{std::move(other.manyDeltasCache)} {}
+  Transaction(Transaction &&other) noexcept = default;
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
-  Transaction &operator=(Transaction &&other) = delete;
+  Transaction &operator=(Transaction &&other) = default;
 
-  ~Transaction() {}
+  ~Transaction() = default;
 
   bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
 
@@ -87,42 +82,42 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
-  uint64_t transaction_id;
-  uint64_t start_timestamp;
+  uint64_t transaction_id{};
+  uint64_t start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
   // `commited_transactions_` list for GC.
-  std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
-  uint64_t command_id;
+  std::unique_ptr<std::atomic<uint64_t>> commit_timestamp{};
+  uint64_t command_id{};
 
   Bond<PmrListDelta> deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
-  bool must_abort;
-  IsolationLevel isolation_level;
-  StorageMode storage_mode;
+  bool must_abort{};
+  IsolationLevel isolation_level{};
+  StorageMode storage_mode{};
   bool edge_import_mode_active{false};
 
   // A cache which is consistent to the current transaction_id + command_id.
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
-  mutable VertexInfoCache manyDeltasCache;
-  mutable ConstraintVerificationInfo constraint_verification_info;
+  mutable VertexInfoCache manyDeltasCache{};
+  mutable ConstraintVerificationInfo constraint_verification_info{};
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
-  ModifiedEdgesMap modified_edges_;
-  rocksdb::Transaction *disk_transaction_;
+  ModifiedEdgesMap modified_edges_{};
+  rocksdb::Transaction *disk_transaction_{};
   /// Main storage
-  utils::SkipList<Vertex> vertices_;
-  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_;
+  std::optional<utils::SkipList<Vertex>> vertices_{};
+  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_{};
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done
-  std::vector<std::list<Delta>> index_deltas_storage_;
-  utils::SkipList<Edge> edges_;
-  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_;
-  std::map<std::string, std::string> vertices_to_delete_;
+  std::vector<std::list<Delta>> index_deltas_storage_{};
+  std::optional<utils::SkipList<Edge>> edges_{};
+  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_{};
+  std::map<std::string, std::string> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
 };
 
