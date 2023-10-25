@@ -848,7 +848,6 @@ EdgeImportMode DiskStorage::GetEdgeImportMode() const {
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = transaction_.vertices_->access();
@@ -911,7 +910,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
-  OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1296,7 +1294,6 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
 VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
                                                  storage::Gid gid, std::vector<LabelId> label_ids,
                                                  PropertyStore properties, Delta *delta) {
-  OOMExceptionEnabler oom_exception;
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -1342,7 +1339,6 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
                                                             Transaction *transaction, EdgeTypeId edge_type,
                                                             storage::Gid gid, const std::string_view properties,
                                                             const std::string &old_disk_key, std::string &&read_ts) {
-  OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
