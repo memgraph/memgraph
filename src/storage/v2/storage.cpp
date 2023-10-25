@@ -111,10 +111,6 @@ IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_le
 
 utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
-  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
-  }
-
   isolation_level_ = isolation_level;
   return {};
 }
@@ -358,6 +354,9 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
 
   // also add edges which we want to delete from the query
   for (const auto &edge_accessor : edges) {
+    if (edge_accessor->from_vertex_->deleted || edge_accessor->to_vertex_->deleted) {
+      continue;
+    }
     partial_src_vertices.insert(edge_accessor->from_vertex_);
     partial_dest_vertices.insert(edge_accessor->to_vertex_);
 

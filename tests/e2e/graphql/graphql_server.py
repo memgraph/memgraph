@@ -21,6 +21,7 @@ class GraphQLServer:
         self.__wait_process_to_init(7687)
         self.__wait_process_to_init(4000)
         atexit.register(self.__shut_down)
+        print(f"GraphQLServer started")
 
     def send_query(self, query: str, timeout=5.0) -> requests.Response:
         try:

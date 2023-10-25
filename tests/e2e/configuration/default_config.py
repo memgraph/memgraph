@@ -56,8 +56,8 @@ startup_config_dict = {
     ),
     "bolt_port": ("7687", "7687", "Port on which the Bolt server should listen."),
     "bolt_server_name_for_init": (
-        "",
-        "",
+        "Neo4j/v5.11.0 compatible graph database server - Memgraph",
+        "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
     "bolt_session_inactivity_timeout": (
@@ -65,6 +65,7 @@ startup_config_dict = {
         "1800",
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
+    "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
@@ -117,8 +118,8 @@ startup_config_dict = {
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
-        "-1",
-        "-1",
+        "600",
+        "600",
         "Maximum allowed query execution time. Queries exceeding this limit will be aborted. Value of 0 means no limit.",
     ),
     "query_modules_directory": (

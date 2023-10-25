@@ -22,6 +22,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
+#include "query/plan/rewrite/join.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -49,8 +50,10 @@ class PostProcessor final {
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    return RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db,
-                                  index_hints_);
+    auto index_lookup_plan =
+        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
+    return RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage,
+                                   context->db);
   }
 
   template <class TVertexCounts>
