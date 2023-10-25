@@ -34,9 +34,14 @@ namespace memgraph::query::plan {
 
 namespace impl {
 
+struct ExpressionRemovalResult {
+  Expression *trimmed_expression;
+  bool did_remove{false};
+};
+
 // Return the new root expression after removing the given expressions from the
 // given expression tree.
-Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
+ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
@@ -61,10 +66,31 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
-    op.expression_ = RemoveAndExpressions(op.expression_, filter_exprs_for_removal_);
-    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    op.expression_ = removal.trimmed_expression;
+
+    // edge uniqueness filter comes always before filter in plan generation
+    LogicalOperator *input = op.input().get();
+    LogicalOperator *parent = &op;
+    while (input->GetTypeInfo() == EdgeUniquenessFilter::kType) {
+      parent = input;
+      input = input->input().get();
+    }
+    bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+
+    if (is_child_cartesian && removal.did_remove) {
+      // if we removed something from filter in front of a Cartesian, then we are doing a join from
+      // 2 different branches
+      auto *cartesian = dynamic_cast<Cartesian *>(input);
+      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
+      parent->set_input(indexed_join);
+    }
+
+    if (!op.expression_) {
+      // if we emptied all the expressions from the filter, then we don't need this operator anymore
       SetOnParent(op.input());
     }
+
     return true;
   }
 
@@ -183,11 +209,33 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
     RewriteBranch(&op.left_op_);
-    RewriteBranch(&op.right_op_);
+
+    // we add the symbols that we encountered in the left part of the cartesian
+    // the reason for that is that in right part of the cartesian, we could be
+    // possibly using an indexed operation instead of a scan all
+    additional_bound_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
+    op.right_op_->Accept(*this);
+
     return false;
   }
 
   bool PostVisit(Cartesian &) override {
+    prev_ops_.pop_back();
+
+    // clear cartesian symbols as we exited the cartesian operator
+    additional_bound_symbols_.clear();
+
+    return true;
+  }
+
+  bool PreVisit(IndexedJoin &op) override {
+    prev_ops_.push_back(&op);
+    RewriteBranch(&op.main_branch_);
+    RewriteBranch(&op.sub_branch_);
+    return false;
+  }
+
+  bool PostVisit(IndexedJoin & /*unused*/) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -488,6 +536,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
 
+  // additional symbols that are present from other non-main branches but have influence on indexing
+  std::unordered_set<Symbol> additional_bound_symbols_;
+
   struct LabelPropertyIndex {
     LabelIx label;
     // FilterInfo with PropertyFilter.
@@ -505,7 +556,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       new_root_ = input;
       return;
     }
-    prev_ops_.back()->set_input(input);
+
+    auto *parent = prev_ops_.back();
+    if (parent->HasSingleInput()) {
+      parent->set_input(input);
+      return;
+    }
+
+    if (parent->GetTypeInfo() == Cartesian::kType) {
+      auto *parent_cartesian = dynamic_cast<Cartesian *>(parent);
+      parent_cartesian->right_op_ = input;
+      parent_cartesian->right_symbols_ = input->ModifiedSymbols(*symbol_table_);
+      return;
+    }
+
+    // if we're sure that we want to set on parent, this should never happen
+    LOG_FATAL("Error during index rewriting of the query!");
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
@@ -535,10 +601,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
-  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
-  // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
-  // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
-  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
+  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average
+  // group size based on key distribution. If average group size is equal, choose the index that has distribution
+  // closer to uniform distribution. Conditions based on average group size and key distribution can be only taken
+  // into account if the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
                                                                const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -551,10 +617,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     };
 
     /*
-     * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be better.
-     * If it is <= 10x in number of vertices, check average group size of property values. The index with smaller
-     * average group size is better. If the average group size is the same, choose the one closer to the uniform
-     * distribution
+     * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be
+     * better. If it is <= 10x in number of vertices, check average group size of property values. The index with
+     * smaller average group size is better. If the average group size is the same, choose the one closer to the
+     * uniform distribution
      * @param found: Current best label-property index.
      * @param new_stats: Label-property index candidate.
      * @param vertex_count: New index's number of vertices.
@@ -633,8 +699,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
+
     const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
+
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+    bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());
+
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {

@@ -45,8 +45,8 @@ class PropertyValue;
  * - only for View::OLD
  */
 struct VertexInfoCache final {
-  VertexInfoCache();
-  ~VertexInfoCache();
+  VertexInfoCache() = default;
+  ~VertexInfoCache() = default;
 
   // By design would be a mistake to copy the cache
   VertexInfoCache(VertexInfoCache const &) = delete;

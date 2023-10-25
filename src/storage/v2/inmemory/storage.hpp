@@ -183,6 +183,8 @@ class InMemoryStorage final : public Storage {
 
     Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
 
+    Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) override;
+
     bool LabelIndexExists(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);
     }
@@ -409,21 +411,31 @@ class InMemoryStorage final : public Storage {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
   using BondPmrLd = Bond<utils::pmr::list<Delta>>;
-  // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
-  utils::Synchronized<std::list<std::pair<uint64_t, BondPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
+  struct GCDeltas {
+    GCDeltas(uint64_t mark_timestamp, BondPmrLd deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
+        : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
+
+    GCDeltas(GCDeltas &&) = default;
+    GCDeltas &operator=(GCDeltas &&) = default;
+
+    uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
+    BondPmrLd deltas_;                                           //!< the deltas that need cleaning
+    std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
+  };
+
+  // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
+
+  // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> garbage_undo_buffers_{};
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
-
-  // Vertices that are logically deleted and removed from indices and now wait
-  // to be removed from the main storage.
-  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
