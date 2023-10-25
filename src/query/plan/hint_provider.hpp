@@ -194,6 +194,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(HashJoin & /*unused*/) override { return true; }
   bool PostVisit(HashJoin & /*unused*/) override { return true; }
 
+  bool PreVisit(IndexedJoin & /*unused*/) override { return true; }
+  bool PostVisit(IndexedJoin & /*unused*/) override { return true; }
+
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
