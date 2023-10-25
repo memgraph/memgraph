@@ -141,29 +141,20 @@ guide](https://memgraph.com/docs/memgraph/reference-guide/configuration).
 
 ## :trophy: Contributing
 
-The main purpose of this repository is to continue evolving Memgraph, making it
-faster and easier to use. Development of Memgraph happens in the open on GitHub,
-and we are grateful to the community for contributing bug fixes and
-improvements. Read below to learn how you can take part in improving Memgraph.
+Welcome to the heart of Memgraph development! We're on a mission to supercharge Memgraph, making it faster, more user-friendly, and even more powerful. We owe a big thanks to our fantastic community of contributors who help us fix bugs and bring incredible improvements to life. If you're passionate about databases and open source, here's your chance to make a difference!
+
+### Explore Memgraph Internals
+
+Interested in the nuts and bolts of Memgraph? Our [internals documentation](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2) is where you can uncover the inner workings of Memgraph's architecture, learn how to build the project from scratch, and discover the secrets of effective contributions. Dive deep into the database!
+
+### Dive into the Contributing Guide
+Ready to jump into the action? Explore our [contributing guide](CONTRIBUTING.md) to get the inside scoop on how we develop Memgraph. It's your roadmap for suggesting bug fixes and enhancements. Contribute your skills and ideas!
 
 ### Code of Conduct
 
-Memgraph has adopted a Code of Conduct that we expect project participants to
-adhere to. Please read [the full text](CODE_OF_CONDUCT.md) so that you can
-understand what actions will and will not be tolerated.
+Our commitment to a respectful and professional community is unwavering. Every participant in Memgraph is expected to adhere to a stringent Code of Conduct. Please carefully review [the complete text](CODE_OF_CONDUCT.md) to gain a comprehensive understanding of the behaviors that are both expected and explicitly prohibited.
 
-### Contributing Guide
-
-Read our [contributing guide](CONTRIBUTING.md) to learn about our development
-process and how to propose bug fixes and improvements.
-
-### Internals
-
-Read our
-[internal](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
-docs to learn more about Memgraph's architecture, how to build the project from
-source and how to start contributing. All information related to the database,
-can be found in the aforementioned docs.
+We maintain a zero-tolerance policy towards any violations. Our shared commitment to this Code of Conduct ensures that Memgraph remains a place where integrity and excellence are paramount.
 
 ### :scroll: License
 

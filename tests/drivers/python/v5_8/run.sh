@@ -26,3 +26,4 @@ python3 max_query_length.py || exit 1
 python3 transactions.py || exit 1
 python3 path.py || exit 1
 python3 server_name.py || exit 1
+# python3 parallel_edge_import.py || exit 1
