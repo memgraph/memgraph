@@ -411,10 +411,10 @@ def test_multiple_match_query(memgraph):
         " * Produce {n, m}",
         " * Cartesian {m : n}",
         " |\\ ",
-        " | * Filter ",
+        " | * Filter",
         " | * ScanAllByLabel (n :Label1)",
         " | * Once",
-        " * Filter ",
+        " * Filter",
         " * ScanAllByLabel (m :Label2)",
         " * Once",
     ]
