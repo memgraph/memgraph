@@ -629,6 +629,28 @@ class FakeDbAccessor {
     label_property_index_.emplace_back(label, property, count);
   }
 
+  void SetConstraintCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
+    for (auto &constraint : unique_constraints_) {
+      if (std::get<0>(constraint) != label) {
+        continue;
+      }
+      auto const &props = std::get<1>(constraint);
+      if (props.size() != 1) {
+        continue;
+      }
+
+      if (props[0] != property) {
+        continue;
+      }
+
+      std::get<2>(constraint) = count;
+      return;
+    }
+
+    std::vector<memgraph::storage::PropertyId> props{property};
+    unique_constraints_.emplace_back(label, props, count);
+  }
+
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
