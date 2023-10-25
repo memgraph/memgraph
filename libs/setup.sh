@@ -125,6 +125,7 @@ declare -A primary_urls=(
   ["ctre"]="http://$local_cache_host/file/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
   ["absl"]="https://$local_cache_host/git/abseil-cpp.git"
   ["jemalloc"]="https://$local_cache_host/git/jemalloc.git"
+  ["range-v3"]="https://$local_cache_host/git/ericniebler/range-v3.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -153,6 +154,7 @@ declare -A secondary_urls=(
   ["ctre"]="https://raw.githubusercontent.com/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
   ["absl"]="https://github.com/abseil/abseil-cpp.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
+  ["range-v3"]="https://github.com/ericniebler/range-v3.git"
 )
 
 # antlr
@@ -255,7 +257,6 @@ cd ..
 absl_ref="20230125.3"
 repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
 
-
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
 JEMALLOC_COMMIT_VERSION="5.2.1"
 repo_clone_try_double "${secondary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
@@ -272,3 +273,7 @@ MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_m
 
 make -j$CPUS install
 popd
+
+#range-v3 release-0.12.0
+range_v3_ref="release-0.12.0"
+repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"

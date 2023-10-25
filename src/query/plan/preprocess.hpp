@@ -102,6 +102,36 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool in_exists{false};
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PREPROCESS_DEFINE_ID_TYPE(name)                                                                         \
+  class name final {                                                                                            \
+   private:                                                                                                     \
+    explicit name(uint64_t id) : id_(id) {}                                                                     \
+                                                                                                                \
+   public:                                                                                                      \
+    /* Default constructor to allow serialization or preallocation. */                                          \
+    name() = default;                                                                                           \
+                                                                                                                \
+    static name FromUint(uint64_t id) { return name(id); }                                                      \
+    static name FromInt(int64_t id) { return name(utils::MemcpyCast<uint64_t>(id)); }                           \
+    uint64_t AsUint() const { return id_; }                                                                     \
+    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                           \
+                                                                                                                \
+   private:                                                                                                     \
+    uint64_t id_;                                                                                               \
+  };                                                                                                            \
+  static_assert(std::is_trivially_copyable<name>::value, "query::plan::" #name " must be trivially copyable!"); \
+  inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); }   \
+  inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); }   \
+  inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }     \
+  inline bool operator>(const name &first, const name &second) { return first.AsUint() > second.AsUint(); }     \
+  inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); }   \
+  inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
+
+PREPROCESS_DEFINE_ID_TYPE(ExpansionGroupId);
+
+#undef STORAGE_DEFINE_ID_TYPE
+
 /// Normalized representation of a pattern that needs to be matched.
 struct Expansion {
   /// The first node in the expansion, it can be a single node.
@@ -118,6 +148,8 @@ struct Expansion {
   /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
+  // ExpansionGroupId represents a distinct part of the matching which is not tied to any other symbols.
+  ExpansionGroupId expansion_group_id = ExpansionGroupId();
 };
 
 struct FilterMatching;
@@ -314,6 +346,17 @@ class Filters final {
     return labels;
   }
 
+  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
+    std::unordered_set<PropertyIx> properties;
+
+    for (const auto &filter : all_filters_) {
+      if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+        properties.insert(filter.property_filter->property_);
+      }
+    }
+    return properties;
+  }
+
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
   /// FilterInfo objects using the same original expression are removed.
@@ -394,6 +437,10 @@ struct Matching {
   Filters filters;
   /// Maps node symbols to expansions which bind them.
   std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
+  /// Tracker of the total number of expansion groups for correct assigning of expansion group IDs
+  size_t number_of_expansion_groups{0};
+  /// Maps every node symbol to its expansion group ID
+  std::unordered_map<Symbol, ExpansionGroupId> node_symbol_to_expansion_group_id{};
   /// Maps named path symbols to a vector of Symbols that define its pattern.
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).

@@ -130,6 +130,8 @@ class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
 class Apply;
+class IndexedJoin;
+class HashJoin;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -137,7 +139,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1580,6 +1582,12 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  std::string ToString() const override {
+    return fmt::format("EdgeUniquenessFilter {{{0} : {1}}}",
+                       utils::IterableToString(previous_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       expand_symbol_.name());
+  }
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol expand_symbol_;
   std::vector<Symbol> previous_symbols_;
@@ -2518,6 +2526,97 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     bool pull_input_{true};
     bool subquery_has_return_{true};
   };
+};
+
+/// Applies symbols from both join branches
+class IndexedJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  IndexedJoin() {}
+
+  IndexedJoin(std::shared_ptr<LogicalOperator> main_branch, std::shared_ptr<LogicalOperator> sub_branch);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource * /*unused*/) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable & /*unused*/) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator> /*unused*/) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> main_branch_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> sub_branch_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<IndexedJoin>();
+    object->main_branch_ = main_branch_ ? main_branch_->Clone(storage) : nullptr;
+    object->sub_branch_ = sub_branch_ ? sub_branch_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  class IndexedJoinCursor : public Cursor {
+   public:
+    IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *);
+    bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const IndexedJoin &self_;
+    UniqueCursorPtr main_branch_;
+    UniqueCursorPtr sub_branch_;
+    bool pull_input_{true};
+  };
+};
+
+/// Operator for producing the hash join of two input branches
+class HashJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  HashJoin() {}
+  /** Construct the operator with left input branch and right input branch. */
+  HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::vector<Symbol> &left_symbols,
+           const std::shared_ptr<LogicalOperator> &right_op, const std::vector<Symbol> &right_symbols,
+           EqualOperator *hash_join_condition)
+      : left_op_(left_op),
+        left_symbols_(left_symbols),
+        right_op_(right_op),
+        right_symbols_(right_symbols),
+        hash_join_condition_(hash_join_condition) {}
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> left_op_;
+  std::vector<Symbol> left_symbols_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
+  std::vector<Symbol> right_symbols_;
+  EqualOperator *hash_join_condition_;
+
+  std::string ToString() const override {
+    return fmt::format("HashJoin {{{} : {}}}",
+                       utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<HashJoin>();
+    object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
+    object->left_symbols_ = left_symbols_;
+    object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
+    object->right_symbols_ = right_symbols_;
+    object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
+    return object;
+  }
 };
 
 }  // namespace plan

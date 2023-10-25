@@ -130,6 +130,8 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
+extern const Event IndexedJoinOperator;
+extern const Event HashJoinOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -5167,6 +5169,202 @@ void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
+}
+
+IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,
+                         const std::shared_ptr<LogicalOperator> sub_branch)
+    : main_branch_(main_branch ? main_branch : std::make_shared<Once>()), sub_branch_(sub_branch) {}
+
+WITHOUT_SINGLE_INPUT(IndexedJoin);
+
+bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    main_branch_->Accept(visitor) && sub_branch_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::IndexedJoinOperator);
+
+  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem);
+}
+
+IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
+    : self_(self), main_branch_(self.main_branch_->MakeCursor(mem)), sub_branch_(self.sub_branch_->MakeCursor(mem)) {}
+
+std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = main_branch_->ModifiedSymbols(table);
+  auto sub_branch_symbols = sub_branch_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), sub_branch_symbols.begin(), sub_branch_symbols.end());
+  return symbols;
+}
+
+bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("IndexedJoin");
+
+  while (true) {
+    if (pull_input_ && !main_branch_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (sub_branch_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    sub_branch_->Reset();
+  }
+}
+
+void IndexedJoin::IndexedJoinCursor::Shutdown() {
+  main_branch_->Shutdown();
+  sub_branch_->Shutdown();
+}
+
+void IndexedJoin::IndexedJoinCursor::Reset() {
+  main_branch_->Reset();
+  sub_branch_->Reset();
+  pull_input_ = true;
+}
+
+std::vector<Symbol> HashJoin::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = left_op_->ModifiedSymbols(table);
+  auto right = right_op_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+}
+
+bool HashJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_op_->Accept(visitor) && right_op_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+WITHOUT_SINGLE_INPUT(HashJoin);
+
+namespace {
+
+class HashJoinCursor : public Cursor {
+ public:
+  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
+      : self_(self),
+        left_op_cursor_(self.left_op_->MakeCursor(mem)),
+        right_op_cursor_(self_.right_op_->MakeCursor(mem)),
+        hashtable_(mem),
+        right_op_frame_(mem) {
+    MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
+    MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("HashJoin");
+
+    if (!hash_join_initialized_) {
+      InitializeHashJoin(frame, context);
+      hash_join_initialized_ = true;
+    }
+
+    // If left_op yielded zero results, there is no cartesian product.
+    if (hashtable_.empty()) {
+      return false;
+    }
+
+    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
+      for (const auto &symbol : symbols) {
+        frame[symbol] = restore_from[symbol.position()];
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
+      }
+    };
+
+    if (!common_value_found_) {
+      // Pull from the right_op until there’s a mergeable frame
+      while (true) {
+        auto pulled = right_op_cursor_->Pull(frame, context);
+        if (!pulled) return false;
+
+        // Check if the join value from the pulled frame is shared with any left frames
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::View::OLD);
+        auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        if (hashtable_.contains(right_value)) {
+          // If so, finish pulling for now and proceed to joining the pulled frame
+          right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+          common_value_found_ = true;
+          common_value = right_value;
+          left_op_frame_it_ = hashtable_[common_value].begin();
+          break;
+        }
+      }
+    } else {
+      // Restore the right frame ahead of restoring the left frame
+      restore_frame(self_.right_symbols_, right_op_frame_);
+    }
+
+    restore_frame(self_.left_symbols_, *left_op_frame_it_);
+
+    left_op_frame_it_++;
+    // When all left frames with the common value have been joined, move on to pulling and joining the next right frame
+    if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
+      common_value_found_ = false;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override {
+    left_op_cursor_->Shutdown();
+    right_op_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    left_op_cursor_->Reset();
+    right_op_cursor_->Reset();
+    hashtable_.clear();
+    right_op_frame_.clear();
+    left_op_frame_it_ = {};
+    hash_join_initialized_ = false;
+    common_value_found_ = false;
+  }
+
+ private:
+  void InitializeHashJoin(Frame &frame, ExecutionContext &context) {
+    // Pull all left_op_ frames
+    while (left_op_cursor_->Pull(frame, context)) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      if (left_value.type() != TypedValue::Type::Null) {
+        hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
+      }
+    }
+  }
+
+  const HashJoin &self_;
+  const UniqueCursorPtr left_op_cursor_;
+  const UniqueCursorPtr right_op_cursor_;
+  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
+                            TypedValue::BoolEqual>
+      hashtable_;
+  utils::pmr::vector<TypedValue> right_op_frame_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator left_op_frame_it_;
+  bool hash_join_initialized_{false};
+  bool common_value_found_{false};
+  TypedValue common_value;
+};
+}  // namespace
+
+UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
+  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan
