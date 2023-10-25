@@ -141,7 +141,7 @@ def main():
         suites = yaml.safe_load(f)
 
     # venv used to run the qa engine
-    venv_python = os.path.join(BASE_DIR, "tests", "gql_behave", "ve3", "bin", "python3")
+    venv_python = os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3")
 
     # Temporary directory for suite results
     output_dir = tempfile.TemporaryDirectory()
