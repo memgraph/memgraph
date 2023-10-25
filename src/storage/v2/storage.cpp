@@ -93,18 +93,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-/// Main lock is taken by the caller.
-void Storage::SetStorageMode(StorageMode storage_mode) {
-  std::unique_lock main_guard{main_lock_};
-  MG_ASSERT(
-      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
-      (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
-  if (storage_mode_ != storage_mode) {
-    storage_mode_ = storage_mode;
-    FreeMemory(std::move(main_guard));
-  }
-}
-
 StorageMode Storage::GetStorageMode() const { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }

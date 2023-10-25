@@ -2758,7 +2758,8 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
           "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
     }
 
-    callback = [requested_mode, storage = db_acc->storage()]() -> std::function<void()> {
+    callback = [requested_mode,
+                storage = static_cast<storage::InMemoryStorage *>(db_acc->storage())]() -> std::function<void()> {
       // SetStorageMode will probably be handled at the Database level
       return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();

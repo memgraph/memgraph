@@ -332,6 +332,8 @@ class InMemoryStorage final : public Storage {
   auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
       -> std::unique_ptr<ReplicationServer> override;
 
+  void SetStorageMode(StorageMode storage_mode);
+
   auto GetSnapshotDirectory() const -> std::filesystem::path;
   auto GetWalDirectory() const -> std::filesystem::path;
   auto GetUuid() -> std::string *;

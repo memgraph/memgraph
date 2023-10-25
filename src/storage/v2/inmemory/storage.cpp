@@ -1232,6 +1232,18 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
 }
 
+/// Main lock is taken by the caller.
+void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  MG_ASSERT(
+      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
+      (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
+  if (storage_mode_ != storage_mode) {
+    storage_mode_ = storage_mode;
+    FreeMemory(std::move(main_guard));
+  }
+}
+
 template <bool force>
 void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard) {
   // NOTE: You do not need to consider cleanup of deleted object that occurred in
