@@ -110,10 +110,6 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
             spdlog::warn(
                 utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
             break;
-          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                "https://memgr.ph/durability"));
-            break;
           case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
             spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
             break;
@@ -171,10 +167,6 @@ InMemoryStorage::~InMemoryStorage() {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
-        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                              "https://memgr.ph/replication"));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
@@ -1239,6 +1231,25 @@ void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
   if (storage_mode_ != storage_mode) {
+    if (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      snapshot_runner_.Stop();
+    } else {
+      snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
+        auto const &repl_state = repl_state_;
+        if (auto maybe_error = this->CreateSnapshot(repl_state, {true}); maybe_error.HasError()) {
+          switch (maybe_error.GetError()) {
+            case CreateSnapshotError::DisabledForReplica:
+              spdlog::warn(
+                  utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+              break;
+            case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
+              spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+              break;
+          }
+        }
+      });
+    }
+
     storage_mode_ = storage_mode;
     FreeMemory(std::move(main_guard));
   }
@@ -1967,9 +1978,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     } else {
       std::unique_lock main_guard{main_lock_};
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-        if (is_periodic && *is_periodic) {
-          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
-        }
         snapshot_creator();
         return {};
       }

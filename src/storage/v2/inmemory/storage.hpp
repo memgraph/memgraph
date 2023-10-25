@@ -43,11 +43,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryReplicationClient;
 
  public:
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    DisabledForAnalyticsPeriodicCommit,
-    ReachedMaxNumTries
-  };
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc

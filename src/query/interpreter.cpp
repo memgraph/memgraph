@@ -2827,10 +2827,6 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
-            case storage::InMemoryStorage::CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-              spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                  "https://memgr.ph/replication"));
-              break;
             case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
               spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
               break;
