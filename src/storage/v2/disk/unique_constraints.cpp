@@ -310,16 +310,18 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::Lis
   return {constraints_.begin(), constraints_.end()};
 }
 
-uint64_t DiskUniqueConstraints::ApproximateVertexCount(const LabelId &label, const PropertyId &property) const {
+uint64_t DiskUniqueConstraints::ApproximateVertexCount(const LabelId & /*label*/,
+                                                       const PropertyId & /*property*/) const {
   return 10;
 };
-uint64_t DiskUniqueConstraints::ApproximateVertexCount(const LabelId &label, const PropertyId &property,
-                                                       const PropertyValue &value) const {
+uint64_t DiskUniqueConstraints::ApproximateVertexCount(const LabelId & /*label*/, const PropertyId & /*property*/,
+                                                       const PropertyValue & /*value*/) const {
   return 10;
 };
-uint64_t DiskUniqueConstraints::ApproximateVertexCount(const LabelId &label, const PropertyId &property,
-                                                       const std::optional<utils::Bound<PropertyValue>> &lower,
-                                                       const std::optional<utils::Bound<PropertyValue>> &upper) const {
+uint64_t DiskUniqueConstraints::ApproximateVertexCount(
+    const LabelId & /*label*/, const PropertyId & /*property*/,
+    const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
+    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
   return 10;
 };
 

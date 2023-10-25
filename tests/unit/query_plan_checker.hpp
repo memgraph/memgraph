@@ -520,9 +520,11 @@ TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_
 class FakeDbAccessor {
  public:
   int64_t VerticesCount(memgraph::storage::LabelId label) const {
-    auto found = label_index_.find(label);
-    if (found != label_index_.end()) return found->second;
-    return 0;
+    if (!LabelIndexExists(label)) {
+      return 0;
+    }
+
+    return label_index_.find(label)->second;
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
@@ -531,11 +533,44 @@ class FakeDbAccessor {
         return std::get<2>(index);
       }
     }
+
+    for (auto const &unique_constraint : unique_constraints_) {
+      if (std::get<0>(unique_constraint) != label) {
+        continue;
+      }
+
+      auto const &props = std::get<1>(unique_constraint);
+      if (props.size() != 1) {
+        continue;
+      }
+
+      return std::get<2>(unique_constraint);
+    }
+
     return 0;
   }
 
   int64_t VerticesCount(const memgraph::storage::LabelId &label, const memgraph::storage::PropertyId &property,
                         const memgraph::storage::PropertyValue &value) const {
+    for (auto &index : label_property_index_) {
+      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+        return std::get<2>(index);
+      }
+    }
+
+    for (auto const &unique_constraint : unique_constraints_) {
+      if (std::get<0>(unique_constraint) != label) {
+        continue;
+      }
+
+      auto const &props = std::get<1>(unique_constraint);
+      if (props.size() != 1) {
+        continue;
+      }
+
+      return std::get<2>(unique_constraint);
+    }
+
     return 0;
   }
 
@@ -545,6 +580,18 @@ class FakeDbAccessor {
 
   bool UniqueConstraintExists(const memgraph::storage::LabelId &label,
                               const memgraph::storage::PropertyId &property) const {
+    for (auto const &unique_constraint : unique_constraints_) {
+      if (std::get<0>(unique_constraint) != label) {
+        continue;
+      }
+
+      auto const &props = std::get<1>(unique_constraint);
+      if (props.size() != 1) {
+        continue;
+      }
+
+      return props[0] == property;
+    }
     return false;
   }
 
@@ -620,6 +667,8 @@ class FakeDbAccessor {
 
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
   std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
+  std::vector<std::tuple<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyId>, int64_t>>
+      unique_constraints_;
 };
 
 }  // namespace memgraph::query::plan

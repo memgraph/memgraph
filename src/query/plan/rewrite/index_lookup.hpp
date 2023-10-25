@@ -800,9 +800,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // If the expression is a constant property value, it is returned. Otherwise,
   // return nullopt.
   std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
-    if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
+    if (const auto *literal = utils::Downcast<const PrimitiveLiteral>(expression); literal) {
       return literal->value_;
-    } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
+    }
+    if (const auto *param_lookup = utils::Downcast<const ParameterLookup>(expression); param_lookup) {
       return parameters_.AtTokenPosition(param_lookup->token_position_);
     }
     return std::nullopt;

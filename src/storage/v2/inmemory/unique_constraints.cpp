@@ -13,6 +13,7 @@
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
@@ -257,6 +258,16 @@ bool InMemoryUniqueConstraints::Entry::operator<(const std::vector<PropertyValue
 
 bool InMemoryUniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
 
+bool InMemoryUniqueConstraints::Entry::operator<(const PropertyValue &rhs) const {
+  MG_ASSERT(values.size() == 1, "Using unique constraint with multiple properties to compare with single property!");
+  return values[0] < rhs;
+}
+
+bool InMemoryUniqueConstraints::Entry::operator==(const PropertyValue &rhs) const {
+  MG_ASSERT(values.size() == 1, "Using unique constraint with multiple properties to compare with single property!");
+  return values[0] == rhs;
+}
+
 void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (const auto &label : vertex->labels) {
     if (!constraints_by_label_.contains(label)) {
@@ -418,7 +429,7 @@ uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(const LabelId &label,
 };
 
 uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(const LabelId &label, const PropertyId &property,
-                                                           const PropertyValue &value) const {
+                                                           const PropertyValue & /*value*/) const {
   auto it = constraints_.find({label, {property}});
   MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
             property.AsUint());
@@ -431,7 +442,9 @@ uint64_t InMemoryUniqueConstraints::ApproximateVertexCount(
   auto it = constraints_.find({label, {property}});
   MG_ASSERT(it != constraints_.end(), "Unique constraints for label {} and property {} doesn't exist", label.AsUint(),
             property.AsUint());
-  return 10;
+  auto acc = it->second.access();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 };
 
 void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
@@ -505,6 +518,7 @@ void InMemoryUniqueConstraints::Iterable::Iterator::AdvanceUntilValid() {
 
     if (CurrentVersionHasLabelProperty(*constraint_iterator_->vertex, self_->label_, self_->property_, iterator_value,
                                        self_->transaction_, self_->view_)) {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
       current_vertex_ = const_cast<Vertex *>(constraint_iterator_->vertex);
       current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
       break;

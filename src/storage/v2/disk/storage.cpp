@@ -1961,7 +1961,8 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-bool DiskStorage::DiskAccessor::UniqueConstraintExists(const LabelId &label, const PropertyId &property) const {
+bool DiskStorage::DiskAccessor::UniqueConstraintExists(const LabelId & /*label*/,
+                                                       const PropertyId & /*property*/) const {
   return false;
 }
 

@@ -42,6 +42,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
     bool operator<(const std::vector<PropertyValue> &rhs) const;
     bool operator==(const std::vector<PropertyValue> &rhs) const;
+
+    bool operator<(const PropertyValue &rhs) const;
+    bool operator==(const PropertyValue &rhs) const;
   };
 
  public:
