@@ -102,7 +102,14 @@ class MemgraphRunner:
 
         self.data_directory = tempfile.TemporaryDirectory()
         memgraph_binary = os.path.join(self.build_directory, "memgraph")
-        args_mg = [memgraph_binary, "--storage-properties-on-edges", "--data-directory", self.data_directory.name]
+        args_mg = [
+            memgraph_binary,
+            "--storage-properties-on-edges",
+            "--data-directory",
+            self.data_directory.name,
+            "--log-level",
+            "TRACE",
+        ]
         self.proc_mg = subprocess.Popen(args_mg + self.args)
         wait_for_server(7687, 1)
         assert self.is_running(), "The Memgraph process died!"
@@ -134,7 +141,7 @@ def main():
         suites = yaml.safe_load(f)
 
     # venv used to run the qa engine
-    venv_python = os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3")
+    venv_python = os.path.join(BASE_DIR, "tests", "gql_behave", "ve3", "bin", "python3")
 
     # Temporary directory for suite results
     output_dir = tempfile.TemporaryDirectory()
