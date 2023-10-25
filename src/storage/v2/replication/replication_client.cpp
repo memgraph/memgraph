@@ -29,7 +29,8 @@ ReplicationClient::ReplicationClient(Storage *storage, const memgraph::replicati
                                      const memgraph::replication::ReplicationEpoch *epoch)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(config.ip_address, config.port), &rpc_context_},
+      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
+                  &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode},
       storage_{storage},
