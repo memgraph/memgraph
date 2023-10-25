@@ -11,8 +11,8 @@
 
 #include "replication/state.hpp"
 
+#include "replication/replication_server.hpp"
 #include "replication/status.hpp"  //TODO: don't use status for durability
-#include "storage/v2/replication/replication_server.hpp"
 #include "utils/file.hpp"
 #include "utils/variant_helpers.hpp"
 

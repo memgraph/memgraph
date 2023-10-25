@@ -9,8 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/inmemory/replication/replication_server.hpp"
+#include "dbms/inmemory/replication_server.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "replication/replication_server.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -18,7 +19,6 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 
 namespace memgraph::storage {
 namespace {
@@ -35,7 +35,7 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
   }
 };
 
-Storage *GetStorage(dbms::DbmsHandler *dbms_handler, const std::string &db_name) {
+InMemoryStorage *GetStorage(dbms::DbmsHandler *dbms_handler, const std::string &db_name) {
   // TODO add cache
   try {
 #ifdef MG_ENTERPRISE
@@ -47,11 +47,11 @@ Storage *GetStorage(dbms::DbmsHandler *dbms_handler, const std::string &db_name)
     }
     auto acc = dbms_handler->Get();
 #endif
-    if (!acc.has_value()) {
+    if (!acc) {
       spdlog::error("Failed to get access to ", db_name);
       return nullptr;
     }
-    return acc->get();
+    return reinterpret_cast<InMemoryStorage *>(acc.get()->storage());
   } catch (const dbms::UnknownDatabaseException &e) {
     spdlog::warn("No database \"{}\" on replica!", db_name);
     return nullptr;
@@ -243,7 +243,7 @@ void InMemoryReplicationServer::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
   utils::EnsureDirOrDie(storage->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
-    LoadWal(storage_, storage->repl_storage_state_.epoch_, &decoder);
+    LoadWal(storage, &storage->repl_storage_state_.epoch_, &decoder);
   }
 
   replication::WalFilesRes res{storage->id(), true, storage->repl_storage_state_.last_commit_timestamp_.load()};
@@ -262,7 +262,7 @@ void InMemoryReplicationServer::CurrentWalHandler(dbms::DbmsHandler *dbms_handle
 
   utils::EnsureDirOrDie(storage->wal_directory_);
 
-  LoadWal(storage, storage->repl_storage_state_.epoch_, &decoder);
+  LoadWal(storage, &storage->repl_storage_state_.epoch_, &decoder);
 
   replication::CurrentWalRes res{storage->id(), true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -316,7 +316,8 @@ void InMemoryReplicationServer::LoadWal(InMemoryStorage *storage,
   }
 }
 
-void InMemoryReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void InMemoryReplicationServer::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                 slk::Builder *res_builder) {
   replication::TimestampReq req;
   slk::Load(&req, req_reader);
   auto *const storage = GetStorage(dbms_handler, req.db_name);

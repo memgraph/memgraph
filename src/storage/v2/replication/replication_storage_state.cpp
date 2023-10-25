@@ -11,8 +11,8 @@
 
 #include "storage/v2/replication/replication_storage_state.hpp"
 
+#include "replication/replication_server.hpp"
 #include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 
 namespace memgraph::storage {
 

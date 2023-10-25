@@ -35,12 +35,10 @@ add_library(mg-storage-v2 STATIC
         disk/unique_constraints.cpp
         storage_mode.cpp
         replication/replication_client.cpp
-        replication/replication_server.cpp
         replication/serialization.cpp
         replication/slk.cpp
         replication/rpc.cpp
         replication/replication_storage_state.cpp
-        inmemory/replication/replication_server.cpp
         inmemory/replication/replication_client.cpp
 )
 target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events)
@@ -59,6 +57,6 @@ set_source_files_properties(
 
 
 add_library(mg-storage-replication STATIC
-        replication/replication_server.cpp
+        ../../replication/replication_server.cpp
 )
 target_link_libraries(mg-storage-replication mg::replication mg-rpc mg-slk mg-events)

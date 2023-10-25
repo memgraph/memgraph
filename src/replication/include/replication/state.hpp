@@ -21,8 +21,8 @@
 #include "replication/epoch.hpp"
 #include "replication/mode.hpp"
 #include "replication/role.hpp"
+#include "replication_server.hpp"
 #include "status.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::replication {

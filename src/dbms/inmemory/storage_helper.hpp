@@ -23,23 +23,22 @@ inline std::unique_ptr<Storage> CreateInMemoryStorage(Config config,
                                                       const ::memgraph::replication::ReplicationState &repl_state) {
   const auto restore_repl = config.durability.restore_replication_state_on_startup;
   const auto wal_mode = config.durability.snapshot_wal_mode;
-  auto storage_ = std::make_unique<InMemoryStorage>(std::move(config));
-  auto *storage = static_cast<InMemoryStorage *>(storage_.get());
+  auto storage = std::make_unique<InMemoryStorage>(std::move(config));
 
   // Connect replication state and storage
-  storage->CreateSnapshotHandler(
-      [storage, &repl_state](bool is_periodic) -> utils::BasicResult<InMemoryStorage::CreateSnapshotError> {
-        if (repl_state.IsReplica()) {
-          return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
-        }
-        return storage->CreateSnapshot(is_periodic);
-      });
+  storage->CreateSnapshotHandler([storage = storage.get(), &repl_state](
+                                     bool is_periodic) -> utils::BasicResult<InMemoryStorage::CreateSnapshotError> {
+    if (repl_state.IsReplica()) {
+      return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+    }
+    return storage->CreateSnapshot(is_periodic);
+  });
 
   // Handle global replication state
   if (restore_repl) {
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     // RECOVER REPLICA CONNECTIONS
-    RestoreReplication(repl_state, *storage);
+    memgraph::dbms::RestoreReplication(repl_state, *storage);
   } else {
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "
@@ -53,7 +52,7 @@ inline std::unique_ptr<Storage> CreateInMemoryStorage(Config config,
         "without write-ahead logs this instance is not replicating any data.");
   }
 
-  return storage_;
+  return std::make_unique<Storage>(std::move(storage));
 }
 
 }  // namespace memgraph::storage

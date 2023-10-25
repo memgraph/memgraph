@@ -19,12 +19,12 @@
 #include <regex>
 #include <unordered_map>
 
+#include "dbms/inmemory/storage_helper.hpp"
 #include "helpers.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/inmemory/storage_helper.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"

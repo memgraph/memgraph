@@ -34,18 +34,7 @@ void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builde
   memgraph::slk::Save(self, builder);
 }
 void HeartbeatRes::Load(HeartbeatRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void FrequentHeartbeatReq::Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void FrequentHeartbeatRes::Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void FrequentHeartbeatRes::Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
+
 void SnapshotReq::Save(const SnapshotReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
 void SnapshotReq::Load(SnapshotReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void SnapshotRes::Save(const SnapshotRes &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
@@ -85,12 +74,6 @@ constexpr utils::TypeInfo storage::replication::HeartbeatReq::kType{utils::TypeI
 
 constexpr utils::TypeInfo storage::replication::HeartbeatRes::kType{utils::TypeId::REP_HEARTBEAT_RES, "HeartbeatRes",
                                                                     nullptr};
-
-constexpr utils::TypeInfo storage::replication::FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ,
-                                                                            "FrequentHeartbeatReq", nullptr};
-
-constexpr utils::TypeInfo storage::replication::FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES,
-                                                                            "FrequentHeartbeatRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::SnapshotReq::kType{utils::TypeId::REP_SNAPSHOT_REQ, "SnapshotReq",
                                                                    nullptr};
@@ -215,22 +198,6 @@ void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->db_name, reader);
 }
-
-// Serialize code for FrequentHeartbeatRes
-
-void Save(const memgraph::storage::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-}
-
-void Load(memgraph::storage::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-}
-
-// Serialize code for FrequentHeartbeatReq
-
-void Save(const memgraph::storage::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {}
-
-void Load(memgraph::storage::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {}
 
 // Serialize code for HeartbeatRes
 

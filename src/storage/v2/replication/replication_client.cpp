@@ -222,7 +222,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
 void ReplicationClient::FrequentCheck() {
   const auto is_success = std::invoke([this]() {
     try {
-      auto stream{rpc_client_.Stream<replication::FrequentHeartbeatRpc>()};
+      auto stream{rpc_client_.Stream<memgraph::storage::FrequentHeartbeatRpc>()};
       const auto response = stream.AwaitResponse();
       return response.success;
     } catch (const rpc::RpcFailedException &) {

@@ -16,8 +16,8 @@
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
+#include "dbms/inmemory/replication_server.hpp"
 #include "storage/v2/inmemory/replication/replication_client.hpp"
-#include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/resource_lock.hpp"
 

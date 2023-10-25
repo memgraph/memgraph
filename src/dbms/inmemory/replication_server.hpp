@@ -11,8 +11,8 @@
 
 #pragma once
 
+#include "replication/replication_server.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
 namespace memgraph::dbms {

@@ -93,29 +93,6 @@ struct HeartbeatRes {
 
 using HeartbeatRpc = rpc::RequestResponse<HeartbeatReq, HeartbeatRes>;
 
-struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
-  static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatReq() {}
-};
-
-struct FrequentHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatRes() {}
-  explicit FrequentHeartbeatRes(bool success) : success(success) {}
-
-  bool success;
-};
-
-using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
-
 struct SnapshotReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
@@ -272,13 +249,13 @@ void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
+// void Save(const memgraph::storage::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
+//
+// void Load(memgraph::storage::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
+//
+// void Save(const memgraph::storage::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
+//
+// void Load(memgraph::storage::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder);
 

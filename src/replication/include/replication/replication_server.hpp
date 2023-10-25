@@ -18,6 +18,29 @@
 
 namespace memgraph::storage {
 
+struct FrequentHeartbeatReq {
+  static const utils::TypeInfo kType;                            // TODO: make constexpr?
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }  // WHAT?
+
+  static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
+  static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
+  FrequentHeartbeatReq() {}
+};
+
+struct FrequentHeartbeatRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
+  static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
+  FrequentHeartbeatRes() {}
+  explicit FrequentHeartbeatRes(bool success) : success(success) {}
+
+  bool success;
+};
+
+using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
+
 class ReplicationServer {
  public:
   explicit ReplicationServer(const memgraph::replication::ReplicationServerConfig &config);
@@ -31,7 +54,7 @@ class ReplicationServer {
   bool Start();
 
  protected:
-  static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  //  static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
   communication::ServerContext rpc_server_context_;
 

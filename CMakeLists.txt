@@ -83,54 +83,58 @@ endif()
 set(get_version_script "${CMAKE_CURRENT_SOURCE_DIR}/release/get_version.py")
 
 # Get version that should be used in the binary.
-execute_process(
-    OUTPUT_VARIABLE MEMGRAPH_VERSION
-    RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
-    COMMAND "${get_version_script}" ${get_version_offering}
-                "${MEMGRAPH_OVERRIDE_VERSION}"
-                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
-                "--memgraph-root-dir"
-                "${CMAKE_CURRENT_SOURCE_DIR}"
-)
-if(MEMGRAPH_VERSION_RESULT AND NOT MEMGRAPH_VERSION_RESULT EQUAL 0)
-    message(FATAL_ERROR "Unable to get Memgraph version.")
-else()
-    MESSAGE(STATUS "Memgraph version: ${MEMGRAPH_VERSION}")
-endif()
+#execute_process(
+#    OUTPUT_VARIABLE MEMGRAPH_VERSION
+#    RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
+#    COMMAND "${get_version_script}" ${get_version_offering}
+#                "${MEMGRAPH_OVERRIDE_VERSION}"
+#                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+#                "--memgraph-root-dir"
+#                "${CMAKE_CURRENT_SOURCE_DIR}"
+#)
+#if(MEMGRAPH_VERSION_RESULT AND NOT MEMGRAPH_VERSION_RESULT EQUAL 0)
+#    message(FATAL_ERROR "Unable to get Memgraph version.")
+#else()
+#    MESSAGE(STATUS "Memgraph version: ${MEMGRAPH_VERSION}")
+#endif()
+
+set(MEMGRAPH_VERSION "donotcare")
+set(MEMGRAPH_VERSION_DEB "donotcare")
+set(MEMGRAPH_VERSION_RPM "donotcare")
 
 # Get version that should be used in the DEB package.
-execute_process(
-    OUTPUT_VARIABLE MEMGRAPH_VERSION_DEB
-    RESULT_VARIABLE MEMGRAPH_VERSION_DEB_RESULT
-    COMMAND "${get_version_script}" ${get_version_offering}
-                --variant deb
-                "${MEMGRAPH_OVERRIDE_VERSION}"
-                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
-                "--memgraph-root-dir"
-                "${CMAKE_CURRENT_SOURCE_DIR}"
-)
-if(MEMGRAPH_VERSION_DEB_RESULT AND NOT MEMGRAPH_VERSION_DEB_RESULT EQUAL 0)
-    message(FATAL_ERROR "Unable to get Memgraph DEB version.")
-else()
-    MESSAGE(STATUS "Memgraph DEB version: ${MEMGRAPH_VERSION_DEB}")
-endif()
+#execute_process(
+#    OUTPUT_VARIABLE MEMGRAPH_VERSION_DEB
+#    RESULT_VARIABLE MEMGRAPH_VERSION_DEB_RESULT
+#    COMMAND "${get_version_script}" ${get_version_offering}
+#                --variant deb
+#                "${MEMGRAPH_OVERRIDE_VERSION}"
+#                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+#                "--memgraph-root-dir"
+#                "${CMAKE_CURRENT_SOURCE_DIR}"
+#)
+#if(MEMGRAPH_VERSION_DEB_RESULT AND NOT MEMGRAPH_VERSION_DEB_RESULT EQUAL 0)
+#    message(FATAL_ERROR "Unable to get Memgraph DEB version.")
+#else()
+#    MESSAGE(STATUS "Memgraph DEB version: ${MEMGRAPH_VERSION_DEB}")
+#endif()
 
 # Get version that should be used in the RPM package.
-execute_process(
-    OUTPUT_VARIABLE MEMGRAPH_VERSION_RPM
-    RESULT_VARIABLE MEMGRAPH_VERSION_RPM_RESULT
-    COMMAND "${get_version_script}" ${get_version_offering}
-                --variant rpm
-                "${MEMGRAPH_OVERRIDE_VERSION}"
-                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
-                "--memgraph-root-dir"
-                "${CMAKE_CURRENT_SOURCE_DIR}"
-)
-if(MEMGRAPH_VERSION_RPM_RESULT AND NOT MEMGRAPH_VERSION_RPM_RESULT EQUAL 0)
-    message(FATAL_ERROR "Unable to get Memgraph RPM version.")
-else()
-    MESSAGE(STATUS "Memgraph RPM version: ${MEMGRAPH_VERSION_RPM}")
-endif()
+#execute_process(
+#    OUTPUT_VARIABLE MEMGRAPH_VERSION_RPM
+#    RESULT_VARIABLE MEMGRAPH_VERSION_RPM_RESULT
+#    COMMAND "${get_version_script}" ${get_version_offering}
+#                --variant rpm
+#                "${MEMGRAPH_OVERRIDE_VERSION}"
+#                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+#                "--memgraph-root-dir"
+#                "${CMAKE_CURRENT_SOURCE_DIR}"
+#)
+#if(MEMGRAPH_VERSION_RPM_RESULT AND NOT MEMGRAPH_VERSION_RPM_RESULT EQUAL 0)
+#    message(FATAL_ERROR "Unable to get Memgraph RPM version.")
+#else()
+#    MESSAGE(STATUS "Memgraph RPM version: ${MEMGRAPH_VERSION_RPM}")
+#endif()
 
 # We want the above variables to be updated each time something is committed to
 # the repository. That is why we include a dependency on the current git HEAD
