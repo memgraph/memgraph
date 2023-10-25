@@ -3596,3 +3596,15 @@ mgp_error mgp_log(const mgp_log_level log_level, const char *output) {
     throw std::invalid_argument{fmt::format("Invalid log level: {}", log_level)};
   });
 }
+
+mgp_error mgp_track_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->TrackCurrentThreadAllocations(); }, graph->impl);
+  });
+}
+
+mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->UntrackCurrentThreadAllocations(); }, graph->impl);
+  });
+}

@@ -1,0 +1,14 @@
+analyze_graph_cluster: &analyze_graph_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "analyze_graph.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Constraint logic validation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["constraints/constraints_validation.py"]
+    <<: *analyze_graph_cluster

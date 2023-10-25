@@ -17,6 +17,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -372,6 +373,16 @@ class DbAccessor final {
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
+  void TrackCurrentThreadAllocations() {
+    memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+  }
+
+  void UntrackCurrentThreadAllocations() {
+    memgraph::memory::StopTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+  }
+
+  std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
@@ -639,6 +650,14 @@ class SubgraphDbAccessor final {
   explicit SubgraphDbAccessor(DbAccessor db_accessor, Graph *graph);
 
   static SubgraphDbAccessor *MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
+
+  void TrackThreadAllocations(const char *thread_id);
+
+  void TrackCurrentThreadAllocations();
+
+  void UntrackThreadAllocations(const char *thread_id);
+
+  void UntrackCurrentThreadAllocations();
 
   storage::PropertyId NameToProperty(std::string_view name);
 
