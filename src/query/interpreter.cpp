@@ -37,6 +37,7 @@
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
+#include "dbms/inmemory/storage_helper.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
@@ -3366,15 +3367,15 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   }
   // TODO: Remove once replicas support multi-tenant replication
   if (!current_db.db_acc_) throw DatabaseContextRequiredException("Multi database queries require a defined database.");
-  if (repl_state->IsReplica()) {
-    throw QueryException("Query forbidden on the replica!");
-  }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->db_handler;
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
+      if (repl_state->IsReplica()) {
+        throw QueryException("Query forbidden on the replica!");
+      }
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
@@ -3420,6 +3421,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
+      if (!allow_mt_repl && repl_state->IsReplica()) {
+        throw QueryException("Query forbidden on the replica!");
+      }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
                            [db_name = query->db_name_, db_handler, &current_db, on_change_cb](
@@ -3451,13 +3455,15 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                            query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
+      if (repl_state->IsReplica()) {
+        throw QueryException("Query forbidden on the replica!");
+      }
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
           [db_name = query->db_name_, db_handler, auth = interpreter_context->auth](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
-
             memgraph::dbms::DeleteResult success{};
 
             try {
