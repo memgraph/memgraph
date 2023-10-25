@@ -125,7 +125,6 @@ class DbmsHandler {
         MG_ASSERT(!New_(name).HasError(), "Failed while creating database {}.", name);
         spdlog::info("Database {} restored.", name);
       }
-
     } else {  // Clear databases from the durability list and auth
       auto locked_auth = auth->Lock();
       for (const auto &[name, _] : *durability_) {
