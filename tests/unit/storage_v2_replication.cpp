@@ -64,21 +64,30 @@ class ReplicationTest : public ::testing::Test {
 
   void TearDown() override { Clear(); }
 
-  Config main_conf{.items = {.properties_on_edges = true},
-                   .durability = {
-                       .storage_directory = storage_directory,
-                       .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                   }};
-  Config repl_conf{.items = {.properties_on_edges = true},
-                   .durability = {
-                       .storage_directory = repl_storage_directory,
-                       .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                   }};
-  Config repl2_conf{.items = {.properties_on_edges = true},
-                    .durability = {
-                        .storage_directory = repl2_storage_directory,
-                        .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                    }};
+  Config main_conf = [&] {
+    Config config{.items = {.properties_on_edges = true},
+                  .durability = {
+                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                  }};
+    UpdatePaths(config, storage_directory);
+    return config;
+  }();
+  Config repl_conf = [&] {
+    Config config{.items = {.properties_on_edges = true},
+                  .durability = {
+                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                  }};
+    UpdatePaths(config, repl_storage_directory);
+    return config;
+  }();
+  Config repl2_conf = [&] {
+    Config config{.items = {.properties_on_edges = true},
+                  .durability = {
+                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                  }};
+    UpdatePaths(config, repl2_storage_directory);
+    return config;
+  }();
 
   const std::string local_host = ("127.0.0.1");
   const std::array<uint16_t, 2> ports{10000, 20000};
@@ -491,11 +500,11 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   {
     memgraph::storage::Config conf{
         .durability = {
-            .storage_directory = storage_directory,
             .recover_on_startup = true,
             .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             .snapshot_on_exit = true,
         }};
+    UpdatePaths(conf, storage_directory);
     MinMemgraph main(conf);
 
     {
@@ -510,9 +519,9 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   {
     // Create second WAL
     memgraph::storage::Config conf{
-        .durability = {.storage_directory = storage_directory,
-                       .recover_on_startup = true,
+        .durability = {.recover_on_startup = true,
                        .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
+    UpdatePaths(conf, storage_directory);
     MinMemgraph main(conf);
     // Create vertices in 2 different transactions
     {
@@ -531,10 +540,10 @@ TEST_F(ReplicationTest, RecoveryProcess) {
 
   memgraph::storage::Config conf{
       .durability = {
-          .storage_directory = storage_directory,
           .recover_on_startup = true,
           .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
       }};
+  UpdatePaths(conf, storage_directory);
   MinMemgraph main(conf);
 
   static constexpr const auto *property_name = "property_name";
@@ -603,9 +612,9 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
   {
     memgraph::storage::Config repl_conf{
-        .durability = {.storage_directory = repl_storage_directory,
-                       .recover_on_startup = true,
+        .durability = {.recover_on_startup = true,
                        .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}};
+    UpdatePaths(repl_conf, repl_storage_directory);
     MinMemgraph replica(repl_conf);
     {
       auto acc = replica.db.Access();
@@ -930,8 +939,8 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   memgraph::utils::OnScopeExit replica2_directory_cleaner(
       [&]() { std::filesystem::remove_all(replica2_storage_directory); });
 
-  replica1_config.durability.storage_directory = replica1_storage_directory;
-  replica2_config.durability.storage_directory = replica2_storage_directory;
+  UpdatePaths(replica1_config, replica1_storage_directory);
+  UpdatePaths(replica2_config, replica2_storage_directory);
 
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(replica1_config);
