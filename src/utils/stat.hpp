@@ -54,4 +54,17 @@ inline uint64_t GetMemoryUsage() {
   return memory;
 }
 
+/// Returns the size of vm.max_map_count
+inline uint64_t GetVmMaxMapCount() {
+  uint64_t max_map_count = 0;
+  auto statm_data = utils::ReadLines("sysctl vm.max_map_count");
+  if (!statm_data.empty()) {
+    auto split = utils::Split(statm_data[0]);
+    if (split.size() == 2) {
+      max_map_count = std::stoull(split[2]);
+    }
+  }
+  return max_map_count;
+}
+
 }  // namespace memgraph::utils
