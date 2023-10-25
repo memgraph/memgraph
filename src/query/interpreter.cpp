@@ -1288,12 +1288,17 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   MG_ASSERT(transaction_id.has_value());
 
   if (memory_limit_) {
-    memgraph::memory::StartTrackingOnTransaction(*transaction_id, *memory_limit_);
+    memgraph::memory::TryStartTrackingOnTransaction(*transaction_id, *memory_limit_);
+    memgraph::memory::StartTrackingCurrentThreadTransaction(*transaction_id);
   }
   utils::OnScopeExit<std::function<void()>> reset_query_limit{
       [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
         if (memory_limit) {
-          memgraph::memory::StopTrackingOnTransaction(transaction_id);
+          // Stopping tracking of transaction occurs in interpreter::pull
+          // Exception can occur so we need to handle that case there.
+          // We can't stop tracking here as there can be multiple pulls
+          // so we need to take care of that after everything was pulled
+          memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
         }
       }};
 

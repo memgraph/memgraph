@@ -56,6 +56,9 @@ class QueriesMemoryControl {
   // Create new tracker for transaction_id with initial limit
   void CreateTransactionIdTracker(uint64_t, size_t);
 
+  // Check if tracker for given transaction id exists
+  bool CheckTransactionIdTrackerExists(uint64_t);
+
   // Remove current tracker for transaction_id
   bool EraseTransactionIdTracker(uint64_t);
 
@@ -127,12 +130,12 @@ void StartTrackingCurrentThreadTransaction(uint64_t transaction_id);
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThreadTransaction(uint64_t transaction_id);
 
-// API function call for to create tracker for transaction and set it to given limit.
-// Does nothing if jemalloc is not enabled
-void StartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
+// API function call for try to create tracker for transaction and set it to given limit.
+// Does nothing if jemalloc is not enabled. Does nothing if tracker already exists
+void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
 
 // API function call to stop tracking for given transaction.
-// Does nothing if jemalloc is not enabled
-void StopTrackingOnTransaction(uint64_t transaction_id);
+// Does nothing if jemalloc is not enabled. Does nothing if tracker doesn't exist
+void TryStopTrackingOnTransaction(uint64_t transaction_id);
 
 }  // namespace memgraph::memory

@@ -83,10 +83,14 @@ void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, s
   elem->tracker.SetHardLimit(inital_limit);
 }
 
+bool QueriesMemoryControl::CheckTransactionIdTrackerExists(uint64_t transaction_id) {
+  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
+  return transaction_id_to_tracker_accessor.contains(transaction_id);
+}
+
 bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
   auto removed = transaction_id_to_tracker.access().remove(transaction_id);
-  MG_ASSERT(removed);
   return removed;
 }
 
@@ -114,18 +118,21 @@ void StopTrackingCurrentThreadTransaction(uint64_t transaction_id) {
 #endif
 }
 
-void StartTrackingOnTransaction(uint64_t transaction_id, size_t limit) {
+void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit) {
 #if USE_JEMALLOC
+  if (GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
+    return;
+  }
   GetQueriesMemoryControl().CreateTransactionIdTracker(transaction_id, limit);
-  GetQueriesMemoryControl().UpdateThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-  GetQueriesMemoryControl().AddTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
+
 #endif
 }
 
-void StopTrackingOnTransaction(uint64_t transaction_id) {
+void TryStopTrackingOnTransaction(uint64_t transaction_id) {
 #if USE_JEMALLOC
-  GetQueriesMemoryControl().RemoveTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
-  GetQueriesMemoryControl().EraseThreadToTransactionId(std::this_thread::get_id(), transaction_id);
+  if (!GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
+    return;
+  }
   GetQueriesMemoryControl().EraseTransactionIdTracker(transaction_id);
 #endif
 }
