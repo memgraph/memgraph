@@ -24,7 +24,7 @@ def test_label_index_hint(memgraph):
 
     expected_explain_no_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label1:Label2)",
         " * ScanAllByLabel (n :Label1)",
         " * Once",
     ]
@@ -49,7 +49,7 @@ def test_label_index_hint_alternative_orderings(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label1:Label2)",
         " * ScanAllByLabel (n :Label2)",
         " * Once",
     ]
@@ -83,7 +83,7 @@ def test_multiple_label_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label1:Label2)",
         " * ScanAllByLabel (n :Label2)",
         " * Once",
     ]
@@ -105,7 +105,7 @@ def test_multiple_applicable_label_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label2:Label3)",
         " * ScanAllByLabel (n :Label3)",
         " * Once",
     ]
@@ -127,7 +127,7 @@ def test_multiple_applicable_label_index_hints_alternative_orderings(memgraph):
 
     expected_explain_with_hint_1 = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label2:Label3)",
         " * ScanAllByLabel (n :Label3)",
         " * Once",
     ]
@@ -162,7 +162,7 @@ def test_label_property_index_hint(memgraph):
 
     expected_explain_no_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id2})",
         " * Once",
     ]
@@ -192,7 +192,7 @@ def test_label_property_index_hint_alternative_orderings(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -221,7 +221,7 @@ def test_multiple_label_property_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -251,7 +251,7 @@ def test_multiple_applicable_label_property_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -275,7 +275,7 @@ def test_multiple_applicable_label_property_index_hints_alternative_orderings(me
 
     expected_explain_with_hint_1 = [
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -381,11 +381,11 @@ def test_union_applicable_in_both_branches(memgraph):
         " * Union {n : n}",
         " |\\ ",
         " | * Produce {n}",
-        " | * Filter",
+        " | * Filter (n :Label2:Label3)",
         " | * ScanAllByLabel (n :Label2)",
         " | * Once",
         " * Produce {n}",
-        " * Filter",
+        " * Filter (n :Label1:Label2)",
         " * ScanAllByLabel (n :Label1)",
         " * Once",
     ]
@@ -411,10 +411,10 @@ def test_multiple_match_query(memgraph):
         " * Produce {n, m}",
         " * Cartesian {m : n}",
         " |\\ ",
-        " | * Filter",
+        " | * Filter (n :Label1:Label2), {n.id}",
         " | * ScanAllByLabel (n :Label1)",
         " | * Once",
-        " * Filter",
+        " * Filter (n :Label1:Label2), {n.id}, (m :Label2:Label3)",
         " * ScanAllByLabel (m :Label2)",
         " * Once",
     ]
