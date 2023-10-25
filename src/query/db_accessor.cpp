@@ -98,6 +98,14 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetTo(EdgeAccessor *edge, 
   return result;
 }
 
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeChangeType(EdgeAccessor *edge,
+                                                                 storage::EdgeTypeId new_edge_type) {
+  if (!this->graph_->ContainsEdge(*edge)) {
+    throw std::logic_error{"Projected graph must contain edge!"};
+  }
+  return db_accessor_.EdgeChangeType(edge, new_edge_type);
+}
+
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     SubgraphVertexAccessor *subgraphvertex_accessor) {
   VertexAccessor *vertex_accessor = &subgraphvertex_accessor->impl_;

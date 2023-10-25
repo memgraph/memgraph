@@ -109,7 +109,7 @@ add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communicati
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-query mg-glue)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-glue)
 
 add_unit_test(query_plan_operator_to_string.cpp)
 target_link_libraries(${test_prefix}query_plan_operator_to_string mg-query)
@@ -422,3 +422,5 @@ add_unit_test(distributed_lamport_clock.cpp)
 target_link_libraries(${test_prefix}distributed_lamport_clock mg-distributed)
 target_include_directories(${test_prefix}distributed_lamport_clock PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+add_unit_test(query_hint_provider.cpp)
+target_link_libraries(${test_prefix}query_hint_provider mg-query mg-glue)

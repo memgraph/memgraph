@@ -1,5 +1,5 @@
 function(transaction_rollback_e2e_python_files FILE_NAME)
-    copy_e2e_python_files(transaction_abort ${FILE_NAME})
+    copy_e2e_python_files(transaction_rollback ${FILE_NAME})
 endfunction()
 
 transaction_rollback_e2e_python_files(common.py)
