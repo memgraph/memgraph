@@ -43,21 +43,22 @@ struct CachedValue {
     return cache_.get_allocator().GetMemoryResource();
   }
 
-  bool CacheValue(const TypedValue &value) {
-    if (!value.IsList()) {
+  bool CacheValue(const TypedValue &maybe_list) {
+    if (!maybe_list.IsList()) {
       return false;
     }
-    const auto &list = value.ValueList();
+    const auto &list = maybe_list.ValueList();
     TypedValue::Hash hash{};
-    for (const TypedValue &element : list) {
-      const auto key = hash(element);
-      auto &vector_values = cache_[key];
-      if (!IsValueInVec(vector_values, element)) {
-        vector_values.push_back(element);
+    for (const TypedValue &list_elem : list) {
+      const auto list_elem_key = hash(list_elem);
+      auto &vector_values = cache_[list_elem_key];
+      if (!IsValueInVec(vector_values, list_elem)) {
+        vector_values.push_back(list_elem);
       }
     }
     return true;
   }
+
   bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
     const auto key = hash(value);
@@ -92,15 +93,15 @@ class FrameChangeCollector {
   bool IsKeyTracked(const std::string &key) const { return tracked_values_.contains(key); }
 
   bool IsKeyValueCached(const std::string &key) const {
-    return tracked_values_.contains(key) && !tracked_values_.at(key).cache_.empty();
+    return IsKeyTracked(key) && !tracked_values_.at(key).cache_.empty();
   }
 
   bool ResetTrackingValue(const std::string &key) {
-    if (tracked_values_.contains(key)) {
-      tracked_values_.erase(key);
-      AddTrackingKey(key);
+    if (!tracked_values_.contains(key)) {
+      return false;
     }
-
+    tracked_values_.erase(key);
+    AddTrackingKey(key);
     return true;
   }
 
