@@ -3,7 +3,7 @@ name: Bug report
 about: Create a report to help us improve
 title: "[BUG] "
 labels: bug
-assignees: gitbuda, antonio2368
+assignees: gitbuda
 
 ---
 
@@ -22,6 +22,15 @@ A clear and concise description of what the bug is.
 Steps to reproduce the behavior:
 1. Run the following query '...'
 2. Click on '....'
+3. ... link to the workload info (DATASET & QUERIES) ...
+
+**Verification Environment**
+Once we fix it, what do you need to verify the fix?
+Do you need:
+* Plain memgraph package -> for which Linux?
+* Plain memgraph Docker image?
+* Which architecture do you use ARM | x86?
+* Full Memgraph platform?
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
