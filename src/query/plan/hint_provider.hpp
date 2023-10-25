@@ -189,8 +189,22 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Apply & /*op*/) override { return true; }
 
   bool PreVisit(LoadCsv & /*unused*/) override { return true; }
+  bool PostVisit(LoadCsv & /*unused*/) override { return true; }
 
-  bool PostVisit(LoadCsv & /*op*/) override { return true; }
+  bool PreVisit(HashJoin &op) override {
+    op.left_op_->Accept(*this);
+    op.right_op_->Accept(*this);
+    return false;
+  }
+  bool PostVisit(HashJoin & /*unused*/) override { return true; }
+
+  bool PreVisit(IndexedJoin &op) override {
+    op.main_branch_->Accept(*this);
+    op.sub_branch_->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(IndexedJoin & /*unused*/) override { return true; }
 
  private:
   const SymbolTable &symbol_table_;

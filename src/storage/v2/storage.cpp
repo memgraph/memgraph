@@ -31,8 +31,6 @@ namespace memgraph::storage {
 
 class InMemoryStorage;
 
-using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
-
 auto ReplicationStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
   return {config.durability.storage_directory};
