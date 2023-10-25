@@ -66,6 +66,7 @@ add_subdirectory(concurrent_query_modules)
 add_subdirectory(show_index_info)
 add_subdirectory(set_properties)
 add_subdirectory(transaction_rollback)
+add_subdirectory(constraints)
 add_subdirectory(constraints_as_indices)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")

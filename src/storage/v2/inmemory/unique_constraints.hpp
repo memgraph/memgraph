@@ -54,6 +54,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// @throw std::bad_alloc
   void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx);
 
+  void UpdateBeforeCommit(const Vertex *vertex, std::unordered_set<LabelId> &added_labels,
+                          std::unordered_set<PropertyId> &added_properties, const Transaction &tx);
+
   /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same
   /// label and property values. Returns `CreationStatus::ALREADY_EXISTS` if
