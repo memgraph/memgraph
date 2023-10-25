@@ -68,8 +68,7 @@ struct CachedValue {
   }
 
  private:
-  // TODO: (andi) Change to static method
-  bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) const {
+  static bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) {
     return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
       const auto is_value_equal = vec_value == value;
       if (is_value_equal.IsNull()) return false;
