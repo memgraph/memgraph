@@ -204,7 +204,6 @@ InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto gid = mem_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = mem_storage->vertices_.access();
@@ -221,7 +220,6 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
-  OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
   // because this function is only called from the replication delta applier
@@ -272,6 +270,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
   // Need to inform the next CollectGarbage call that there are some
   // non-transactional deletions that need to be collected
+
   auto const inform_gc_vertex_deletion = utils::OnScopeExit{[this, &deleted_vertices = deleted_vertices]() {
     if (!deleted_vertices.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -300,7 +299,6 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                                    EdgeTypeId edge_type) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
@@ -365,7 +363,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
                                                                      EdgeTypeId edge_type, storage::Gid gid) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
