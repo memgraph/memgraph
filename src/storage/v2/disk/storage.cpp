@@ -271,7 +271,6 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
     Abort();
   }
   FinalizeTransaction();
-  transaction_.deltas.~Bond<PmrListDelta>();
 }
 
 void DiskStorage::LoadPersistingMetadataInfo() {
@@ -462,12 +461,12 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
         AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_, &transaction_, view));
   }
   if (transaction_.scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(transaction_.vertices_.access(), storage_, &transaction_, view));
+    return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
   }
 
   disk_storage->LoadVerticesToMainMemoryCache(&transaction_);
   transaction_.scanned_all_vertices_ = true;
-  return VerticesIterable(AllVerticesIterable(transaction_.vertices_.access(), storage_, &transaction_, view));
+  return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -586,7 +585,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCache(
     Transaction *transaction, LabelId label, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  auto main_cache_acc = transaction->vertices_.access();
+  auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -638,7 +637,7 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
     Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter) {
-  auto main_cache_acc = transaction->vertices_.access();
+  auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -721,7 +720,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  auto main_cache_acc = transaction->vertices_.access();
+  auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -852,7 +851,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = transaction_.vertices_.access();
+  auto acc = transaction_.vertices_->access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
@@ -924,8 +923,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (storage_->config_.items.properties_on_edges) {
-    auto acc =
-        edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : transaction_.edges_.access();
+    auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges()
+                                       : transaction_.edges_->access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -1282,7 +1281,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                                                                                 const std::string &key,
                                                                                 const std::string &value,
                                                                                 std::string &&ts) {
-  auto main_storage_accessor = transaction->vertices_.access();
+  auto main_storage_accessor = transaction->vertices_->access();
 
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromKey(key));
   if (ObjectExistsInCache(main_storage_accessor, gid)) {
@@ -1309,7 +1308,7 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
 
 std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transaction *transaction, View view) {
   auto acc = edge_import_status_ == EdgeImportMode::ACTIVE ? edge_import_mode_cache_->AccessToVertices()
-                                                           : transaction->vertices_.access();
+                                                           : transaction->vertices_->access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
     return VertexAccessor::Create(&*vertex_it, this, transaction, view);
@@ -1358,7 +1357,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 
   EdgeRef edge(gid);
   if (config_.items.properties_on_edges) {
-    auto acc = edge_import_mode_active ? edge_import_mode_cache_->AccessToEdges() : transaction->edges_.access();
+    auto acc = edge_import_mode_active ? edge_import_mode_cache_->AccessToEdges() : transaction->edges_->access();
     auto *delta = CreateDeleteDeserializedObjectDelta(transaction, old_disk_key, std::move(read_ts));
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1660,7 +1659,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     } else {
       std::vector<std::vector<PropertyValue>> unique_storage;
       if (auto vertices_flush_res =
-              disk_storage->FlushVertices(&transaction_, transaction_.vertices_.access(), unique_storage);
+              disk_storage->FlushVertices(&transaction_, transaction_.vertices_->access(), unique_storage);
           vertices_flush_res.HasError()) {
         Abort();
         return vertices_flush_res.GetError();
@@ -1671,7 +1670,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         return del_vertices_res.GetError();
       }
 
-      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_.access());
+      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_->access());
           modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();
