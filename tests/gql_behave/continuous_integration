@@ -107,8 +107,8 @@ class MemgraphRunner:
             "--storage-properties-on-edges",
             "--data-directory",
             self.data_directory.name,
-            "--log-level",
-            "TRACE",
+            "--log-file",
+            str(os.path.join(BASE_DIR, "tests", "gql_behave", "memgraph.log")),
         ]
         self.proc_mg = subprocess.Popen(args_mg + self.args)
         wait_for_server(7687, 1)
