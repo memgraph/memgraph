@@ -19,6 +19,7 @@
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
+#include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -101,6 +102,7 @@ struct Transaction {
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
   mutable VertexInfoCache manyDeltasCache{};
+  mutable ConstraintVerificationInfo constraint_verification_info{};
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage

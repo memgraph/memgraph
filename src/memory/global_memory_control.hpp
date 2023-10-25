@@ -17,5 +17,6 @@ namespace memgraph::memory {
 
 void PurgeUnusedMemory();
 void SetHooks();
+void UnsetHooks();
 
 }  // namespace memgraph::memory

@@ -67,6 +67,7 @@ add_subdirectory(show_index_info)
 add_subdirectory(set_properties)
 add_subdirectory(transaction_rollback)
 add_subdirectory(query_modules)
+add_subdirectory(constraints)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
