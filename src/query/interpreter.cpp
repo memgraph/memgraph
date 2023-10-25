@@ -3744,7 +3744,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
                    query_execution->execution_memory);
     frame_change_collector_.reset();
-    frame_change_collector_.emplace(memory_resource);
+    // Quite randomly provided size of the buffer
+    frame_change_collector_.emplace(utils::MonotonicBufferResource(kExecutionMemoryBlockSize));
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           current_db_, memory_resource, &query_execution->notifications, username_,

@@ -43,7 +43,6 @@ struct CachedValue {
     return cache_.get_allocator().GetMemoryResource();
   }
 
-  // Func to check if cache_ contains value
   bool CacheValue(const TypedValue &value) {
     if (!value.IsList()) {
       return false;
@@ -59,7 +58,6 @@ struct CachedValue {
     }
     return true;
   }
-  // Func to cache_value inside cache_
   bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
     const auto key = hash(value);
@@ -70,6 +68,7 @@ struct CachedValue {
   }
 
  private:
+  // TODO: (andi) Change to static method
   bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) const {
     return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
       const auto is_value_equal = vec_value == value;
@@ -80,26 +79,23 @@ struct CachedValue {
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
-// in the future.
+// in the future. Used for IN LIST operator.
 class FrameChangeCollector {
  public:
-  explicit FrameChangeCollector(utils::MemoryResource *mem) : tracked_values_(mem){};
+  explicit FrameChangeCollector(utils::MonotonicBufferResource memory_resource)
+      : memory_resource_(std::move(memory_resource)), tracked_values_(&memory_resource_){};
 
-  // Add tracking key to cache later value
   CachedValue &AddTrackingKey(const std::string &key) {
     const auto &[it, _] = tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
     return it->second;
   }
 
-  // Is key tracked
   bool IsKeyTracked(const std::string &key) const { return tracked_values_.contains(key); }
 
-  // Is value for given key cached
   bool IsKeyValueCached(const std::string &key) const {
     return tracked_values_.contains(key) && !tracked_values_.at(key).cache_.empty();
   }
 
-  // Reset value for tracking key
   bool ResetTrackingValue(const std::string &key) {
     if (tracked_values_.contains(key)) {
       tracked_values_.erase(key);
@@ -109,14 +105,12 @@ class FrameChangeCollector {
     return true;
   }
 
-  // Get value cached for tracking key, throws if key is not in tracked
   CachedValue &GetCachedValue(const std::string &key) { return tracked_values_.at(key); }
 
-  // Checks for keys tracked
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
  private:
-  // Key is output of utils::GetFrameChangeId, value is utils::pmr::unordered_map
+  utils::MonotonicBufferResource memory_resource_;
   memgraph::utils::pmr::unordered_map<std::string, CachedValue> tracked_values_;
 };
 }  // namespace memgraph::query
