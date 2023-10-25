@@ -65,6 +65,8 @@ enum class TypeId : uint64_t {
   LOAD_CSV,
   FOREACH,
   APPLY,
+  INDEXED_JOIN,
+  HASH_JOIN,
 
   // Replication
   REP_APPEND_DELTAS_REQ,

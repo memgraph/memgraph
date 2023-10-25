@@ -29,6 +29,16 @@ class QueryException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(QueryException)
 };
 
+/**
+ * @brief Base class of all query language related exceptions which can be retried.
+ * All exceptions derived from this one will be interpreted as TransientError-s,
+ * i.e. client will be encouraged to retry the queries.
+ */
+class RetryBasicException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(RetryBasicException)
+};
+
 class LexingException : public QueryException {
  public:
   using QueryException::QueryException;
@@ -139,13 +149,12 @@ enum class AbortReason : uint8_t {
   TIMEOUT = 3,
 };
 
-// This one is inherited from BasicException and will be treated as
+// This one is inherited from RetryBasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
-class HintedAbortError : public utils::BasicException {
+class HintedAbortError : public RetryBasicException {
  public:
-  using utils::BasicException::BasicException;
-  explicit HintedAbortError(AbortReason reason) : utils::BasicException(AsMsg(reason)), reason_{reason} {}
+  explicit HintedAbortError(AbortReason reason) : RetryBasicException(AsMsg(reason)), reason_{reason} {}
   SPECIALIZE_GET_EXCEPTION_NAME(HintedAbortError)
 
   auto Reason() const -> AbortReason { return reason_; }
@@ -187,11 +196,13 @@ class WriteVertexOperationInEdgeImportModeException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(WriteVertexOperationInEdgeImportModeException)
 };
 
-class TransactionSerializationException : public QueryException {
+// This one is inherited from BasicException and will be treated as
+// TransientError, i. e. client will be encouraged to retry execution because it
+// could succeed if executed again.
+class TransactionSerializationException : public RetryBasicException {
  public:
-  using QueryException::QueryException;
   TransactionSerializationException()
-      : QueryException(
+      : RetryBasicException(
             "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction "
             "is finished") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
@@ -305,6 +316,12 @@ class IsolationLevelModificationInAnalyticsException : public QueryException {
             "IN_MEMORY_ANALYTICAL mode doesn't provide any isolation guarantees, "
             "you can think about it as an equivalent to READ_UNCOMMITED.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInAnalyticsException)
+};
+
+class IsolationLevelModificationInDiskTransactionalException : public QueryException {
+ public:
+  IsolationLevelModificationInDiskTransactionalException()
+      : QueryException("Snapshot isolation level is the only supported isolation level for disk storage.") {}
 };
 
 class StorageModeModificationInMulticommandTxException : public QueryException {

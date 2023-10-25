@@ -56,6 +56,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/metadata.hpp"
+#include "query/plan/hint_provider.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -318,7 +319,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto config = replication::ReplicationClientConfig{.name = name,
@@ -1433,7 +1434,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
-  auto const global_tx_timeout = double_seconds{flags::run_time::execution_timeout_sec_};
+  auto const global_tx_timeout = double_seconds{flags::run_time::GetExecutionTimeout()};
   auto const valid_global_tx_timeout = global_tx_timeout > double_seconds{0};
 
   if (tx_timeout_ms) {
@@ -1610,6 +1611,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters, plan_cache, dba);
 
+  auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
+  for (const auto &hint : hints) {
+    notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+  }
+
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -1646,7 +1652,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                  InterpreterContext *interpreter_context, CurrentDB &current_db) {
+                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
+                                  CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -1673,6 +1680,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
       CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
                         cypher_query, parsed_inner_query.parameters, plan_cache, dba);
 
+  auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
+  for (const auto &hint : hints) {
+    notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+  }
+
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
 
@@ -1696,9 +1708,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 }
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::optional<std::string> const &username,
+                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
+                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
+                                  utils::MemoryResource *execution_memory, std::optional<std::string> const &username,
                                   std::atomic<TransactionStatus> *transaction_status,
                                   std::shared_ptr<utils::AsyncTimer> tx_timer,
                                   FrameChangeCollector *frame_change_collector) {
@@ -1766,6 +1778,12 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
       CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
                         cypher_query, parsed_inner_query.parameters, plan_cache, dba);
   TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
+
+  auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
+  for (const auto &hint : hints) {
+    notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+  }
+
   auto rw_type_checker = plan::ReadWriteTypeChecker();
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
@@ -2613,25 +2631,26 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
   MG_ASSERT(isolation_level_query);
 
   const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
+  MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw IsolationLevelModificationInAnalyticsException();
+  }
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+      isolation_level != storage::IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw IsolationLevelModificationInDiskTransactionalException();
+  }
 
   std::function<void()> callback;
   switch (isolation_level_query->isolation_level_scope_) {
-    case IsolationLevelQuery::IsolationLevelScope::GLOBAL:  // TODO:.....not GLOBAL is it?!
-    {
-      MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
-      storage::Storage *storage = current_db.db_acc_->get()->storage();
+    case IsolationLevelQuery::IsolationLevelScope::GLOBAL: {
       callback = [storage, isolation_level] {
-        if (auto maybe_error = storage->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
-              throw IsolationLevelModificationInAnalyticsException();
-              break;
-          }
+        if (auto res = storage->SetIsolationLevel(isolation_level); res.HasError()) {
+          throw utils::BasicException("Failed setting global isolation level");
         }
       };
       break;
     }
-
     case IsolationLevelQuery::IsolationLevelScope::SESSION: {
       callback = [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       break;
@@ -3731,13 +3750,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                           current_db_, memory_resource, &query_execution->notifications, username_,
                                           &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_);
+      prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
+                                           &query_execution->notifications, interpreter_context_, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                              interpreter_context_, current_db_, &query_execution->execution_memory_with_exception,
-                              username_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           &query_execution->notifications, interpreter_context_, current_db_,
+                                           &query_execution->execution_memory_with_exception, username_,
+                                           &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
@@ -3917,7 +3936,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::execution_timeout_sec_,
+      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context,
                       interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
@@ -4031,9 +4050,9 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory,
-                        flags::run_time::execution_timeout_sec_, &interpreter_context_->is_shutting_down,
-                        &transaction_status_, *trigger_context, interpreter_context_->auth_checker);
+        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory, flags::run_time::GetExecutionTimeout(),
+                        &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context,
+                        interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));

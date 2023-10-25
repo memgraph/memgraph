@@ -122,8 +122,8 @@ std::string SessionHL::GetCurrentDB() const {
 }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
-  auto locked_name = flags::run_time::bolt_server_name_.Lock();
-  return locked_name->empty() ? std::nullopt : std::make_optional(*locked_name);
+  const auto &name = flags::run_time::GetServerName();
+  return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
@@ -177,6 +177,11 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 

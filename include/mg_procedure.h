@@ -482,6 +482,9 @@ enum mgp_error mgp_map_size(struct mgp_map *map, size_t *result);
 /// Result is NULL if no mapping exists.
 enum mgp_error mgp_map_at(struct mgp_map *map, const char *key, struct mgp_value **result);
 
+/// Returns true if key in map.
+enum mgp_error mgp_key_exists(struct mgp_map *map, const char *key, int *result);
+
 /// An item in the mgp_map.
 struct mgp_map_item;
 
@@ -907,6 +910,13 @@ enum mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge 
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
                                      struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge type
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by
+/// another transaction.
+enum mgp_error mgp_graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
+                                          struct mgp_memory *memory, struct mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
