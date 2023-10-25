@@ -409,9 +409,12 @@ def test_multiple_match_query(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n, m}",
-        " * Filter",
-        " * ScanAllByLabel (n :Label1)",
-        " * Filter",
+        " * Cartesian {m : n}",
+        " |\\ ",
+        " | * Filter ",
+        " | * ScanAllByLabel (n :Label1)",
+        " | * Once",
+        " * Filter ",
         " * ScanAllByLabel (m :Label2)",
         " * Once",
     ]
