@@ -11,6 +11,15 @@
 
 #pragma once
 
+#ifdef MG_EXPERIMENTAL_REPLICATION_MULTITENANCY
+constexpr bool allow_mt_repl = true;
+#else
+constexpr bool allow_mt_repl = false;
+#endif
+
+#include <variant>
+
+#include "dbms/constants.hpp"
 #include "dbms/replication_handler.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -21,8 +30,8 @@ namespace memgraph::storage {
 
 inline std::unique_ptr<Storage> CreateInMemoryStorage(Config config,
                                                       const ::memgraph::replication::ReplicationState &repl_state) {
-  const auto restore_repl = config.durability.restore_replication_state_on_startup;
   const auto wal_mode = config.durability.snapshot_wal_mode;
+  const auto name = config.name;
   auto storage = std::make_unique<InMemoryStorage>(std::move(config));
 
   // Connect replication state and storage
@@ -34,15 +43,15 @@ inline std::unique_ptr<Storage> CreateInMemoryStorage(Config config,
     return storage->CreateSnapshot(is_periodic);
   });
 
-  // Handle global replication state
-  if (restore_repl) {
+  if (allow_mt_repl || name == dbms::kDefaultDB) {
+    // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     // RECOVER REPLICA CONNECTIONS
     memgraph::dbms::RestoreReplication(repl_state, *storage);
-  } else {
-    spdlog::warn(
-        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
-        "forgotten.");
+  } else if (const ::memgraph::replication::RoleMainData *data =
+                 std::get_if<::memgraph::replication::RoleMainData>(&repl_state.ReplicationData());
+             data && !data->registered_replicas_.empty()) {
+    spdlog::warn("Multi-tenant replication is currently not supported!");
   }
 
   if (wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
@@ -52,7 +61,7 @@ inline std::unique_ptr<Storage> CreateInMemoryStorage(Config config,
         "without write-ahead logs this instance is not replicating any data.");
   }
 
-  return std::make_unique<Storage>(std::move(storage));
+  return std::move(storage);
 }
 
 }  // namespace memgraph::storage

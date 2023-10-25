@@ -14,6 +14,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_server.hpp"
+#include "dbms/inmemory/storage_helper.hpp"
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
@@ -46,15 +47,13 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     return false;
   };
   auto const replica_handler = [this](RoleReplicaData const &) {
-    dbms_handler_.ForEach([](storage::Storage &storage) {
+    dbms_handler_.ForEach([](Database *db) {
       // STEP 1) bring down all REPLICA servers
-      // TODO: foreach storage
-      {
-        // ensure replica server brought down
-        storage.repl_storage_state_.replication_server_.reset(nullptr);
-        // Remember old epoch + storage timestamp association
-        storage.PrepareForNewEpoch();
-      }
+      auto *storage = db->storage();
+      // ensure replica server brought down
+      storage->repl_storage_state_.replication_server_.reset(nullptr);
+      // Remember old epoch + storage timestamp association
+      storage->PrepareForNewEpoch();
     });
 
     // STEP 2) Change to MAIN
@@ -65,8 +64,9 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     }
 
     // STEP 3) We are now MAIN, update storage local epoch
-    dbms_handler_.ForEach([&](storage::Storage &storage) {
-      storage.repl_storage_state_.epoch_ = std::get<RoleMainData>(std::as_const(repl_state_).ReplicationData()).epoch_;
+    dbms_handler_.ForEach([&](Database *db) {
+      auto *storage = db->storage();
+      storage->repl_storage_state_.epoch_ = std::get<RoleMainData>(std::as_const(repl_state_).ReplicationData()).epoch_;
     });
 
     return true;
@@ -83,8 +83,9 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   }
 
   // Remove registered replicas
-  dbms_handler_.ForEach([&](storage::Storage &storage) {
-    storage.repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  dbms_handler_.ForEach([&](Database *db) {
+    auto *storage = db->storage();
+    storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
   });
 
   // Creates the server
@@ -131,8 +132,15 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
   bool ok = true;
 
+  if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
+    spdlog::warn("Multi-tenant replication is currently not supported!");
+  }
+
   dbms_handler_.ForEach([&](Database *db) {
     auto *storage = db->storage();
+    if (!allow_mt_repl && storage->id() != kDefaultDB) {
+      return;
+    }
     // ATM only IN_MEMORY_TRANSACTIONAL
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
       return;  // SKIP non-IN_MEMORY_TRANSACTIONAL
@@ -188,9 +196,6 @@ bool ReplicationHandler::IsMain() const { return repl_state_.IsMain(); }
 bool ReplicationHandler::IsReplica() const { return repl_state_.IsReplica(); }
 
 void RestoreReplication(const replication::ReplicationState &repl_state, storage::Storage &storage) {
-  if (!repl_state.ShouldPersist()) {
-    return;
-  }
   spdlog::info("Restoring replication role.");
 
   /// MAIN

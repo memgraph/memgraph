@@ -270,8 +270,8 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db, memgraph::replication::ReplicationState *repl_state)
-      : db_(db), handler_{*repl_state, *db_} {}
+  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler, memgraph::replication::ReplicationState *repl_state)
+      : dbms_handler_(dbms_handler), handler_{*repl_state, *dbms_handler} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -327,7 +327,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                          .port = port,
                                                          .replica_check_frequency = replica_check_frequency,
                                                          .ssl = std::nullopt};
-      using storage::RegistrationMode;
+      using dbms::RegistrationMode;
       auto ret = handler_.RegisterReplica(config);
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -341,7 +341,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void DropReplica(std::string_view replica_name) override {
     auto const result = handler_.UnregisterReplica(replica_name);
     switch (result) {
-      using enum memgraph::storage::UnregisterReplicaResult;
+      using enum memgraph::dbms::UnregisterReplicaResult;
       case NOT_MAIN:
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
@@ -360,7 +360,16 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
 
-    auto repl_infos = db_->ReplicasInfo();
+    // TODO: Combine results? Have a single place with clients???
+    std::vector<storage::ReplicaInfo> repl_infos{};
+    dbms_handler_->ForOne([&repl_infos](dbms::Database *db) -> bool {
+      auto infos = db->storage()->ReplicasInfo();
+      if (!infos.empty()) {
+        repl_infos = std::move(infos);
+        return true;
+      }
+      return false;
+    });
     std::vector<Replica> replicas;
     replicas.reserve(repl_infos.size());
 
@@ -404,7 +413,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
  private:
-  storage::Storage *db_;
+  dbms::DbmsHandler *dbms_handler_;
   dbms::ReplicationHandler handler_;
 };
 
@@ -698,8 +707,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   }
 }  // namespace
 
-Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters, storage::Storage *storage,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
+Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
+                                dbms::DbmsHandler *dbms_handler, const query::InterpreterConfig &config,
+                                std::vector<Notification> *notifications,
                                 memgraph::replication::ReplicationState *repl_state) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
@@ -720,7 +730,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, role = repl_query->role_, maybe_port]() mutable {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, role = repl_query->role_,
+                     maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -732,7 +743,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{storage, repl_state}] {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -751,7 +762,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = config.replication_replica_check_frequency;
 
-      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, name, socket_address, sync_mode,
+      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, name, socket_address, sync_mode,
                      replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -762,7 +773,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -774,7 +785,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{storage, repl_state}, replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -2255,23 +2266,22 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                      std::vector<Notification> *notifications, CurrentDB &current_db,
+                                      std::vector<Notification> *notifications, dbms::DbmsHandler &dbms_handler,
                                       const InterpreterConfig &config,
                                       memgraph::replication::ReplicationState *repl_state) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Replication query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw ReplicationDisabledOnDiskStorage();
-  }
+  // MG_ASSERT(current_db.db_acc_, "Replication query expects a current DB");
+  // storage::Storage *storage = current_db.db_acc_->get()->storage();
+  // if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  //   throw ReplicationDisabledOnDiskStorage();
+  // }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, storage, config, notifications, repl_state);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, &dbms_handler, config,
+                                         notifications, repl_state);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -3762,9 +3772,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                               &query_execution->notifications, current_db_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       /// TODO: make replication DB agnostic
-      prepared_query =
-          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  current_db_, interpreter_context_->config, interpreter_context_->repl_state);
+      prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_,
+                                               &query_execution->notifications, *interpreter_context_->db_handler,
+                                               interpreter_context_->config, interpreter_context_->repl_state);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {

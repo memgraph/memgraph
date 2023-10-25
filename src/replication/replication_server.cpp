@@ -27,33 +27,17 @@ constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUEN
 namespace memgraph::slk {
 
 // Serialize code for FrequentHeartbeatRes
-
 void Save(const memgraph::storage::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
-
 void Load(memgraph::storage::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
 
-// void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
-//   memgraph::slk::Save(self, builder);
-// }
-// void FrequentHeartbeatReq::Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {
-//   memgraph::slk::Load(self, reader);
-// }
-// void FrequentHeartbeatRes::Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
-//   memgraph::slk::Save(self, builder);
-// }
-// void FrequentHeartbeatRes::Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
-//   memgraph::slk::Load(self, reader);
-// }
-
 // Serialize code for FrequentHeartbeatReq
-
 void Save(const memgraph::storage::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {}
-
 void Load(memgraph::storage::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {}
+
 }  // namespace memgraph::slk
 
 namespace memgraph::storage {
@@ -78,6 +62,19 @@ static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_
 // simplifies the rest of the implementation.
 constexpr auto kReplictionServerThreads = 1;
 }  // namespace
+
+void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void FrequentHeartbeatReq::Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+void FrequentHeartbeatRes::Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void FrequentHeartbeatRes::Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
 
 ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},

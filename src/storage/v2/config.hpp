@@ -17,6 +17,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
@@ -85,7 +86,12 @@ struct Config {
 };
 
 inline auto ReplicationStateHelper(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
-  if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
+  if (!config.durability.restore_replication_state_on_startup) {
+    spdlog::warn(
+        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
+        "forgotten.");
+    return std::nullopt;
+  }
   return {config.durability.storage_directory};
 }
 
