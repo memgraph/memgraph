@@ -760,8 +760,6 @@ inline mgp_result_record *result_new_record(mgp_result *res) {
   return MgInvoke<mgp_result_record *>(mgp_result_new_record, res);
 }
 
-inline void result_delete_last_record(mgp_result *res) { MgInvokeVoid(mgp_result_delete_last_record, res); }
-
 inline void result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   MgInvokeVoid(mgp_result_record_insert, record, field_name, val);
 }

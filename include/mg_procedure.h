@@ -587,10 +587,6 @@ enum mgp_error mgp_result_set_error_msg(struct mgp_result *res, const char *erro
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_result_record.
 enum mgp_error mgp_result_new_record(struct mgp_result *res, struct mgp_result_record **result);
 
-/// Delete last recode from result.
-/// Returns MGP_ERROR_NO_ERROR always.
-enum mgp_error mgp_result_delete_last_record(struct mgp_result *res);
-
 /// Assign a value to a field in the given record.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory to copy the mgp_value to
 /// mgp_result_record. Return mgp_error::MGP_ERROR_OUT_OF_RANGE if there is no field named `field_name`. Return
