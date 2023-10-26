@@ -19,7 +19,7 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, captain-america]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -57,7 +57,7 @@ jobs:
 
   code_analysis:
     name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, captain-america]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -154,7 +154,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, captain-america]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -215,7 +215,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, captain-america]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -328,7 +328,7 @@ jobs:
 
   release_jepsen_test:
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
+    runs-on: [self-hosted, captain-america]
     #continue-on-error: true
     env:
       THREADS: 24
