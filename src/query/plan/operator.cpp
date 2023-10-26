@@ -2408,6 +2408,14 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+               const Filters &all_filters)
+    : input_(input ? input : std::make_shared<Once>()),
+      pattern_filters_(pattern_filters),
+      expression_(expression),
+      all_filters_(all_filters) {}
+
 bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     input_->Accept(visitor);
@@ -2447,17 +2455,18 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Filter");
-
+  SCOPED_PROFILE_OP_BY_REF(self_);
+  
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD, context.frame_change_collector);
-  while (input_cursor_->Pull(frame, context)) {
+  while (input_cursor_->Pull(frame, context) || UNLIKELY(context.is_profile_query)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
+    if (UNLIKELY(context.is_profile_query)) return false;
   }
   return false;
 }
