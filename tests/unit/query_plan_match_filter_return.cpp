@@ -4071,3 +4071,79 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
+
+template <typename StorageType>
+class QueryPlanConstraintsAsIndices : public testing::Test {
+ public:
+  memgraph::storage::Config config;
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
+  AstStorage storage;
+};
+
+using InMemoryOnlyStorageType = ::testing::Types<memgraph::storage::InMemoryStorage>;
+TYPED_TEST_CASE(QueryPlanConstraintsAsIndices, InMemoryOnlyStorageType);
+
+/// @brief Test checks that adding a unique constraint can be used as an index when iterating over
+/// vertices in an indexed manner
+TYPED_TEST(QueryPlanConstraintsAsIndices, ScanByLabelPropertyUsesConstraints) {
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
+
+  // Add a few nodes with different properties
+  {
+    auto storage_dba = this->db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    for (int i = 0; i < 5; i++) {
+      auto vertex = dba.InsertVertex();
+      ASSERT_TRUE(vertex.AddLabel(label).HasValue());
+      ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
+    }
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  // Create unique constraint for those nodes
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateUniqueConstraint(label, {prop});
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  // Iterate and verify returned nodes from the ranged indexed operator
+  {
+    auto storage_dba = this->db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    EXPECT_EQ(5, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+
+    auto run_scan_all = [&](int lower, int upper) {
+      SymbolTable symbol_table;
+      auto scan_all = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
+                                                      Bound{LITERAL(lower), Bound::Type::INCLUSIVE},
+                                                      Bound{LITERAL(upper), Bound::Type::EXCLUSIVE});
+      auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+      auto produce = MakeProduce(scan_all.op_, output);
+      auto context = MakeContext(this->storage, symbol_table, &dba);
+      auto results = CollectProduce(*produce, &context);
+      ASSERT_EQ(results.size(), std::max(upper - lower, 0));
+
+      for (int i = lower, j = 0; i < upper; i++, j++) {
+        const auto &row = results[j];
+        ASSERT_EQ(row.size(), 1);
+        auto vertex = row[0].ValueVertex();
+        TypedValue value(*vertex.GetProperty(memgraph::storage::View::OLD, prop));
+        ASSERT_TRUE(value.IsInt());
+        ASSERT_EQ(value.ValueInt(), i);
+      }
+    };
+
+    run_scan_all(1, 1);
+    run_scan_all(1, 2);
+    run_scan_all(1, 3);
+    run_scan_all(1, 4);
+    run_scan_all(1, 5);
+    run_scan_all(5, 5);
+    run_scan_all(4, 5);
+    run_scan_all(3, 5);
+    run_scan_all(2, 5);
+    run_scan_all(1, 5);
+  }
+}
