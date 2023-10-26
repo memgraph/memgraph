@@ -42,9 +42,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
-  int64_t i = 0;
-  for (i = 0; remaining_timeout_in_ms > 0 && i < info.batch_size && is_running.load(); ++i) {
-    spdlog::error("Remaining timeout: {}", remaining_timeout_in_ms);
+  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < info.batch_size && is_running.load(); ++i) {
     std::unique_ptr<RdKafka::Message> msg(consumer.consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:
@@ -66,7 +64,6 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
     }
 
     if (!run_batch) {
-      spdlog::error("Exited loop because of run_batch==false");
       break;
     }
 
@@ -74,18 +71,6 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
     auto took = std::chrono::duration_cast<std::chrono::milliseconds>(now - start);
     remaining_timeout_in_ms = remaining_timeout_in_ms - took.count();
     start = now;
-  }
-
-  if (!is_running.load()) {
-    spdlog::error("Exited loop because of is_running==false");
-  }
-
-  if (remaining_timeout_in_ms <= 0) {
-    spdlog::error("Exited loop because of negative remaining_timeout_in_ms: {}", remaining_timeout_in_ms);
-  }
-
-  if (i > info.batch_size) {
-    spdlog::error("Exited loop because of exceeding batch size: {}", i);
   }
 
   return std::move(batch);

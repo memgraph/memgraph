@@ -133,7 +133,6 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
-    auto duration = received_timestamps.back().second.time_since_epoch();
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
@@ -149,10 +148,9 @@ TEST_F(ConsumerTest, BatchInterval) {
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
   // Wait for all messages to be delivered
-  // std::this_thread::sleep_for(kBatchInterval);
+  std::this_thread::sleep_for(kBatchInterval);
 
   consumer->Stop();
-  spdlog::error("Stopped consumer");
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index) {
@@ -163,7 +161,6 @@ TEST_F(ConsumerTest, BatchInterval) {
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(received_timestamps[index].second -
                                                                              received_timestamps[index - 1].second);
-    spdlog::error("Diff for {}: {}", index, actual_diff.count());
     static constexpr auto kMinDiff = kBatchInterval * 0.9;
     static constexpr auto kMaxDiff = kBatchInterval * 1.1;
     EXPECT_LE(kMinDiff.count(), actual_diff.count());
@@ -175,6 +172,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   EXPECT_TRUE(1 <= received_timestamps[0].first && received_timestamps[0].first <= 2);
 
   EXPECT_LE(3, received_timestamps.size());
+
   int msgsCnt = received_timestamps[0].first;
   for (auto i = 1; i < received_timestamps.size(); ++i) {
     msgsCnt += received_timestamps[i].first;
