@@ -134,7 +134,6 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     auto duration = received_timestamps.back().second.time_since_epoch();
-    spdlog::error("Received {} msgs timestamp: {}", received_timestamps.back().first, duration.count() / 1000000);
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
@@ -152,8 +151,8 @@ TEST_F(ConsumerTest, BatchInterval) {
   // Wait for all messages to be delivered
   // std::this_thread::sleep_for(kBatchInterval);
 
-  spdlog::error("Stopping consumer");
   consumer->Stop();
+  spdlog::error("Stopped consumer");
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index) {
