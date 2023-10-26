@@ -1137,9 +1137,6 @@ class Filter : public memgraph::query::plan::LogicalOperator {
       }
       return fmt::format("Generic {{{}}}",
                          utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
-      // return fmt::format("Generic {{{}}}", utils::IterableToString(single_filter.used_symbols, ", ",
-      //                                                              [](const auto &symbol) { return symbol.name();
-      //                                                              }));
     } else if (single_filter.type == Type::Id) {
       return fmt::format("id({})", single_filter.id_filter->symbol_.name());
     } else if (single_filter.type == Type::Label) {
@@ -1154,16 +1151,11 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
         return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
-        // return fmt::format("(:{})", utils::IterableToString(filter_expression->labels_, ":",
-        //                                                     [](const auto &label) { return label.name; }));
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
 
       return fmt::format("({} :{})", identifier_expression->name_,
                          utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
-      // return fmt::format(
-      //     "({} :{})", identifier_expression->name_,
-      //     utils::IterableToString(filter_expression->labels_, ":", [](const auto &label) { return label.name; }));
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {
@@ -1180,13 +1172,6 @@ class Filter : public memgraph::query::plan::LogicalOperator {
       filter_names.insert(Filter::SingleFilterName(filter));
     }
     return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));
-
-    // for (auto filter : all_filters_) {
-    //   sorted_filters.insert(filter);
-    // }
-    // return fmt::format("Filter {}", utils::IterableToString(all_filters_, ", ", [](const auto &single_filter) {
-    //                      return Filter::SingleFilterName(single_filter);
-    //                    }));
   }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
