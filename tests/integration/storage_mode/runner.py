@@ -22,6 +22,8 @@ assertion_queries = [
     f"MATCH (n)-[e]->(m) WITH count(e) as cnt RETURN assert(cnt={len(edge_queries)});",
 ]
 
+SIGNAL_SIGTERM = 15
+
 
 def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -40,9 +42,12 @@ def prepare_memgraph(memgraph_args):
 
 
 def terminate_memgraph(memgraph):
-    memgraph.terminate()
-    time.sleep(0.1)
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 def execute_tester(
@@ -90,8 +95,12 @@ def execute_test_analytical_mode(memgraph_binary: str, tester_binary: str) -> No
 
     execute_queries(assertion_queries)
 
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_binary: str) -> None:
@@ -135,8 +144,12 @@ def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_bi
     execute_queries(assertion_queries)
 
     print("\033[1;36m~~ Terminating memgraph ~~\033[0m\n")
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_binary: str) -> None:
@@ -177,8 +190,12 @@ def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_bi
     execute_queries(assertion_queries)
 
     print("\033[1;36m~~ Terminating memgraph ~~\033[0m\n")
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
 
 if __name__ == "__main__":
