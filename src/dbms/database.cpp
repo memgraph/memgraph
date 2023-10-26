@@ -21,7 +21,8 @@ namespace memgraph::dbms {
 
 Database::Database(const storage::Config &config)
     : trigger_store_(config.durability.storage_directory / "triggers"),
-      streams_{config.durability.storage_directory / "streams"} {
+      streams_{config.durability.storage_directory / "streams"},
+      plan_cache_{FLAGS_query_plan_cache_ttl} {
   if (config.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(config);

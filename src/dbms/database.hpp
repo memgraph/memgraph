@@ -24,6 +24,8 @@
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/lru_cache.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
 
@@ -145,9 +147,11 @@ class Database {
   /**
    * @brief Returns the PlanCache vector raw pointer
    *
-   * @return utils::SkipList<query::PlanCacheEntry>*
+   * @return uutils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedPlan>>, utils::SpinLock>
    */
-  utils::SkipList<query::PlanCacheEntry> *plan_cache() { return &plan_cache_; }
+  utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlan>>, utils::SpinLock> *plan_cache() {
+    return &plan_cache_;
+  }
 
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
@@ -156,7 +160,8 @@ class Database {
   query::stream::Streams streams_;                  //!< Streams associated with the storage
 
   // TODO: Move to a better place
-  utils::SkipList<query::PlanCacheEntry> plan_cache_;  //!< Plan cache associated with the storage
+  utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlan>>, utils::SpinLock>
+      plan_cache_;  //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

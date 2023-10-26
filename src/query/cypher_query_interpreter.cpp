@@ -12,6 +12,7 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "utils/synchronized.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -127,28 +128,22 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                                  std::move(symbol_table));
 }
 
-std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                              const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor,
-                                              const std::vector<Identifier *> &predefined_identifiers) {
-  std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
+std::shared_ptr<CachedPlan> CypherQueryToPlan(
+    uint64_t hash, AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
+    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedPlan>>, utils::SpinLock> *plan_cache,
+    DbAccessor *db_accessor, const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    plan_cache_access.emplace(plan_cache->access());
-    auto it = plan_cache_access->find(hash);
-    if (it != plan_cache_access->end()) {
-      if (it->second->IsExpired()) {
-        plan_cache_access->remove(hash);
-      } else {
-        return it->second;
-      }
+    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
+    if (existing_plan != nullptr) {
+      return existing_plan;
     }
   }
 
   auto plan = std::make_shared<CachedPlan>(
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
-  if (plan_cache_access) {
-    plan_cache_access->insert({hash, plan});
-  }
+
+  plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+
   return plan;
 }
 }  // namespace memgraph::query
