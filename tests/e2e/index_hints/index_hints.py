@@ -49,10 +49,12 @@ def test_label_index_hint_alternative_orderings(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter (n :Label2:Label1)",
+        " * Filter (n :Label1:Label2)",
         " * ScanAllByLabel (n :Label2)",
         " * Once",
     ]
+    expected_explain_with_hint_ordering_3 = expected_explain_with_hint[:]
+    expected_explain_with_hint_ordering_3[1] = " * Filter (n :Label1:Label2:Label3)"  # since it matches 3 labels
 
     explain_with_hint_ordering_1 = [
         row["QUERY PLAN"]
@@ -68,10 +70,8 @@ def test_label_index_hint_alternative_orderings(memgraph):
     ]
 
     assert (
-        expected_explain_with_hint
-        == explain_with_hint_ordering_1
-        == explain_with_hint_ordering_2
-        == explain_with_hint_ordering_3
+        expected_explain_with_hint == explain_with_hint_ordering_1 == explain_with_hint_ordering_2
+        and expected_explain_with_hint_ordering_3 == explain_with_hint_ordering_3
     )
 
 
@@ -127,7 +127,7 @@ def test_multiple_applicable_label_index_hints_alternative_orderings(memgraph):
 
     expected_explain_with_hint_1 = [
         " * Produce {n}",
-        " * Filter (n :Label3:Label2)",
+        " * Filter (n :Label2:Label3)",
         " * ScanAllByLabel (n :Label3)",
         " * Once",
     ]
@@ -192,7 +192,7 @@ def test_label_property_index_hint_alternative_orderings(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id2}, {n.id1}",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -221,7 +221,7 @@ def test_multiple_label_property_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id2}, {n.id1}",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -235,7 +235,7 @@ def test_multiple_label_property_index_hints(memgraph):
     explain_with_hint_alternative_ordering = [
         row["QUERY PLAN"]
         for row in memgraph.execute_and_fetch(
-            "EXPLAIN USING INDEX :Label(id0), :Label(id1) MATCH (n:Label) WHERE n.id1 = 3 AND n.id1 = 2 RETURN n;"
+            "EXPLAIN USING INDEX :Label(id0), :Label(id1) MATCH (n:Label) WHERE n.id1 = 3 AND n.id2 = 3 RETURN n;"
         )
     ]
 
@@ -275,7 +275,7 @@ def test_multiple_applicable_label_property_index_hints_alternative_orderings(me
 
     expected_explain_with_hint_1 = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id2}, {n.id1}",
+        " * Filter (n :Label), {n.id1}, {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -414,7 +414,7 @@ def test_multiple_match_query(memgraph):
         " | * Filter (n :Label1:Label2), {n.id}",
         " | * ScanAllByLabel (n :Label1)",
         " | * Once",
-        " * Filter (n :Label1:Label2), {n.id}, (m :Label2:Label3)",
+        " * Filter (m :Label2:Label3), (n :Label1:Label2), {n.id}",
         " * ScanAllByLabel (m :Label2)",
         " * Once",
     ]

@@ -1131,8 +1131,15 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
     using Type = query::plan::FilterInfo::Type;
     if (single_filter.type == Type::Generic) {
-      return fmt::format("Generic {{{}}}", utils::IterableToString(single_filter.used_symbols, ", ",
-                                                                   [](const auto &symbol) { return symbol.name(); }));
+      std::set<std::string> symbol_names;
+      for (const auto &symbol : single_filter.used_symbols) {
+        symbol_names.insert(symbol.name());
+      }
+      return fmt::format("Generic {{{}}}",
+                         utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
+      // return fmt::format("Generic {{{}}}", utils::IterableToString(single_filter.used_symbols, ", ",
+      //                                                              [](const auto &symbol) { return symbol.name();
+      //                                                              }));
     } else if (single_filter.type == Type::Id) {
       return fmt::format("id({})", single_filter.id_filter->symbol_.name());
     } else if (single_filter.type == Type::Label) {
@@ -1140,16 +1147,23 @@ class Filter : public memgraph::query::plan::LogicalOperator {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      std::set<std::string> label_names;
+      for (const auto &label : filter_expression->labels_) {
+        label_names.insert(label.name);
+      }
 
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("(:{})", utils::IterableToString(filter_expression->labels_, ":",
-                                                            [](const auto &label) { return label.name; }));
+        return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+        // return fmt::format("(:{})", utils::IterableToString(filter_expression->labels_, ":",
+        //                                                     [](const auto &label) { return label.name; }));
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
 
-      return fmt::format(
-          "({} :{})", identifier_expression->name_,
-          utils::IterableToString(filter_expression->labels_, ":", [](const auto &label) { return label.name; }));
+      return fmt::format("({} :{})", identifier_expression->name_,
+                         utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+      // return fmt::format(
+      //     "({} :{})", identifier_expression->name_,
+      //     utils::IterableToString(filter_expression->labels_, ":", [](const auto &label) { return label.name; }));
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {
@@ -1161,9 +1175,18 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   }
 
   std::string ToString() const override {
-    return fmt::format("Filter {}", utils::IterableToString(all_filters_, ", ", [](const auto &single_filter) {
-                         return Filter::SingleFilterName(single_filter);
-                       }));
+    std::set<std::string> filter_names;
+    for (const auto &filter : all_filters_) {
+      filter_names.insert(Filter::SingleFilterName(filter));
+    }
+    return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));
+
+    // for (auto filter : all_filters_) {
+    //   sorted_filters.insert(filter);
+    // }
+    // return fmt::format("Filter {}", utils::IterableToString(all_filters_, ", ", [](const auto &single_filter) {
+    //                      return Filter::SingleFilterName(single_filter);
+    //                    }));
   }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
