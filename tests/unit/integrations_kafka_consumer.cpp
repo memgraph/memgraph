@@ -150,7 +150,7 @@ TEST_F(ConsumerTest, BatchInterval) {
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
   // Wait for all messages to be delivered
-  std::this_thread::sleep_for(kBatchInterval);
+  // std::this_thread::sleep_for(kBatchInterval);
 
   spdlog::error("Stopping consumer");
   consumer->Stop();
