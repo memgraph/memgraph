@@ -40,9 +40,13 @@ jobs:
           # Initialize dependencies.
           ./init
 
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=${{ github.event.inputs.build_type }} -DMG_ENTERPRISE=OFF ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -197,11 +201,15 @@ jobs:
           # Initialize dependencies.
           ./init
 
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=${{ github.event.inputs.build_type }} ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS
-
+         
       - name: Create enterprise RPM package
         run: |
           # Activate toolchain.
