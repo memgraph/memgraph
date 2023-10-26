@@ -2091,7 +2091,7 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 
   // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = current_db.db_acc_->get()->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { return cache.clean(); });
+    plan_cache->WithLock([&](auto &cache) { return cache.clear(); });
   };
   utils::OnScopeExit cache_invalidator(invalidate_plan_cache);
 
@@ -2136,7 +2136,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { return cache.clean(); });
+    plan_cache->WithLock([&](auto &cache) { return cache.clear(); });
   };
 
   auto *storage = db_acc->storage();

@@ -41,7 +41,13 @@ class LRUCache {
     item_list.splice(item_list.begin(), item_list, it->second);
     return it->second->second;
   };
-  void clean(void) {
+  void clear() {
+    item_list.clear();
+    item_map.clear();
+  };
+
+ private:
+  void clean() {
     while (item_map.size() > cache_size) {
       auto last_it = item_list.end();
       last_it--;
@@ -50,7 +56,6 @@ class LRUCache {
     }
   };
 
- private:
   std::list<std::pair<KEY, VAL>> item_list;
   std::unordered_map<KEY, decltype(item_list.begin())> item_map;
   size_t cache_size;
