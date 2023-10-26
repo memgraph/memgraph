@@ -1,0 +1,27 @@
+name: Deda test 
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+
+jobs:
+  test_job:
+    name: "Test default variable"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build community binaries
+        run: |
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+          
+          echo "Using ${BUILD_TYPE}"
+          echo "cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DMG_ENTERPRISE=OFF .."
