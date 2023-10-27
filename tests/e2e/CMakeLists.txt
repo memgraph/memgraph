@@ -66,6 +66,7 @@ add_subdirectory(concurrent_query_modules)
 add_subdirectory(show_index_info)
 add_subdirectory(set_properties)
 add_subdirectory(transaction_rollback)
+add_subdirectory(index_hints)
 add_subdirectory(query_modules)
 add_subdirectory(constraints)
 
