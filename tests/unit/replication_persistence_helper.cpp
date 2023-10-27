@@ -20,82 +20,95 @@
 #include <optional>
 #include <string>
 
+using namespace memgraph::replication::durability;
 using namespace memgraph::replication;
 
-class ReplicationPersistanceHelperTest : public testing::Test {
- protected:
-  void SetUp() override {}
+static_assert(sizeof(ReplicationRoleEntry) == 168,
+              "Most likely you modified ReplicationRoleEntry without updating the tests. ");
 
-  void TearDown() override {}
+static_assert(sizeof(ReplicationReplicaEntry) == 160,
+              "Most likely you modified ReplicationReplicaEntry without updating the tests.");
 
-  ReplicationStatus CreateReplicationStatus(std::string name, std::string ip_address, uint16_t port,
-                                            ReplicationMode sync_mode, std::chrono::seconds replica_check_frequency,
-                                            std::optional<ReplicationClientConfig::SSL> ssl,
-                                            std::optional<ReplicationRole> role) const {
-    return ReplicationStatus{.name = name,
-                             .ip_address = ip_address,
-                             .port = port,
-                             .sync_mode = sync_mode,
-                             .replica_check_frequency = replica_check_frequency,
-                             .ssl = ssl,
-                             .role = role};
-  }
-
-  static_assert(
-      sizeof(ReplicationStatus) == 160,
-      "Most likely you modified ReplicationStatus without updating the tests. Please modify CreateReplicationStatus. ");
-};
-
-TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesInitialized) {
-  auto replicas_status = CreateReplicationStatus(
-      "name", "ip_address", 0, ReplicationMode::SYNC, std::chrono::seconds(1),
-      ReplicationClientConfig::SSL{.key_file = "key_file", .cert_file = "cert_file"}, ReplicationRole::REPLICA);
-
-  auto json_status = ReplicationStatusToJSON(ReplicationStatus(replicas_status));
-  auto replicas_status_converted = JSONToReplicationStatus(std::move(json_status));
-
-  ASSERT_EQ(replicas_status, *replicas_status_converted);
+TEST(ReplicationDurability, V1Main) {
+  auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V1,
+                                               .role = MainRole{
+                                                   .epoch = ReplicationEpoch{"TEST_STRING"},
+                                               }};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
 }
 
-TEST_F(ReplicationPersistanceHelperTest, BasicTestOnlyMandatoryAttributesInitialized) {
-  auto replicas_status = CreateReplicationStatus("name", "ip_address", 0, ReplicationMode::SYNC,
-                                                 std::chrono::seconds(1), std::nullopt, std::nullopt);
-
-  auto json_status = ReplicationStatusToJSON(ReplicationStatus(replicas_status));
-  auto replicas_status_converted = JSONToReplicationStatus(std::move(json_status));
-
-  ASSERT_EQ(replicas_status, *replicas_status_converted);
+TEST(ReplicationDurability, V2Main) {
+  auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V2,
+                                               .role = MainRole{
+                                                   .epoch = ReplicationEpoch{"TEST_STRING"},
+                                               }};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
 }
 
-TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesButSSLInitialized) {
-  auto replicas_status = CreateReplicationStatus("name", "ip_address", 0, ReplicationMode::SYNC,
-                                                 std::chrono::seconds(1), std::nullopt, ReplicationRole::MAIN);
-
-  auto json_status = ReplicationStatusToJSON(ReplicationStatus(replicas_status));
-  auto replicas_status_converted = JSONToReplicationStatus(std::move(json_status));
-
-  ASSERT_EQ(replicas_status, *replicas_status_converted);
+TEST(ReplicationDurability, V1Replica) {
+  auto const role_entry =
+      ReplicationRoleEntry{.version = DurabilityVersion::V1,
+                           .role = ReplicaRole{
+                               .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+                           }};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
 }
 
-TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesButTimeoutInitialized) {
-  auto replicas_status = CreateReplicationStatus(
-      "name", "ip_address", 0, ReplicationMode::SYNC, std::chrono::seconds(1),
-      ReplicationClientConfig::SSL{.key_file = "key_file", .cert_file = "cert_file"}, ReplicationRole::REPLICA);
-
-  auto json_status = ReplicationStatusToJSON(ReplicationStatus(replicas_status));
-  auto replicas_status_converted = JSONToReplicationStatus(std::move(json_status));
-
-  ASSERT_EQ(replicas_status, *replicas_status_converted);
+TEST(ReplicationDurability, V2Replica) {
+  auto const role_entry =
+      ReplicationRoleEntry{.version = DurabilityVersion::V2,
+                           .role = ReplicaRole{
+                               .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+                           }};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
 }
 
-TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesButReplicationRoleInitialized) {
-  // this one is importand for backwards compatibility
-  auto replicas_status = CreateReplicationStatus(
-      "name", "ip_address", 0, ReplicationMode::SYNC, std::chrono::seconds(1),
-      ReplicationClientConfig::SSL{.key_file = "key_file", .cert_file = "cert_file"}, std::nullopt);
+TEST(ReplicationDurability, ReplicaEntrySync) {
+  using namespace std::chrono_literals;
+  using namespace std::string_literals;
+  auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
+                                                         .name = "TEST_NAME"s,
+                                                         .mode = ReplicationMode::SYNC,
+                                                         .ip_address = "000.123.456.789"s,
+                                                         .port = 2023,
+                                                         .replica_check_frequency = 3s,
+                                                     }};
+  nlohmann::json j;
+  to_json(j, replica_entry);
+  ReplicationReplicaEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(replica_entry, deser);
+}
 
-  auto json_status = ReplicationStatusToJSON(ReplicationStatus(replicas_status));
-  auto replicas_status_converted = JSONToReplicationStatus(std::move(json_status));
-
-  ASSERT_EQ(replicas_status, *replicas_status_converted);
+TEST(ReplicationDurability, ReplicaEntryAsync) {
+  using namespace std::chrono_literals;
+  using namespace std::string_literals;
+  auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
+                                                         .name = "TEST_NAME"s,
+                                                         .mode = ReplicationMode::ASYNC,
+                                                         .ip_address = "000.123.456.789"s,
+                                                         .port = 2023,
+                                                         .replica_check_frequency = 3s,
+                                                     }};
+  nlohmann::json j;
+  to_json(j, replica_entry);
+  ReplicationReplicaEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(replica_entry, deser);
 }

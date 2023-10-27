@@ -19,6 +19,7 @@
 
 namespace memgraph::dbms {
 
+#ifdef MG_ENTERPRISE
 enum class DeleteError : uint8_t {
   DEFAULT_DB,
   USING,
@@ -32,14 +33,9 @@ enum class NewError : uint8_t {
   EXISTS,
   DEFUNCT,
   GENERIC,
-  NOT_ALLOWED_IN_COMMUNITY,
 };
 
-enum class SetForResult : uint8_t {
-  SUCCESS,
-  ALREADY_SET,
-  FAIL,
-};
+#endif;
 
 /**
  * UnknownSession Exception

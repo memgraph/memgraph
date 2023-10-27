@@ -370,10 +370,7 @@ int main(int argc, char **argv) {
 
   // TODO: Move it somewhere better
   // Startup replication state (if recovered at startup)
-  MG_ASSERT(std::visit(memgraph::utils::Overloaded{[](auto) {
-                                                     /// TODO: Recover clients????
-                                                     return true;
-                                                   },
+  MG_ASSERT(std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData const &) { return true; },
                                                    [&](memgraph::replication::RoleReplicaData const &data) {
                                                      // Register handlers
                                                      memgraph::dbms::InMemoryReplicationServer::Register(&dbms_handler,

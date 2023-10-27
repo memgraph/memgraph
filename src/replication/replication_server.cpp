@@ -14,16 +14,6 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 
-namespace memgraph::replication {
-
-constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ, "FrequentHeartbeatReq",
-                                                      nullptr};
-
-constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
-                                                      nullptr};
-
-}  // namespace memgraph::replication
-
 namespace memgraph::slk {
 
 // Serialize code for FrequentHeartbeatRes
@@ -62,6 +52,12 @@ static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_
 // simplifies the rest of the implementation.
 constexpr auto kReplictionServerThreads = 1;
 }  // namespace
+
+constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ, "FrequentHeartbeatReq",
+                                                      nullptr};
+
+constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
+                                                      nullptr};
 
 void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);

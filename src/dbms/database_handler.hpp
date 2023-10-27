@@ -11,6 +11,8 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include <algorithm>
 #include <filesystem>
 #include <iterator>
@@ -92,3 +94,4 @@ class DatabaseHandler : public Handler<Database> {
 };
 
 }  // namespace memgraph::dbms
+#endif

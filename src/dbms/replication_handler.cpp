@@ -138,24 +138,19 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     if (!allow_mt_repl && storage->id() != kDefaultDB) {
       return;
     }
-    // ATM only IN_MEMORY_TRANSACTIONAL
-    if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
-      return;  // SKIP non-IN_MEMORY_TRANSACTIONAL
+    // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
+    if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
-    ok &= storage->repl_storage_state_.replication_clients_.WithLock(
-        [storage, &config](auto &clients) -> /*utils::BasicResult<RegisterReplicaError>*/ bool {
-          auto client = storage->CreateReplicationClient(config, &storage->repl_storage_state_.epoch_);
-          client->Start();
+    ok &= storage->repl_storage_state_.replication_clients_.WithLock([storage, &config](auto &clients) -> bool {
+      auto client = storage->CreateReplicationClient(config, &storage->repl_storage_state_.epoch_);
+      client->Start();
 
-          if (client->State() == storage::replication::ReplicaState::INVALID) {
-            return false;  // RegisterReplicaError::CONNECTION_FAILED;
-
-            spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
-                         client->Name());
-          }
-          clients.push_back(std::move(client));
-          return true;  //{};
-        });
+      if (client->State() == storage::replication::ReplicaState::INVALID) {
+        return false;
+      }
+      clients.push_back(std::move(client));
+      return true;
+    });
   });
   if (!ok) return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
   return {};
@@ -174,9 +169,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
                       [&](ReplicationClientConfig const &registered_config) { return registered_config.name == name; });
 
     dbms_handler_.ForEach([&](Database *db) {
-      auto *storage = db->storage();
-      // don't care how many got erased
-      storage->repl_storage_state_.replication_clients_.WithLock(
+      db->storage()->repl_storage_state_.replication_clients_.WithLock(
           [&](auto &clients) { std::erase_if(clients, [&](const auto &client) { return client->Name() == name; }); });
     });
 

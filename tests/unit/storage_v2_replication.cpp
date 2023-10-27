@@ -36,7 +36,6 @@
 using testing::UnorderedElementsAre;
 
 using memgraph::dbms::RegisterReplicaError;
-using memgraph::dbms::RegistrationMode;
 using memgraph::dbms::ReplicationHandler;
 using memgraph::dbms::UnregisterReplicaResult;
 using memgraph::replication::ReplicationClientConfig;

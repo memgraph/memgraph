@@ -249,14 +249,6 @@ void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader);
 
-// void Save(const memgraph::storage::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-//
-// void Load(memgraph::storage::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-//
-// void Save(const memgraph::storage::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-//
-// void Load(memgraph::storage::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
-
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::HeartbeatRes *self, memgraph::slk::Reader *reader);

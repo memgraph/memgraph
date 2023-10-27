@@ -45,10 +45,10 @@ class Interpreter;
  *
  */
 struct InterpreterContext {
-  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *db_handler,
+  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                      replication::ReplicationState *rs, AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
 
-  memgraph::dbms::DbmsHandler *db_handler;
+  memgraph::dbms::DbmsHandler *dbms_handler;
 
   // Internal
   const InterpreterConfig config;

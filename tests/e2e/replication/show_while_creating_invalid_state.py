@@ -411,7 +411,7 @@ def test_replication_role_recovery(connection):
             "data_directory": f"{data_directory.name}/main",
         },
     }
-    # 1/
+    # 1/ Obsolete, schema change, no longer a reserved name
     # with pytest.raises(mgclient.DatabaseError):
     #     execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
 

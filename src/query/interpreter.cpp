@@ -328,7 +328,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                          .port = port,
                                                          .replica_check_frequency = replica_check_frequency,
                                                          .ssl = std::nullopt};
-      using dbms::RegistrationMode;
       auto ret = handler_.RegisterReplica(config);
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -425,7 +424,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters) {
   AuthQueryHandler *auth = interpreter_context->auth;
 #ifdef MG_ENTERPRISE
-  auto *db_handler = interpreter_context->db_handler;
+  auto *db_handler = interpreter_context->dbms_handler;
 #endif
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
@@ -2275,12 +2274,6 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit
     throw ReplicationModificationInMulticommandTxException();
   }
 
-  // MG_ASSERT(current_db.db_acc_, "Replication query expects a current DB");
-  // storage::Storage *storage = current_db.db_acc_->get()->storage();
-  // if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-  //   throw ReplicationDisabledOnDiskStorage();
-  // }
-
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, &dbms_handler, config,
                                          notifications, repl_state);
@@ -2819,7 +2812,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       std::move(parsed_query.required_privileges),
       [storage](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-        if (auto maybe_error = mem_storage->CreateSnapshot({}); maybe_error.HasError()) {
+        if (auto maybe_error = mem_storage->CreateSnapshot(false); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
@@ -3370,7 +3363,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   if (!current_db.db_acc_) throw DatabaseContextRequiredException("Multi database queries require a defined database.");
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
-  auto *db_handler = interpreter_context->db_handler;
+  auto *db_handler = interpreter_context->dbms_handler;
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
@@ -3400,9 +3393,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                   throw QueryRuntimeException("Failed while creating {}", db_name);
                 case dbms::NewError::NO_CONFIGS:
                   throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
-                case dbms::NewError::NOT_ALLOWED_IN_COMMUNITY:
-                  using namespace std::string_view_literals;
-                  throw QueryRuntimeException("Trying to use enterprise feature"sv);
               }
             } else {
               res = "Successfully created database " + db_name;
@@ -3465,11 +3455,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           [db_name = query->db_name_, db_handler, auth = interpreter_context->auth](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             std::vector<std::vector<TypedValue>> status;
-            memgraph::dbms::DeleteResult success{};
 
             try {
               // Remove database
-              success = db_handler->Delete(db_name);
+              auto success = db_handler->Delete(db_name);
               if (!success.HasError()) {
                 // Remove from auth
                 auth->DeleteDatabase(db_name);
@@ -3520,7 +3509,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
   }
 
   // TODO pick directly from ic
-  auto *db_handler = interpreter_context->db_handler;
+  auto *db_handler = interpreter_context->dbms_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
@@ -3624,7 +3613,7 @@ void Interpreter::RollbackTransaction() {
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // Can throw
   // do we lock here?
-  current_db_.SetCurrentDB(interpreter_context_->db_handler->Get(db_name), in_explicit_db);
+  current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
 }
 #endif
 
@@ -3780,7 +3769,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       /// TODO: make replication DB agnostic
       prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_,
-                                               &query_execution->notifications, *interpreter_context_->db_handler,
+                                               &query_execution->notifications, *interpreter_context_->dbms_handler,
                                                interpreter_context_->config, interpreter_context_->repl_state);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);

@@ -25,7 +25,6 @@ struct ReplicationClientConfig;
 namespace memgraph::dbms {
 class DbmsHandler;
 
-enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, RESTORE };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,

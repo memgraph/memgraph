@@ -12,7 +12,7 @@
 #include "replication/state.hpp"
 
 #include "replication/replication_server.hpp"
-#include "replication/status.hpp"  //TODO: don't use status for durability
+#include "replication/status.hpp"
 #include "utils/file.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -201,7 +201,7 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
-    if (!TryPersistRoleMain(std::string())) return false;
+    if (!TryPersistRoleMain(std::string(std::get<RoleMainData>(replication_data_).epoch_.id()))) return false;
   }
 
   auto data = durability::ReplicationReplicaEntry{.config = config};

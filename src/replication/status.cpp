@@ -12,6 +12,9 @@
 
 #include "fmt/format.h"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
+
+namespace memgraph::replication::durability {
 
 constexpr auto *kReplicaName = "replica_name";
 constexpr auto *kIpAddress = "replica_ip_address";
@@ -23,18 +26,6 @@ constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kEpoch = "epoch";
 constexpr auto *kVersion = "durability_version";
-
-// TODO: use utils::...
-template <class... Ts>
-struct overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
-
-namespace memgraph::replication {
-
-namespace durability {
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
@@ -49,7 +40,7 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
         // TODO: SSL
     };
   };
-  std::visit(overloaded{processMAIN, processREPLICA}, p.role);
+  std::visit(utils::Overloaded{processMAIN, processREPLICA}, p.role);
 }
 
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
@@ -114,70 +105,4 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   }
   p = ReplicationReplicaEntry{.config = std::move(config)};
 }
-}  // namespace durability
-
-nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status) {
-  auto data = nlohmann::json::object();
-
-  data[kReplicaName] = std::move(status.name);
-  data[kIpAddress] = std::move(status.ip_address);
-  data[kPort] = status.port;
-  data[kSyncMode] = status.sync_mode;
-
-  data[kCheckFrequency] = status.replica_check_frequency.count();
-
-  if (status.ssl.has_value()) {
-    data[kSSLKeyFile] = std::move(status.ssl->key_file);
-    data[kSSLCertFile] = std::move(status.ssl->cert_file);
-  } else {
-    data[kSSLKeyFile] = nullptr;
-    data[kSSLCertFile] = nullptr;
-  }
-
-  if (status.role.has_value()) {
-    data[kReplicationRole] = *status.role;
-  }
-
-  return data;
-}
-std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) {
-  ReplicationStatus replica_status;
-
-  const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
-    return fmt::format("Failed to deserialize replica's configuration: {} : {}", message, nested_message);
-  };
-
-  try {
-    data.at(kReplicaName).get_to(replica_status.name);
-    data.at(kIpAddress).get_to(replica_status.ip_address);
-    data.at(kPort).get_to(replica_status.port);
-    data.at(kSyncMode).get_to(replica_status.sync_mode);
-
-    replica_status.replica_check_frequency = std::chrono::seconds(data.at(kCheckFrequency));
-
-    const auto &key_file = data.at(kSSLKeyFile);
-    const auto &cert_file = data.at(kSSLCertFile);
-
-    MG_ASSERT(key_file.is_null() == cert_file.is_null());
-
-    if (!key_file.is_null()) {
-      replica_status.ssl = ReplicationClientConfig::SSL{};
-      data.at(kSSLKeyFile).get_to(replica_status.ssl->key_file);
-      data.at(kSSLCertFile).get_to(replica_status.ssl->cert_file);
-    }
-
-    if (data.find(kReplicationRole) != data.end()) {
-      replica_status.role = ReplicationRole::MAIN;
-      data.at(kReplicationRole).get_to(replica_status.role.value());
-    }
-  } catch (const nlohmann::json::type_error &exception) {
-    spdlog::error(get_failed_message("Invalid type conversion", exception.what()));
-    return std::nullopt;
-  } catch (const nlohmann::json::out_of_range &exception) {
-    spdlog::error(get_failed_message("Non existing field", exception.what()));
-    return std::nullopt;
-  }
-
-  return replica_status;
-}
-}  // namespace memgraph::replication
+}  // namespace memgraph::replication::durability

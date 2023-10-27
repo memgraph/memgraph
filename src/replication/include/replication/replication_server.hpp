@@ -38,6 +38,7 @@ struct FrequentHeartbeatRes {
   bool success;
 };
 
+// TODO: move to own header
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
 class ReplicationServer {

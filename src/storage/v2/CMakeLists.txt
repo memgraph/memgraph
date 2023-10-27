@@ -56,7 +56,7 @@ set_source_files_properties(
 
 
 
-add_library(mg-storage-replication STATIC
-        ../../replication/replication_server.cpp
-)
-target_link_libraries(mg-storage-replication mg::replication mg-rpc mg-slk mg-events)
+#add_library(mg-storage-replication STATIC
+#        ../../replication/replication_server.cpp
+#)
+#target_link_libraries(mg-storage-replication mg::replication mg-rpc mg-slk mg-events)

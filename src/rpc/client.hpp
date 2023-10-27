@@ -162,7 +162,6 @@ class Client {
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
-    //    slk::Save(SERVER_VERSION, handler.GetBuilder());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.

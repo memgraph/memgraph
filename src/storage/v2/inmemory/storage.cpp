@@ -60,7 +60,6 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    // RECOVER DATA
     auto info =
         durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_, &vertices_, &edges_,
                                 &edge_count_, name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
@@ -1966,6 +1965,32 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<I
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_, is_main});
+}
+
+void InMemoryStorage::CreateSnapshotHandler(
+    std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb) {
+  create_snapshot_handler = [cb](bool is_periodic) {
+    if (auto maybe_error = cb(is_periodic); maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case CreateSnapshotError::DisabledForReplica:
+          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                              "https://memgr.ph/durability"));
+          break;
+        case CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          break;
+      }
+    }
+  };
+
+  // Run the snapshot thread (if enabled)
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                         [this]() { this->create_snapshot_handler(true); });
+  }
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);

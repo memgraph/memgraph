@@ -26,7 +26,9 @@
 #include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database.hpp"
+#ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
+#endif
 #include "global.hpp"
 #include "query/config.hpp"
 #include "query/interpreter_context.hpp"
@@ -81,17 +83,17 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   return res;
 }
 
-using DeleteResult = utils::BasicResult<DeleteError>;
-
 /**
  * @brief Multi-database session contexts handler.
  */
 class DbmsHandler {
  public:
   using LockT = utils::RWLock;
-  using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
-
 #ifdef MG_ENTERPRISE
+
+  using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
+  using DeleteResult = utils::BasicResult<DeleteError>;
+
   /**
    * @brief Initialize the handler.
    *

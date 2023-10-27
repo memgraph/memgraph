@@ -14,10 +14,10 @@
 #include "query/interpreter.hpp"
 namespace memgraph::query {
 
-InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *handler,
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                                        replication::ReplicationState *rs, query::AuthQueryHandler *ah,
                                        query::AuthChecker *ac)
-    : db_handler(handler), config(interpreter_config), repl_state(rs), auth(ah), auth_checker(ac) {}
+    : dbms_handler(dbms_handler), config(interpreter_config), repl_state(rs), auth(ah), auth_checker(ac) {}
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
