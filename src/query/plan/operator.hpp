@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/bound.hpp"
@@ -1109,8 +1110,11 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
   Filter() {}
 
-  Filter(const std::shared_ptr<LogicalOperator> &input_,
-         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters_, Expression *expression_);
+  Filter(const std::shared_ptr<LogicalOperator> &input,
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression);
+  Filter(const std::shared_ptr<LogicalOperator> &input,
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+         const Filters &all_filters);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1122,6 +1126,45 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> pattern_filters_;
   Expression *expression_;
+  const memgraph::query::plan::Filters all_filters_;
+
+  static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
+    using Type = query::plan::FilterInfo::Type;
+    if (single_filter.type == Type::Generic) {
+      return fmt::format("Generic {{{}}}", utils::IterableToString(single_filter.used_symbols, ", ",
+                                                                   [](const auto &symbol) { return symbol.name(); }));
+    } else if (single_filter.type == Type::Id) {
+      return fmt::format("id({})", single_filter.id_filter->symbol_.name());
+    } else if (single_filter.type == Type::Label) {
+      if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
+        LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
+      }
+      auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+
+      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
+        return fmt::format("(:{})", utils::IterableToString(filter_expression->labels_, ":",
+                                                            [](const auto &label) { return label.name; }));
+      }
+      auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+
+      return fmt::format(
+          "({} :{})", identifier_expression->name_,
+          utils::IterableToString(filter_expression->labels_, ":", [](const auto &label) { return label.name; }));
+    } else if (single_filter.type == Type::Pattern) {
+      return "Pattern";
+    } else if (single_filter.type == Type::Property) {
+      return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
+                         single_filter.property_filter->property_.name);
+    } else {
+      LOG_FATAL("Unexpected FilterInfo::Type");
+    }
+  }
+
+  std::string ToString() const override {
+    return fmt::format("Filter {}", utils::IterableToString(all_filters_, ", ", [](const auto &single_filter) {
+                         return Filter::SingleFilterName(single_filter);
+                       }));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Filter>();
