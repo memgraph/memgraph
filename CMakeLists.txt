@@ -239,10 +239,6 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
-if (DEFINED CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE)
-    message(FATAL_ERROR "CMake build type was set as empty, most likely a mistake")
-endif()
-
 # default build type is debug
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
