@@ -801,7 +801,7 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  info.memory_usage = utils::GetMemoryUsage();
+  info.memory_res = utils::GetMemoryUsage();
   info.disk_usage = GetDiskSpaceUsage();
   return info;
 }

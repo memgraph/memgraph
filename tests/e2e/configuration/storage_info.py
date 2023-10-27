@@ -20,9 +20,9 @@ default_storage_info_dict = {
     "vertex_count": 0,
     "edge_count": 0,
     "average_degree": 0,
-    "memory_usage": "",  # machine dependent
+    "memory_res": "",  # machine dependent
     "disk_usage": "",  # machine dependent
-    "memory_allocated": "",  # machine dependent
+    "memory_tracked": "",  # machine dependent
     "allocation_limit": "",  # machine dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
@@ -53,7 +53,7 @@ def test_does_default_config_match():
     config = cursor.fetchall()
 
     # The default value of these is dependent on the given machine.
-    machine_dependent_configurations = ["memory_usage", "disk_usage", "memory_allocated", "allocation_limit"]
+    machine_dependent_configurations = ["memory_res", "disk_usage", "memory_tracked", "allocation_limit"]
 
     # Number of different data-points returned by SHOW STORAGE INFO
     assert len(config) == 12
