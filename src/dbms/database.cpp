@@ -29,7 +29,7 @@ Database::Database(storage::Config config, const replication::ReplicationState &
       utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config));
   } else {
-    storage_ = storage::CreateInMemoryStorage(std::move(config), repl_state);
+    storage_ = dbms::CreateInMemoryStorage(std::move(config), repl_state);
   }
 }
 

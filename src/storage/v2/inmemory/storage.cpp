@@ -1955,11 +1955,6 @@ auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::Repli
   return std::make_unique<InMemoryReplicationClient>(this, config, current_epoch);
 }
 
-std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const memgraph::replication::ReplicationServerConfig &config) {
-  return nullptr;  // TODO REMOVE
-}
-
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
                                                            bool is_main) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,

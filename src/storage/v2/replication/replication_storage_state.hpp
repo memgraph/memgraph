@@ -31,7 +31,7 @@
 namespace memgraph::storage {
 
 class Storage;
-class ReplicationServer;
+
 class ReplicationClient;
 
 struct ReplicationStorageState {
@@ -75,9 +75,6 @@ struct ReplicationStorageState {
   // failed.
   using ReplicationClientPtr = std::unique_ptr<ReplicationClient>;
   using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
-
-  // NOTE: Server is not in MAIN it is in REPLICA
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
   ReplicationClientList replication_clients_;
 

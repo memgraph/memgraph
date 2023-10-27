@@ -317,11 +317,6 @@ class DiskStorage final : public Storage {
     throw utils::BasicException("Disk storage mode does not support replication.");
   }
 
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/)
-      -> std::unique_ptr<ReplicationServer> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
-
   std::unique_ptr<RocksDBStorage> kvstore_;
   DurableMetadata durable_metadata_;
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};

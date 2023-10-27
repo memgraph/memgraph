@@ -3422,7 +3422,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-      if (!allow_mt_repl && repl_state->IsReplica()) {
+      if (!dbms::allow_mt_repl && repl_state->IsReplica()) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{{"STATUS"},

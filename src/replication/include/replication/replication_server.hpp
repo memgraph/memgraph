@@ -14,9 +14,8 @@
 #include "replication/config.hpp"
 #include "rpc/server.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/global.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::replication {
 
 struct FrequentHeartbeatReq {
   static const utils::TypeInfo kType;                            // TODO: make constexpr?
@@ -62,4 +61,4 @@ class ReplicationServer {
   rpc::Server rpc_server_;  // TODO: Interface or something
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::replication

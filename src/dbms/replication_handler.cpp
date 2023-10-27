@@ -50,8 +50,6 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     dbms_handler_.ForEach([](Database *db) {
       // STEP 1) bring down all REPLICA servers
       auto *storage = db->storage();
-      // ensure replica server brought down
-      storage->repl_storage_state_.replication_server_.reset(nullptr);
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
     });
@@ -92,21 +90,20 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   repl_state_.SetReplicationRoleReplica(config);
 
   // Start
-  const auto success =
-      std::visit(utils::Overloaded{[](auto) {
-                                     // ASSERT
-                                     return false;
-                                   },
-                                   [this](RoleReplicaData const &data) {
-                                     // Register handlers
-                                     storage::InMemoryReplicationServer::Register(&dbms_handler_, *data.server);
-                                     if (!data.server->Start()) {
-                                       spdlog::error("Unable to start the replication server.");
-                                       return false;
-                                     }
-                                     return true;
-                                   }},
-                 repl_state_.ReplicationData());
+  const auto success = std::visit(utils::Overloaded{[](auto) {
+                                                      // ASSERT
+                                                      return false;
+                                                    },
+                                                    [this](RoleReplicaData const &data) {
+                                                      // Register handlers
+                                                      InMemoryReplicationServer::Register(&dbms_handler_, *data.server);
+                                                      if (!data.server->Start()) {
+                                                        spdlog::error("Unable to start the replication server.");
+                                                        return false;
+                                                      }
+                                                      return true;
+                                                    }},
+                                  repl_state_.ReplicationData());
   // TODO Handle error (restore to main?)
   return success;
 }
@@ -200,7 +197,6 @@ void RestoreReplication(const replication::ReplicationState &repl_state, storage
 
   /// MAIN
   auto const recover_main = [&storage](RoleMainData const &mainData) {
-    storage.repl_storage_state_.replication_server_.reset();
     for (const auto &config : mainData.registered_replicas_) {
       spdlog::info("Replica {} restored for {}.", config.name, storage.id());
 

@@ -14,7 +14,7 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::replication {
 
 constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ, "FrequentHeartbeatReq",
                                                       nullptr};
@@ -22,25 +22,25 @@ constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUEN
 constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
                                                       nullptr};
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::replication
 
 namespace memgraph::slk {
 
 // Serialize code for FrequentHeartbeatRes
-void Save(const memgraph::storage::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
-void Load(memgraph::storage::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
 
 // Serialize code for FrequentHeartbeatReq
-void Save(const memgraph::storage::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {}
-void Load(memgraph::storage::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {}
+void Save(const memgraph::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {}
+void Load(memgraph::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {}
 
 }  // namespace memgraph::slk
 
-namespace memgraph::storage {
+namespace memgraph::replication {
 namespace {
 
 auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config) -> communication::ServerContext {
@@ -97,4 +97,4 @@ ReplicationServer::~ReplicationServer() {
 
 bool ReplicationServer::Start() { return rpc_server_.Start(); }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::replication

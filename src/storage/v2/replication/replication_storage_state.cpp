@@ -91,7 +91,6 @@ std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo() const {
 }
 
 void ReplicationStorageState::Reset() {
-  replication_server_.reset();
   replication_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 

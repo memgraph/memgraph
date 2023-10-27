@@ -713,7 +713,7 @@ int main(int argc, char *argv[]) {
                      .snapshot_on_exit = true},
   };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
-  auto store = memgraph::storage::CreateInMemoryStorage(config, repl_state);
+  auto store = memgraph::dbms::CreateInMemoryStorage(config, repl_state);
 
   memgraph::utils::Timer load_timer;
 

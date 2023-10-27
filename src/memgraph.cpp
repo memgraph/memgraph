@@ -376,8 +376,8 @@ int main(int argc, char **argv) {
                                                    },
                                                    [&](memgraph::replication::RoleReplicaData const &data) {
                                                      // Register handlers
-                                                     memgraph::storage::InMemoryReplicationServer::Register(
-                                                         &dbms_handler, *data.server);
+                                                     memgraph::dbms::InMemoryReplicationServer::Register(&dbms_handler,
+                                                                                                         *data.server);
                                                      if (!data.server->Start()) {
                                                        spdlog::error("Unable to start the replication server.");
                                                        return false;

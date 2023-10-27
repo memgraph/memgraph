@@ -38,7 +38,7 @@ struct RoleMainData {
 
 struct RoleReplicaData {
   ReplicationServerConfig config;
-  std::unique_ptr<storage::ReplicationServer> server;
+  std::unique_ptr<ReplicationServer> server;
 };
 
 struct ReplicationState {

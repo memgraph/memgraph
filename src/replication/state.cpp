@@ -146,7 +146,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
-              return {RoleReplicaData{r.config, std::make_unique<storage::ReplicationServer>(r.config)}};
+              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config)}};
             },
         },
         std::move(data.role));
@@ -223,7 +223,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   if (!TryPersistRoleReplica(config)) {
     return false;
   }
-  replication_data_ = RoleReplicaData{config, std::make_unique<storage::ReplicationServer>(config)};
+  replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config)};
   return true;
 }
 auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError {

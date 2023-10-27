@@ -31,6 +31,10 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
+namespace memgraph::dbms {
+class InMemoryReplicationServer;
+}
+
 namespace memgraph::storage {
 
 // The storage is based on this paper:
@@ -39,7 +43,7 @@ namespace memgraph::storage {
 // only implement snapshot isolation for transactions.
 
 class InMemoryStorage final : public Storage {
-  friend class InMemoryReplicationServer;
+  friend class memgraph::dbms::InMemoryReplicationServer;
   friend class InMemoryReplicationClient;
 
  public:
@@ -357,9 +361,6 @@ class InMemoryStorage final : public Storage {
   auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
                                const memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationClient> override;
-
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
-      -> std::unique_ptr<ReplicationServer> override;
 
  private:
   /// The force parameter determines the behaviour of the garbage collector.

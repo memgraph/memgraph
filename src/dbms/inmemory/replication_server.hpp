@@ -15,20 +15,16 @@
 #include "replication/state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
-namespace memgraph::dbms {
-class DbmsHandler;
-}  // namespace memgraph::dbms
 namespace memgraph::storage {
-
 class InMemoryStorage;
+}
+namespace memgraph::dbms {
+
+class DbmsHandler;
 
 class InMemoryReplicationServer {
  public:
-  // explicit InMemoryReplicationServer(InMemoryStorage *storage,
-  //                                    ReplicationServer &server,
-  //                                    memgraph::replication::ReplicationEpoch *epoch);
-
-  static void Register(dbms::DbmsHandler *dbms_handler, ReplicationServer &server);
+  static void Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server);
 
  private:
   // RPC handlers
@@ -44,15 +40,11 @@ class InMemoryReplicationServer {
 
   static void TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void LoadWal(InMemoryStorage *storage, memgraph::replication::ReplicationEpoch *replica_epoch,
-                      replication::Decoder *decoder);
+  static void LoadWal(storage::InMemoryStorage *storage, memgraph::replication::ReplicationEpoch *replica_epoch,
+                      storage::replication::Decoder *decoder);
 
-  static uint64_t ReadAndApplyDelta(InMemoryStorage *storage, durability::BaseDecoder *decoder, uint64_t version);
-
-  // static InMemoryStorage *storage_; TODO Redo the cache
-  // ReplicationServer& server_; //TODO: interface to global thing
-
-  // memgraph::replication::ReplicationEpoch *replica_epoch_;
+  static uint64_t ReadAndApplyDelta(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
+                                    uint64_t version);
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::dbms
