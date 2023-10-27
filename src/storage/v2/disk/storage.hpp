@@ -170,6 +170,8 @@ class DiskStorage final : public Storage {
 
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
+
+    bool UniqueConstraintExists(const LabelId &label, const PropertyId &property) const override;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;

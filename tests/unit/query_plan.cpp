@@ -1144,6 +1144,20 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, WhereIndexedUniqueConstraint) {
+  // Test MATCH (n :label) WHERE n.property = 42 RETURN n
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  dba.SetConstraintCount(label, property.second, 0);
+  auto lit_42 = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property), lit_42)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, BestPropertyIndexed) {
   // Test MATCH (n :label) WHERE n.property = 1 AND n.better = 42 RETURN n
   FakeDbAccessor dba;
@@ -1154,6 +1168,27 @@ TYPED_TEST(TestPlanner, BestPropertyIndexed) {
   dba.SetIndexCount(label, property, 1);
   auto better = PROPERTY_PAIR(dba, "better");
   dba.SetIndexCount(label, better.second, 0);
+  auto lit_42 = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", property), LITERAL(1)), EQ(PROPERTY_LOOKUP(dba, "n", better), lit_42))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, better, lit_42), ExpectFilter(),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, BetterConstraintIndexedThanLabelPropertyIndex) {
+  // Test MATCH (n :label) WHERE n.property = 1 AND n.better = 42 RETURN n
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = dba.Property("property");
+  // Add a vertex with :label+property combination, so that the best
+  // :label+better remains empty and thus better choice.
+  dba.SetIndexCount(label, property, 1);
+  auto better = PROPERTY_PAIR(dba, "better");
+  dba.SetConstraintCount(label, better.second, 0);
   auto lit_42 = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n", "label"))),

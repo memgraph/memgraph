@@ -1,0 +1,6 @@
+function(copy_constraints_as_indices_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(constraints_as_indices ${FILE_NAME})
+endfunction()
+
+copy_constraints_as_indices_e2e_python_files(common.py)
+copy_constraints_as_indices_e2e_python_files(constraints_as_indices.py)

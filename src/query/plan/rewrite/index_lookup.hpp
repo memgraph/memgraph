@@ -25,6 +25,7 @@
 
 #include <gflags/gflags.h>
 
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 
@@ -46,8 +47,8 @@ ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, const Parameters &parameters)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), parameters_(parameters) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -529,6 +530,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
+  const Parameters &parameters_;
   // Collected filters, pending for examination if they can be used for advanced
   // lookup operations (by index, node ID, ...).
   Filters filters_;
@@ -575,7 +577,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, parameters_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -651,7 +653,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
         const auto &property = filter.property_filter->property_;
-        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
+        if (!db_->IndexedScanExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
         auto is_better_type = [&found](PropertyFilter::Type type) {
@@ -663,7 +665,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return type_sort_ix < found_sort_ix;
         };
 
-        int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+        std::optional<storage::PropertyValue> maybe_property_value = ConstPropertyValue(filter.property_filter->value_);
+        int64_t vertex_count = maybe_property_value.has_value()
+                                   ? db_->VerticesCount(GetLabel(label), GetProperty(property), *maybe_property_value)
+                                   : db_->VerticesCount(GetLabel(label), GetProperty(property));
         std::optional<storage::LabelPropertyIndexStats> new_stats =
             db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
@@ -791,6 +796,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
+
+  // If the expression is a constant property value, it is returned. Otherwise,
+  // return nullopt.
+  std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
+    if (const auto *literal = utils::Downcast<const PrimitiveLiteral>(expression); literal) {
+      return literal->value_;
+    }
+    if (const auto *param_lookup = utils::Downcast<const ParameterLookup>(expression); param_lookup) {
+      return parameters_.AtTokenPosition(param_lookup->token_position_);
+    }
+    return std::nullopt;
+  }
 };
 
 }  // namespace impl
@@ -798,8 +815,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
+                                                        TDbAccessor *db, const Parameters &parameters) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, parameters);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

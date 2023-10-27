@@ -45,7 +45,7 @@ class PostProcessor final {
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
     auto index_lookup_plan =
-        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db);
+        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, parameters_);
     return RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage,
                                    context->db);
   }
