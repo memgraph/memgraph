@@ -379,15 +379,18 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
     std::shared_lock<LockT> rd(lock_);
     for (auto &[_, db_gk] : db_handler_) {
-#else
-    {
-      auto &db_gk = db_gatekeeper_;
-#endif
       auto db_acc = db_gk.access();
       if (db_acc) {                   // This isn't an error, just a defunct db
         if (f(db_acc->get())) break;  // Run until the first successful one
       }
     }
+#else
+    {
+      auto db_acc = db_gatekeeper_.access();
+      MG_ASSERT(db_acc, "Should always have the database");
+      f(db_acc->get());
+    }
+#endif
   }
 
  private:

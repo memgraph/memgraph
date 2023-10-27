@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "dbms/inmemory/replication_server.hpp"
+#include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
 #include "spdlog/spdlog.h"

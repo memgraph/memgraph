@@ -362,6 +362,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
 
     // TODO: Combine results? Have a single place with clients???
+    //       Also authentication checks (replica + database visibility)
     std::vector<storage::ReplicaInfo> repl_infos{};
     dbms_handler_->ForOne([&repl_infos](dbms::Database *db) -> bool {
       auto infos = db->storage()->ReplicasInfo();
