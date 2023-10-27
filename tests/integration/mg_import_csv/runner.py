@@ -18,12 +18,13 @@ import subprocess
 import sys
 import tempfile
 import time
-import yaml
 
+import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.1):
@@ -46,17 +47,14 @@ def list_to_string(data):
 
 
 def verify_lifetime(memgraph_binary, mg_import_csv_binary):
-    print("\033[1;36m~~ Verifying that mg_import_csv can't be started while "
-          "memgraph is running ~~\033[0m")
+    print("\033[1;36m~~ Verifying that mg_import_csv can't be started while " "memgraph is running ~~\033[0m")
     storage_directory = tempfile.TemporaryDirectory()
 
     # Generate common args
-    common_args = ["--data-directory", storage_directory.name,
-                   "--storage-properties-on-edges=false"]
+    common_args = ["--data-directory", storage_directory.name, "--storage-properties-on-edges=false"]
 
     # Start the memgraph binary
-    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + \
-        common_args
+    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + common_args
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
@@ -66,47 +64,52 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
     @atexit.register
     def cleanup():
         if memgraph.poll() is None:
-            memgraph.terminate()
-        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+            pid = memgraph.pid
+            try:
+                os.kill(pid, SIGNAL_SIGTERM)
+            except os.OSError:
+                assert False, "Memgraph process didn't exit cleanly!"
+            time.sleep(1)
 
     # Execute mg_import_csv.
-    mg_import_csv_args = [mg_import_csv_binary, "--nodes", "/dev/null"] + \
-        common_args
+    mg_import_csv_args = [mg_import_csv_binary, "--nodes", "/dev/null"] + common_args
     ret = subprocess.run(mg_import_csv_args)
 
     # Check the return code
     if ret.returncode == 0:
-        raise Exception(
-            "The importer was able to run while memgraph was running!")
+        raise Exception("The importer was able to run while memgraph was running!")
 
     # Shutdown the memgraph binary
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
     print("\033[1;32m~~ Test successful ~~\033[0m\n")
 
 
-def execute_test(name, test_path, test_config, memgraph_binary,
-                 mg_import_csv_binary, tester_binary, write_expected):
+def execute_test(name, test_path, test_config, memgraph_binary, mg_import_csv_binary, tester_binary, write_expected):
     print("\033[1;36m~~ Executing test", name, "~~\033[0m")
     storage_directory = tempfile.TemporaryDirectory()
 
     # Verify test configuration
-    if ("import_should_fail" not in test_config and
-        "expected" not in test_config) or \
-            ("import_should_fail" in test_config and
-             "expected" in test_config):
-        raise Exception("The test should specify either 'import_should_fail' "
-                        "or 'expected'!")
+    if ("import_should_fail" not in test_config and "expected" not in test_config) or (
+        "import_should_fail" in test_config and "expected" in test_config
+    ):
+        raise Exception("The test should specify either 'import_should_fail' " "or 'expected'!")
 
     expected_path = test_config.pop("expected", "")
     import_should_fail = test_config.pop("import_should_fail", False)
 
     # Generate common args
     properties_on_edges = bool(test_config.pop("properties_on_edges", False))
-    common_args = ["--data-directory", storage_directory.name,
-                   "--storage-properties-on-edges=" +
-                   str(properties_on_edges).lower()]
+    common_args = [
+        "--data-directory",
+        storage_directory.name,
+        "--storage-properties-on-edges=" + str(properties_on_edges).lower(),
+    ]
 
     # Generate mg_import_csv args using flags specified in the test
     mg_import_csv_args = [mg_import_csv_binary] + common_args
@@ -125,19 +128,16 @@ def execute_test(name, test_path, test_config, memgraph_binary,
 
     if import_should_fail:
         if ret.returncode == 0:
-            raise Exception("The import should have failed, but it "
-                            "succeeded instead!")
+            raise Exception("The import should have failed, but it " "succeeded instead!")
         else:
             print("\033[1;32m~~ Test successful ~~\033[0m\n")
             return
     else:
         if ret.returncode != 0:
-            raise Exception("The import should have succeeded, but it "
-                            "failed instead!")
+            raise Exception("The import should have succeeded, but it " "failed instead!")
 
     # Start the memgraph binary
-    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + \
-        common_args
+    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + common_args
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
@@ -147,21 +147,29 @@ def execute_test(name, test_path, test_config, memgraph_binary,
     @atexit.register
     def cleanup():
         if memgraph.poll() is None:
-            memgraph.terminate()
-        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+            pid = memgraph.pid
+            try:
+                os.kill(pid, SIGNAL_SIGTERM)
+            except os.OSError:
+                assert False, "Memgraph process didn't exit cleanly!"
+            time.sleep(1)
 
     # Get the contents of the database
-    queries_got = extract_rows(subprocess.run(
-        [tester_binary], stdout=subprocess.PIPE,
-        check=True).stdout.decode("utf-8"))
+    queries_got = extract_rows(
+        subprocess.run([tester_binary], stdout=subprocess.PIPE, check=True).stdout.decode("utf-8")
+    )
 
     # Shutdown the memgraph binary
-    memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+    pid = memgraph.pid
+    try:
+        os.kill(pid, SIGNAL_SIGTERM)
+    except os.OSError:
+        assert False, "Memgraph process didn't exit cleanly!"
+    time.sleep(1)
 
     if write_expected:
-        with open(os.path.join(test_path, expected_path), 'w') as expected:
-            expected.write('\n'.join(queries_got))
+        with open(os.path.join(test_path, expected_path), "w") as expected:
+            expected.write("\n".join(queries_got))
 
     else:
         if expected_path:
@@ -173,18 +181,16 @@ def execute_test(name, test_path, test_config, memgraph_binary,
         # Verify the queries
         queries_expected.sort()
         queries_got.sort()
-        assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" \
-            "{}".format(list_to_string(queries_got),
-                        list_to_string(queries_expected))
+        assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" "{}".format(
+            list_to_string(queries_got), list_to_string(queries_expected)
+        )
     print("\033[1;32m~~ Test successful ~~\033[0m\n")
 
 
 if __name__ == "__main__":
     memgraph_binary = os.path.join(BUILD_DIR, "memgraph")
-    mg_import_csv_binary = os.path.join(
-        BUILD_DIR, "src", "mg_import_csv")
-    tester_binary = os.path.join(
-        BUILD_DIR, "tests", "integration", "mg_import_csv", "tester")
+    mg_import_csv_binary = os.path.join(BUILD_DIR, "src", "mg_import_csv")
+    tester_binary = os.path.join(BUILD_DIR, "tests", "integration", "mg_import_csv", "tester")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)
@@ -193,7 +199,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--write-expected",
         action="store_true",
-        help="Overwrite the expected values with the results of the current run")
+        help="Overwrite the expected values with the results of the current run",
+    )
     args = parser.parse_args()
 
     # First test whether the CSV importer can be started while the main
@@ -211,7 +218,8 @@ if __name__ == "__main__":
             testcases = yaml.safe_load(f)
         for test_config in testcases:
             test_name = name + "/" + test_config.pop("name")
-            execute_test(test_name, test_path, test_config, args.memgraph,
-                         args.mg_import_csv, args.tester, args.write_expected)
+            execute_test(
+                test_name, test_path, test_config, args.memgraph, args.mg_import_csv, args.tester, args.write_expected
+            )
 
     sys.exit(0)
