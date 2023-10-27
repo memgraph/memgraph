@@ -802,6 +802,7 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_usage = utils::GetMemoryUsage();
+  info.vm_max_map_count = utils::GetVmMaxMapCount();
   info.disk_usage = GetDiskSpaceUsage();
   return info;
 }

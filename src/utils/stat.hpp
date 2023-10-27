@@ -11,10 +11,13 @@
 
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
+#include <optional>
 
 #include <unistd.h>
 
+#include "spdlog/spdlog.h"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
@@ -40,31 +43,9 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
 }
 
 /// Returns the number of bytes the process is using in the memory.
-inline uint64_t GetMemoryUsage() {
-  // Get PID of entire process.
-  pid_t pid = getpid();
-  uint64_t memory = 0;
-  auto statm_data = utils::ReadLines(fmt::format("/proc/{}/statm", pid));
-  if (!statm_data.empty()) {
-    auto split = utils::Split(statm_data[0]);
-    if (split.size() >= 2) {
-      memory = std::stoull(split[1]) * sysconf(_SC_PAGESIZE);
-    }
-  }
-  return memory;
-}
+uint64_t GetMemoryUsage();
 
 /// Returns the size of vm.max_map_count
-inline uint64_t GetVmMaxMapCount() {
-  uint64_t max_map_count = 0;
-  auto statm_data = utils::ReadLines("sysctl vm.max_map_count");
-  if (!statm_data.empty()) {
-    auto split = utils::Split(statm_data[0]);
-    if (split.size() == 2) {
-      max_map_count = std::stoull(split[2]);
-    }
-  }
-  return max_map_count;
-}
+uint64_t GetVmMaxMapCount();
 
 }  // namespace memgraph::utils

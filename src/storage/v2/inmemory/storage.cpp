@@ -21,6 +21,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/replication/replication_handler.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
@@ -1558,6 +1559,7 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_usage = utils::GetMemoryUsage();
+  info.vm_max_map_count = utils::GetVmMaxMapCount();
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
     if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {

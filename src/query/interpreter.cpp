@@ -3118,6 +3118,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_usage)))},
+            {TypedValue("vm_max_map_count"), TypedValue(static_cast<int64_t>(info.vm_max_map_count))},
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_allocated"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
