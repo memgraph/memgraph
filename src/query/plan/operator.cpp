@@ -2456,17 +2456,16 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
-  
+
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD, context.frame_change_collector);
-  while (input_cursor_->Pull(frame, context) || UNLIKELY(context.is_profile_query)) {
+  while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
-    if (UNLIKELY(context.is_profile_query)) return false;
   }
   return false;
 }
