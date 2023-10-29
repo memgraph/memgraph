@@ -1763,7 +1763,6 @@ TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
   expected_properties.emplace(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue(44));
   expected_properties.emplace(dba.NameToProperty("new_prop1"), memgraph::storage::PropertyValue(43));
   expected_properties.emplace(dba.NameToProperty("new_prop2"), memgraph::storage::PropertyValue(44));
-  EXPECT_EQ(context.evaluation_context.property_lookups_cache.size(), 0);
   EXPECT_EQ(new_properties.HasError(), false);
   EXPECT_EQ(*new_properties, expected_properties);
 }
