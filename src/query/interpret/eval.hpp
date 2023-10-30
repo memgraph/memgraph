@@ -270,30 +270,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    TypedValue *_list_ptr = nullptr;
     TypedValue _list;
     auto literal = in_list.expression1_->Accept(*this);
 
-    auto get_list_literal = [this, &in_list, &_list, &_list_ptr]() -> void {
+    auto get_list_literal = [this, &in_list]() -> TypedValue {
       ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-      _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      auto _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
       if (nullptr == _list_ptr) {
-        _list = in_list.expression2_->Accept(*this);
-        _list_ptr = &_list;
+        return in_list.expression2_->Accept(*this);
       }
+      return *_list_ptr;
     };
 
-    auto do_list_literal_checks = [this, &literal, &_list_ptr]() -> std::optional<TypedValue> {
-      MG_ASSERT(_list_ptr, "List literal should have been defined");
-      if (_list_ptr->IsNull()) {
+    auto do_list_literal_checks = [this, &literal, &_list]() -> std::optional<TypedValue> {
+      if (_list.IsNull()) {
         return TypedValue(ctx_->memory);
       }
       // Exceptions have higher priority than returning nulls when list expression
       // is not null.
-      if (_list_ptr->type() != TypedValue::Type::List) {
-        throw QueryRuntimeException("IN expected a list, got {}.", _list_ptr->type());
+      if (_list.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
       }
-      const auto &list = _list_ptr->ValueList();
+      const auto &list = _list.ValueList();
 
       // If literal is NULL there is no need to try to compare it with every
       // element in the list since result of every comparison will be NULL. There
@@ -318,7 +316,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return std::move(*preoperational_checks);
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        cached_value.CacheValue(*_list_ptr);
+        cached_value.CacheValue(_list);
         spdlog::trace("Value cached {}", *cached_id);
       }
       const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
@@ -334,13 +332,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
-    get_list_literal();
+    _list = get_list_literal();
     auto preoperational_checks = do_list_literal_checks();
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
 
-    const auto &list = _list_ptr->ValueList();
+    const auto &list = _list.ValueList();
     spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
     for (const auto &element : list) {
