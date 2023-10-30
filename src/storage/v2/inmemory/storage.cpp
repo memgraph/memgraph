@@ -1559,7 +1559,8 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_usage = utils::GetMemoryUsage();
-  info.vm_max_map_count = utils::GetVmMaxMapCount();
+  auto vm_max_map_count = utils::GetVmMaxMapCount();
+  info.vm_max_map_count = vm_max_map_count.has_value() ? vm_max_map_count.value() : VM_MAX_MAP_COUNT_DEFAULT;
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
     if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {

@@ -43,9 +43,34 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
 }
 
 /// Returns the number of bytes the process is using in the memory.
-uint64_t GetMemoryUsage();
+inline uint64_t GetMemoryUsage() {
+  // Get PID of entire process.
+  pid_t pid = getpid();
+  uint64_t memory = 0;
+  auto statm_data = utils::ReadLines(fmt::format("/proc/{}/statm", pid));
+  if (!statm_data.empty()) {
+    auto split = utils::Split(statm_data[0]);
+    if (split.size() >= 2) {
+      memory = std::stoull(split[1]) * sysconf(_SC_PAGESIZE);
+    }
+  }
+  return memory;
+}
 
 /// Returns the size of vm.max_map_count
-uint64_t GetVmMaxMapCount();
+inline std::optional<uint64_t> GetVmMaxMapCount() {
+  auto vm_max_map_count_data = utils::ReadLines("/proc/sys/vm/max_map_count");
+  if (vm_max_map_count_data.empty()) {
+    return std::nullopt;
+  }
+  if (vm_max_map_count_data.size() != 1) {
+    return std::nullopt;
+  }
+  const auto parts{utils::Split(vm_max_map_count_data[0])};
+  if (parts.size() != 1) {
+    return std::nullopt;
+  }
+  return std::stoull(parts[0]);
+}
 
 }  // namespace memgraph::utils

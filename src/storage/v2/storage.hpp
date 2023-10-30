@@ -52,6 +52,8 @@ extern const Event ActiveLabelPropertyIndices;
 
 namespace memgraph::storage {
 
+static constexpr int64_t VM_MAX_MAP_COUNT_DEFAULT{-1};
+
 struct Transaction;
 class EdgeAccessor;
 
