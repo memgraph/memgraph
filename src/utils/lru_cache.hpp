@@ -45,6 +45,7 @@ class LRUCache {
     item_list.clear();
     item_map.clear();
   };
+  size_t size() { return item_map.size(); };
 
  private:
   void clean() {

@@ -141,8 +141,9 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(
 
   auto plan = std::make_shared<CachedPlan>(
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
-
-  plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+  if (plan_cache) {
+    plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+  }
 
   return plan;
 }
