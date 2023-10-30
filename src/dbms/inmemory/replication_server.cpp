@@ -260,7 +260,7 @@ void InMemoryReplicationServer::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
   utils::EnsureDirOrDie(storage->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
-    LoadWal(storage, &storage->repl_storage_state_.epoch_, &decoder);
+    LoadWal(storage, &decoder);
   }
 
   storage::replication::WalFilesRes res{storage->id(), true,
@@ -280,7 +280,7 @@ void InMemoryReplicationServer::CurrentWalHandler(dbms::DbmsHandler *dbms_handle
 
   utils::EnsureDirOrDie(storage->wal_directory_);
 
-  LoadWal(storage, &storage->repl_storage_state_.epoch_, &decoder);
+  LoadWal(storage, &decoder);
 
   storage::replication::CurrentWalRes res{storage->id(), true,
                                           storage->repl_storage_state_.last_commit_timestamp_.load()};
@@ -288,9 +288,7 @@ void InMemoryReplicationServer::CurrentWalHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
-void InMemoryReplicationServer::LoadWal(storage::InMemoryStorage *storage,
-                                        memgraph::replication::ReplicationEpoch *replica_epoch,
-                                        storage::replication::Decoder *decoder) {
+void InMemoryReplicationServer::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
@@ -302,9 +300,9 @@ void InMemoryReplicationServer::LoadWal(storage::InMemoryStorage *storage,
     if (wal_info.seq_num == 0) {
       storage->uuid_ = wal_info.uuid;
     }
-
-    if (wal_info.epoch_id != replica_epoch->id()) {
-      auto prev_epoch = replica_epoch->SetEpoch(wal_info.epoch_id);
+    auto &replica_epoch = storage->repl_storage_state_.epoch_;
+    if (wal_info.epoch_id != replica_epoch.id()) {
+      auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }
 
