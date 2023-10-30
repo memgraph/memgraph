@@ -47,26 +47,30 @@ std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *de
   }
 };
 
-storage::InMemoryStorage *GetStorage(dbms::DbmsHandler *dbms_handler, const std::string &db_name) {
-  // TODO add cache
+std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, std::string_view db_name) {
   try {
 #ifdef MG_ENTERPRISE
     auto acc = dbms_handler->Get(db_name);
 #else
     if (db_name != dbms::kDefaultDB) {
       spdlog::warn("Trying to replicate a non-default database on a community replica.");
-      return nullptr;
+      return std::nullopt;
     }
     auto acc = dbms_handler->Get();
 #endif
     if (!acc) {
       spdlog::error("Failed to get access to ", db_name);
-      return nullptr;
+      return std::nullopt;
     }
-    return reinterpret_cast<storage::InMemoryStorage *>(acc.get()->storage());
+    auto *inmem_storage = dynamic_cast<storage::InMemoryStorage *>(acc.get()->storage());
+    if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      spdlog::error("Database \"{}\"  is not IN_MEMORY_TRANSACTIONAL.", db_name);
+      return std::nullopt;
+    }
+    return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &e) {
     spdlog::warn("No database \"{}\" on replica!", db_name);
-    return nullptr;
+    return std::nullopt;
   }
 }
 }  // namespace
@@ -103,9 +107,11 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
                                                    slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  auto *const storage = GetStorage(dbms_handler, req.db_name);
-  if (storage == nullptr) return;
+  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
+  if (!db_acc) return;
 
+  // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
+  auto const *storage = db_acc->get()->storage();
   storage::replication::HeartbeatRes res{storage->id(), true,
                                          storage->repl_storage_state_.last_commit_timestamp_.load(),
                                          std::string{storage->repl_storage_state_.epoch_.id()}};
@@ -116,14 +122,15 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
                                                       slk::Builder *res_builder) {
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
-  auto *storage = GetStorage(dbms_handler, req.db_name);
-  if (storage == nullptr) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
+  if (!db_acc) return;
 
   storage::replication::Decoder decoder(req_reader);
 
   auto maybe_epoch_id = decoder.ReadString();
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
+  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
     auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
@@ -174,11 +181,12 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   slk::Load(&req, req_reader);
-  auto *const storage = GetStorage(dbms_handler, req.db_name);
-  if (storage == nullptr) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
+  if (!db_acc) return;
 
   storage::replication::Decoder decoder(req_reader);
 
+  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->snapshot_directory_);
 
   const auto maybe_snapshot_path = decoder.ReadFile(storage->snapshot_directory_);
@@ -249,14 +257,15 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
                                                   slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
-  auto *const storage = GetStorage(dbms_handler, req.db_name);
-  if (storage == nullptr) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
+  if (!db_acc) return;
 
   const auto wal_file_number = req.file_number;
   spdlog::debug("Received WAL files: {}", wal_file_number);
 
   storage::replication::Decoder decoder(req_reader);
 
+  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
@@ -273,11 +282,12 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
                                                     slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
-  auto *const storage = GetStorage(dbms_handler, req.db_name);
-  if (storage == nullptr) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
+  if (!db_acc) return;
 
   storage::replication::Decoder decoder(req_reader);
 
+  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->wal_directory_);
 
   LoadWal(storage, &decoder);
@@ -339,9 +349,11 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
                                                    slk::Builder *res_builder) {
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);
-  auto *const storage = GetStorage(dbms_handler, req.db_name);
-  if (storage == nullptr) return;
+  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
+  if (!db_acc) return;
 
+  // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
+  auto const *storage = db_acc->get()->storage();
   storage::replication::TimestampRes res{storage->id(), true,
                                          storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);

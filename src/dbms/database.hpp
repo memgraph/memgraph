@@ -56,6 +56,7 @@ class Database {
    * @return storage::Storage*
    */
   storage::Storage *storage() { return storage_.get(); }
+  storage::Storage const *storage() const { return storage_.get(); }
 
   /**
    * @brief Storage's Accessor
