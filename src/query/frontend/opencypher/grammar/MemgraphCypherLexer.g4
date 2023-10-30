@@ -137,5 +137,6 @@ UPDATE                  : U P D A T E ;
 USE                     : U S E ;
 USER                    : U S E R ;
 USERS                   : U S E R S ;
+USING                   : U S I N G ;
 VERSION                 : V E R S I O N ;
 WEBSOCKET               : W E B S O C K E T ;

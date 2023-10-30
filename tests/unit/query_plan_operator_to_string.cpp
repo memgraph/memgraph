@@ -241,7 +241,7 @@ TYPED_TEST(OperatorToStringTest, Filter) {
                                      EQ(PROPERTY_LOOKUP(this->dba, "person", property), LITERAL(5)), filters);
 
   std::string expected_string{
-      "Filter Generic {person}, id(person), (person :Customer:Visitor), (:Customer:Visitor), {person.name}, Pattern"};
+      "Filter (:Customer:Visitor), (person :Customer:Visitor), Generic {person}, Pattern, id(person), {person.name}"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
