@@ -488,6 +488,12 @@ bool SymbolGenerator::PreVisit(Reduce &reduce) {
   return false;
 }
 
+bool SymbolGenerator::PostVisit(Reduce &reduce) {
+  auto &scope = scopes_.back();
+  scope.in_reduce = false;
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Extract &extract) {
   extract.list_->Accept(*this);
   VisitWithIdentifiers(extract.expression_, {extract.identifier_});
