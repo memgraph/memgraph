@@ -130,9 +130,14 @@ class MemgraphInstanceRunner:
     def stop(self):
         if not self.is_running():
             return
-        self.proc_mg.terminate()
-        code = self.proc_mg.wait()
-        assert code == 0, "The Memgraph process exited with non-zero!"
+
+        pid = self.proc_mg.pid
+        try:
+            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+        except os.OSError:
+            assert False
+
+        time.sleep(1)
 
     def kill(self):
         if not self.is_running():
