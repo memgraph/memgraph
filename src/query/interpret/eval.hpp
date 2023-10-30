@@ -310,7 +310,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
         // Check only first time if everything is okay, later when we use
         // cache there is no need to check again as we did check first time
-        get_list_literal();
+        _list = get_list_literal();
         auto preoperational_checks = do_list_literal_checks();
         if (preoperational_checks) {
           return std::move(*preoperational_checks);
