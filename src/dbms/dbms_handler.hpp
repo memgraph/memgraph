@@ -244,7 +244,7 @@ class DbmsHandler {
     std::shared_lock<LockT> rd(lock_);
     return db_handler_.All();
 #else
-    return {kDefaultDB};
+    return {db_gatekeeper_.access()->get()->id()};
 #endif
   }
 
@@ -544,7 +544,7 @@ class DbmsHandler {
   bool delete_on_drop_;                              //!< Flag defining if dropping storage also deletes its directory
   std::set<std::string> defunct_dbs_;                //!< Databases that are in an unknown state due to various failures
 #else
-  utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
+  mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
 };
 

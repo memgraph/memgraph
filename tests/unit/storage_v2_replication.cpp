@@ -103,12 +103,17 @@ class ReplicationTest : public ::testing::Test {
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
       : repl_state{ReplicationStateHelper(conf)},
-        dbms{conf, repl_state,
+        dbms{conf, repl_state
+#ifdef MG_ENTERPRISE
+             ,
              reinterpret_cast<
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *>(0),
-             true, false},
+             true, false
+#endif
+        },
         db{*dbms.Get().get()},
-        repl_handler(repl_state, dbms) {}
+        repl_handler(repl_state, dbms) {
+  }
   memgraph::replication::ReplicationState repl_state;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::dbms::Database &db;

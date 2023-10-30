@@ -35,10 +35,12 @@ struct Config {
 
     Type type{Type::PERIODIC};
     std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
+    friend bool operator==(const Gc &lrh, const Gc &rhs) = default;
   } gc;
 
   struct Items {
     bool properties_on_edges{true};
+    friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
   struct Durability {
@@ -63,10 +65,12 @@ struct Config {
     uint64_t recovery_thread_count{8};
 
     bool allow_parallel_index_creation{false};
+    friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
+    friend bool operator==(const Transaction &lrh, const Transaction &rhs) = default;
   } transaction;
 
   struct DiskConfig {
@@ -78,11 +82,14 @@ struct Config {
     std::filesystem::path id_name_mapper_directory{"storage/rocksdb_id_name_mapper"};
     std::filesystem::path durability_directory{"storage/rocksdb_durability"};
     std::filesystem::path wal_directory{"storage/rocksdb_wal"};
+    friend bool operator==(const DiskConfig &lrh, const DiskConfig &rhs) = default;
   } disk;
 
   std::string name;
   bool force_on_disk{false};
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 
 inline auto ReplicationStateHelper(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {

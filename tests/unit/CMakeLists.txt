@@ -411,6 +411,9 @@ if(MG_ENTERPRISE)
 
   add_unit_test_with_custom_main(dbms_handler.cpp)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
+else()
+  add_unit_test_with_custom_main(dbms_handler_community.cpp)
+  target_link_libraries(${test_prefix}dbms_handler_community mg-query mg-auth mg-glue mg-dbms)
 endif()
 
 # Test distributed
