@@ -89,6 +89,13 @@ void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
     ;
 }
 
+void MemoryTracker::ResetTrackings() {
+  hard_limit_.store(0, std::memory_order_relaxed);
+  peak_.store(0, std::memory_order_relaxed);
+  amount_.store(0, std::memory_order_relaxed);
+  maximum_hard_limit_ = 0;
+}
+
 void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
   if (maximum_hard_limit_ < 0) {
     spdlog::warn("Invalid maximum hard limit.");

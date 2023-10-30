@@ -84,6 +84,9 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
   }
+
+  SetEvaluationModeOnPropertyLookups(body);
+
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
@@ -400,26 +403,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
-  std::unordered_map<int32_t, PropertyLookup *> property_lookups{};
-
-  for (const auto &pair : map_literal.elements_) {
-    if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
-    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
-    if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
-
-    auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
-    try {
-      auto *existing_property_lookup = property_lookups.at(symbol_pos);
-      // If already there (no exception), update the original and current PropertyLookups
-      existing_property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
-      property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
-    } catch (const std::out_of_range &) {
-      // Otherwise, add the PropertyLookup to the map
-      property_lookups.emplace(symbol_pos, property_lookup);
-    }
-  }
-
+bool SymbolGenerator::PreVisit(MapLiteral &map_literal) {
+  SetEvaluationModeOnPropertyLookups(map_literal);
   return true;
 }
 
@@ -745,6 +730,33 @@ bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
   predefined_identifiers_.erase(it);
   return true;
+}
+
+void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup) {
+  if (property_lookup.expression_->GetTypeInfo() != Identifier::kType) {
+    return;
+  }
+
+  auto identifier_symbol = static_cast<Identifier *>(property_lookup.expression_)->name_;
+
+  if (this->gather_property_lookup_counts) {
+    if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
+      property_lookup_counts_by_symbol[identifier_symbol] = 0;
+    }
+
+    property_lookup_counts_by_symbol[identifier_symbol]++;
+
+    return;
+  }
+
+  if (this->assign_property_lookup_evaluations) {
+    if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
+        property_lookup_counts_by_symbol[identifier_symbol] > 1) {
+      property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+    }
+
+    return;
+  }
 }
 
 }  // namespace memgraph::query
