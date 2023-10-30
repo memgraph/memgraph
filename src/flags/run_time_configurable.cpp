@@ -19,6 +19,7 @@
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "flags/log_level.hpp"
+#include "flags/query.hpp"
 #include "spdlog/cfg/helpers-inl.h"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
@@ -49,6 +50,10 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// Query plan flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -65,8 +70,14 @@ constexpr auto kLogLevelGFlagsKey = "log_level";
 constexpr auto kLogToStderrSettingKey = "log.to_stderr";
 constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 
+constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
+constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<double> execution_timeout_sec_;  // Local cache-like thing
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<bool> cartesian_product_enabled_{true};  // Local cache-like thing
 
 auto ToLLEnum(std::string_view val) {
   const auto ll_enum = memgraph::flags::LogLevelToEnum(val);
@@ -171,6 +182,10 @@ void Initialize() {
         }
       },
       ValidBoolStr);
+
+  register_flag(
+      kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
+      [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -181,5 +196,7 @@ std::string GetServerName() {
 }
 
 double GetExecutionTimeout() { return execution_timeout_sec_; }
+
+bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
 }  // namespace memgraph::flags::run_time

@@ -9,13 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "hint_provider.hpp"
 
-#include <cstddef>
-#include "utils/logging.hpp"
-namespace memgraph::memory {
+namespace memgraph::query::plan {
 
-void PurgeUnusedMemory();
-void SetHooks();
+std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table) {
+  PlanHintsProvider plan_hinter(symbol_table);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  const_cast<LogicalOperator *>(plan_root)->Accept(plan_hinter);
 
-}  // namespace memgraph::memory
+  return plan_hinter.hints();
+}
+
+}  // namespace memgraph::query::plan

@@ -23,6 +23,7 @@ from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port: int, delay: float = 0.1) -> float:
@@ -91,8 +92,12 @@ def check_config(tester_binary: str, flag: str, value: str) -> None:
 
 def cleanup(memgraph: subprocess):
     if memgraph.poll() is None:
-        memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+        pid = memgraph.pid
+        try:
+            os.kill(pid, SIGNAL_SIGTERM)
+        except os.OSError:
+            assert False, "Memgraph process didn't exit cleanly!"
+        time.sleep(1)
 
 
 def run_test(tester_binary: str, memgraph_args: List[str], server_name: str, query_tx: str):

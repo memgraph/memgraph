@@ -2821,6 +2821,59 @@ mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, str
   return WrapExceptions([&]() -> mgp_edge * { return EdgeSet(e, new_to, memory, graph, false); }, result);
 }
 
+mgp_error mgp_graph_edge_change_type(mgp_graph *graph, mgp_edge *e, mgp_edge_type new_type, mgp_memory *memory,
+                                     mgp_edge **result) {
+  return WrapExceptions(
+      [&] {
+        auto *ctx = graph->ctx;
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+            !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw AuthorizationException{"Insufficient permissions for changing the edge type!"};
+        }
+#endif
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot change an edge in an immutable graph!"};
+        }
+
+        const auto maybe_edge = std::visit(
+            [e, &new_type](auto *impl) { return impl->EdgeChangeType(&e->impl, impl->NameToEdgeType(new_type.name)); },
+            graph->impl);
+        if (maybe_edge.HasError()) {
+          switch (maybe_edge.GetError()) {
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing the edge type!");
+            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+              LOG_FATAL("Unexpected error when changing the edge type.");
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              throw SerializationException{"Cannot serialize changing the edge type."};
+          }
+        }
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
+          ctx->trigger_context_collector->RegisterCreatedObject(*maybe_edge);
+        }
+
+        return std::visit(
+            memgraph::utils::Overloaded{
+                [&memory, &maybe_edge, &graph](memgraph::query::DbAccessor *) -> mgp_edge * {
+                  return NewRawMgpObject<mgp_edge>(memory->impl, maybe_edge.GetValue(), graph);
+                },
+                [&memory, &maybe_edge, &graph](memgraph::query::SubgraphDbAccessor *db_impl) -> mgp_edge * {
+                  const auto v_from =
+                      memgraph::query::SubgraphVertexAccessor(maybe_edge.GetValue().From(), db_impl->getGraph());
+                  const auto v_to =
+                      memgraph::query::SubgraphVertexAccessor(maybe_edge.GetValue().To(), db_impl->getGraph());
+                  return NewRawMgpObject<mgp_edge>(memory->impl, maybe_edge.GetValue(), v_from, v_to, graph);
+                }},
+            graph->impl);
+      },
+      result);
+}
+
 mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     auto *ctx = graph->ctx;
@@ -3541,5 +3594,17 @@ mgp_error mgp_log(const mgp_log_level log_level, const char *output) {
         return;
     }
     throw std::invalid_argument{fmt::format("Invalid log level: {}", log_level)};
+  });
+}
+
+mgp_error mgp_track_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->TrackCurrentThreadAllocations(); }, graph->impl);
+  });
+}
+
+mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->UntrackCurrentThreadAllocations(); }, graph->impl);
   });
 }

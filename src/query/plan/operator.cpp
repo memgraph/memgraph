@@ -130,9 +130,13 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
+extern const Event IndexedJoinOperator;
+extern const Event HashJoinOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
+
+using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
@@ -178,6 +182,7 @@ inline void AbortCheck(ExecutionContext const &context) {
 #define SCOPED_PROFILE_OP_BY_REF(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
   if (!did_pull_) {
@@ -265,6 +270,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -355,6 +361,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
 }  // namespace
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -444,6 +451,7 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     AbortCheck(context);
@@ -747,6 +755,7 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int
       prev_existing_degree_(existing_node_degree) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
@@ -1027,6 +1036,7 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1251,6 +1261,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("STShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1508,6 +1519,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("SingleSourceShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1689,6 +1701,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1946,6 +1959,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -2301,6 +2315,7 @@ class ConstructNamedPathCursor : public Cursor {
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ConstructNamedPath");
 
     if (!input_cursor_->Pull(frame, context)) return false;
@@ -2393,6 +2408,14 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+               const Filters &all_filters)
+    : input_(input ? input : std::make_shared<Once>()),
+      pattern_filters_(pattern_filters),
+      expression_(expression),
+      all_filters_(all_filters) {}
+
 bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     input_->Accept(visitor);
@@ -2431,7 +2454,8 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
       pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Filter");
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
@@ -2470,6 +2494,7 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
 }
 
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
   input_cursor_->Reset();
@@ -2508,6 +2533,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (input_cursor_->Pull(frame, context)) {
@@ -2600,6 +2626,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 }
 
 bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
   if (delete_executed_) {
@@ -2676,6 +2703,7 @@ SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperty");
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -2761,13 +2789,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -2891,6 +2921,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 }  // namespace
 
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperties");
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -2955,6 +2986,7 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
 
 #ifdef MG_ENTERPRISE
@@ -3027,6 +3059,7 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveProperty");
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -3113,6 +3146,7 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
 
 #ifdef MG_ENTERPRISE
@@ -3207,6 +3241,7 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 }  // namespace
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
   auto expansion_ok = [&]() {
@@ -3292,6 +3327,7 @@ class AccumulateCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Accumulate");
 
     auto &dba = *context.db_accessor;
@@ -3392,6 +3428,7 @@ class AggregateCursor : public Cursor {
         reused_group_by_(self.group_by_.size(), mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
@@ -3773,6 +3810,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
 
   while (input_cursor_->Pull(frame, context)) {
@@ -3826,6 +3864,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Limit");
 
   // We need to evaluate the limit expression before the first input Pull
@@ -3888,6 +3927,7 @@ class OrderByCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) {
@@ -3999,6 +4039,7 @@ Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem)
       merge_create_cursor_(self.merge_create_->MakeCursor(mem)) {}
 
 bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
   while (true) {
@@ -4075,6 +4116,7 @@ Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryReso
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)), optional_cursor_(self.optional_->MakeCursor(mem)) {}
 
 bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Optional");
 
   while (true) {
@@ -4142,6 +4184,7 @@ class UnwindCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
       AbortCheck(context);
@@ -4201,6 +4244,7 @@ class DistinctCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), seen_rows_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
     while (true) {
@@ -4290,6 +4334,7 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
     : self_(self), left_cursor_(self.left_op_->MakeCursor(mem)), right_cursor_(self.right_op_->MakeCursor(mem)) {}
 
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
@@ -4364,6 +4409,7 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!cartesian_pull_initialized_) {
@@ -4456,6 +4502,7 @@ class OutputTableCursor : public Cursor {
   OutputTableCursor(const OutputTable &self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     if (!pulled_) {
       rows_ = self_.callback_(&frame, &context);
       for (const auto &row : rows_) {
@@ -4508,6 +4555,7 @@ class OutputTableStreamCursor : public Cursor {
   explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
@@ -4653,6 +4701,7 @@ class CallProcedureCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
@@ -4794,6 +4843,7 @@ class CallValidateProcedureCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("CallValidateProcedureCursor");
 
     AbortCheck(context);
@@ -4932,6 +4982,7 @@ class LoadCsvCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
@@ -5020,6 +5071,7 @@ class ForeachCursor : public Cursor {
         expression(foreach.expression_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP(op_name_);
 
     if (!input_->Pull(frame, context)) {
@@ -5127,6 +5179,7 @@ std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
 }
 
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Apply");
 
   while (true) {
@@ -5158,6 +5211,202 @@ void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
+}
+
+IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,
+                         const std::shared_ptr<LogicalOperator> sub_branch)
+    : main_branch_(main_branch ? main_branch : std::make_shared<Once>()), sub_branch_(sub_branch) {}
+
+WITHOUT_SINGLE_INPUT(IndexedJoin);
+
+bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    main_branch_->Accept(visitor) && sub_branch_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::IndexedJoinOperator);
+
+  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem);
+}
+
+IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
+    : self_(self), main_branch_(self.main_branch_->MakeCursor(mem)), sub_branch_(self.sub_branch_->MakeCursor(mem)) {}
+
+std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = main_branch_->ModifiedSymbols(table);
+  auto sub_branch_symbols = sub_branch_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), sub_branch_symbols.begin(), sub_branch_symbols.end());
+  return symbols;
+}
+
+bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("IndexedJoin");
+
+  while (true) {
+    if (pull_input_ && !main_branch_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (sub_branch_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    sub_branch_->Reset();
+  }
+}
+
+void IndexedJoin::IndexedJoinCursor::Shutdown() {
+  main_branch_->Shutdown();
+  sub_branch_->Shutdown();
+}
+
+void IndexedJoin::IndexedJoinCursor::Reset() {
+  main_branch_->Reset();
+  sub_branch_->Reset();
+  pull_input_ = true;
+}
+
+std::vector<Symbol> HashJoin::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = left_op_->ModifiedSymbols(table);
+  auto right = right_op_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+}
+
+bool HashJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_op_->Accept(visitor) && right_op_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+WITHOUT_SINGLE_INPUT(HashJoin);
+
+namespace {
+
+class HashJoinCursor : public Cursor {
+ public:
+  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
+      : self_(self),
+        left_op_cursor_(self.left_op_->MakeCursor(mem)),
+        right_op_cursor_(self_.right_op_->MakeCursor(mem)),
+        hashtable_(mem),
+        right_op_frame_(mem) {
+    MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
+    MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("HashJoin");
+
+    if (!hash_join_initialized_) {
+      InitializeHashJoin(frame, context);
+      hash_join_initialized_ = true;
+    }
+
+    // If left_op yielded zero results, there is no cartesian product.
+    if (hashtable_.empty()) {
+      return false;
+    }
+
+    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
+      for (const auto &symbol : symbols) {
+        frame[symbol] = restore_from[symbol.position()];
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
+      }
+    };
+
+    if (!common_value_found_) {
+      // Pull from the right_op until there’s a mergeable frame
+      while (true) {
+        auto pulled = right_op_cursor_->Pull(frame, context);
+        if (!pulled) return false;
+
+        // Check if the join value from the pulled frame is shared with any left frames
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::View::OLD);
+        auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        if (hashtable_.contains(right_value)) {
+          // If so, finish pulling for now and proceed to joining the pulled frame
+          right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+          common_value_found_ = true;
+          common_value = right_value;
+          left_op_frame_it_ = hashtable_[common_value].begin();
+          break;
+        }
+      }
+    } else {
+      // Restore the right frame ahead of restoring the left frame
+      restore_frame(self_.right_symbols_, right_op_frame_);
+    }
+
+    restore_frame(self_.left_symbols_, *left_op_frame_it_);
+
+    left_op_frame_it_++;
+    // When all left frames with the common value have been joined, move on to pulling and joining the next right frame
+    if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
+      common_value_found_ = false;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override {
+    left_op_cursor_->Shutdown();
+    right_op_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    left_op_cursor_->Reset();
+    right_op_cursor_->Reset();
+    hashtable_.clear();
+    right_op_frame_.clear();
+    left_op_frame_it_ = {};
+    hash_join_initialized_ = false;
+    common_value_found_ = false;
+  }
+
+ private:
+  void InitializeHashJoin(Frame &frame, ExecutionContext &context) {
+    // Pull all left_op_ frames
+    while (left_op_cursor_->Pull(frame, context)) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      if (left_value.type() != TypedValue::Type::Null) {
+        hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
+      }
+    }
+  }
+
+  const HashJoin &self_;
+  const UniqueCursorPtr left_op_cursor_;
+  const UniqueCursorPtr right_op_cursor_;
+  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
+                            TypedValue::BoolEqual>
+      hashtable_;
+  utils::pmr::vector<TypedValue> right_op_frame_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator left_op_frame_it_;
+  bool hash_join_initialized_{false};
+  bool common_value_found_{false};
+  TypedValue common_value;
+};
+}  // namespace
+
+UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
+  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan
