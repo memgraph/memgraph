@@ -548,13 +548,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
-            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
+          if (!property_lookup_cache_.contains(symbol_pos)) {
+            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
-            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
           }
           return TypedValue(ctx_->memory);
         } else {
@@ -563,13 +563,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Edge:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
-            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
+          if (!property_lookup_cache_.contains(symbol_pos)) {
+            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
-            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
           }
           return TypedValue(ctx_->memory);
         } else {
@@ -783,10 +783,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     for (const auto &pair : literal.elements_) {
       result.emplace(pair.first.name, pair.second->Accept(*this));
     }
-
-    ctx_->property_lookups_cache.clear();
-    // TODO Don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
-    // from the same variable (symbol & value)
 
     return TypedValue(result, ctx_->memory);
   }
@@ -1171,6 +1167,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
+  /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
+  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
