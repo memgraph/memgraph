@@ -32,7 +32,7 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
-class InMemoryReplicationServer;
+class InMemoryReplicationHandlers;
 }
 
 namespace memgraph::storage {
@@ -43,7 +43,7 @@ namespace memgraph::storage {
 // only implement snapshot isolation for transactions.
 
 class InMemoryStorage final : public Storage {
-  friend class memgraph::dbms::InMemoryReplicationServer;
+  friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class InMemoryReplicationClient;
 
  public:

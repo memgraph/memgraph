@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "dbms/inmemory/replication_server.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
@@ -71,36 +71,36 @@ storage::InMemoryStorage *GetStorage(dbms::DbmsHandler *dbms_handler, const std:
 }
 }  // namespace
 
-void InMemoryReplicationServer::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
+void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received HeartbeatRpc");
-    InMemoryReplicationServer::HeartbeatHandler(dbms_handler, req_reader, res_builder);
+    InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, req_reader, res_builder);
   });
   server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
       [dbms_handler](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received AppendDeltasRpc");
-        InMemoryReplicationServer::AppendDeltasHandler(dbms_handler, req_reader, res_builder);
+        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received SnapshotRpc");
-    InMemoryReplicationServer::SnapshotHandler(dbms_handler, req_reader, res_builder);
+    InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, req_reader, res_builder);
   });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received WalFilesRpc");
-    InMemoryReplicationServer::WalFilesHandler(dbms_handler, req_reader, res_builder);
+    InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, req_reader, res_builder);
   });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received CurrentWalRpc");
-    InMemoryReplicationServer::CurrentWalHandler(dbms_handler, req_reader, res_builder);
+    InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, req_reader, res_builder);
   });
   server.rpc_server_.Register<storage::replication::TimestampRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received TimestampRpc");
-    InMemoryReplicationServer::TimestampHandler(dbms_handler, req_reader, res_builder);
+    InMemoryReplicationHandlers::TimestampHandler(dbms_handler, req_reader, res_builder);
   });
 }
 
-void InMemoryReplicationServer::HeartbeatHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                 slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                   slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   auto *const storage = GetStorage(dbms_handler, req.db_name);
@@ -112,8 +112,8 @@ void InMemoryReplicationServer::HeartbeatHandler(dbms::DbmsHandler *dbms_handler
   slk::Save(res, res_builder);
 }
 
-void InMemoryReplicationServer::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                    slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                      slk::Builder *res_builder) {
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
   auto *storage = GetStorage(dbms_handler, req.db_name);
@@ -170,8 +170,8 @@ void InMemoryReplicationServer::AppendDeltasHandler(dbms::DbmsHandler *dbms_hand
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
-void InMemoryReplicationServer::SnapshotHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                  slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   slk::Load(&req, req_reader);
   auto *const storage = GetStorage(dbms_handler, req.db_name);
@@ -245,8 +245,8 @@ void InMemoryReplicationServer::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
   spdlog::debug("Replication recovery from snapshot finished!");
 }
 
-void InMemoryReplicationServer::WalFilesHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                  slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
   auto *const storage = GetStorage(dbms_handler, req.db_name);
@@ -269,8 +269,8 @@ void InMemoryReplicationServer::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
 
-void InMemoryReplicationServer::CurrentWalHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                    slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
   auto *const storage = GetStorage(dbms_handler, req.db_name);
@@ -288,7 +288,7 @@ void InMemoryReplicationServer::CurrentWalHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
-void InMemoryReplicationServer::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
+void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
@@ -335,8 +335,8 @@ void InMemoryReplicationServer::LoadWal(storage::InMemoryStorage *storage, stora
   }
 }
 
-void InMemoryReplicationServer::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                 slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
+                                                   slk::Builder *res_builder) {
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);
   auto *const storage = GetStorage(dbms_handler, req.db_name);
@@ -347,9 +347,9 @@ void InMemoryReplicationServer::TimestampHandler(dbms::DbmsHandler *dbms_handler
   slk::Save(res, res_builder);
 }
 
-uint64_t InMemoryReplicationServer::ReadAndApplyDelta(storage::InMemoryStorage *storage,
-                                                      storage::durability::BaseDecoder *decoder,
-                                                      const uint64_t version) {
+uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage *storage,
+                                                        storage::durability::BaseDecoder *decoder,
+                                                        const uint64_t version) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 

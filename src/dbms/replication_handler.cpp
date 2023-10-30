@@ -13,7 +13,7 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "dbms/inmemory/replication_server.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "replication/state.hpp"
 
@@ -90,20 +90,21 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   repl_state_.SetReplicationRoleReplica(config);
 
   // Start
-  const auto success = std::visit(utils::Overloaded{[](auto) {
-                                                      // ASSERT
-                                                      return false;
-                                                    },
-                                                    [this](RoleReplicaData const &data) {
-                                                      // Register handlers
-                                                      InMemoryReplicationServer::Register(&dbms_handler_, *data.server);
-                                                      if (!data.server->Start()) {
-                                                        spdlog::error("Unable to start the replication server.");
-                                                        return false;
-                                                      }
-                                                      return true;
-                                                    }},
-                                  repl_state_.ReplicationData());
+  const auto success =
+      std::visit(utils::Overloaded{[](auto) {
+                                     // ASSERT
+                                     return false;
+                                   },
+                                   [this](RoleReplicaData const &data) {
+                                     // Register handlers
+                                     InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
+                                     if (!data.server->Start()) {
+                                       spdlog::error("Unable to start the replication server.");
+                                       return false;
+                                     }
+                                     return true;
+                                   }},
+                 repl_state_.ReplicationData());
   // TODO Handle error (restore to main?)
   return success;
 }

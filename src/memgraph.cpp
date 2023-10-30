@@ -14,7 +14,7 @@
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
-#include "dbms/inmemory/replication_server.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/MonitoringServerT.hpp"
@@ -373,8 +373,8 @@ int main(int argc, char **argv) {
   MG_ASSERT(std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData const &) { return true; },
                                                    [&](memgraph::replication::RoleReplicaData const &data) {
                                                      // Register handlers
-                                                     memgraph::dbms::InMemoryReplicationServer::Register(&dbms_handler,
-                                                                                                         *data.server);
+                                                     memgraph::dbms::InMemoryReplicationHandlers::Register(
+                                                         &dbms_handler, *data.server);
                                                      if (!data.server->Start()) {
                                                        spdlog::error("Unable to start the replication server.");
                                                        return false;

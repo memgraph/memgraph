@@ -22,7 +22,7 @@ namespace memgraph::dbms {
 
 class DbmsHandler;
 
-class InMemoryReplicationServer {
+class InMemoryReplicationHandlers {
  public:
   static void Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server);
 
