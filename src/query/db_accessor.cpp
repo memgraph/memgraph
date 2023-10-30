@@ -21,6 +21,10 @@ namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
+void SubgraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
+void SubgraphDbAccessor::UntrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
 storage::PropertyId SubgraphDbAccessor::NameToProperty(const std::string_view name) {
   return db_accessor_.NameToProperty(name);
 }

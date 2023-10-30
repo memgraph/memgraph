@@ -1,6 +1,7 @@
 set(memory_src_files
     new_delete.cpp
-    memory_control.cpp)
+    global_memory_control.cpp
+    query_memory_control.cpp)
 
 
 

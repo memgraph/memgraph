@@ -21,6 +21,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.01):
@@ -133,7 +134,7 @@ class MemgraphInstanceRunner:
 
         pid = self.proc_mg.pid
         try:
-            os.kill(pid, 15)  # 15 is the signal number for SIGTERM
+            os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False
 

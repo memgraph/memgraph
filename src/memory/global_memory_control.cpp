@@ -9,12 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "memory_control.hpp"
+#include <atomic>
+#include <cstdint>
+
+#include "global_memory_control.hpp"
+#include "query_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
 #if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
+#include "jemalloc/jemalloc.h"
 #endif
 
 namespace memgraph::memory {
@@ -57,12 +61,24 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+    if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+      if (memory_tracker != nullptr) [[likely]] {
+        memory_tracker->Alloc(static_cast<int64_t>(size));
+      }
+    }
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+      if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+        auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+        if (memory_tracker != nullptr) [[likely]] {
+          memory_tracker->Free(static_cast<int64_t>(size));
+        }
+      }
     }
     return ptr;
   }
@@ -79,6 +95,13 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+
+    if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+      if (memory_tracker != nullptr) [[likely]] {
+        memory_tracker->Free(static_cast<int64_t>(size));
+      }
+    }
   }
 
   return false;
@@ -87,6 +110,12 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+    if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+      if (memory_tracker != nullptr) [[likely]] {
+        memory_tracker->Free(static_cast<int64_t>(size));
+      }
+    }
   }
 
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
@@ -101,6 +130,12 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+    if (memory_tracker != nullptr) [[likely]] {
+      memory_tracker->Alloc(static_cast<int64_t>(size));
+    }
+  }
 
   return false;
 }
@@ -115,6 +150,12 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   }
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
+  if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+    if (memory_tracker != nullptr) [[likely]] {
+      memory_tracker->Free(static_cast<int64_t>(size));
+    }
+  }
 
   return false;
 }
@@ -128,6 +169,13 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
     return err;
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
+
+  if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
+    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
+    if (memory_tracker != nullptr) [[likely]] {
+      memory_tracker->Alloc(static_cast<int64_t>(size));
+    }
+  }
 
   return false;
 }
@@ -153,6 +201,7 @@ void SetHooks() {
   }
 
   for (int i = 0; i < n_arenas; i++) {
+    GetQueriesMemoryControl().InitializeArenaCounter(i);
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
@@ -191,6 +240,45 @@ void SetHooks() {
 
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
+    }
+  }
+
+#endif
+}
+
+void UnsetHooks() {
+#if USE_JEMALLOC
+
+  uint64_t allocated{0};
+  uint64_t sz{sizeof(allocated)};
+
+  sz = sizeof(unsigned);
+  unsigned n_arenas{0};
+  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+
+  if (err) {
+    LOG_FATAL("Error setting default hooks for jemalloc arenas");
+  }
+
+  for (int i = 0; i < n_arenas; i++) {
+    GetQueriesMemoryControl().InitializeArenaCounter(i);
+    std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
+
+    MG_ASSERT(old_hooks);
+    MG_ASSERT(old_hooks->alloc);
+    MG_ASSERT(old_hooks->dalloc);
+    MG_ASSERT(old_hooks->destroy);
+    MG_ASSERT(old_hooks->commit);
+    MG_ASSERT(old_hooks->decommit);
+    MG_ASSERT(old_hooks->purge_forced);
+    MG_ASSERT(old_hooks->purge_lazy);
+    MG_ASSERT(old_hooks->split);
+    MG_ASSERT(old_hooks->merge);
+
+    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+
+    if (err) {
+      LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
     }
   }
 
