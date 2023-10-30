@@ -31,7 +31,7 @@ PRE_VISIT(CreateNode);
 
 bool PlanPrinter::PreVisit(CreateExpand &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
@@ -39,59 +39,59 @@ bool PlanPrinter::PreVisit(CreateExpand &op) {
 PRE_VISIT(Delete);
 
 bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperty &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(ScanAllById &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Produce &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -106,7 +106,7 @@ PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -114,7 +114,7 @@ PRE_VISIT(Skip);
 PRE_VISIT(Limit);
 
 bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -137,19 +137,19 @@ PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -186,7 +186,7 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  WithPrintLn([](auto &out) { out << "* Filter"; });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }

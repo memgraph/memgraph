@@ -26,6 +26,7 @@
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -39,7 +40,8 @@
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
-#include "memory/memory_control.hpp"
+#include "memory/global_memory_control.hpp"
+#include "memory/query_memory_control.hpp"
 #include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -1283,6 +1285,24 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
+  MG_ASSERT(transaction_id.has_value());
+
+  if (memory_limit_) {
+    memgraph::memory::TryStartTrackingOnTransaction(*transaction_id, *memory_limit_);
+    memgraph::memory::StartTrackingCurrentThreadTransaction(*transaction_id);
+  }
+  utils::OnScopeExit<std::function<void()>> reset_query_limit{
+      [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
+        if (memory_limit) {
+          // Stopping tracking of transaction occurs in interpreter::pull
+          // Exception can occur so we need to handle that case there.
+          // We can't stop tracking here as there can be multiple pulls
+          // so we need to take care of that after everything was pulled
+          memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
+        }
+      }};
+
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -1306,13 +1326,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
   }
 
-  std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
-  if (memory_limit_) {
-    maybe_limited_resource.emplace(&*pool_memory, *memory_limit_);
-    ctx_.evaluation_context.memory = &*maybe_limited_resource;
-  } else {
-    ctx_.evaluation_context.memory = &*pool_memory;
-  }
+  ctx_.evaluation_context.memory = &*pool_memory;
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
@@ -1379,6 +1393,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
+
   return GetStatsWithTotalTime(ctx_);
 }
 
@@ -3001,21 +3016,24 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
-      header = {"index type", "label", "property"};
+      header = {"index type", "label", "property", "count"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
         auto info = dba->ListAllIndices();
+        auto storage_acc = storage->Access();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
-          results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue(),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
         for (const auto &item : info.label_property) {
-          results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
-                             TypedValue(storage->PropertyToName(item.second))});
+          results.push_back(
+              {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
+               TypedValue(storage->PropertyToName(item.second)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
-
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
@@ -3136,7 +3154,6 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
-
                          if (pull_plan->Pull(stream, n)) {
                            return action;
                          }
