@@ -90,7 +90,8 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
         if (uuid.empty() || info.uuid == uuid) {
           snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp);
         }
-      } catch (const RecoveryFailure &) {
+      } catch (const RecoveryFailure &e) {
+        spdlog::error("Failed to recover from snapshot file {} because of {}", item.path(), e.what());
         continue;
       }
     }
