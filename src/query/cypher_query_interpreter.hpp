@@ -24,7 +24,7 @@
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cost_planner);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(query_plan_cache_ttl);
+DECLARE_int32(query_plan_cache_max_size);
 
 namespace memgraph::query {
 
@@ -56,16 +56,8 @@ class CachedPlan {
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
 
-  bool IsExpired() const {
-    // NOLINTNEXTLINE (modernize-use-nullptr)
-    return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl);
-  };
-
-  const auto &GetTimer() const { return cache_timer_; }
-
  private:
   std::unique_ptr<LogicalPlan> plan_;
-  utils::Timer cache_timer_;
 };
 
 struct CachedQuery {
@@ -84,18 +76,6 @@ struct QueryCacheEntry {
   // TODO: Maybe store the query string here and use it as a key with the hash
   // so that we eliminate the risk of hash collisions.
   CachedQuery second;
-};
-
-struct PlanCacheEntry {
-  bool operator==(const PlanCacheEntry &other) const { return first == other.first; }
-  bool operator<(const PlanCacheEntry &other) const { return first < other.first; }
-  bool operator==(const uint64_t &other) const { return first == other; }
-  bool operator<(const uint64_t &other) const { return first < other; }
-
-  uint64_t first;
-  // TODO: Maybe store the query string here and use it as a key with the hash
-  // so that we eliminate the risk of hash collisions.
-  std::shared_ptr<CachedPlan> second;
 };
 
 /**

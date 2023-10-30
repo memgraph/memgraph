@@ -17,12 +17,12 @@
 
 namespace memgraph::utils {
 
-template <class KEY, class VAL>
+template <class TKey, class TVal>
 class LRUCache {
  public:
   LRUCache(int cache_size_) : cache_size(cache_size_){};
 
-  void put(const KEY &key, const VAL &val) {
+  void put(const TKey &key, const TVal &val) {
     auto it = item_map.find(key);
     if (it != item_map.end()) {
       item_list.erase(it->second);
@@ -32,8 +32,8 @@ class LRUCache {
     item_map.insert(std::make_pair(key, item_list.begin()));
     clean();
   };
-  bool exist(const KEY &key) { return (item_map.count(key) > 0); };
-  VAL get(const KEY &key) {
+  bool exist(const TKey &key) { return (item_map.count(key) > 0); };
+  TVal get(const TKey &key) {
     if (!exist(key)) {
       return nullptr;
     }
@@ -56,8 +56,8 @@ class LRUCache {
     }
   };
 
-  std::list<std::pair<KEY, VAL>> item_list;
-  std::unordered_map<KEY, decltype(item_list.begin())> item_map;
+  std::list<std::pair<TKey, TVal>> item_list;
+  std::unordered_map<TKey, decltype(item_list.begin())> item_map;
   size_t cache_size;
 };
 }  // namespace memgraph::utils
