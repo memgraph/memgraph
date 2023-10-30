@@ -1,0 +1,13 @@
+index_hints_cluster: &index_hints_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "index_hints.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Analyze graph for better indexing"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["index_hints/index_hints.py"]
+    <<: *index_hints_cluster
