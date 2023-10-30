@@ -684,4 +684,18 @@ Feature: Match
             """
             MATCH path = (pers:Person {id: 1})-[:KNOWS*2..]->(pers) RETURN path
             """
-        Then the result should be empty
+            Then the result should be empty
+
+    Scenario: Match with temporal property
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n:User {time: localdatetime()});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN date(n.time);
+            """
+        Then the result should be
+            | date(n.time) |
+            | 2023-10-30   |
