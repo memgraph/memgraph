@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <iostream>
 #include <optional>
@@ -18,6 +19,7 @@
 #include <tuple>
 #include <utility>
 
+#include "query/exceptions.hpp"
 #include "query_memory_control.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -102,6 +104,26 @@ void QueriesMemoryControl::InitializeArenaCounter(unsigned arena_ind) {
   arena_tracking[arena_ind].store(0, std::memory_order_relaxed);
 }
 
+bool QueriesMemoryControl::CheckTransactionIdProcTrackerExists(uint64_t transaction_id) {
+  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
+  auto accessor = transaction_id_to_tracker.access();
+  auto it = accessor.find(transaction_id);
+  if (it == accessor.end()) {
+    return false;
+  }
+  return it->tracker.IsProcedureTracked();
+}
+
+void QueriesMemoryControl::CreateTransactionIdProcTracker(uint64_t transaction_id, size_t limit) {
+  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
+  auto accessor = transaction_id_to_tracker.access();
+  auto it = accessor.find(transaction_id);
+  if (it == accessor.end()) {
+    assert(false);
+  }
+  it->tracker.SetProcTrackingLimit(limit);
+}
+
 #endif
 
 void StartTrackingCurrentThreadTransaction(uint64_t transaction_id) {
@@ -134,6 +156,31 @@ void TryStopTrackingOnTransaction(uint64_t transaction_id) {
     return;
   }
   GetQueriesMemoryControl().EraseTransactionIdTracker(transaction_id);
+#endif
+}
+
+bool IsTransactionTracked(uint64_t transaction_id) {
+#if USE_JEMALLOC
+  return GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id);
+#endif
+}
+
+void CreateOrContinueProcedureTracking(uint64_t transaction_id, size_t limit) {
+#if USE_JEMALLOC
+  if (!GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
+    LOG_FATAL("Memory tracker for transaction was not set");
+  }
+  // exists if procedure has already set limit
+  if (!GetQueriesMemoryControl().CheckTransactionIdProcTrackerExists(transaction_id)) {
+    GetQueriesMemoryControl().ContinueTrackingTransactionIdProc(transaction_id);
+  }
+  GetQueriesMemoryControl().CreateTransactionIdProcTracker(transaction_id, limit);
+#endif
+}
+
+void PauseProcedureTracking(uint64_t transaction_id) {
+#if USE_JEMALLOC
+  GetQueriesMemoryControl().PauseProcedureTracking(transaction_id);
 #endif
 }
 

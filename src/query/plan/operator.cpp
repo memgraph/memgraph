@@ -27,6 +27,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
@@ -2456,7 +2457,7 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
-  
+
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -4656,11 +4657,33 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
-    utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
+    utils::LimitedMemoryResource limited_mem{memory, *memory_limit};
+    // if we are already tracking, no harm no faul
+    // if we are not tracking, we need to start now, with unlimited memory
+    // for query, but limited for procedure
+
+    // check if transaction is tracked, so we
+    // can disable tracking on that arena if it is not
+    bool is_transaction_tracked = memgraph::memory::IsTransactionTracked(0);
+
+    if (!is_transaction_tracked) {
+      memgraph::memory::TryStartTrackingOnTransaction(0, 0);
+      memgraph::memory::StartTrackingCurrentThreadTransaction(0);
+    }
+
+    // due to mgp_batch_read_proc and mgp_batch_write_proc
+    // we can return to execution without exhausting whole
+    // memory. Here we need to update tracking
+    memgraph::memory::CreateOrContinueProcedureTracking(0, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
     MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
+
+    if (!is_transaction_tracked) {
+      memgraph::memory::StopTrackingCurrentThreadTransaction(0);
+    }
+    memgraph::memory::PauseProcedureTracking(0);
     size_t leaked_bytes = limited_mem.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);

@@ -86,6 +86,10 @@ class QueriesMemoryControl {
   // being constructed.
   utils::MemoryTracker *GetTrackerCurrentThread();
 
+  bool CheckTransactionIdProcTrackerExists(uint64_t);
+  void CreateTransactionIdProcTracker(uint64_t, size_t);
+  void PauseProcedureTracking(uint64_t);
+
  private:
   std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
 
@@ -137,5 +141,11 @@ void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
 // API function call to stop tracking for given transaction.
 // Does nothing if jemalloc is not enabled. Does nothing if tracker doesn't exist
 void TryStopTrackingOnTransaction(uint64_t transaction_id);
+
+bool IsTransactionTracked(uint64_t transaction_id);
+
+void CreateOrContinueProcedureTracking(uint64_t transaction_id, size_t limit);
+
+void PauseProcedureTracking(uint64_t transaction_id);
 
 }  // namespace memgraph::memory

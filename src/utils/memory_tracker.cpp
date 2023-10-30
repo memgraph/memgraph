@@ -89,11 +89,17 @@ void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
     ;
 }
 
+void MemoryTracker::SetProcTrackingLimit(size_t limit) { hard_limit_proc_.store(limit, std::memory_order_acquire); }
+
+bool MemoryTracker::IsProcedureTracked() { return hard_limit_proc_.load(std::memory_order_acquire) != 0; }
+
 void MemoryTracker::ResetTrackings() {
   hard_limit_.store(0, std::memory_order_relaxed);
   peak_.store(0, std::memory_order_relaxed);
   amount_.store(0, std::memory_order_relaxed);
   maximum_hard_limit_ = 0;
+  amount_proc_.store(0);
+  hard_limit_proc_.store(0, std::memory_order_acquire);
 }
 
 void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
@@ -111,7 +117,7 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
@@ -121,8 +127,23 @@ void MemoryTracker::Alloc(const int64_t size) {
                     "use to {}, while the maximum allowed size for allocation is set to {}.",
                     GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   }
-
   UpdatePeak(will_be);
+
+  const int64_t hard_limit_proc = hard_limit_proc_.load(std::memory_order_acquire);
+  if (hard_limit_proc) [[unlikely]] {
+    const int64_t will_be_proc = size + amount_proc_.fetch_add(size, std::memory_order_relaxed);
+
+    if (will_be_proc > hard_limit_proc && MemoryTrackerCanThrow()) [[unlikely]] {
+      MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
+
+      amount_proc_.fetch_sub(size, std::memory_order_relaxed);
+
+      throw OutOfMemoryException(fmt::format(
+          "Memory limit on procedure exceeded! Attempting to allocate a chunk of {} which would put the current "
+          "use to {}, while the maximum allowed size for allocation in procedure is set to {}.",
+          GetReadableSize(size), GetReadableSize(will_be_proc), GetReadableSize(hard_limit_proc)));
+    }
+  }
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
