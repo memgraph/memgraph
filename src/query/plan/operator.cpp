@@ -1234,6 +1234,9 @@ class ExpandVariableCursor : public Cursor {
       // Skip expanding out of filtered expansion.
       frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
       frame[self_.filter_lambda_.inner_node_symbol] = current_vertex;
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO use edges_on_frame);
+      }
       if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
       // we are doing depth-first search, so place the current
@@ -1335,6 +1338,10 @@ class STShortestPathCursor : public query::plan::Cursor {
 
     frame->at(self_.filter_lambda_.inner_node_symbol) = vertex;
     frame->at(self_.filter_lambda_.inner_edge_symbol) = edge;
+    if (self_.filter_lambda_.accumulated_path_symbol) {
+      // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO use
+      // frame->at(self_.common_.edge_symbol));
+    }
 
     TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
     if (result.IsNull()) return false;
@@ -1546,6 +1553,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 #endif
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO; the edges are at
+        // frame[self_.common_.edge_symbol]);
+      }
 
       if (self_.filter_lambda_.expression) {
         TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
@@ -1734,6 +1745,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO; the edges are at
+          // frame[self_.common_.edge_symbol]);
+        }
+        if (self_.filter_lambda_.accumulated_weight_symbol) {
+          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = total_weight;
+        }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
       }
@@ -1987,6 +2005,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO; the edges are at
+          // frame[self_.common_.edge_symbol);
+        }
+        if (self_.filter_lambda_.accumulated_weight_symbol) {
+          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = total_weight;
+        }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
       }
