@@ -705,9 +705,9 @@ class RuleBasedPlanner {
       std::optional<Symbol> total_weight;
 
       if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-        weight_lambda.emplace(ExpansionLambda{symbol_table.at(*edge->weight_lambda_.inner_edge),
-                                              symbol_table.at(*edge->weight_lambda_.inner_node),
-                                              edge->weight_lambda_.expression});
+        weight_lambda.emplace(ExpansionLambda{.inner_edge_symbol = symbol_table.at(*edge->weight_lambda_.inner_edge),
+                                              .inner_node_symbol = symbol_table.at(*edge->weight_lambda_.inner_node),
+                                              .expression = edge->weight_lambda_.expression});
 
         total_weight.emplace(symbol_table.at(*edge->total_weight_));
       }
@@ -715,12 +715,26 @@ class RuleBasedPlanner {
       ExpansionLambda filter_lambda;
       filter_lambda.inner_edge_symbol = symbol_table.at(*edge->filter_lambda_.inner_edge);
       filter_lambda.inner_node_symbol = symbol_table.at(*edge->filter_lambda_.inner_node);
+      if (edge->filter_lambda_.accumulated_path) {
+        filter_lambda.accumulated_path_symbol = symbol_table.at(*edge->filter_lambda_.accumulated_path);
+      }
+      if (edge->filter_lambda_.accumulated_weight) {
+        filter_lambda.accumulated_weight_symbol = symbol_table.at(*edge->filter_lambda_.accumulated_weight);
+      }
       {
         // Bind the inner edge and node symbols so they're available for
         // inline filtering in ExpandVariable.
         bool inner_edge_bound = bound_symbols.insert(filter_lambda.inner_edge_symbol).second;
         bool inner_node_bound = bound_symbols.insert(filter_lambda.inner_node_symbol).second;
         MG_ASSERT(inner_edge_bound && inner_node_bound, "An inner edge and node can't be bound from before");
+        if (filter_lambda.accumulated_path_symbol) {
+          bool accumulated_path_bound = bound_symbols.insert(*filter_lambda.accumulated_path_symbol).second;
+          MG_ASSERT(accumulated_path_bound, "The accumulated path can't be bound from before");
+        }
+        if (filter_lambda.accumulated_weight_symbol) {
+          bool accumulated_weight_bound = bound_symbols.insert(*filter_lambda.accumulated_weight_symbol).second;
+          MG_ASSERT(accumulated_weight_bound, "The accumulated weight can't be bound from before");
+        }
       }
       // Join regular filters with lambda filter expression, so that they
       // are done inline together. Semantic analysis should guarantee that
@@ -731,15 +745,32 @@ class RuleBasedPlanner {
       // filtering (they use the inner symbols. If they were not collected,
       // we have to remove them manually because no other filter-extraction
       // will ever bind them again.
-      filters.erase(
-          std::remove_if(filters.begin(), filters.end(),
-                         [e = filter_lambda.inner_edge_symbol, n = filter_lambda.inner_node_symbol](FilterInfo &fi) {
-                           return utils::Contains(fi.used_symbols, e) || utils::Contains(fi.used_symbols, n);
-                         }),
-          filters.end());
+      std::vector<Symbol> inner_symbols = {filter_lambda.inner_edge_symbol, filter_lambda.inner_node_symbol};
+      if (filter_lambda.accumulated_path_symbol) {
+        inner_symbols.emplace_back(*filter_lambda.accumulated_path_symbol);
+      }
+      if (filter_lambda.accumulated_weight_symbol) {
+        inner_symbols.emplace_back(*filter_lambda.accumulated_weight_symbol);
+      }
+
+      filters.erase(std::remove_if(filters.begin(), filters.end(),
+                                   [&inner_symbols](FilterInfo &fi) {
+                                     for (const auto &symbol : inner_symbols) {
+                                       if (utils::Contains(fi.used_symbols, symbol)) return true;
+                                     }
+                                     return false;
+                                   }),
+                    filters.end());
+
       // Unbind the temporarily bound inner symbols for filtering.
       bound_symbols.erase(filter_lambda.inner_edge_symbol);
       bound_symbols.erase(filter_lambda.inner_node_symbol);
+      if (filter_lambda.accumulated_path_symbol) {
+        bound_symbols.erase(*filter_lambda.accumulated_path_symbol);
+      }
+      if (filter_lambda.accumulated_weight_symbol) {
+        bound_symbols.erase(*filter_lambda.accumulated_weight_symbol);
+      }
 
       if (total_weight) {
         bound_symbols.insert(*total_weight);
