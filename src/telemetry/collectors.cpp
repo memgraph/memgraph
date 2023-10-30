@@ -79,7 +79,12 @@ const nlohmann::json GetResourceUsage(std::filesystem::path root_directory) {
   auto cpu_total = GetCpuUsage(pid);
   cpu["usage"] = cpu_total.second;
 
-  return {{"cpu", cpu}, {"memory", utils::GetMemoryUsage()}, {"disk", utils::GetDirDiskUsage(root_directory)}};
+  nlohmann::json json;
+  json.emplace_back("cpu", cpu);
+  json.emplace_back("memory", utils::GetMemoryUsage());
+  json.emplace_back("disk", utils::GetDirDiskUsage(root_directory));
+  json.emplace_back("vm_max_map_count", utils::GetVmMaxMapCount());
+  return json;
 }
 
 }  // namespace memgraph::telemetry

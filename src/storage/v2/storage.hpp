@@ -72,7 +72,6 @@ struct StorageInfo {
   uint64_t edge_count;
   double average_degree;
   uint64_t memory_usage;
-  uint64_t vm_max_map_count;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
@@ -90,7 +89,6 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["edges"] = info.edge_count;
   res["vertices"] = info.vertex_count;
   res["memory"] = info.memory_usage;
-  res["vm_max_map_count"] = info.vm_max_map_count;
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;

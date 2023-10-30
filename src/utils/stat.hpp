@@ -17,7 +17,6 @@
 
 #include <unistd.h>
 
-#include "spdlog/spdlog.h"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
