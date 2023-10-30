@@ -658,8 +658,15 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     scope.in_edge_range = false;
     scope.in_pattern = false;
     if (edge_atom.filter_lambda_.expression) {
-      VisitWithIdentifiers(edge_atom.filter_lambda_.expression,
-                           {edge_atom.filter_lambda_.inner_edge, edge_atom.filter_lambda_.inner_node});
+      std::vector<Identifier *> filter_lambda_identifiers{edge_atom.filter_lambda_.inner_edge,
+                                                          edge_atom.filter_lambda_.inner_node};
+      if (edge_atom.filter_lambda_.accumulated_path) {
+        filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_path);
+      }
+      if (edge_atom.filter_lambda_.accumulated_weight) {
+        filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_weight);
+      }
+      VisitWithIdentifiers(edge_atom.filter_lambda_.expression, filter_lambda_identifiers);
     } else {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
@@ -668,6 +675,16 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       auto *inner_node = edge_atom.filter_lambda_.inner_node;
       inner_node->MapTo(
           symbol_table_->CreateSymbol(inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
+      if (edge_atom.filter_lambda_.accumulated_path) {
+        auto *accumulated_path = edge_atom.filter_lambda_.accumulated_path;
+        accumulated_path->MapTo(
+            symbol_table_->CreateSymbol(accumulated_path->name_, accumulated_path->user_declared_, Symbol::Type::PATH));
+      }
+      if (edge_atom.filter_lambda_.accumulated_weight) {
+        auto *accumulated_weight = edge_atom.filter_lambda_.accumulated_weight;
+        accumulated_weight->MapTo(symbol_table_->CreateSymbol(
+            accumulated_weight->name_, accumulated_weight->user_declared_, Symbol::Type::NUMBER));
+      }
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
