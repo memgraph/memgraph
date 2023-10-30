@@ -143,7 +143,11 @@ class DbmsHandler {
    * @param configs storage configuration
    */
   DbmsHandler(storage::Config config, const replication::ReplicationState &repl_state)
-      : db_gatekeeper_{std::move(config), repl_state} {}
+      : db_gatekeeper_{[&] {
+                         config.name = kDefaultDB;
+                         return std::move(config);
+                       }(),
+                       repl_state} {}
 #endif
 
 #ifdef MG_ENTERPRISE

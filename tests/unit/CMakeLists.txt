@@ -388,19 +388,15 @@ if(MG_ENTERPRISE)
   target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
 endif()
 
-if(MG_ENTERPRISE)
-  add_unit_test(slk_core.cpp)
-  target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
+add_unit_test(slk_core.cpp)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 
-  add_unit_test(slk_streams.cpp)
-  target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
-endif()
+add_unit_test(slk_streams.cpp)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 
 # Test mg-rpc
-if(MG_ENTERPRISE)
-  add_unit_test(rpc.cpp)
-  target_link_libraries(${test_prefix}rpc mg-rpc)
-endif()
+add_unit_test(rpc.cpp)
+target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test websocket
 find_package(Boost REQUIRED)

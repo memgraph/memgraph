@@ -135,8 +135,15 @@ void ReplicationClient::TryInitializeClientAsync() {
 void ReplicationClient::TryInitializeClientSync() {
   try {
     InitializeClient();
+  } catch (const rpc::VersionMismatchRpcFailedException &) {
+    std::unique_lock client_guard{client_lock_};
+    replica_state_.store(replication::ReplicaState::INVALID);
+    spdlog::error(
+        utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
+                               "deployed is not a compatible version.",
+                               name_, rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   } catch (const rpc::RpcFailedException &) {
-    std::unique_lock client_guarde{client_lock_};
+    std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
                                          rpc_client_.Endpoint(), "https://memgr.ph/replication"));

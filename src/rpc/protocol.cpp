@@ -13,6 +13,7 @@
 
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
+#include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -44,6 +45,15 @@ void Session::Execute() {
   // Load the request ID.
   utils::TypeId req_id{utils::TypeId::UNKNOWN};
   slk::Load(&req_id, &req_reader);
+  rpc::Version version;
+  slk::Load(&version, &req_reader);
+
+  if (version != rpc::current_version) {
+    // V1 we introduced versioning with, absolutely no backwards compatibility,
+    // because it's impossible to provide backwards compatibility with pre versioning.
+    // Future versions this may require mechanism for graceful version handling.
+    throw SessionException("Session trying to execute a RPC call of an incorrect version!");
+  }
 
   // Access to `callbacks_` and `extended_callbacks_` is done here without
   // acquiring the `mutex_` because we don't allow RPC registration after the
@@ -62,10 +72,12 @@ void Session::Execute() {
     }
     SPDLOG_TRACE("[RpcServer] received {}", extended_it->second.req_type.name);
     slk::Save(extended_it->second.res_type.id, &res_builder);
+    slk::Save(rpc::current_version, &res_builder);
     extended_it->second.callback(endpoint_, &req_reader, &res_builder);
   } else {
     SPDLOG_TRACE("[RpcServer] received {}", it->second.req_type.name);
     slk::Save(it->second.res_type.id, &res_builder);
+    slk::Save(rpc::current_version, &res_builder);
     it->second.callback(&req_reader, &res_builder);
   }
 

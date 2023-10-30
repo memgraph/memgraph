@@ -116,13 +116,13 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
 
     const auto steps = GetRecoverySteps(replica_commit, &file_locker);
     int i = 0;
-    for (const auto &recovery_step : steps) {
+    for (const InMemoryReplicationClient::RecoveryStep &recovery_step : steps) {
       spdlog::trace("Recovering in step: {}", i++);
       try {
         std::visit(
             [&, this]<typename T>(T &&arg) {
               using StepType = std::remove_cvref_t<T>;
-              if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {
+              if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {  // TODO: split into 3 overloads
                 spdlog::debug("Sending the latest snapshot file: {}", arg);
                 auto response = TransferSnapshot(storage->id(), rpc_client_, arg);
                 replica_commit = response.current_commit_timestamp;
