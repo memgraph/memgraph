@@ -82,8 +82,7 @@ struct CachedValue {
 // in the future. Used for IN LIST operator.
 class FrameChangeCollector {
  public:
-  explicit FrameChangeCollector(utils::MonotonicBufferResource memory_resource)
-      : memory_resource_(std::move(memory_resource)), tracked_values_(&memory_resource_){};
+  explicit FrameChangeCollector() : tracked_values_(&memory_resource_){};
 
   CachedValue &AddTrackingKey(const std::string &key) {
     const auto &[it, _] = tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
@@ -110,7 +109,7 @@ class FrameChangeCollector {
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
  private:
-  utils::MonotonicBufferResource memory_resource_;
+  utils::MonotonicBufferResource memory_resource_{0};
   memgraph::utils::pmr::unordered_map<std::string, CachedValue> tracked_values_;
 };
 }  // namespace memgraph::query
