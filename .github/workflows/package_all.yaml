@@ -208,7 +208,7 @@ jobs:
 
   debian-11-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -225,7 +225,7 @@ jobs:
 
   ubuntu-2204-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
