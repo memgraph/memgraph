@@ -40,9 +40,26 @@ install(PROGRAMS $<TARGET_FILE:example_cpp>
 # Also install the source of the example, so user can read it.
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 
+add_library(schema SHARED schema.cpp)
+target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(schema PRIVATE -Wall)
+# Strip C++ example in release build.
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET schema POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:schema>
+                     COMMENT "Stripping symbols and sections from the C++ schema module")
+endif()
+install(PROGRAMS $<TARGET_FILE:schema>
+        DESTINATION lib/memgraph/query_modules
+        RENAME schema.so)
+# Also install the source of the example, so user can read it.
+install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
+
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
+install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
+install(FILES convert.py DESTINATION lib/memgraph/query_modules)
