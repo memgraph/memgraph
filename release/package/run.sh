@@ -72,12 +72,13 @@ make_package () {
     if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
         git fetch origin master:master
     fi
+
+    # Ensure we have a clean build directory
+    docker exec "$build_container" rm -rf /memgraph
+    
     docker exec "$build_container" mkdir -p /memgraph
     # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
-    
-    # Git clean
-    docker exec "$build_container" bash -c "cd memgraph && git clean -ffdx"
 
     container_build_dir="/memgraph/build"
     container_output_dir="$container_build_dir/output"
