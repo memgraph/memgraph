@@ -270,34 +270,33 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    TypedValue _list;
     auto literal = in_list.expression1_->Accept(*this);
 
     auto get_list_literal = [this, &in_list]() -> TypedValue {
       ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-      auto _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
-      if (nullptr == _list_ptr) {
+      auto *list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      if (nullptr == list_ptr) {
         return in_list.expression2_->Accept(*this);
       }
-      return *_list_ptr;
+      return *list_ptr;
     };
 
-    auto do_list_literal_checks = [this, &literal, &_list]() -> std::optional<TypedValue> {
-      if (_list.IsNull()) {
+    auto do_list_literal_checks = [this, &literal](const TypedValue &list) -> std::optional<TypedValue> {
+      if (list.IsNull()) {
         return TypedValue(ctx_->memory);
       }
       // Exceptions have higher priority than returning nulls when list expression
       // is not null.
-      if (_list.type() != TypedValue::Type::List) {
-        throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
+      if (list.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", list.type());
       }
-      const auto &list = _list.ValueList();
+      const auto &list_value = list.ValueList();
 
       // If literal is NULL there is no need to try to compare it with every
       // element in the list since result of every comparison will be NULL. There
       // is one special case that we must test explicitly: if list is empty then
       // result is false since no comparison will be performed.
-      if (list.empty()) return TypedValue(false, ctx_->memory);
+      if (list_value.empty()) return TypedValue(false, ctx_->memory);
       if (literal.IsNull()) return TypedValue(ctx_->memory);
       return {};
     };
@@ -310,13 +309,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
         // Check only first time if everything is okay, later when we use
         // cache there is no need to check again as we did check first time
-        _list = get_list_literal();
-        auto preoperational_checks = do_list_literal_checks();
+        auto list = get_list_literal();
+        auto preoperational_checks = do_list_literal_checks(list);
         if (preoperational_checks) {
           return std::move(*preoperational_checks);
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        cached_value.CacheValue(_list);
+        cached_value.CacheValue(std::move(list));
         spdlog::trace("Value cached {}", *cached_id);
       }
       const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
@@ -332,16 +331,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
-    _list = get_list_literal();
-    auto preoperational_checks = do_list_literal_checks();
+    const auto list = get_list_literal();
+    auto preoperational_checks = do_list_literal_checks(list);
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
 
-    const auto &list = _list.ValueList();
+    const auto &list_value = list.ValueList();
     spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
-    for (const auto &element : list) {
+    for (const auto &element : list_value) {
       auto result = literal == element;
       if (result.IsNull()) {
         has_null = true;

@@ -59,6 +59,24 @@ struct CachedValue {
     }
     return true;
   }
+
+  // Func to check if cache_ contains value
+  bool CacheValue(TypedValue &&value) {
+    if (!value.IsList()) {
+      return false;
+    }
+    auto &list = value.ValueList();
+    TypedValue::Hash hash{};
+    for (auto &element : list) {
+      const auto key = hash(element);
+      auto &vector_values = cache_[key];
+      if (!IsValueInVec(vector_values, element)) {
+        vector_values.emplace_back(std::move(element));
+      }
+    }
+    return true;
+  }
+
   // Func to cache_value inside cache_
   bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
