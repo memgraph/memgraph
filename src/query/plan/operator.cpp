@@ -2564,23 +2564,24 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
     expression_results.emplace_back(expression->Accept(evaluator));
   }
 
-  auto vertex_auth_checker = [&context](const VertexAccessor &va) {
+  auto vertex_auth_checker = [&context](const VertexAccessor &va) -> bool {
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-        !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-      throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
-    }
+    return !(license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE));
+#else
+    return true;
 #endif
   };
 
-  auto edge_auth_checker = [&context](const EdgeAccessor &ea) {
+  auto edge_auth_checker = [&context](const EdgeAccessor &ea) -> bool {
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+    return !(
+        license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-          context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-      throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
-    }
+          context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE)));
+#else
+    return true;
 #endif
   };
 
@@ -2589,32 +2590,40 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto va = expression_result.ValueVertex();
-        vertex_auth_checker(va);
-        buffer_.nodes.push_back(va);
+        if (vertex_auth_checker(va)) {
+          buffer_.nodes.push_back(va);
+        } else {
+          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
+        }
         break;
       }
       case TypedValue::Type::Edge: {
         auto ea = expression_result.ValueEdge();
-        edge_auth_checker(ea);
-        buffer_.edges.push_back(ea);
+        if (edge_auth_checker(ea)) {
+          buffer_.edges.push_back(ea);
+        } else {
+          throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
+        }
         break;
       }
       case TypedValue::Type::Path: {
         auto path = expression_result.ValuePath();
 #ifdef MG_ENTERPRISE
-        std::transform(path.edges().cbegin(), path.edges().cend(), std::back_inserter(buffer_.edges),
-                       [&edge_auth_checker](const auto &ea) {
-                         edge_auth_checker(ea);
-                         return ea;
-                       });
-        std::transform(path.vertices().cbegin(), path.vertices().cend(), std::back_inserter(buffer_.nodes),
-                       [&vertex_auth_checker](const auto &va) {
-                         vertex_auth_checker(va);
-                         return va;
-                       });
+        auto edges_res = std::any_of(path.edges().cbegin(), path.edges().cend(),
+                                     [&edge_auth_checker](const auto &ea) { return !edge_auth_checker(ea); });
+        auto vertices_res = std::any_of(path.vertices().cbegin(), path.vertices().cend(),
+                                        [&vertex_auth_checker](const auto &va) { return !vertex_auth_checker(va); });
+
+        if (edges_res || vertices_res) {
+          throw QueryRuntimeException(
+              "Path not deleted due to not having enough permission on all edges and vertices on the path!");
+        } else {
+          buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
+          buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
+        }
 #else
-        buffer_.nodes.insert(path.vertices().begin(), path.vertices().end());
-        buffer_.edges.insert(path.edges().begin(), path.edges().end());
+        buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
+        buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
 #endif
       }
       case TypedValue::Type::Null:
@@ -5327,7 +5336,8 @@ class HashJoinCursor : public Cursor {
     restore_frame(self_.left_symbols_, *left_op_frame_it_);
 
     left_op_frame_it_++;
-    // When all left frames with the common value have been joined, move on to pulling and joining the next right frame
+    // When all left frames with the common value have been joined, move on to pulling and joining the next right
+    // frame
     if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
       common_value_found_ = false;
     }
