@@ -75,6 +75,9 @@ make_package () {
     docker exec "$build_container" mkdir -p /memgraph
     # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
+    
+    # Git clean
+    docker exec "$build_container" bash -c "git -C /memgraph clean -ffdx"
 
     container_build_dir="/memgraph/build"
     container_output_dir="$container_build_dir/output"
