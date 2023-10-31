@@ -77,7 +77,7 @@ make_package () {
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
     
     # Git clean
-    docker exec "$build_container" bash -c "git -C /memgraph clean -ffdx"
+    docker exec "$build_container" bash -c "cd memgraph && git clean -ffdx"
 
     container_build_dir="/memgraph/build"
     container_output_dir="$container_build_dir/output"
