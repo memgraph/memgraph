@@ -42,7 +42,7 @@ void LicenseInfoSender::SendData() {
   license_info_.WithLock([&data, this](const auto &license_info) mutable {
     if (license_info && !license_info->organization_name.empty()) {
       const auto memory_info = utils::GetMemoryInfo();
-      const auto memory_res = utils::GetMemoryUsage();
+      const auto memory_res = utils::GetMemoryRES();
       data = {{"run_id", uuid_},
               {"machine_id", machine_id_},
               {"type", "license-check"},
