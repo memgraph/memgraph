@@ -192,11 +192,13 @@ void TryStopTrackingOnTransaction(uint64_t transaction_id) {
 #endif
 }
 
-bool IsTransactionTracked(uint64_t transaction_id) {
 #if USE_JEMALLOC
+bool IsTransactionTracked(uint64_t transaction_id) {
   return GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id);
-#endif
 }
+#else
+bool IsTransactionTracked(uint64_t /*transaction_id*/) { return false; }
+#endif
 
 void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit) {
 #if USE_JEMALLOC
