@@ -259,7 +259,9 @@ jobs:
 
       - name: Run GQL Behave tests
         run: |
-          cd tests/gql_behave
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
           ./continuous_integration
 
       - name: Save quality assurance status
@@ -337,7 +339,7 @@ jobs:
           source /opt/toolchain-v4/activate
           # Initialize dependencies.
           ./init
-          
+
           # Set default build_type to Release
           INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
           BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
