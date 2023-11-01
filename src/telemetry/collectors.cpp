@@ -80,10 +80,12 @@ const nlohmann::json GetResourceUsage(std::filesystem::path root_directory) {
   cpu["usage"] = cpu_total.second;
 
   nlohmann::json json;
-  json.emplace_back("cpu", cpu);
-  json.emplace_back("memory", utils::GetMemoryUsage());
-  json.emplace_back("disk", utils::GetDirDiskUsage(root_directory));
-  json.emplace_back("vm_max_map_count", utils::GetVmMaxMapCount());
+  json.emplace_back(nlohmann::json::object_t::value_type("cpu", cpu));
+  json.emplace_back(nlohmann::json::object_t::value_type("memory", utils::GetMemoryUsage()));
+  json.emplace_back(nlohmann::json::object_t::value_type("disk", utils::GetDirDiskUsage(root_directory)));
+  const auto vm_max_map_count = utils::GetVmMaxMapCount();
+  json.emplace_back(nlohmann::json::object_t::value_type("vm_max_map_count",
+                                                         vm_max_map_count.has_value() ? vm_max_map_count.value() : -1));
   return json;
 }
 
