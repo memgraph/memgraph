@@ -1,0 +1,13 @@
+inspect_query_cluster: &inspect_query_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "inspect_query.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Verify that query inspection works"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["inspect_query/inspect_query.py"]
+    <<: *inspect_query_cluster

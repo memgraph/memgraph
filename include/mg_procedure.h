@@ -111,6 +111,22 @@ enum mgp_error mgp_global_aligned_alloc(size_t size_in_bytes, size_t alignment, 
 /// The behavior is undefined if `ptr` is not a value returned from a prior
 /// mgp_global_alloc() or mgp_global_aligned_alloc().
 void mgp_global_free(void *p);
+
+/// State of the graph database.
+struct mgp_graph;
+
+/// Allocations are tracked only for master thread. If new threads are spawned
+/// inside procedure, by calling following function
+/// you can start tracking allocations for current thread too. This
+/// is important if you need query memory limit to work
+/// for given procedure or per procedure memory limit.
+enum mgp_error mgp_track_current_thread_allocations(struct mgp_graph *graph);
+
+/// Once allocations are tracked for current thread, you need to stop tracking allocations
+/// for given thread, before thread finishes with execution, or is detached.
+/// Otherwise it might result in slowdown of system due to unnecessary tracking of
+/// allocations.
+enum mgp_error mgp_untrack_current_thread_allocations(struct mgp_graph *graph);
 ///@}
 
 /// @name Operations on mgp_value
@@ -854,9 +870,6 @@ enum mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *prope
 enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *memory,
                                         struct mgp_properties_iterator **result);
 
-/// State of the graph database.
-struct mgp_graph;
-
 /// Get the vertex corresponding to given ID, or NULL if no such vertex exists.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex.
@@ -910,6 +923,13 @@ enum mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge 
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
                                      struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge type
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by
+/// another transaction.
+enum mgp_error mgp_graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
+                                          struct mgp_memory *memory, struct mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.

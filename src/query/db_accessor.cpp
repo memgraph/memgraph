@@ -21,6 +21,10 @@ namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
+void SubgraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
+void SubgraphDbAccessor::UntrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
 storage::PropertyId SubgraphDbAccessor::NameToProperty(const std::string_view name) {
   return db_accessor_.NameToProperty(name);
 }
@@ -92,6 +96,14 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetTo(EdgeAccessor *edge, 
   }
   auto result = db_accessor_.EdgeSetTo(edge, new_to_impl);
   return result;
+}
+
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeChangeType(EdgeAccessor *edge,
+                                                                 storage::EdgeTypeId new_edge_type) {
+  if (!this->graph_->ContainsEdge(*edge)) {
+    throw std::logic_error{"Projected graph must contain edge!"};
+  }
+  return db_accessor_.EdgeChangeType(edge, new_edge_type);
 }
 
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
