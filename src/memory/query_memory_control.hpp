@@ -23,7 +23,7 @@ namespace memgraph::memory {
 
 static constexpr int64_t UNLIMITED_MEMORY{0};
 
-// #if USE_JEMALLOC
+#if USE_JEMALLOC
 
 // Track memory allocations per query.
 // Multiple threads can allocate inside one transaction.
@@ -134,7 +134,7 @@ inline QueriesMemoryControl &GetQueriesMemoryControl() {
   return queries_memory_control_;
 }
 
-// #endif
+#endif
 
 // API function call for to start tracking current thread for given transaction.
 // Does nothing if jemalloc is not enabled
