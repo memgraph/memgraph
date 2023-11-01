@@ -16,11 +16,14 @@
 #include <unordered_map>
 
 #include "utils/memory_tracker.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
 
-#if USE_JEMALLOC
+static constexpr int64_t UNLIMITED_MEMORY{0};
+
+// #if USE_JEMALLOC
 
 // Track memory allocations per query.
 // Multiple threads can allocate inside one transaction.
@@ -81,13 +84,20 @@ class QueriesMemoryControl {
   // C-API functionality for thread to transaction unmapping
   void EraseThreadToTransactionId(const char *, uint64_t);
 
-  // Get tracker to current thread if exists, otherwise return
-  // nullptr. This can happen only if tracker is still
-  // being constructed.
-  utils::MemoryTracker *GetTrackerCurrentThread();
+  // Find tracker for current thread if exists, track
+  // query allocation and procedure allocation if
+  // necessary
+  void TrackAllocOnCurrentThread(size_t size);
 
-  bool CheckTransactionIdProcTrackerExists(uint64_t);
-  void CreateTransactionIdProcTracker(uint64_t, size_t);
+  // Find tracker for current thread if exists, track
+  // query allocation and procedure allocation if
+  // necessary
+  void TrackFreeOnCurrentThread(size_t size);
+
+  void TryCreateTransactionProcTracker(uint64_t, int64_t, size_t);
+
+  void SetActiveProcIdTracker(uint64_t, int64_t);
+
   void PauseProcedureTracking(uint64_t);
 
  private:
@@ -106,7 +116,7 @@ class QueriesMemoryControl {
 
   struct TransactionIdToTracker {
     uint64_t transaction_id;
-    utils::MemoryTracker tracker;
+    utils::QueryMemoryTracker tracker;
 
     bool operator<(const TransactionIdToTracker &other) const { return transaction_id < other.transaction_id; }
     bool operator==(const TransactionIdToTracker &other) const { return transaction_id == other.transaction_id; }
@@ -124,7 +134,7 @@ inline QueriesMemoryControl &GetQueriesMemoryControl() {
   return queries_memory_control_;
 }
 
-#endif
+// #endif
 
 // API function call for to start tracking current thread for given transaction.
 // Does nothing if jemalloc is not enabled
@@ -144,7 +154,7 @@ void TryStopTrackingOnTransaction(uint64_t transaction_id);
 
 bool IsTransactionTracked(uint64_t transaction_id);
 
-void CreateOrContinueProcedureTracking(uint64_t transaction_id, size_t limit);
+void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit);
 
 void PauseProcedureTracking(uint64_t transaction_id);
 

@@ -60,34 +60,48 @@ void QueriesMemoryControl::EraseThreadToTransactionId(const std::thread::id &thr
   accessor.remove(thread_id);
 }
 
-utils::MemoryTracker *QueriesMemoryControl::GetTrackerCurrentThread() {
+void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   auto thread_id_to_transaction_id_accessor = thread_id_to_transaction_id.access();
 
   // we might be just constructing mapping between thread id and transaction id
   // so we miss this allocation
   auto thread_id_to_transaction_id_elem = thread_id_to_transaction_id_accessor.find(std::this_thread::get_id());
   if (thread_id_to_transaction_id_elem == thread_id_to_transaction_id_accessor.end()) {
-    return nullptr;
+    return;
   }
 
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
   auto transaction_id_to_tracker =
       transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
-  return &transaction_id_to_tracker->tracker;
+  auto &query_tracker = transaction_id_to_tracker->tracker;
+
+  query_tracker.TrackAlloc(size);
+}
+
+void QueriesMemoryControl::TrackFreeOnCurrentThread(size_t size) {
+  auto thread_id_to_transaction_id_accessor = thread_id_to_transaction_id.access();
+
+  // we might be just constructing mapping between thread id and transaction id
+  // so we miss this allocation
+  auto thread_id_to_transaction_id_elem = thread_id_to_transaction_id_accessor.find(std::this_thread::get_id());
+  if (thread_id_to_transaction_id_elem == thread_id_to_transaction_id_accessor.end()) {
+    return;
+  }
+
+  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
+  auto transaction_id_to_tracker =
+      transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
+  auto &query_tracker = transaction_id_to_tracker->tracker;
+
+  query_tracker.TrackFree(size);
 }
 
 void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, size_t inital_limit) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
 
-  auto [elem, result] = transaction_id_to_tracker_accessor.insert({transaction_id, utils::MemoryTracker{}});
+  auto [elem, result] = transaction_id_to_tracker_accessor.insert({transaction_id, utils::QueryMemoryTracker{}});
 
-  elem->tracker.SetMaximumHardLimit(inital_limit);
-  elem->tracker.SetHardLimit(inital_limit);
-}
-
-bool QueriesMemoryControl::CheckTransactionIdTrackerExists(uint64_t transaction_id) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  return transaction_id_to_tracker_accessor.contains(transaction_id);
+  elem->tracker.SetQueryLimit(inital_limit);
 }
 
 bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
@@ -104,24 +118,43 @@ void QueriesMemoryControl::InitializeArenaCounter(unsigned arena_ind) {
   arena_tracking[arena_ind].store(0, std::memory_order_relaxed);
 }
 
-bool QueriesMemoryControl::CheckTransactionIdProcTrackerExists(uint64_t transaction_id) {
+bool QueriesMemoryControl::CheckTransactionIdTrackerExists(uint64_t transaction_id) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto accessor = transaction_id_to_tracker.access();
-  auto it = accessor.find(transaction_id);
-  if (it == accessor.end()) {
-    return false;
-  }
-  return it->tracker.IsProcedureTracked();
+  return transaction_id_to_tracker_accessor.contains(transaction_id);
 }
 
-void QueriesMemoryControl::CreateTransactionIdProcTracker(uint64_t transaction_id, size_t limit) {
+void QueriesMemoryControl::TryCreateTransactionProcTracker(uint64_t transaction_id, int64_t procedure_id,
+                                                           size_t limit) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto accessor = transaction_id_to_tracker.access();
-  auto it = accessor.find(transaction_id);
-  if (it == accessor.end()) {
-    assert(false);
+  auto query_tracker = transaction_id_to_tracker_accessor.find(transaction_id);
+
+  if (query_tracker == transaction_id_to_tracker_accessor.end()) {
+    return;
   }
-  it->tracker.SetProcTrackingLimit(limit);
+
+  query_tracker->tracker.TryCreateProcTracker(procedure_id, limit);
+}
+
+void QueriesMemoryControl::SetActiveProcIdTracker(uint64_t transaction_id, int64_t procedure_id) {
+  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
+  auto query_tracker = transaction_id_to_tracker_accessor.find(transaction_id);
+
+  if (query_tracker == transaction_id_to_tracker_accessor.end()) {
+    return;
+  }
+
+  query_tracker->tracker.SetActiveProc(procedure_id);
+}
+
+void QueriesMemoryControl::PauseProcedureTracking(uint64_t transaction_id) {
+  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
+  auto query_tracker = transaction_id_to_tracker_accessor.find(transaction_id);
+
+  if (query_tracker == transaction_id_to_tracker_accessor.end()) {
+    return;
+  }
+
+  query_tracker->tracker.StopProcTracking();
 }
 
 #endif
@@ -165,16 +198,14 @@ bool IsTransactionTracked(uint64_t transaction_id) {
 #endif
 }
 
-void CreateOrContinueProcedureTracking(uint64_t transaction_id, size_t limit) {
+void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit) {
 #if USE_JEMALLOC
   if (!GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
     LOG_FATAL("Memory tracker for transaction was not set");
   }
-  // exists if procedure has already set limit
-  if (!GetQueriesMemoryControl().CheckTransactionIdProcTrackerExists(transaction_id)) {
-    GetQueriesMemoryControl().ContinueTrackingTransactionIdProc(transaction_id);
-  }
-  GetQueriesMemoryControl().CreateTransactionIdProcTracker(transaction_id, limit);
+
+  GetQueriesMemoryControl().TryCreateTransactionProcTracker(transaction_id, procedure_id, limit);
+  GetQueriesMemoryControl().SetActiveProcIdTracker(transaction_id, procedure_id);
 #endif
 }
 

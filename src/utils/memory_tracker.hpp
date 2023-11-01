@@ -116,9 +116,6 @@ class MemoryTracker final {
   // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
   int64_t maximum_hard_limit_{0};
 
-  std::atomic<int64_t> amount_proc_{0};
-  std::atomic<size_t> hard_limit_proc_{0};
-
   void UpdatePeak(int64_t will_be);
 
   static void LogMemoryUsage(int64_t current);

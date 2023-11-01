@@ -2353,7 +2353,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write, bool void_procedure = false);
+                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2375,6 +2375,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  int64_t procedure_id_;
   bool void_procedure_;
   mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
   utils::MemoryResource *memory_resource = &monotonic_memory;
