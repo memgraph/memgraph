@@ -32,7 +32,7 @@ struct MetricsResponse {
   uint64_t vertex_count;
   uint64_t edge_count;
   double average_degree;
-  uint64_t memory_res;
+  uint64_t memory_usage;
   uint64_t disk_usage;
 
   // Storage of all the counter values throughout the system
@@ -65,7 +65,7 @@ class MetricsService {
     return MetricsResponse{.vertex_count = info.vertex_count,
                            .edge_count = info.edge_count,
                            .average_degree = info.average_degree,
-                           .memory_res = info.memory_res,
+                           .memory_usage = info.memory_res,
                            .disk_usage = info.disk_usage,
                            .event_counters = GetEventCounters(),
                            .event_gauges = GetEventGauges(),
@@ -79,7 +79,7 @@ class MetricsService {
     metrics_response[general_type]["vertex_count"] = response.vertex_count;
     metrics_response[general_type]["edge_count"] = response.edge_count;
     metrics_response[general_type]["average_degree"] = response.average_degree;
-    metrics_response[general_type]["memory_res"] = response.memory_res;
+    metrics_response[general_type]["memory_usage"] = response.memory_usage;
     metrics_response[general_type]["disk_usage"] = response.disk_usage;
 
     for (const auto &[name, type, value] : response.event_counters) {
