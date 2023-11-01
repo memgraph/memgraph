@@ -38,14 +38,20 @@ class PostProcessor final {
   Parameters parameters_;
 
  public:
+  IndexHints index_hints_{};
+
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
   explicit PostProcessor(const Parameters &parameters) : parameters_(parameters) {}
 
+  template <class TDbAccessor>
+  PostProcessor(const Parameters &parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
+      : parameters_(parameters), index_hints_(IndexHints(index_hints, db)) {}
+
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
     auto index_lookup_plan =
-        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db);
+        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
     return RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage,
                                    context->db);
   }
@@ -122,7 +128,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  PostProcessor post_processor(parameters);
+  PostProcessor post_processor(parameters, context->query->index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 

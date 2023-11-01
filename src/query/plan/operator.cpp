@@ -2408,6 +2408,14 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+               const Filters &all_filters)
+    : input_(input ? input : std::make_shared<Once>()),
+      pattern_filters_(pattern_filters),
+      expression_(expression),
+      all_filters_(all_filters) {}
+
 bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     input_->Accept(visitor);
@@ -2447,7 +2455,7 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Filter");
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
@@ -2781,13 +2789,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
