@@ -18,7 +18,7 @@ namespace memgraph::utils {
 
 void QueryMemoryTracker::TrackAlloc(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Alloc(size);
+    query_tracker_->Alloc(static_cast<int64_t>(size));
   }
 
   auto &proc_tracker = GetActiveProc();
@@ -27,11 +27,11 @@ void QueryMemoryTracker::TrackAlloc(size_t size) {
     return;
   }
 
-  proc_tracker->Alloc(size);
+  proc_tracker->Alloc(static_cast<int64_t>(size));
 }
 void QueryMemoryTracker::TrackFree(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Free(size);
+    query_tracker_->Free(static_cast<int64_t>(size));
   }
 
   auto &proc_tracker = GetActiveProc();
@@ -40,7 +40,7 @@ void QueryMemoryTracker::TrackFree(size_t size) {
     return;
   }
 
-  proc_tracker->Free(size);
+  proc_tracker->Free(static_cast<int64_t>(size));
 }
 
 void QueryMemoryTracker::SetQueryLimit(size_t size) {
@@ -48,8 +48,8 @@ void QueryMemoryTracker::SetQueryLimit(size_t size) {
     return;
   }
   InitializeQueryTracker();
-  query_tracker_->SetMaximumHardLimit(size);
-  query_tracker_->SetHardLimit(size);
+  query_tracker_->SetMaximumHardLimit(static_cast<int64_t>(size));
+  query_tracker_->SetHardLimit(static_cast<int64_t>(size));
 }
 
 std::optional<memgraph::utils::MemoryTracker> &QueryMemoryTracker::GetActiveProc() {
@@ -67,8 +67,8 @@ void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit
     return;
   }
   auto [it, inserted] = proc_memory_trackers_.emplace(procedure_id, utils::MemoryTracker{});
-  it->second->SetMaximumHardLimit(limit);
-  it->second->SetHardLimit(limit);
+  it->second->SetMaximumHardLimit(static_cast<int64_t>(limit));
+  it->second->SetHardLimit(static_cast<int64_t>(limit));
 }
 
 void QueryMemoryTracker::InitializeQueryTracker() { query_tracker_.emplace(MemoryTracker{}); }
