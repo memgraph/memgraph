@@ -35,7 +35,7 @@ enum class NewError : uint8_t {
   GENERIC,
 };
 
-#endif;
+#endif
 
 /**
  * UnknownSession Exception

@@ -29,6 +29,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <variant>
 
 namespace memgraph::storage {
 

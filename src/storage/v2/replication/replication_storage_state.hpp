@@ -27,6 +27,7 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
