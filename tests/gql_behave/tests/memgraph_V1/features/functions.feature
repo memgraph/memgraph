@@ -109,7 +109,7 @@ Feature: Functions
         And having executed
             """
             CREATE (a{x: 1}), (b{x: 'not float'}), (c{x: '-12'}), (d{x: null}), (e{x: '1.2'}), (f{x: 1.9})
-        case    """
+            """
         When executing query:
             """
             MATCH (a) RETURN TOFLOAT(a.x) AS n
