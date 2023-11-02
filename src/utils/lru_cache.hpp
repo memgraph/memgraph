@@ -14,6 +14,7 @@
 #include <list>
 #include <unordered_map>
 #include <utility>
+#include "exceptions.hpp"
 
 namespace memgraph::utils {
 
@@ -50,7 +51,7 @@ class LRUCache {
     item_list.clear();
     item_map.clear();
   };
-  size_t size() { return item_map.size(); };
+  std::size_t size() { return item_map.size(); };
 
  private:
   void try_clean() {
@@ -64,6 +65,6 @@ class LRUCache {
 
   std::list<std::pair<TKey, TVal>> item_list;
   std::unordered_map<TKey, decltype(item_list.begin())> item_map;
-  size_t cache_size;
+  std::size_t cache_size;
 };
 }  // namespace memgraph::utils
