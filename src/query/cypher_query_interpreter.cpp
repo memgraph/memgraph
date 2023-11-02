@@ -21,7 +21,7 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
-CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
+PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
@@ -128,17 +128,17 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                                  std::move(symbol_table));
 }
 
-std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                              const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                              DbAccessor *db_accessor,
-                                              const std::vector<Identifier *> &predefined_identifiers) {
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
+                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
+                                               DbAccessor *db_accessor,
+                                               const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
     if (plan_cache->WithLock([&](auto &cache) { return cache.exists(hash); })) {
       return plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
     }
   }
 
-  auto plan = std::make_shared<CachedPlan>(
+  auto plan = std::make_shared<PlanWrapper>(
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
   if (plan_cache) {
     plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });

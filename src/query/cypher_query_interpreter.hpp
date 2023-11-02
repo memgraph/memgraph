@@ -47,9 +47,9 @@ class LogicalPlan {
   virtual const AstStorage &GetAstStorage() const = 0;
 };
 
-class CachedPlan {
+class PlanWrapper {
  public:
-  explicit CachedPlan(std::unique_ptr<LogicalPlan> plan);
+  explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
 
   const auto &plan() const { return plan_->GetRoot(); }
   double cost() const { return plan_->GetCost(); }
@@ -114,7 +114,7 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 };
 
 using PlanCacheLRU =
-    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlan>>, utils::RWSpinLock>;
+    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::PlanWrapper>>, utils::RWSpinLock>;
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
@@ -128,9 +128,9 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  * If an identifier is contained there, we inject it at that place and remove it,
  * because a predefined identifier can be used only in one scope.
  */
-std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                              const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                              DbAccessor *db_accessor,
-                                              const std::vector<Identifier *> &predefined_identifiers = {});
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
+                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
+                                               DbAccessor *db_accessor,
+                                               const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query

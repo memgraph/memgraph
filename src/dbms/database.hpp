@@ -147,7 +147,7 @@ class Database {
   /**
    * @brief Returns the PlanCache vector raw pointer
    *
-   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedPlan>>, utils::RWSpinLock>
+   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<PlanWrapper>>, utils::RWSpinLock>
    */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
