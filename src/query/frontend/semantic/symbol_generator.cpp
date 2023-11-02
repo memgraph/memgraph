@@ -480,10 +480,18 @@ bool SymbolGenerator::PreVisit(None &none) {
 }
 
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
+  auto &scope = scopes_.back();
+  scope.in_reduce = true;
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
   VisitWithIdentifiers(reduce.expression_, {reduce.accumulator_, reduce.identifier_});
   return false;
+}
+
+bool SymbolGenerator::PostVisit(Reduce & /*reduce*/) {
+  auto &scope = scopes_.back();
+  scope.in_reduce = false;
+  return true;
 }
 
 bool SymbolGenerator::PreVisit(Extract &extract) {
@@ -496,15 +504,19 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
   if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Set property can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within SET clause.!");
   }
 
   if (scope.in_with) {
-    throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within WITH!");
   }
 
   if (scope.in_return) {
-    throw utils::NotYetImplemented("RETURN can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
+  }
+
+  if (scope.in_reduce) {
+    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
   if (scope.num_if_operators) {
