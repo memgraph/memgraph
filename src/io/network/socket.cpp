@@ -216,7 +216,7 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
   return true;
 }
 
-bool Socket::Write(const std::string &s, bool have_more) {
+bool Socket::Write(std::string_view s, bool have_more) {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
 }
 
