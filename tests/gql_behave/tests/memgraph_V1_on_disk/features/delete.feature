@@ -18,26 +18,7 @@ Feature: Delete
         Given an empty graph
         And having executed
             """
-            CREATE (n), (m)    Scenario: Detach deleting paths
-        Given an empty graph
-        And having executed:
-        """
-        CREATE (x:X), (n1), (n2), (n3)
-        CREATE (x)-[:R]->(n1)
-        CREATE (n1)-[:R]->(n2)
-        CREATE (n2)-[:R]->(n3)
-        """
-        When executing query:
-        """
-        MATCH p = (:X)-->()-->()-->()
-        DETACH DELETE p
-        """
-        Then the result should be empty
-        And the side effects should be:
-          | -nodes         | 4 |
-          | -relationships | 3 |
-          | -labels        | 1 |
-
+            CREATE (n), (m)
             """
         When executing query:
             """
@@ -227,7 +208,8 @@ Feature: Delete
             """
             MATCH (n) DETACH DELETE n SET n.prop = 1 WITH n RETURN n
             """
-        Then an error should be raised
+            Then an error should be raised
+
 
 
     Scenario: Detach deleting paths
