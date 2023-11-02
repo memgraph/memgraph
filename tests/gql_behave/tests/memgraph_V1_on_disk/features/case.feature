@@ -97,3 +97,15 @@ Feature: Case
         Then the result should be:
             |  CASE name WHEN null THEN "doesn't work" WHEN 2 THEN "doesn't work" ELSE 'works' END |
             |  'works'                                                                             |
+
+    Scenario: Test exists does not work in CASE clauses
+      Given an empty graph
+      And having executed:
+          """
+          CREATE ()-[:T]->();
+          """
+      When executing query:
+          """
+          MATCH (a) WHERE CASE WHEN TRUE THEN exists(()-[]->()) END RETURN a;
+          """
+      Then an error should be raised
